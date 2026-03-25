@@ -1,0 +1,167 @@
+"""
+Gate Runner — orchestrates Lock 1 → 2 → 3 for all signal candidates.
+
+Flow per ticker:
+  Lock 1 (quant)     → always evaluated from DB signal
+  Lock 2 (Grok)      → only if Lock 1 passes
+  Lock 3 (OpenAI)    → only if Lock 2 passes
+  Trade execution    → wallet.py
+
+Candidates are evaluated concurrently (ThreadPoolExecutor) to avoid stacking
+Lock 2 + Lock 3 API latency across multiple tickers.
+All gate results are logged to DB regardless of outcome.
+"""
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
+
+from loguru import logger
+
+from backend.gate import lock1_quant, lock2_sentiment, lock3_claude
+from backend.db import get_lock1_candidates, update_signal_gate, get_wallet_context
+from backend import wallet
+
+# Max parallel workers — bounded to avoid hammering rate limits
+_MAX_WORKERS = 4
+
+
+def run() -> list[dict]:
+    """
+    Evaluate the gate for all current Lock-1 candidates concurrently.
+    Returns list of full gate result dicts.
+    """
+    candidates = get_lock1_candidates()
+
+    if not candidates:
+        logger.info("Gate runner: no Lock 1 candidates this cycle")
+        return []
+
+    logger.info(f"Gate runner: {len(candidates)} candidate(s) — {[c['ticker'] for c in candidates]}")
+
+    wallet_ctx = get_wallet_context()
+    results    = []
+
+    # Evaluate all candidates in parallel, then execute trades sequentially
+    # (trade execution must be serial to prevent race conditions on position limits)
+    evaluated: list[tuple[dict, dict]] = []  # (signal, result)
+
+    with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(candidates))) as pool:
+        future_to_signal = {
+            pool.submit(_evaluate, signal, wallet_ctx): signal
+            for signal in candidates
+        }
+        for future in as_completed(future_to_signal):
+            signal = future_to_signal[future]
+            try:
+                result = future.result()
+            except Exception as e:
+                logger.error(f"Gate runner [{signal['ticker']}]: evaluation raised — {e}")
+                continue
+            evaluated.append((signal, result))
+
+    for signal, result in evaluated:
+        ticker = signal["ticker"]
+        if result["outcome"] == "TRADE_QUEUED":
+            trade = wallet.execute_trade(result, signal["price"])
+            result["outcome"] = "TRADE_EXECUTED" if trade else "TRADE_REJECTED"
+
+        results.append(result)
+        update_signal_gate(signal["id"], result)
+        _log_summary(ticker, result)
+
+    return results
+
+
+def _evaluate(signal: dict, wallet_ctx: dict) -> dict:
+    ticker = signal["ticker"]
+
+    # Lock 1 — already known (signal passed threshold), but log it properly
+    l1 = lock1_quant.evaluate(signal)
+
+    if not l1["passed"]:
+        # Shouldn't happen (we only fetch candidates that pass L1), but guard it
+        return _gate_result(signal, l1, None, None, "FILTERED_L1")
+
+    # Lock 2 — Grok sentiment
+    l2 = lock2_sentiment.evaluate(ticker)
+    if not l2["passed"]:
+        return _gate_result(signal, l1, l2, None, "FILTERED_L2")
+
+    # Lock 3 — Claude decision
+    context = _build_claude_context(signal, l2, wallet_ctx)
+    l3 = lock3_claude.evaluate(context)
+
+    outcome = "TRADE_QUEUED" if l3["passed"] else "FILTERED_L3"
+    return _gate_result(signal, l1, l2, l3, outcome)
+
+
+def _build_claude_context(signal: dict, l2: dict, wallet_ctx: dict) -> dict:
+    price    = signal["price"]
+    high_60d = signal.get("high_60d")
+    low_60d  = signal.get("low_60d")
+    pct_from_high = round((price - high_60d) / high_60d, 4) if high_60d else None
+    pct_from_low  = round((price - low_60d)  / low_60d,  4) if low_60d  else None
+
+    return {
+        "ticker":           signal["ticker"],
+        "sector":           signal["sector"],
+        "signal_score":     signal["signal_score"],
+        "momentum_score":   signal["momentum_score"],
+        "volume_ratio":     signal["volume_ratio"],
+        "rsi":              signal["rsi"],
+        "ev":               signal["ev"],
+        "kelly_size":       signal["kelly_size"],
+        "effective_sl":     signal.get("effective_sl"),
+        "atr_pct":          signal.get("atr_pct"),
+        # price range context
+        "price":            price,
+        "ma20":             signal.get("ma20"),
+        "high_60d":         high_60d,
+        "low_60d":          low_60d,
+        "pct_from_60d_high": pct_from_high,
+        "pct_from_60d_low":  pct_from_low,
+        # sentiment
+        "sentiment_score":  l2["score"],
+        "sentiment_volume": l2["volume"],
+        "sentiment_themes": l2["key_themes"],
+        "sentiment_summary": l2["summary"],
+        # wallet
+        "wallet_balance":   wallet_ctx["balance"],
+        "open_positions":   wallet_ctx["open_positions"],
+        "sector_exposure":  wallet_ctx["sector_exposure"],
+    }
+
+
+def _gate_result(signal: dict, l1: dict, l2: dict | None, l3: dict | None, outcome: str) -> dict:
+    return {
+        "ticker":    signal["ticker"],
+        "sector":    signal["sector"],
+        "signal_id": signal["id"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "outcome":   outcome,
+        "lock1":     l1,
+        "lock2":     l2,
+        "lock3":     l3,
+        # Flattened for DB update
+        "lock1_pass": int(l1["passed"]),
+        "lock2_pass": int(l2["passed"]) if l2 else 0,
+        "lock3_pass": int(l3["passed"]) if l3 else 0,
+        "gate_decision": l3["decision"] if l3 else ("L2_FAIL" if l2 else "L1_FAIL"),
+        "claude_confidence": l3["confidence"] if l3 else None,
+        "claude_reasoning":  l3["reasoning"]  if l3 else None,
+        "sentiment_score":   l2["score"]      if l2 else None,
+    }
+
+
+def _log_summary(ticker: str, result: dict) -> None:
+    l1 = result["lock1"]
+    l2 = result.get("lock2")
+    l3 = result.get("lock3")
+    outcome = result["outcome"]
+
+    parts = [f"L1={'✓' if l1['passed'] else '✗'}({l1['score']:.3f})"]
+    if l2:
+        parts.append(f"L2={'✓' if l2['passed'] else '✗'}({l2.get('score', '?')})")
+    if l3:
+        parts.append(f"L3={'✓' if l3['passed'] else '✗'}({l3.get('decision')} {l3.get('confidence', 0):.2f})")
+
+    logger.info(f"Gate [{ticker}]: {' → '.join(parts)} → {outcome}")
