@@ -5,8 +5,8 @@ from collections import defaultdict
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, field_validator
 from backend.db import latest_signals, signals_for_sector, prev_signals_avg_by_sector
-from backend.config import SECTORS
 from backend.gate import gate_runner
+from backend.ticker_config import get_sectors as _get_sectors, add_ticker, remove_ticker
 
 router = APIRouter(prefix="/api")
 
@@ -50,13 +50,13 @@ def get_latest_signals():
 
 @router.get("/signals/sector/{sector_name}")
 def get_sector_signals(sector_name: str):
-    if sector_name not in SECTORS:
+    if sector_name not in _get_sectors():
         raise HTTPException(status_code=404, detail=f"Unknown sector: {sector_name}")
     return signals_for_sector(sector_name)
 
 
 @router.get("/sectors")
-def get_sectors():
+def sectors_summary():
     """
     Returns sector-level summary: avg signal score, top ticker, last updated.
     Aggregates from the most recent signal per ticker.
@@ -69,7 +69,7 @@ def get_sectors():
         sector_map.setdefault(s["sector"], []).append(s)
 
     result = []
-    for sector_name, cfg in SECTORS.items():
+    for sector_name, cfg in _get_sectors().items():
         rows = sector_map.get(sector_name, [])
         if not rows:
             result.append({
@@ -192,6 +192,12 @@ def gate_history(limit: int = 30):
     return get_gate_history(limit)
 
 
+@router.get("/demo/trades")
+def get_demo_trades():
+    from backend.db import get_all_trades
+    return get_all_trades()
+
+
 @router.get("/wallet/equity")
 def wallet_equity():
     from backend.db import get_equity_curve
@@ -261,6 +267,61 @@ class BacktestRequest(BaseModel):
         if v is not None and v < 1:
             raise ValueError("max_entries_per_day must be >= 1")
         return v
+
+
+# ── Settings ──────────────────────────────────────────────────────────────────
+
+@router.get("/tickers")
+def get_tickers():
+    """Return all sectors with their current ticker lists."""
+    sectors = _get_sectors()
+    return {
+        name: {"etf": cfg["etf"], "tickers": cfg["tickers"]}
+        for name, cfg in sectors.items()
+    }
+
+
+@router.post("/tickers/{sector}/add")
+def add_ticker_to_sector(sector: str, ticker: str):
+    try:
+        updated = add_ticker(sector, ticker.upper().strip())
+        return {"sector": sector, "tickers": updated[sector]["tickers"]}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/tickers/{sector}/remove")
+def remove_ticker_from_sector(sector: str, ticker: str):
+    try:
+        updated = remove_ticker(sector, ticker.upper().strip())
+        return {"sector": sector, "tickers": updated[sector]["tickers"]}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/settings")
+def get_settings():
+    """Return current demo and live threshold configs."""
+    from backend.demo_config import get_demo_config
+    from backend.live_config import get_live_config
+    return {
+        "demo": get_demo_config(),
+        "live": get_live_config(),
+    }
+
+
+@router.post("/settings/demo")
+def update_demo_settings(updates: dict):
+    """Update demo gate thresholds at runtime."""
+    from backend.demo_config import set_demo_config
+    return {"config": set_demo_config(updates)}
+
+
+@router.post("/settings/live")
+def update_live_settings(updates: dict):
+    """Update live gate thresholds at runtime."""
+    from backend.live_config import set_live_config
+    return {"config": set_live_config(updates)}
 
 
 @router.post("/backtest/run")

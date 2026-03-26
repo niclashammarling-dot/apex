@@ -44,11 +44,14 @@ Return ONLY valid JSON with exactly these keys:
 }"""
 
 
-def evaluate(context: dict) -> dict:
+def evaluate(context: dict, confidence_min: float | None = None) -> dict:
     """
     Send the full signal context to OpenAI and get a BUY/HOLD/SELL decision.
     Returns a gate result dict.
+    Pass condition: decision == "BUY" AND confidence >= confidence_min (defaults to LOCK3_CONFIDENCE_MIN).
     """
+    effective_min = confidence_min if confidence_min is not None else LOCK3_CONFIDENCE_MIN
+
     if not OPENAI_API_KEY:
         logger.warning("Lock 3: OPENAI_API_KEY not set — failing closed")
         return _fail("openai_key_missing")
@@ -83,11 +86,11 @@ def evaluate(context: dict) -> dict:
     position   = float(parsed.get("position_size_pct", 0.0))
     reasoning  = parsed.get("reasoning", "")
 
-    passed = decision == "BUY" and confidence >= LOCK3_CONFIDENCE_MIN
+    passed = decision == "BUY" and confidence >= effective_min
 
     reason = "pass" if passed else (
         f"decision={decision}" if decision != "BUY"
-        else f"confidence {confidence:.2f} < {LOCK3_CONFIDENCE_MIN}"
+        else f"confidence {confidence:.2f} < {effective_min}"
     )
 
     logger.info(

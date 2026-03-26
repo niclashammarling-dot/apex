@@ -10,6 +10,7 @@ from loguru import logger
 from backend.db import init_db
 from backend.scheduler import start_scheduler, scheduler, poll_all_sectors
 from backend.routers.signals_router import router as signals_router
+from backend.routers.live_router import router as live_router
 
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -63,6 +64,7 @@ app.add_middleware(
 )
 
 app.include_router(signals_router)
+app.include_router(live_router)
 
 
 @app.get("/health")

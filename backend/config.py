@@ -7,6 +7,15 @@ OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY", "")
 XAI_API_KEY       = os.getenv("XAI_API_KEY", "")
 NEWS_API_KEY      = os.getenv("NEWS_API_KEY", "")
 
+# --- Alpaca (live trading) ---
+ALPACA_API_KEY    = os.getenv("ALPACA_API_KEY", "")
+ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
+# Paper trading URL: https://paper-api.alpaca.markets
+# Live trading URL:  https://api.alpaca.markets
+ALPACA_BASE_URL   = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+# Master kill switch — set LIVE_ENABLED=true in .env to allow real order placement
+LIVE_ENABLED      = os.getenv("LIVE_ENABLED", "false").lower() == "true"
+
 # --- Signal thresholds ---
 LOCK1_THRESHOLD       = 0.55
 LOCK2_SENTIMENT_MIN   = 0.1
@@ -33,6 +42,20 @@ TIME_STOP_DAYS  = 5
 # --- P(win) base rate (decoupled from signal score) ---
 BASE_WIN_RATE        = 0.55
 WIN_RATE_MIN_TRADES  = 20  # use rolling win rate only after this many closed trades
+
+# --- Live gate thresholds — defaults only. Runtime values live in data/live_config.json
+# (written by the Promote feature). Import get_live_config() to read effective values.
+LIVE_LOCK1_THRESHOLD      = float(os.getenv("LIVE_LOCK1_THRESHOLD", "0.65"))
+LIVE_LOCK2_SENTIMENT_MIN  = float(os.getenv("LIVE_LOCK2_SENTIMENT_MIN", "0.2"))
+LIVE_LOCK3_CONFIDENCE_MIN = float(os.getenv("LIVE_LOCK3_CONFIDENCE_MIN", "0.75"))
+
+# --- Live wallet / risk controls ---
+LIVE_MAX_POSITIONS       = int(os.getenv("LIVE_MAX_POSITIONS", "4"))
+LIVE_MAX_SECTOR_EXPOSURE = float(os.getenv("LIVE_MAX_SECTOR_EXPOSURE", "0.20"))
+LIVE_MAX_POSITION_SIZE   = float(os.getenv("LIVE_MAX_POSITION_SIZE", "0.10"))
+LIVE_DAILY_LOSS_CAP      = float(os.getenv("LIVE_DAILY_LOSS_CAP", "200.0"))
+LIVE_TAKE_PROFIT_PCT     = float(os.getenv("LIVE_TAKE_PROFIT_PCT", "0.12"))
+LIVE_STOP_LOSS_PCT       = float(os.getenv("LIVE_STOP_LOSS_PCT", "0.04"))
 
 # --- Sectors ---
 SECTORS = {

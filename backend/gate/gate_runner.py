@@ -27,9 +27,13 @@ _MAX_WORKERS = 4
 def run() -> list[dict]:
     """
     Evaluate the gate for all current Lock-1 candidates concurrently.
+    Reads thresholds from demo_config.json at call time so UI changes take effect immediately.
     Returns list of full gate result dicts.
     """
-    candidates = get_lock1_candidates()
+    from backend.demo_config import get_demo_config
+    cfg = get_demo_config()
+
+    candidates = get_lock1_candidates(threshold=cfg["lock1_threshold"])
 
     if not candidates:
         logger.info("Gate runner: no Lock 1 candidates this cycle")
@@ -46,7 +50,7 @@ def run() -> list[dict]:
 
     with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(candidates))) as pool:
         future_to_signal = {
-            pool.submit(_evaluate, signal, wallet_ctx): signal
+            pool.submit(_evaluate, signal, wallet_ctx, cfg): signal
             for signal in candidates
         }
         for future in as_completed(future_to_signal):
@@ -71,24 +75,20 @@ def run() -> list[dict]:
     return results
 
 
-def _evaluate(signal: dict, wallet_ctx: dict) -> dict:
+def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict) -> dict:
     ticker = signal["ticker"]
 
-    # Lock 1 — already known (signal passed threshold), but log it properly
-    l1 = lock1_quant.evaluate(signal)
+    l1 = lock1_quant.evaluate(signal, threshold=cfg["lock1_threshold"])
 
     if not l1["passed"]:
-        # Shouldn't happen (we only fetch candidates that pass L1), but guard it
         return _gate_result(signal, l1, None, None, "FILTERED_L1")
 
-    # Lock 2 — Grok sentiment
-    l2 = lock2_sentiment.evaluate(ticker)
+    l2 = lock2_sentiment.evaluate(ticker, sentiment_min=cfg["lock2_sentiment_min"])
     if not l2["passed"]:
         return _gate_result(signal, l1, l2, None, "FILTERED_L2")
 
-    # Lock 3 — Claude decision
     context = _build_claude_context(signal, l2, wallet_ctx)
-    l3 = lock3_claude.evaluate(context)
+    l3 = lock3_claude.evaluate(context, confidence_min=cfg["lock3_confidence_min"])
 
     outcome = "TRADE_QUEUED" if l3["passed"] else "FILTERED_L3"
     return _gate_result(signal, l1, l2, l3, outcome)

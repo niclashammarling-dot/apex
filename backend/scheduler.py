@@ -49,6 +49,23 @@ def check_exit_conditions() -> None:
         logger.info(f"Exit check: closed {len(closed)} position(s)")
 
 
+def check_live_exit_conditions() -> None:
+    if not is_market_open():
+        return
+    from backend.live_trades_tracker import check_live_exits
+    closed = check_live_exits()
+    if closed:
+        logger.info(f"Live exit check: closed {len(closed)} position(s)")
+
+
+def run_live_gate_candidates() -> None:
+    if not is_market_open():
+        logger.debug("Market closed — skipping live gate evaluation")
+        return
+    from backend.gate import gate_runner_live
+    gate_runner_live.run()
+
+
 def prune_old_signals() -> None:
     deleted = prune_signals(keep_per_ticker=10)
     if deleted:
@@ -75,6 +92,20 @@ def start_scheduler() -> None:
         "interval",
         minutes=EXIT_CHECK_INTERVAL,
         id="check_exits",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_live_gate_candidates,
+        "interval",
+        minutes=GATE_INTERVAL,
+        id="run_live_gate",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        check_live_exit_conditions,
+        "interval",
+        minutes=EXIT_CHECK_INTERVAL,
+        id="check_live_exits",
         replace_existing=True,
     )
     scheduler.add_job(

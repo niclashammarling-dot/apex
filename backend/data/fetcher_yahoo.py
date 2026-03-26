@@ -9,7 +9,8 @@ import yfinance as yf
 import pandas as pd
 from loguru import logger
 
-from backend.config import SECTORS, SPY_TICKER
+from backend.config import SPY_TICKER
+from backend.ticker_config import get_sectors
 from backend.signals import momentum, volume, ev_kelly, aggregator
 from backend.db import get_rolling_win_rate
 
@@ -139,7 +140,7 @@ def _score_ticker(symbol: str, sector: str, spy_regime: float, rolling_win_rate:
 
 def fetch_sector(sector_name: str) -> list[dict]:
     """Fetch and score all tickers in a sector."""
-    cfg              = SECTORS[sector_name]
+    cfg              = get_sectors()[sector_name]
     tickers          = cfg["tickers"]
     spy_regime       = _spy_regime()
     rolling_win_rate = get_rolling_win_rate()
@@ -160,7 +161,7 @@ def fetch_all_sectors() -> list[dict]:
     rolling_win_rate = get_rolling_win_rate()
 
     all_signals = []
-    for sector_name, cfg in SECTORS.items():
+    for sector_name, cfg in get_sectors().items():
         etf_mult = _etf_regime(cfg["etf"])
         for symbol in cfg["tickers"]:
             row = _score_ticker(symbol, sector_name, spy_regime, rolling_win_rate, etf_mult)

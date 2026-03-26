@@ -150,11 +150,12 @@ def _call_grok(ticker: str, headlines: list[str]) -> dict | None:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def evaluate(ticker: str) -> dict:
+def evaluate(ticker: str, sentiment_min: float | None = None) -> dict:
     """
     Evaluate Grok sentiment for a ticker.
-    Pass condition: score > LOCK2_SENTIMENT_MIN AND volume != "low"
+    Pass condition: score > sentiment_min (defaults to LOCK2_SENTIMENT_MIN) AND volume != "low"
     """
+    effective_min = sentiment_min if sentiment_min is not None else LOCK2_SENTIMENT_MIN
     now = datetime.now(timezone.utc).timestamp()
 
     # Periodically clean stale cache entries (cheap, no extra dep)
@@ -188,10 +189,10 @@ def evaluate(ticker: str) -> dict:
 
     score  = float(grok.get("score", 0.0))
     volume = grok.get("volume", "low")
-    passed = score > LOCK2_SENTIMENT_MIN and volume != "low"
+    passed = score > effective_min and volume != "low"
 
     reason = "pass" if passed else (
-        f"score {score:.2f} <= {LOCK2_SENTIMENT_MIN}" if score <= LOCK2_SENTIMENT_MIN
+        f"score {score:.2f} <= {effective_min}" if score <= effective_min
         else "volume too low"
     )
 

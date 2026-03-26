@@ -80,11 +80,46 @@ def init_db() -> None:
                 url          TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS live_trades (
+                id              INTEGER PRIMARY KEY,
+                timestamp       TEXT NOT NULL,
+                ticker          TEXT NOT NULL,
+                sector          TEXT NOT NULL,
+                alpaca_order_id TEXT NOT NULL,
+                entry_price     REAL,
+                qty             REAL,
+                notional        REAL,
+                tp_price        REAL,
+                sl_price        REAL,
+                outcome         TEXT DEFAULT 'OPEN',
+                exit_price      REAL,
+                pnl             REAL,
+                exited_at       TEXT,
+                exit_reason     TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS live_gate_history (
+                id              INTEGER PRIMARY KEY,
+                timestamp       TEXT NOT NULL,
+                ticker          TEXT NOT NULL,
+                sector          TEXT NOT NULL,
+                signal_score    REAL,
+                lock1_pass      INTEGER DEFAULT 0,
+                lock2_pass      INTEGER DEFAULT 0,
+                lock3_pass      INTEGER DEFAULT 0,
+                gate_decision   TEXT,
+                lock3_reasoning TEXT,
+                alpaca_order_id TEXT
+            );
+
             CREATE INDEX IF NOT EXISTS idx_signals_ticker    ON signals(ticker);
             CREATE INDEX IF NOT EXISTS idx_signals_sector    ON signals(sector);
             CREATE INDEX IF NOT EXISTS idx_signals_timestamp ON signals(timestamp DESC);
             CREATE INDEX IF NOT EXISTS idx_trades_ticker     ON trades(ticker);
             CREATE INDEX IF NOT EXISTS idx_news_ticker       ON news(ticker);
+            CREATE INDEX IF NOT EXISTS idx_live_gate_ts      ON live_gate_history(timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_live_trades_ticker ON live_trades(ticker);
+            CREATE INDEX IF NOT EXISTS idx_live_trades_outcome ON live_trades(outcome);
         """)
         conn.commit()
         logger.info(f"DB initialised at {DB_PATH}")
@@ -211,9 +246,10 @@ def signals_for_sector(sector: str) -> list[dict]:
         conn.close()
 
 
-def get_lock1_candidates() -> list[dict]:
-    """Latest signal per ticker where signal_score >= LOCK1_THRESHOLD."""
+def get_lock1_candidates(threshold: float | None = None) -> list[dict]:
+    """Latest signal per ticker where signal_score >= threshold (defaults to LOCK1_THRESHOLD)."""
     from backend.config import LOCK1_THRESHOLD
+    effective = threshold if threshold is not None else LOCK1_THRESHOLD
     conn = get_db()
     try:
         rows = conn.execute("""
@@ -226,7 +262,7 @@ def get_lock1_candidates() -> list[dict]:
             ) latest ON s.ticker = latest.ticker AND s.timestamp = latest.max_ts
             WHERE s.signal_score >= ?
             ORDER BY s.signal_score DESC
-        """, (LOCK1_THRESHOLD,)).fetchall()
+        """, (effective,)).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
@@ -430,6 +466,91 @@ def get_portfolio_summary() -> dict:
             "open_position_count": open_count,
             "sector_exposure":     sector_exposure,
         }
+    finally:
+        conn.close()
+
+
+def insert_live_gate_result(row: dict) -> int:
+    conn = get_db()
+    try:
+        cur = conn.execute("""
+            INSERT INTO live_gate_history
+              (timestamp, ticker, sector, signal_score,
+               lock1_pass, lock2_pass, lock3_pass,
+               gate_decision, lock3_reasoning, alpaca_order_id)
+            VALUES
+              (:timestamp, :ticker, :sector, :signal_score,
+               :lock1_pass, :lock2_pass, :lock3_pass,
+               :gate_decision, :lock3_reasoning, :alpaca_order_id)
+        """, row)
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def get_live_gate_history(limit: int = 30) -> list[dict]:
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT * FROM live_gate_history
+            ORDER BY timestamp DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def insert_live_trade(row: dict) -> int:
+    conn = get_db()
+    try:
+        cur = conn.execute("""
+            INSERT INTO live_trades
+              (timestamp, ticker, sector, alpaca_order_id,
+               entry_price, qty, notional, tp_price, sl_price)
+            VALUES
+              (:timestamp, :ticker, :sector, :alpaca_order_id,
+               :entry_price, :qty, :notional, :tp_price, :sl_price)
+        """, row)
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def close_live_trade(trade_id: int, exit_price: float, pnl: float,
+                     outcome: str, exit_reason: str, exited_at: str) -> None:
+    conn = get_db()
+    try:
+        conn.execute("""
+            UPDATE live_trades
+            SET exit_price = ?, pnl = ?, outcome = ?, exit_reason = ?, exited_at = ?
+            WHERE id = ?
+        """, (exit_price, pnl, outcome, exit_reason, exited_at, trade_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_open_live_trades() -> list[dict]:
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT * FROM live_trades WHERE outcome = 'OPEN' ORDER BY timestamp ASC
+        """).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_all_live_trades() -> list[dict]:
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT * FROM live_trades ORDER BY timestamp DESC
+        """).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()
 
