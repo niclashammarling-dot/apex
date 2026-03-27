@@ -41,9 +41,13 @@ def execute_trade(gate_result: dict, price: float) -> dict | None:
     position = gate_result["lock3"]["position_size_pct"] if gate_result.get("lock3") else 0.10
     portfolio = get_portfolio_summary()
 
+    cfg = get_demo_config()
+    max_sector_exp = cfg.get("max_sector_exposure", MAX_SECTOR_EXPOSURE)
+    max_positions  = cfg.get("max_positions", MAX_POSITIONS)
+
     # Risk checks
-    if portfolio["open_position_count"] >= MAX_POSITIONS:
-        logger.warning(f"Trade rejected [{ticker}]: max positions ({MAX_POSITIONS}) reached")
+    if portfolio["open_position_count"] >= max_positions:
+        logger.warning(f"Trade rejected [{ticker}]: max positions ({max_positions}) reached")
         return None
 
     # Check projected sector exposure (current + this trade).
@@ -51,10 +55,10 @@ def execute_trade(gate_result: dict, price: float) -> dict | None:
     # so compute the new trade's contribution on the same denominator.
     new_trade_exposure = (portfolio["cash"] * position) / STARTING_BALANCE
     projected_exp = portfolio["sector_exposure"].get(sector, 0.0) + new_trade_exposure
-    if projected_exp > MAX_SECTOR_EXPOSURE:
+    if projected_exp > max_sector_exp:
         logger.warning(
             f"Trade rejected [{ticker}]: {sector} projected at {projected_exp:.0%} "
-            f"(cap {MAX_SECTOR_EXPOSURE:.0%})"
+            f"(cap {max_sector_exp:.0%})"
         )
         return None
 

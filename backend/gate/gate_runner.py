@@ -84,6 +84,8 @@ def run() -> list[dict]:
         if result["outcome"] == "TRADE_QUEUED":
             trade = wallet.execute_trade(result, signal["price"])
             result["outcome"] = "TRADE_EXECUTED" if trade else "TRADE_REJECTED"
+            if result["outcome"] == "TRADE_REJECTED":
+                result["gate_decision"] = "TRADE_REJECTED"
 
         results.append(result)
         update_signal_gate(signal["id"], result)

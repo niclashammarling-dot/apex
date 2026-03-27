@@ -562,6 +562,7 @@ const SETTINGS_FIELDS = [
   { key: "macro_event_blackout_days",   label: "Event Blackout (days)",      step: 1,    min: 0,   max: 5     },
   { key: "macro_earnings_blackout_days",label: "Earnings Blackout (days)",   step: 1,    min: 0,   max: 7     },
   { key: "gate_cooloff_hours",          label: "Gate Cooloff (hours)",       step: 1,    min: 0,   max: 24    },
+  { key: "max_sector_exposure",         label: "Max Sector Exposure",        step: 0.05, min: 0.05, max: 1    },
 ];
 
 function SettingsCol({ title, config, accentColor, onSave }) {
@@ -711,6 +712,7 @@ const PROMOTE_LABELS = {
   macro_event_blackout_days:   "Event Blackout (days)",
   macro_earnings_blackout_days:"Earnings Blackout (days)",
   gate_cooloff_hours:          "Gate Cooloff (hours)",
+  max_sector_exposure:         "Max Sector Exposure",
 };
 
 function PromoteModal({ config, onConfirm, onCancel }) {
