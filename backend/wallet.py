@@ -23,6 +23,7 @@ from backend.config import (
     STARTING_BALANCE, MAX_POSITIONS, MAX_SECTOR_EXPOSURE, MAX_POSITION_SIZE,
     TAKE_PROFIT_PCT, STOP_LOSS_PCT, TIME_STOP_DAYS, DAILY_LOSS_CAP,
 )
+from backend.demo_config import get_demo_config
 from backend.db import (
     get_open_trades, insert_trade, close_trade, get_portfolio_summary,
 )
@@ -105,11 +106,17 @@ def execute_trade(gate_result: dict, price: float) -> dict | None:
 def check_exits() -> list[dict]:
     """
     Check all open positions against TP, SL, and time-stop.
+    Reads thresholds from demo_config.json at call time so UI changes take effect immediately.
     Returns list of closed trade records.
     """
     open_trades = get_open_trades()
     if not open_trades:
         return []
+
+    cfg            = get_demo_config()
+    tp_pct         = cfg["take_profit_pct"]
+    sl_pct         = cfg["stop_loss_pct"]
+    max_hold_days  = cfg["max_hold_days"]
 
     tickers       = list({t["ticker"] for t in open_trades})
     current_prices = _batch_prices(tickers)
@@ -126,13 +133,13 @@ def check_exits() -> list[dict]:
 
         pnl_pct = (current - entry_price) / entry_price
 
-        if pnl_pct >= TAKE_PROFIT_PCT:
+        if pnl_pct >= tp_pct:
             reason  = "TP"
             outcome = "WIN"
-        elif pnl_pct <= -STOP_LOSS_PCT:
+        elif pnl_pct <= -sl_pct:
             reason  = "SL"
             outcome = "LOSS"
-        elif _trading_days_since(trade["timestamp"]) >= TIME_STOP_DAYS:
+        elif _trading_days_since(trade["timestamp"]) >= max_hold_days:
             reason  = "TIME"
             outcome = "EXPIRED"
         else:

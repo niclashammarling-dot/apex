@@ -383,6 +383,58 @@ def get_open_trades() -> list[dict]:
         conn.close()
 
 
+def get_open_tickers() -> set[str]:
+    """Return set of ticker symbols that currently have an open demo position."""
+    conn = get_db()
+    try:
+        rows = conn.execute("SELECT DISTINCT ticker FROM trades WHERE outcome = 'OPEN'").fetchall()
+        return {r[0] for r in rows}
+    finally:
+        conn.close()
+
+
+def get_recently_failed_tickers(hours: float) -> set[str]:
+    """Return tickers that failed L2, L3, or MACRO in the demo gate within the last N hours."""
+    from datetime import datetime, timezone, timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT DISTINCT ticker FROM signals
+            WHERE gate_decision IN ('FILTERED_L2', 'FILTERED_L3', 'FILTERED_MACRO')
+            AND timestamp > ?
+        """, (cutoff,)).fetchall()
+        return {r[0] for r in rows}
+    finally:
+        conn.close()
+
+
+def get_open_live_tickers() -> set[str]:
+    """Return set of ticker symbols that currently have an open live position."""
+    conn = get_db()
+    try:
+        rows = conn.execute("SELECT DISTINCT ticker FROM live_trades WHERE outcome = 'OPEN' OR outcome IS NULL").fetchall()
+        return {r[0] for r in rows}
+    finally:
+        conn.close()
+
+
+def get_recently_failed_live_tickers(hours: float) -> set[str]:
+    """Return tickers that failed L2, L3, or MACRO in the live gate within the last N hours."""
+    from datetime import datetime, timezone, timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT DISTINCT ticker FROM live_gate_history
+            WHERE gate_decision IN ('FILTERED_L2', 'FILTERED_L3', 'FILTERED_MACRO')
+            AND timestamp > ?
+        """, (cutoff,)).fetchall()
+        return {r[0] for r in rows}
+    finally:
+        conn.close()
+
+
 def get_all_trades() -> list[dict]:
     conn = get_db()
     try:

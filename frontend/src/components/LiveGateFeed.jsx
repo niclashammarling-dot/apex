@@ -3,16 +3,18 @@ import { useState } from "react";
 function decisionBadge(decision, outcome) {
   if (outcome === "TRADE_EXECUTED")  return { cls: "gate-executed", label: "EXECUTED" };
   if (outcome === "TRADE_REJECTED")  return { cls: "gate-fail",     label: "REJECTED" };
-  if (outcome === "TRADE_FAILED")    return { cls: "gate-rejected",  label: "FAILED" };
-  if (decision === "BUY")            return { cls: "gate-executed",  label: "BUY" };
-  if (decision === "SELL")           return { cls: "gate-rejected",  label: "SELL" };
-  if (decision === "L1_FAIL")        return { cls: "gate-fail",      label: "L1 FAIL" };
-  if (decision === "L2_FAIL")        return { cls: "gate-fail",      label: "L2 FAIL" };
+  if (outcome === "TRADE_FAILED")    return { cls: "gate-rejected", label: "FAILED"   };
+  if (outcome === "FILTERED_MACRO")  return { cls: "gate-macro",    label: "MACRO"    };
+  if (decision === "BUY")            return { cls: "gate-executed", label: "BUY"      };
+  if (decision === "SELL")           return { cls: "gate-rejected", label: "SELL"     };
+  if (decision === "L1_FAIL")        return { cls: "gate-fail",     label: "L1 FAIL"  };
+  if (decision === "L2_FAIL")        return { cls: "gate-fail",     label: "L2 FAIL"  };
   return { cls: "gate-fail", label: decision ?? "HOLD" };
 }
 
 export default function LiveGateFeed({ history }) {
-  const [expanded, setExpanded] = useState(null);
+  const [expanded,  setExpanded]  = useState(null);
+  const [collapsed, setCollapsed] = useState(false);
 
   if (!history || history.length === 0) {
     return (
@@ -25,11 +27,18 @@ export default function LiveGateFeed({ history }) {
 
   return (
     <div className="card">
-      <div className="card-header">
+      <div
+        className="card-header"
+        onClick={() => setCollapsed(c => !c)}
+        style={{ cursor: "pointer", userSelect: "none" }}
+      >
         <div className="card-title">Live Gate Activity</div>
-        <div className="card-meta">{history.length} evaluations</div>
+        <div className="card-meta" style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <span>{history.length} evaluations</span>
+          <span style={{ fontSize: 11, color: "var(--text-3)" }}>{collapsed ? "▶" : "▼"}</span>
+        </div>
       </div>
-      <table className="feed-table">
+      {!collapsed && <table className="feed-table">
         <thead>
           <tr>
             <th>Time</th>
@@ -94,7 +103,7 @@ export default function LiveGateFeed({ history }) {
             ];
           })}
         </tbody>
-      </table>
+      </table>}
     </div>
   );
 }

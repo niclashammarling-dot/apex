@@ -39,6 +39,12 @@ TAKE_PROFIT_PCT = 0.15
 STOP_LOSS_PCT   = 0.05
 TIME_STOP_DAYS  = 5
 
+# --- Macro filter (Lock 1.5) ---
+MACRO_VIX_THRESHOLD           = 25.0
+MACRO_EVENT_BLACKOUT_DAYS     = 1     # days before/after FOMC, CPI, NFP
+MACRO_EARNINGS_BLACKOUT_DAYS  = 3     # days before a ticker's earnings
+GATE_COOLOFF_HOURS            = 4     # hours before re-evaluating a ticker that failed L2/L3/MACRO
+
 # --- P(win) base rate (decoupled from signal score) ---
 BASE_WIN_RATE        = 0.55
 WIN_RATE_MIN_TRADES  = 20  # use rolling win rate only after this many closed trades

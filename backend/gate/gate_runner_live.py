@@ -13,8 +13,11 @@ from datetime import datetime, timezone
 
 from loguru import logger
 
-from backend.gate import lock1_quant, lock2_sentiment, lock3_claude
-from backend.db import get_lock1_candidates, insert_live_gate_result, get_live_gate_history, insert_live_trade
+from backend.gate import lock1_quant, lock_macro, lock2_sentiment, lock3_claude
+from backend.db import (
+    get_lock1_candidates, insert_live_gate_result, get_live_gate_history, insert_live_trade,
+    get_open_live_tickers, get_recently_failed_live_tickers,
+)
 from backend.config import LIVE_ENABLED, LIVE_MAX_SECTOR_EXPOSURE
 
 _MAX_WORKERS = 4
@@ -55,6 +58,20 @@ def run() -> list[dict]:
     candidates = get_lock1_candidates(threshold=cfg["lock1_threshold"])
     if not candidates:
         logger.info("Live gate runner: no Lock 1 candidates this cycle")
+        return []
+
+    # Skip tickers already held or in cooloff
+    open_tickers   = get_open_live_tickers()
+    failed_tickers = get_recently_failed_live_tickers(cfg.get("gate_cooloff_hours", 4))
+    skip = open_tickers | failed_tickers
+    if skip:
+        before = len(candidates)
+        candidates = [c for c in candidates if c["ticker"] not in skip]
+        logger.info(f"Live gate runner: skipped {before - len(candidates)} ticker(s) "
+                    f"(open={open_tickers}, cooloff={failed_tickers})")
+
+    if not candidates:
+        logger.info("Live gate runner: all candidates skipped (open positions / cooloff)")
         return []
 
     logger.info(f"Live gate runner: {len(candidates)} candidate(s) — {[c['ticker'] for c in candidates]}")
@@ -146,6 +163,10 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict) -> dict:
     if not l1["passed"]:
         return _gate_result(signal, l1, None, None, "FILTERED_L1")
 
+    lm = lock_macro.evaluate(ticker, cfg)
+    if not lm["passed"]:
+        return _gate_result(signal, l1, None, None, "FILTERED_MACRO")
+
     l2 = lock2_sentiment.evaluate(ticker, sentiment_min=cfg["lock2_sentiment_min"])
     if not l2["passed"]:
         return _gate_result(signal, l1, l2, None, "FILTERED_L2")
@@ -158,34 +179,20 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict) -> dict:
 
 
 def _build_context(signal: dict, l2: dict, wallet_ctx: dict) -> dict:
-    price    = signal["price"]
-    high_60d = signal.get("high_60d")
-    low_60d  = signal.get("low_60d")
     return {
-        "mode":             "LIVE — real money",
-        "ticker":           signal["ticker"],
-        "sector":           signal["sector"],
-        "signal_score":     signal["signal_score"],
-        "momentum_score":   signal["momentum_score"],
-        "volume_ratio":     signal["volume_ratio"],
-        "rsi":              signal["rsi"],
-        "ev":               signal["ev"],
-        "kelly_size":       signal["kelly_size"],
-        "effective_sl":     signal.get("effective_sl"),
-        "atr_pct":          signal.get("atr_pct"),
-        "price":            price,
-        "ma20":             signal.get("ma20"),
-        "high_60d":         high_60d,
-        "low_60d":          low_60d,
-        "pct_from_60d_high": round((price - high_60d) / high_60d, 4) if high_60d else None,
-        "pct_from_60d_low":  round((price - low_60d)  / low_60d,  4) if low_60d  else None,
-        "sentiment_score":  l2["score"],
-        "sentiment_volume": l2["volume"],
-        "sentiment_themes": l2["key_themes"],
+        # identity
+        "mode":              "LIVE — real money",
+        "ticker":            signal["ticker"],
+        "sector":            signal["sector"],
+        # L2 sentiment context (all that Lock 3 should see from upstream)
+        "sentiment_score":   l2["score"],
+        "sentiment_volume":  l2["volume"],
+        "sentiment_themes":  l2["key_themes"],
         "sentiment_summary": l2["summary"],
-        "wallet_balance":   wallet_ctx["balance"],
-        "open_positions":   wallet_ctx["open_positions"],
-        "sector_exposure":  wallet_ctx["sector_exposure"],
+        # portfolio context (Lock 3's unique domain)
+        "wallet_balance":    wallet_ctx["balance"],
+        "open_positions":    wallet_ctx["open_positions"],
+        "sector_exposure":   wallet_ctx["sector_exposure"],
     }
 
 

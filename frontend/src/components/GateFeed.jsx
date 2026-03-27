@@ -1,17 +1,20 @@
 import { useState } from "react";
 
 const OUTCOME_LABELS = {
-  TRADE_EXECUTED: { label: "EXECUTED", cls: "gate-executed" },
-  TRADE_REJECTED:  { label: "REJECTED",  cls: "gate-rejected"  },
-  FILTERED_L1:     { label: "L1 FAIL",   cls: "gate-fail"      },
-  FILTERED_L2:     { label: "L2 FAIL",   cls: "gate-fail"      },
-  FILTERED_L3:     { label: "L3 FAIL",   cls: "gate-fail"      },
+  TRADE_EXECUTED:  { label: "EXECUTED", cls: "gate-executed" },
+  TRADE_REJECTED:  { label: "REJECTED", cls: "gate-rejected" },
+  FILTERED_L1:     { label: "L1 FAIL",  cls: "gate-fail"     },
+  FILTERED_MACRO:  { label: "MACRO",    cls: "gate-macro"    },
+  FILTERED_L2:     { label: "L2 FAIL",  cls: "gate-fail"     },
+  FILTERED_L3:     { label: "L3 FAIL",  cls: "gate-fail"     },
 };
 
 function fmtTime(iso) {
   if (!iso) return "—";
-  const d = new Date(iso);
-  return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleString("en-US", {
+    month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  });
 }
 
 function Lock({ pass }) {
@@ -23,17 +26,25 @@ function Lock({ pass }) {
 }
 
 export default function GateFeed({ history }) {
-  const [expanded, setExpanded] = useState({});
+  const [expanded,  setExpanded]  = useState({});
+  const [collapsed, setCollapsed] = useState(false);
 
   if (!history) return null;
 
   return (
     <div className="card">
-      <div className="card-header">
+      <div
+        className="card-header"
+        onClick={() => setCollapsed(c => !c)}
+        style={{ cursor: "pointer", userSelect: "none" }}
+      >
         <div className="card-title">Gate Activity</div>
-        <div className="card-meta">{history.length} evaluations</div>
+        <div className="card-meta" style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <span>{history.length} evaluations</span>
+          <span style={{ fontSize: 11, color: "var(--text-3)" }}>{collapsed ? "▶" : "▼"}</span>
+        </div>
       </div>
-      <div className="card-body" style={{ padding: 0 }}>
+      {!collapsed && <div className="card-body" style={{ padding: 0 }}>
         {history.length === 0 ? (
           <div className="muted" style={{ padding: "16px" }}>
             No gate evaluations yet — waiting for signals above threshold.
@@ -104,7 +115,7 @@ export default function GateFeed({ history }) {
             </tbody>
           </table>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

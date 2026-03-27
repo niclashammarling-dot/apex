@@ -272,6 +272,7 @@ const CSS = `
   .gate-executed { background: #0e2a1a; color: var(--green); }
   .gate-rejected { background: #2a1e00; color: #d4a020; }
   .gate-fail     { background: #1e2030; color: var(--text-3); }
+  .gate-macro    { background: #1e1a00; color: #c8a020; }
 
   /* ── Tab bar ─────────────────────────────────── */
   .tab-bar {
@@ -556,6 +557,11 @@ const SETTINGS_FIELDS = [
   { key: "max_positions",        label: "Max Positions",         step: 1,    min: 1,    max: 20  },
   { key: "max_position_size",    label: "Max Position Size",     step: 0.01, min: 0.01, max: 0.5 },
   { key: "daily_loss_cap",       label: "Daily Loss Cap ($)",    step: 10,   min: 10,   max: 10000 },
+  { key: "max_hold_days",                label: "Time Stop (days)",           step: 1,    min: 1,   max: 90    },
+  { key: "vix_threshold",               label: "VIX Block Threshold",        step: 1,    min: 10,  max: 80    },
+  { key: "macro_event_blackout_days",   label: "Event Blackout (days)",      step: 1,    min: 0,   max: 5     },
+  { key: "macro_earnings_blackout_days",label: "Earnings Blackout (days)",   step: 1,    min: 0,   max: 7     },
+  { key: "gate_cooloff_hours",          label: "Gate Cooloff (hours)",       step: 1,    min: 0,   max: 24    },
 ];
 
 function SettingsCol({ title, config, accentColor, onSave }) {
@@ -700,6 +706,11 @@ const PROMOTE_LABELS = {
   max_positions:        "Max Positions",
   max_position_size:    "Max Position Size",
   daily_loss_cap:       "Daily Loss Cap ($)",
+  max_hold_days:                "Time Stop (days)",
+  vix_threshold:               "VIX Block Threshold",
+  macro_event_blackout_days:   "Event Blackout (days)",
+  macro_earnings_blackout_days:"Earnings Blackout (days)",
+  gate_cooloff_hours:          "Gate Cooloff (hours)",
 };
 
 function PromoteModal({ config, onConfirm, onCancel }) {

@@ -187,7 +187,7 @@ def get_wallet():
 
 
 @router.get("/gate/history")
-def gate_history(limit: int = 30):
+def gate_history(limit: int = 100):
     from backend.db import get_gate_history
     return get_gate_history(limit)
 

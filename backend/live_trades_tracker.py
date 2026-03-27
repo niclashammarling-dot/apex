@@ -2,6 +2,10 @@
 Live trades tracker — polls Alpaca bracket order legs for fills
 and closes live_trades records with real P&L.
 
+Also enforces a time-stop: if a position has been open longer than
+max_hold_days (from live_config.json), it cancels the bracket order
+and closes the position at market.
+
 Called by the scheduler every EXIT_CHECK_INTERVAL minutes during market hours.
 Only runs when LIVE_ENABLED=true.
 """
@@ -12,10 +16,20 @@ from backend.config import LIVE_ENABLED
 from backend.db import get_open_live_trades, close_live_trade
 
 
+def _trading_days_since(iso_timestamp: str) -> int:
+    """Return the number of weekdays (trading days) elapsed since iso_timestamp."""
+    from datetime import date
+    import pandas as pd
+    start = datetime.fromisoformat(iso_timestamp).date()
+    today = date.today()
+    return len(pd.bdate_range(start, today)) - 1
+
+
 def check_live_exits() -> list[dict]:
     """
-    For each open live trade, check Alpaca for filled bracket legs.
-    Closes the trade in DB when a TP or SL leg fills.
+    For each open live trade:
+    1. Check Alpaca for filled TP/SL bracket legs.
+    2. If held longer than max_hold_days, cancel the bracket and close at market.
     Returns list of closed trade dicts.
     """
     if not LIVE_ENABLED:
@@ -26,6 +40,10 @@ def check_live_exits() -> list[dict]:
         return []
 
     from backend.brokers import alpaca as broker
+    from backend.live_config import get_live_config
+    cfg           = get_live_config()
+    max_hold_days = cfg["max_hold_days"]
+
     closed = []
 
     for trade in open_trades:
@@ -36,15 +54,31 @@ def check_live_exits() -> list[dict]:
             logger.warning(f"Live exit check [{trade['ticker']}]: could not fetch order {order_id} — {e}")
             continue
 
+        # ── Check TP/SL bracket legs ────────────────────────────────────────
         filled_leg = _find_filled_sell_leg(order)
-        if not filled_leg:
-            continue
+        if filled_leg:
+            exit_price  = filled_leg["filled_avg_price"]
+            exit_reason = _leg_reason(filled_leg)
+            pnl         = round((exit_price - trade["entry_price"]) * trade["qty"], 2)
+            outcome     = "WIN" if pnl > 0 else "LOSS"
+            exited_at   = filled_leg["filled_at"] or datetime.now(timezone.utc).isoformat()
 
-        exit_price  = filled_leg["filled_avg_price"]
-        exit_reason = _leg_reason(filled_leg)
-        pnl         = round((exit_price - trade["entry_price"]) * trade["qty"], 2)
-        outcome     = "WIN" if pnl > 0 else "LOSS"
-        exited_at   = filled_leg["filled_at"] or datetime.now(timezone.utc).isoformat()
+        # ── Time-stop ───────────────────────────────────────────────────────
+        elif _trading_days_since(trade["timestamp"]) >= max_hold_days:
+            logger.info(f"Live time-stop [{trade['ticker']}]: {max_hold_days} trading days elapsed — closing")
+            try:
+                result = broker.close_position(trade["ticker"])
+                exit_price = float(result.get("filled_avg_price") or trade["entry_price"])
+            except Exception as e:
+                logger.warning(f"Live time-stop [{trade['ticker']}]: close_position failed — {e}")
+                continue
+            exit_reason = "TIME"
+            pnl         = round((exit_price - trade["entry_price"]) * trade["qty"], 2)
+            outcome     = "WIN" if pnl > 0 else "LOSS"
+            exited_at   = datetime.now(timezone.utc).isoformat()
+
+        else:
+            continue
 
         close_live_trade(
             trade_id    = trade["id"],

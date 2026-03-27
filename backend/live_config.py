@@ -24,6 +24,11 @@ _KEYS = [
     "max_positions",
     "max_position_size",
     "daily_loss_cap",
+    "max_hold_days",
+    "vix_threshold",
+    "macro_event_blackout_days",
+    "macro_earnings_blackout_days",
+    "gate_cooloff_hours",
 ]
 
 
@@ -31,17 +36,23 @@ def _defaults() -> dict:
     from backend.config import (
         LIVE_LOCK1_THRESHOLD, LIVE_LOCK2_SENTIMENT_MIN, LIVE_LOCK3_CONFIDENCE_MIN,
         LIVE_TAKE_PROFIT_PCT, LIVE_STOP_LOSS_PCT,
-        LIVE_MAX_POSITIONS, LIVE_MAX_POSITION_SIZE, LIVE_DAILY_LOSS_CAP,
+        LIVE_MAX_POSITIONS, LIVE_MAX_POSITION_SIZE, LIVE_DAILY_LOSS_CAP, TIME_STOP_DAYS,
+        MACRO_VIX_THRESHOLD, MACRO_EVENT_BLACKOUT_DAYS, MACRO_EARNINGS_BLACKOUT_DAYS, GATE_COOLOFF_HOURS,
     )
     return {
-        "lock1_threshold":      LIVE_LOCK1_THRESHOLD,
-        "lock2_sentiment_min":  LIVE_LOCK2_SENTIMENT_MIN,
-        "lock3_confidence_min": LIVE_LOCK3_CONFIDENCE_MIN,
-        "take_profit_pct":      LIVE_TAKE_PROFIT_PCT,
-        "stop_loss_pct":        LIVE_STOP_LOSS_PCT,
-        "max_positions":        LIVE_MAX_POSITIONS,
-        "max_position_size":    LIVE_MAX_POSITION_SIZE,
-        "daily_loss_cap":       LIVE_DAILY_LOSS_CAP,
+        "lock1_threshold":              LIVE_LOCK1_THRESHOLD,
+        "lock2_sentiment_min":          LIVE_LOCK2_SENTIMENT_MIN,
+        "lock3_confidence_min":         LIVE_LOCK3_CONFIDENCE_MIN,
+        "take_profit_pct":              LIVE_TAKE_PROFIT_PCT,
+        "stop_loss_pct":                LIVE_STOP_LOSS_PCT,
+        "max_positions":                LIVE_MAX_POSITIONS,
+        "max_position_size":            LIVE_MAX_POSITION_SIZE,
+        "daily_loss_cap":               LIVE_DAILY_LOSS_CAP,
+        "max_hold_days":                TIME_STOP_DAYS,
+        "vix_threshold":                MACRO_VIX_THRESHOLD,
+        "macro_event_blackout_days":    MACRO_EVENT_BLACKOUT_DAYS,
+        "macro_earnings_blackout_days": MACRO_EARNINGS_BLACKOUT_DAYS,
+        "gate_cooloff_hours":           GATE_COOLOFF_HOURS,
     }
 
 

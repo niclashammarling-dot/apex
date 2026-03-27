@@ -91,7 +91,7 @@ def live_trades():
 
 
 @router.get("/gate/history")
-def live_gate_history(limit: int = 30):
+def live_gate_history(limit: int = 100):
     from backend.db import get_live_gate_history
     return get_live_gate_history(limit)
 
