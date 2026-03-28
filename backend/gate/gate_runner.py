@@ -61,13 +61,20 @@ def run() -> list[dict]:
     wallet_ctx = get_wallet_context()
     results    = []
 
+    # Compute dynamic sector caps + regime once per gate cycle
+    from backend.sector_caps import compute_dynamic_caps
+    from backend.sector_regime import compute_sector_regime
+    from backend.config import MAX_SECTOR_EXPOSURE
+    dynamic_caps  = compute_dynamic_caps(cfg.get("max_sector_exposure", MAX_SECTOR_EXPOSURE))
+    sector_regime = compute_sector_regime()
+
     # Evaluate all candidates in parallel, then execute trades sequentially
     # (trade execution must be serial to prevent race conditions on position limits)
     evaluated: list[tuple[dict, dict]] = []  # (signal, result)
 
     with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(candidates))) as pool:
         future_to_signal = {
-            pool.submit(_evaluate, signal, wallet_ctx, cfg): signal
+            pool.submit(_evaluate, signal, wallet_ctx, cfg, sector_regime): signal
             for signal in candidates
         }
         for future in as_completed(future_to_signal):
@@ -82,7 +89,7 @@ def run() -> list[dict]:
     for signal, result in evaluated:
         ticker = signal["ticker"]
         if result["outcome"] == "TRADE_QUEUED":
-            trade = wallet.execute_trade(result, signal["price"])
+            trade = wallet.execute_trade(result, signal["price"], dynamic_caps=dynamic_caps)
             result["outcome"] = "TRADE_EXECUTED" if trade else "TRADE_REJECTED"
             if result["outcome"] == "TRADE_REJECTED":
                 result["gate_decision"] = "TRADE_REJECTED"
@@ -94,7 +101,7 @@ def run() -> list[dict]:
     return results
 
 
-def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict) -> dict:
+def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict, sector_regime: dict | None = None) -> dict:
     ticker = signal["ticker"]
 
     l1 = lock1_quant.evaluate(signal, threshold=cfg["lock1_threshold"])
@@ -110,28 +117,41 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict) -> dict:
     if not l2["passed"]:
         return _gate_result(signal, l1, l2, None, "FILTERED_L2")
 
-    context = _build_claude_context(signal, l2, wallet_ctx)
+    context = _build_claude_context(signal, l2, wallet_ctx, sector_regime)
     l3 = lock3_claude.evaluate(context, confidence_min=cfg["lock3_confidence_min"])
 
     outcome = "TRADE_QUEUED" if l3["passed"] else "FILTERED_L3"
     return _gate_result(signal, l1, l2, l3, outcome)
 
 
-def _build_claude_context(signal: dict, l2: dict, wallet_ctx: dict) -> dict:
-    return {
+def _build_claude_context(signal: dict, l2: dict, wallet_ctx: dict,
+                          sector_regime: dict | None = None) -> dict:
+    ctx = {
         # identity
         "ticker":            signal["ticker"],
         "sector":            signal["sector"],
-        # L2 sentiment context (all that Lock 3 should see from upstream)
+        # L2 sentiment context
         "sentiment_score":   l2["score"],
         "sentiment_volume":  l2["volume"],
         "sentiment_themes":  l2["key_themes"],
         "sentiment_summary": l2["summary"],
-        # portfolio context (Lock 3's unique domain)
+        # portfolio context
         "wallet_balance":    wallet_ctx["balance"],
         "open_positions":    wallet_ctx["open_positions"],
         "sector_exposure":   wallet_ctx["sector_exposure"],
     }
+
+    # Sector regime context — gives Lock 3 macro cycle awareness
+    if sector_regime and sector_regime.get("available"):
+        sector_detail = sector_regime.get("sectors", {}).get(signal["sector"], {})
+        ctx.update({
+            "market_regime":       sector_regime["regime"],          # risk_on/off/neutral
+            "sector_signal":       sector_detail.get("signal"),      # breakout/trending/extended/weak
+            "sector_streak_days":  sector_detail.get("streak_days"), # duration of current trend
+            "market_leader":       sector_regime.get("leader"),      # currently strongest sector
+        })
+
+    return ctx
 
 
 def _gate_result(signal: dict, l1: dict, l2: dict | None, l3: dict | None, outcome: str) -> dict:

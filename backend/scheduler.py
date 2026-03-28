@@ -6,7 +6,7 @@ from loguru import logger
 
 from backend.config import POLL_INTERVAL_SECTORS, GATE_INTERVAL, EXIT_CHECK_INTERVAL
 from backend.data.fetcher_yahoo import fetch_all_sectors
-from backend.db import insert_signal, prune_signals
+from backend.db import insert_signal, prune_signals, insert_sector_snapshots, prune_sector_snapshots
 
 NY = ZoneInfo("America/New_York")
 
@@ -30,6 +30,9 @@ def poll_all_sectors(force: bool = False) -> None:
     for row in signals:
         insert_signal(row)
     logger.info(f"Stored {len(signals)} signals")
+
+    # Aggregate per-sector and snapshot for rotation tracking
+    _snapshot_sectors(signals)
 
 
 def run_gate_candidates() -> None:
@@ -66,10 +69,40 @@ def run_live_gate_candidates() -> None:
     gate_runner_live.run()
 
 
+def _snapshot_sectors(signals: list[dict]) -> None:
+    """Aggregate signals into per-sector snapshots and persist."""
+    from collections import defaultdict
+    from datetime import datetime, timezone
+
+    ts = datetime.now(timezone.utc).isoformat()
+    buckets: dict[str, list] = defaultdict(list)
+    for s in signals:
+        buckets[s["sector"]].append(s)
+
+    snapshots = []
+    for sector, rows in buckets.items():
+        avg_score = round(sum(r["signal_score"] for r in rows) / len(rows), 4)
+        top       = max(rows, key=lambda r: r["signal_score"])
+        snapshots.append({
+            "timestamp":    ts,
+            "sector":       sector,
+            "avg_score":    avg_score,
+            "top_ticker":   top["ticker"],
+            "top_score":    top["signal_score"],
+            "ticker_count": len(rows),
+        })
+
+    insert_sector_snapshots(snapshots)
+    logger.debug(f"Sector snapshots written: {len(snapshots)} sectors")
+
+
 def prune_old_signals() -> None:
     deleted = prune_signals(keep_per_ticker=10)
     if deleted:
         logger.info(f"Signal pruning: removed {deleted} stale rows")
+    snap_deleted = prune_sector_snapshots(keep_days=1825)  # keep 5 years
+    if snap_deleted:
+        logger.info(f"Sector snapshot pruning: removed {snap_deleted} old rows")
 
 
 def start_scheduler() -> None:

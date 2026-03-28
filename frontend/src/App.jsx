@@ -1,5 +1,7 @@
 import React, { useState, useEffect, Component } from "react";
-import SectorGrid    from "./components/SectorGrid.jsx";
+import SectorGrid      from "./components/SectorGrid.jsx";
+import SectorRotation  from "./components/SectorRotation.jsx";
+import SectorRegime    from "./components/SectorRegime.jsx";
 import WalletPanel   from "./components/WalletPanel.jsx";
 import GateFeed      from "./components/GateFeed.jsx";
 import EquityCurve   from "./components/EquityCurve.jsx";
@@ -967,6 +969,12 @@ export default function App() {
                     </ErrorBoundary>
                   )
                 }
+                <ErrorBoundary label="Sector Rotation">
+                  <SectorRotation />
+                </ErrorBoundary>
+                <ErrorBoundary label="Sector Regime">
+                  <SectorRegime />
+                </ErrorBoundary>
               </div>
 
               <ErrorBoundary label="Gate Activity">

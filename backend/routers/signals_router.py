@@ -1,12 +1,18 @@
 import re
 import time
+import threading
+import uuid
 from collections import defaultdict
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, field_validator
-from backend.db import latest_signals, signals_for_sector, prev_signals_avg_by_sector
+from backend.db import latest_signals, signals_for_sector, prev_signals_avg_by_sector, get_sector_history
 from backend.gate import gate_runner
 from backend.ticker_config import get_sectors as _get_sectors, add_ticker, remove_ticker
+
+# ── Backfill job tracking ──────────────────────────────────────────────────────
+# Simple in-memory store — only one backfill should run at a time.
+_backfill_jobs: dict[str, dict] = {}   # job_id → {status, inserted, error}
 
 router = APIRouter(prefix="/api")
 
@@ -128,6 +134,66 @@ def sectors_summary():
         })
 
     return result
+
+
+@router.get("/sectors/history")
+def sectors_history(days: int = 30):
+    """
+    Sector avg_score time series.
+    days=0 returns all available history.
+    days≤7 returns raw 15-min snapshots; days>7 returns daily averages.
+    """
+    if days < 0 or days > 3650:
+        raise HTTPException(status_code=400, detail="days must be 0 (all) or 1–3650")
+    return get_sector_history(days)
+
+
+class BackfillRequest(BaseModel):
+    start_date: str
+    end_date:   str
+
+
+@router.get("/sectors/regime")
+def sectors_regime():
+    """Current sector regime analysis — trend durations, rotation signals, risk-on/off."""
+    from backend.sector_regime import compute_sector_regime
+    return compute_sector_regime()
+
+
+@router.post("/sectors/backfill")
+def sectors_backfill(req: BackfillRequest):
+    """
+    Backfill sector_snapshots with historical signal data.
+    Runs in a background thread — returns a job_id to poll via GET /sectors/backfill/{job_id}.
+    Only one backfill may run at a time.
+    """
+    # Reject if a backfill is already running
+    for job in _backfill_jobs.values():
+        if job["status"] == "running":
+            raise HTTPException(status_code=409, detail="A backfill is already running")
+
+    job_id = str(uuid.uuid4())[:8]
+    _backfill_jobs[job_id] = {"status": "running", "inserted": 0, "error": None,
+                               "start_date": req.start_date, "end_date": req.end_date}
+
+    def _run():
+        from backend.backtest.sector_backfill import backfill_sector_snapshots
+        try:
+            n = backfill_sector_snapshots(req.start_date, req.end_date)
+            _backfill_jobs[job_id].update({"status": "done", "inserted": n})
+        except Exception as e:
+            _backfill_jobs[job_id].update({"status": "error", "error": str(e)})
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"job_id": job_id, "status": "running"}
+
+
+@router.get("/sectors/backfill/{job_id}")
+def sectors_backfill_status(job_id: str):
+    job = _backfill_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"job_id": job_id, **job}
 
 
 @router.post("/gate/run")

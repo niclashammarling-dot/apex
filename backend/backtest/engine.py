@@ -27,7 +27,7 @@ from backend.config import (
     MAX_POSITIONS, MAX_SECTOR_EXPOSURE, MAX_POSITION_SIZE, DAILY_LOSS_CAP,
     BASE_WIN_RATE, WIN_RATE_MIN_TRADES,
 )
-from backend.signals import momentum, volume, aggregator
+from backend.signals import momentum, volume, aggregator, trend, relative_strength
 from backend.signals.ev_kelly import compute as ev_kelly_compute
 
 
@@ -120,7 +120,7 @@ def run(
     logger.info(f"Backtest: loading data {start} → {end} (tp={tp:.0%} sl={sl:.0%} days={tdays} l1={l1})")
 
     # Download full history for all tickers + SPY + sector ETFs
-    lookback_start = start - timedelta(days=90)  # 90d buffer for 60d rolling indicators
+    lookback_start = start - timedelta(days=130)  # 130d buffer for 90d rolling indicators + MA50
     etf_tickers    = [cfg["etf"] for cfg in SECTORS.values()]
     all_tickers    = [SPY_TICKER] + etf_tickers + [t for cfg in SECTORS.values() for t in cfg["tickers"]]
     raw_data       = _download_all(all_tickers, lookback_start, end)
@@ -175,12 +175,15 @@ def run(
                 sl_cooldown[trade["ticker"]] = today + timedelta(days=SL_COOLDOWN_DAYS)
 
         # 2. Generate signals for today
-        spy_regime = _spy_regime_on(raw_data, today)
+        spy       = _spy_data_on(raw_data, today)
         # Rolling win rate from trades closed so far (used in Kelly sizing)
         wins_so_far   = sum(1 for t in closed_trades if t["outcome"] == "WIN")
         closed_so_far = len(closed_trades)
         rolling_wr = (wins_so_far / closed_so_far) if closed_so_far >= WIN_RATE_MIN_TRADES else None
-        candidates = _score_all_tickers(raw_data, today, ticker_sector, sector_etf, spy_regime, l1, rolling_wr)
+        candidates = _score_all_tickers(
+            raw_data, today, ticker_sector, sector_etf,
+            spy["regime"], spy["return_20d"], l1, rolling_wr,
+        )
 
         # 3. Attempt entries
         open_tickers     = {t["ticker"] for t in open_trades}
@@ -289,6 +292,7 @@ def _score_all_tickers(
     ticker_sector: dict[str, str],
     sector_etf: dict[str, str],
     spy_regime: float,
+    spy_return_20d: float,
     lock1_threshold: float,
     rolling_win_rate: float | None = None,
 ) -> list[dict]:
@@ -299,7 +303,11 @@ def _score_all_tickers(
 
     candidates = []
     for ticker, sector in ticker_sector.items():
-        sig = _score_ticker(raw_data, ticker, sector, today, spy_regime, etf_mults.get(sector, 1.0), rolling_win_rate)
+        sig = _score_ticker(
+            raw_data, ticker, sector, today,
+            spy_regime, spy_return_20d,
+            etf_mults.get(sector, 1.0), rolling_win_rate,
+        )
         if sig and sig["signal_score"] >= lock1_threshold:
             candidates.append(sig)
     return candidates
@@ -311,25 +319,31 @@ def _score_ticker(
     sector: str,
     today: date,
     spy_regime: float,
+    spy_return_20d: float,
     etf_mult: float = 1.0,
     rolling_win_rate: float | None = None,
 ) -> dict | None:
-    df = _slice_history(raw_data, ticker, today, lookback_days=60)
-    if df is None or len(df) < 21:
+    df = _slice_history(raw_data, ticker, today, lookback_days=90)
+    if df is None or len(df) < 55:
         return None
     try:
-        mom   = momentum.compute(df)
-        vol   = volume.compute(df)
+        mom = momentum.compute(df)
+        vol = volume.compute(df)
+        trd = trend.compute(df)
+        rs  = relative_strength.compute(df, spy_return_20d)
         atr_raw = (df["High"] - df["Low"]).rolling(14).mean().iloc[-1]
         if mom["price"] and not math.isnan(atr_raw):
             atr_pct = float(atr_raw / mom["price"])
         else:
             atr_pct = 0.0
         evk   = ev_kelly_compute(spy_regime, rolling_win_rate=rolling_win_rate, atr_pct=atr_pct)
-        score = aggregator.compute(mom["momentum_score"], vol["volume_score"], evk["ev_norm"])
+        score = aggregator.compute(
+            mom["momentum_score"], vol["volume_score"], evk["ev_norm"],
+            trd["trend_score"], rs["rs_score"],
+        )
         # Apply sector ETF regime multiplier
         score = round(min(max(score * etf_mult, 0.0), 1.0), 4)
-        # Phase 6: scale position size by signal strength
+        # Scale position size by signal strength
         kelly_scaled = round(evk["kelly_size"] * min(1.0, max(0.5, score)), 4)
         return {
             "ticker":       ticker,
@@ -511,16 +525,20 @@ def _price_on(raw_data: pd.DataFrame, ticker: str, today: date) -> float | None:
         return None
 
 
-def _spy_regime_on(raw_data: pd.DataFrame, today: date) -> float:
+def _spy_data_on(raw_data: pd.DataFrame, today: date) -> dict:
+    """Returns SPY regime (+/-0.03) and 20-day return for the given date."""
     df = _slice_history(raw_data, SPY_TICKER, today, lookback_days=60)
     if df is None or len(df) < 50:
-        return 0.0
+        return {"regime": 0.0, "return_20d": 0.0}
     try:
-        price = float(df["Close"].iloc[-1])
-        ma50  = float(df["Close"].rolling(50).mean().iloc[-1])
-        return 0.03 if price > ma50 else -0.03
+        close  = df["Close"].dropna()
+        price  = float(close.iloc[-1])
+        ma50   = float(close.rolling(50).mean().iloc[-1])
+        regime = 0.03 if price > ma50 else -0.03
+        ret20  = float(close.iloc[-1] / close.iloc[-20] - 1) if len(close) >= 20 else 0.0
+        return {"regime": regime, "return_20d": ret20}
     except Exception:
-        return 0.0
+        return {"regime": 0.0, "return_20d": 0.0}
 
 
 def _etf_regime_on(raw_data: pd.DataFrame, etf_ticker: str, today: date) -> float:

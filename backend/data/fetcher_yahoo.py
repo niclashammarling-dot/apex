@@ -11,7 +11,7 @@ from loguru import logger
 
 from backend.config import SPY_TICKER
 from backend.ticker_config import get_sectors
-from backend.signals import momentum, volume, ev_kelly, aggregator
+from backend.signals import momentum, volume, ev_kelly, aggregator, trend, relative_strength
 from backend.db import get_rolling_win_rate
 
 
@@ -19,20 +19,29 @@ from backend.db import get_rolling_win_rate
 #  SPY regime — fetched once per poll cycle, shared across all tickers         #
 # --------------------------------------------------------------------------- #
 
-def _spy_regime() -> float:
-    """Returns +0.03 if SPY > 50d MA, -0.03 if below, 0.0 on error."""
+def _spy_data() -> dict:
+    """
+    Fetch SPY once per cycle.  Returns:
+      regime        — +0.03 if SPY > MA50, -0.03 below, 0.0 on error
+      return_20d    — 20-day price return (for relative-strength scoring)
+    """
     try:
         df = yf.Ticker(SPY_TICKER).history(period="70d", auto_adjust=True)
         if df.empty or len(df) < 50:
-            return 0.0
-        price = float(df["Close"].iloc[-1])
-        ma50  = float(df["Close"].rolling(50).mean().iloc[-1])
+            return {"regime": 0.0, "return_20d": 0.0}
+        close  = df["Close"].dropna()
+        price  = float(close.iloc[-1])
+        ma50   = float(close.rolling(50).mean().iloc[-1])
         regime = 0.03 if price > ma50 else -0.03
-        logger.debug(f"SPY regime: {'bullish' if regime > 0 else 'bearish'} (price={price:.2f}, MA50={ma50:.2f})")
-        return regime
+        ret20  = float(close.iloc[-1] / close.iloc[-20] - 1) if len(close) >= 20 else 0.0
+        logger.debug(
+            f"SPY regime: {'bullish' if regime > 0 else 'bearish'} "
+            f"(price={price:.2f}, MA50={ma50:.2f}, 20d_ret={ret20:.3f})"
+        )
+        return {"regime": regime, "return_20d": ret20}
     except Exception as e:
-        logger.warning(f"SPY regime fetch failed: {e}")
-        return 0.0
+        logger.warning(f"SPY data fetch failed: {e}")
+        return {"regime": 0.0, "return_20d": 0.0}
 
 
 def _etf_regime(etf_ticker: str) -> float:
@@ -58,15 +67,25 @@ def _etf_regime(etf_ticker: str) -> float:
 #  Per-ticker signal computation                                                #
 # --------------------------------------------------------------------------- #
 
-def _score_ticker(symbol: str, sector: str, spy_regime: float, rolling_win_rate: float | None, etf_mult: float = 1.0) -> dict | None:
+def _score_ticker(
+    symbol: str,
+    sector: str,
+    spy_regime: float,
+    spy_return_20d: float,
+    rolling_win_rate: float | None,
+    etf_mult: float = 1.0,
+) -> dict | None:
     try:
-        df = yf.Ticker(symbol).history(period="60d", auto_adjust=True)
-        if df.empty or len(df) < 21:
+        df = yf.Ticker(symbol).history(period="90d", auto_adjust=True)
+        # Need 55 bars: MA50(50) + a few extra to avoid edge NaNs
+        if df.empty or len(df) < 55:
             logger.warning(f"{symbol}: insufficient history ({len(df)} rows)")
             return None
 
         mom = momentum.compute(df)
         vol = volume.compute(df)
+        trd = trend.compute(df)
+        rs  = relative_strength.compute(df, spy_return_20d)
 
         # ATR(14) as % of price — used for dynamic Kelly stop-loss floor
         atr_raw = (df["High"] - df["Low"]).rolling(14).mean().iloc[-1]
@@ -75,18 +94,24 @@ def _score_ticker(symbol: str, sector: str, spy_regime: float, rolling_win_rate:
         else:
             atr_pct = 0.0
 
-        # 60-day price range for Lock 3 context
+        # 90-day price range for Lock 3 context
         high_60d = float(df["Close"].max())
         low_60d  = float(df["Close"].min())
 
         evk = ev_kelly.compute(spy_regime, rolling_win_rate, atr_pct=atr_pct)
-        score = aggregator.compute(mom["momentum_score"], vol["volume_score"], evk["ev_norm"])
+        score = aggregator.compute(
+            mom["momentum_score"],
+            vol["volume_score"],
+            evk["ev_norm"],
+            trd["trend_score"],
+            rs["rs_score"],
+        )
 
         # Sector ETF regime: down-weight score if ETF is below its 20d MA
         score = round(min(max(score * etf_mult, 0.0), 1.0), 4)
 
-        # Phase 6: scale position size by signal strength.
-        # Signals near the threshold (0.65) get ~65% of base Kelly;
+        # Scale position size by signal strength.
+        # Signals near the threshold get ~65% of base Kelly;
         # high-conviction signals (0.90+) get the full amount.
         kelly_scaled = round(evk["kelly_size"] * min(1.0, max(0.5, score)), 4)
 
@@ -96,6 +121,8 @@ def _score_ticker(symbol: str, sector: str, spy_regime: float, rolling_win_rate:
             f"mom={mom['momentum_score']:.3f}  "
             f"vol={vol['volume_score']:.3f}  "
             f"ev={evk['ev_norm']:.3f}  "
+            f"trend={trd['trend_score']:.3f}  "
+            f"rs={rs['rs_score']:.3f}  "
             f"rsi={mom['rsi']:.1f}  "
             f"p_win={evk['p_win']:.2f}  "
             f"atr={atr_pct:.3f}  "
@@ -104,29 +131,37 @@ def _score_ticker(symbol: str, sector: str, spy_regime: float, rolling_win_rate:
         )
 
         return {
-            "timestamp":      datetime.now(timezone.utc).isoformat(),
-            "ticker":         symbol,
-            "sector":         sector,
+            "timestamp":         datetime.now(timezone.utc).isoformat(),
+            "ticker":            symbol,
+            "sector":            sector,
             # momentum
-            "price":          mom["price"],
-            "ma20":           mom["ma20"],
-            "rsi":            mom["rsi"],
-            "momentum_score": mom["momentum_score"],
+            "price":             mom["price"],
+            "ma20":              mom["ma20"],
+            "rsi":               mom["rsi"],
+            "momentum_score":    mom["momentum_score"],
             # volume
-            "volume":         vol["volume"],
-            "avg_vol_30d":    vol["avg_vol_30d"],
-            "volume_ratio":   vol["volume_ratio"],
-            "volume_score":   vol["volume_score"],
+            "volume":            vol["volume"],
+            "avg_vol_30d":       vol["avg_vol_30d"],
+            "volume_ratio":      vol["volume_ratio"],
+            "volume_score":      vol["volume_score"],
             # ev/kelly
-            "ev":             evk["ev"],
-            "kelly_size":     kelly_scaled,
-            "effective_sl":   evk["effective_sl"],
-            "atr_pct":        evk["atr_pct"],
+            "ev":                evk["ev"],
+            "kelly_size":        kelly_scaled,
+            "effective_sl":      evk["effective_sl"],
+            "atr_pct":           evk["atr_pct"],
+            # trend (MACD + MA50)
+            "trend_score":       trd["trend_score"],
+            "macd_hist":         trd["macd_hist"],
+            "ma50":              trd["ma50"],
+            # relative strength vs SPY
+            "rs_score":          rs["rs_score"],
+            "ticker_return_20d": rs["ticker_return_20d"],
+            "excess_return":     rs["excess_return"],
             # price range
-            "high_60d":       round(high_60d, 4),
-            "low_60d":        round(low_60d, 4),
+            "high_60d":          round(high_60d, 4),
+            "low_60d":           round(low_60d, 4),
             # aggregate
-            "signal_score":   score,
+            "signal_score":      score,
         }
 
     except Exception as e:
@@ -142,13 +177,17 @@ def fetch_sector(sector_name: str) -> list[dict]:
     """Fetch and score all tickers in a sector."""
     cfg              = get_sectors()[sector_name]
     tickers          = cfg["tickers"]
-    spy_regime       = _spy_regime()
+    spy              = _spy_data()
     rolling_win_rate = get_rolling_win_rate()
     etf_mult         = _etf_regime(cfg["etf"])
 
     results = []
     for symbol in tickers:
-        row = _score_ticker(symbol, sector_name, spy_regime, rolling_win_rate, etf_mult)
+        row = _score_ticker(
+            symbol, sector_name,
+            spy["regime"], spy["return_20d"],
+            rolling_win_rate, etf_mult,
+        )
         if row:
             results.append(row)
     return results
@@ -157,14 +196,18 @@ def fetch_sector(sector_name: str) -> list[dict]:
 def fetch_all_sectors() -> list[dict]:
     """Fetch every configured sector. Called by the scheduler."""
     # Fetch shared inputs once — not once per ticker
-    spy_regime       = _spy_regime()
+    spy              = _spy_data()
     rolling_win_rate = get_rolling_win_rate()
 
     all_signals = []
     for sector_name, cfg in get_sectors().items():
         etf_mult = _etf_regime(cfg["etf"])
         for symbol in cfg["tickers"]:
-            row = _score_ticker(symbol, sector_name, spy_regime, rolling_win_rate, etf_mult)
+            row = _score_ticker(
+                symbol, sector_name,
+                spy["regime"], spy["return_20d"],
+                rolling_win_rate, etf_mult,
+            )
             if row:
                 all_signals.append(row)
     return all_signals

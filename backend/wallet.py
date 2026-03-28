@@ -31,10 +31,13 @@ from backend.db import (
 
 # ── Execution ────────────────────────────────────────────────────────────────
 
-def execute_trade(gate_result: dict, price: float) -> dict | None:
+def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = None) -> dict | None:
     """
     Open a BUY position for a gate-approved ticker.
     Returns the trade record dict, or None if rejected by risk checks.
+
+    dynamic_caps: optional {sector: cap_fraction} from sector_caps.compute_dynamic_caps().
+    If provided, the per-sector cap is used instead of the flat max_sector_exposure.
     """
     ticker   = gate_result["ticker"]
     sector   = gate_result["sector"]
@@ -42,7 +45,8 @@ def execute_trade(gate_result: dict, price: float) -> dict | None:
     portfolio = get_portfolio_summary()
 
     cfg = get_demo_config()
-    max_sector_exp = cfg.get("max_sector_exposure", MAX_SECTOR_EXPOSURE)
+    base_cap       = cfg.get("max_sector_exposure", MAX_SECTOR_EXPOSURE)
+    max_sector_exp = dynamic_caps.get(sector, base_cap) if dynamic_caps else base_cap
     max_positions  = cfg.get("max_positions", MAX_POSITIONS)
 
     # Risk checks

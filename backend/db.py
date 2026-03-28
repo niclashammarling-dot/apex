@@ -120,6 +120,19 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_live_gate_ts      ON live_gate_history(timestamp DESC);
             CREATE INDEX IF NOT EXISTS idx_live_trades_ticker ON live_trades(ticker);
             CREATE INDEX IF NOT EXISTS idx_live_trades_outcome ON live_trades(outcome);
+
+            CREATE TABLE IF NOT EXISTS sector_snapshots (
+                id           INTEGER PRIMARY KEY,
+                timestamp    TEXT NOT NULL,
+                sector       TEXT NOT NULL,
+                avg_score    REAL NOT NULL,
+                top_ticker   TEXT,
+                top_score    REAL,
+                ticker_count INTEGER
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_sector_snap_ts     ON sector_snapshots(timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_sector_snap_sector ON sector_snapshots(sector);
         """)
         conn.commit()
         logger.info(f"DB initialised at {DB_PATH}")
@@ -128,11 +141,16 @@ def init_db() -> None:
         _add_column_if_missing(conn, "trades",  "price_exit",  "REAL")
         _add_column_if_missing(conn, "trades",  "exited_at",   "TEXT")
         _add_column_if_missing(conn, "trades",  "exit_reason", "TEXT")
-        _add_column_if_missing(conn, "signals", "high_60d",    "REAL")
-        _add_column_if_missing(conn, "signals", "low_60d",     "REAL")
-        _add_column_if_missing(conn, "signals", "atr_pct",        "REAL")
-        _add_column_if_missing(conn, "signals", "effective_sl",   "REAL")
-        _add_column_if_missing(conn, "signals", "lock3_reasoning", "TEXT")
+        _add_column_if_missing(conn, "signals", "high_60d",         "REAL")
+        _add_column_if_missing(conn, "signals", "low_60d",          "REAL")
+        _add_column_if_missing(conn, "signals", "atr_pct",          "REAL")
+        _add_column_if_missing(conn, "signals", "effective_sl",     "REAL")
+        _add_column_if_missing(conn, "signals", "lock3_reasoning",  "TEXT")
+        # Session 7 — new signals
+        _add_column_if_missing(conn, "signals", "trend_score",      "REAL")
+        _add_column_if_missing(conn, "signals", "macd_hist",        "REAL")
+        _add_column_if_missing(conn, "signals", "ma50",             "REAL")
+        _add_column_if_missing(conn, "signals", "rs_score",         "REAL")
     finally:
         conn.close()
 
@@ -176,11 +194,13 @@ def insert_signal(row: dict) -> int:
             INSERT INTO signals
               (timestamp, ticker, sector, price, ma20, rsi, volume, avg_vol_30d,
                volume_ratio, signal_score, momentum_score, volume_score, ev, kelly_size,
-               high_60d, low_60d, atr_pct, effective_sl)
+               high_60d, low_60d, atr_pct, effective_sl,
+               trend_score, macd_hist, ma50, rs_score)
             VALUES
               (:timestamp, :ticker, :sector, :price, :ma20, :rsi, :volume, :avg_vol_30d,
                :volume_ratio, :signal_score, :momentum_score, :volume_score, :ev, :kelly_size,
-               :high_60d, :low_60d, :atr_pct, :effective_sl)
+               :high_60d, :low_60d, :atr_pct, :effective_sl,
+               :trend_score, :macd_hist, :ma50, :rs_score)
         """, row)
         conn.commit()
         return cur.lastrowid
@@ -603,6 +623,121 @@ def get_all_live_trades() -> list[dict]:
             SELECT * FROM live_trades ORDER BY timestamp DESC
         """).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def insert_sector_snapshots(snapshots: list[dict]) -> None:
+    """
+    Batch-insert sector summary rows after each poll cycle.
+    Each snapshot: {timestamp, sector, avg_score, top_ticker, top_score, ticker_count}
+    """
+    if not snapshots:
+        return
+    conn = get_db()
+    try:
+        conn.executemany("""
+            INSERT INTO sector_snapshots (timestamp, sector, avg_score, top_ticker, top_score, ticker_count)
+            VALUES (:timestamp, :sector, :avg_score, :top_ticker, :top_score, :ticker_count)
+        """, snapshots)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_sector_history(days: int = 30) -> list[dict]:
+    """
+    Returns sector avg_score time series.
+
+    days=0  → all available history
+    days≤7  → raw 15-min snapshots   (intraday detail visible)
+    days>7  → daily averages          (keeps payload small at any scale)
+
+    Frontend pivots the flat rows into per-sector time series.
+    """
+    from datetime import datetime, timezone, timedelta
+    conn = get_db()
+    try:
+        if days == 0:
+            cutoff_clause = ""
+            params: tuple = ()
+        else:
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+            cutoff_clause = "WHERE timestamp > ?"
+            params = (cutoff,)
+
+        if 1 <= days <= 7:
+            # Raw resolution — one row per snapshot per sector
+            rows = conn.execute(f"""
+                SELECT timestamp, sector, avg_score, top_ticker, top_score
+                FROM sector_snapshots
+                {cutoff_clause}
+                ORDER BY timestamp ASC
+            """, params).fetchall()
+        else:
+            # Daily aggregation — AVG per calendar day per sector
+            rows = conn.execute(f"""
+                SELECT
+                    strftime('%Y-%m-%dT12:00:00', timestamp) AS timestamp,
+                    sector,
+                    ROUND(AVG(avg_score), 4)  AS avg_score,
+                    NULL                       AS top_ticker,
+                    MAX(top_score)             AS top_score
+                FROM sector_snapshots
+                {cutoff_clause}
+                GROUP BY strftime('%Y-%m-%d', timestamp), sector
+                ORDER BY timestamp ASC
+            """, params).fetchall()
+
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_existing_snapshot_dates(start_date: str, end_date: str) -> set[str]:
+    """Return set of 'YYYY-MM-DD' strings that already have sector snapshots."""
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT DISTINCT strftime('%Y-%m-%d', timestamp) AS day
+            FROM sector_snapshots
+            WHERE timestamp >= ? AND timestamp <= ?
+        """, (start_date, end_date + "T23:59:59")).fetchall()
+        return {r["day"] for r in rows}
+    finally:
+        conn.close()
+
+
+def get_latest_sector_scores() -> dict[str, float]:
+    """
+    Returns the most recent avg_score per sector.
+    Used by dynamic sector cap computation.
+    """
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT s.sector, s.avg_score
+            FROM sector_snapshots s
+            INNER JOIN (
+                SELECT sector, MAX(timestamp) AS max_ts
+                FROM sector_snapshots
+                GROUP BY sector
+            ) latest ON s.sector = latest.sector AND s.timestamp = latest.max_ts
+        """).fetchall()
+        return {r["sector"]: r["avg_score"] for r in rows}
+    finally:
+        conn.close()
+
+
+def prune_sector_snapshots(keep_days: int = 1825) -> int:  # default 5 years
+    """Delete sector_snapshots older than keep_days. Returns rows deleted."""
+    from datetime import datetime, timezone, timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=keep_days)).isoformat()
+    conn = get_db()
+    try:
+        cur = conn.execute("DELETE FROM sector_snapshots WHERE timestamp < ?", (cutoff,))
+        conn.commit()
+        return cur.rowcount
     finally:
         conn.close()
 
