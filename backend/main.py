@@ -35,6 +35,10 @@ logger.add(
 async def lifespan(app: FastAPI):
     logger.info("APEX backend starting…")
     init_db()
+    from backend.demo_config import ensure_config_exists as ensure_demo
+    from backend.live_config  import ensure_config_exists as ensure_live
+    ensure_demo()
+    ensure_live()
     logger.info("Running initial sector poll…")
     try:
         poll_all_sectors(force=True)

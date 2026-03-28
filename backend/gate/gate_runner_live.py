@@ -18,7 +18,7 @@ from backend.db import (
     get_lock1_candidates, insert_live_gate_result, get_live_gate_history, insert_live_trade,
     get_open_live_tickers, get_recently_failed_live_tickers,
 )
-from backend.config import LIVE_ENABLED, LIVE_MAX_SECTOR_EXPOSURE
+from backend.config import LIVE_ENABLED
 
 _MAX_WORKERS = 4
 
@@ -35,7 +35,9 @@ def run() -> list[dict]:
 
     from backend.brokers import alpaca as broker
     from backend.live_config import get_live_config
+    from backend.db import get_ticker_thresholds
     cfg = get_live_config()
+    sector_thresholds = get_ticker_thresholds()
 
     # Pre-flight: verify account is tradeable before wasting LLM calls
     try:
@@ -55,7 +57,8 @@ def run() -> list[dict]:
         alert_daily_loss_cap(day_loss, cfg["daily_loss_cap"])
         return []
 
-    candidates = get_lock1_candidates(threshold=cfg["lock1_threshold"])
+    candidates = get_lock1_candidates(threshold=cfg["lock1_threshold"],
+                                      sector_thresholds=sector_thresholds)
     if not candidates:
         logger.info("Live gate runner: no Lock 1 candidates this cycle")
         return []
@@ -82,11 +85,15 @@ def run() -> list[dict]:
         "sector_exposure": {},  # not computed for live — Lock 3 prompt uses open_positions count
     }
 
+    # Compute sector regime once per gate cycle — passed to all evaluations
+    from backend.sector_regime import compute_sector_regime
+    sector_regime = compute_sector_regime()
+
     evaluated: list[tuple[dict, dict]] = []
 
     with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(candidates))) as pool:
         future_to_signal = {
-            pool.submit(_evaluate, signal, wallet_ctx, cfg): signal
+            pool.submit(_evaluate, signal, wallet_ctx, cfg, sector_regime, sector_thresholds): signal
             for signal in candidates
         }
         for future in as_completed(future_to_signal):
@@ -132,7 +139,7 @@ def run() -> list[dict]:
                         result["outcome"] = "TRADE_EXECUTED"
                         open_tickers.add(ticker)
                         _record_live_trade(signal, notional, order_id, cfg)
-                        _fire_trade_alert(ticker, signal, notional, order_id)
+                        _fire_trade_alert(ticker, signal, notional, order_id, cfg)
                     except Exception as e:
                         logger.error(f"Live trade failed [{ticker}]: {e}")
                         result["outcome"] = "TRADE_FAILED"
@@ -156,10 +163,13 @@ def run() -> list[dict]:
     return results
 
 
-def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict) -> dict:
+def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
+              sector_regime: dict | None = None,
+              sector_thresholds: dict | None = None) -> dict:
     ticker = signal["ticker"]
 
-    l1 = lock1_quant.evaluate(signal, threshold=cfg["lock1_threshold"])
+    l1_threshold = (sector_thresholds or {}).get(signal.get("sector", ""), cfg["lock1_threshold"])
+    l1 = lock1_quant.evaluate(signal, threshold=l1_threshold)
     if not l1["passed"]:
         return _gate_result(signal, l1, None, None, "FILTERED_L1")
 
@@ -171,15 +181,16 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict) -> dict:
     if not l2["passed"]:
         return _gate_result(signal, l1, l2, None, "FILTERED_L2")
 
-    context = _build_context(signal, l2, wallet_ctx)
+    context = _build_context(signal, l2, wallet_ctx, sector_regime)
     l3 = lock3_claude.evaluate(context, confidence_min=cfg["lock3_confidence_min"])
 
     outcome = "TRADE_QUEUED" if l3["passed"] else "FILTERED_L3"
     return _gate_result(signal, l1, l2, l3, outcome)
 
 
-def _build_context(signal: dict, l2: dict, wallet_ctx: dict) -> dict:
-    return {
+def _build_context(signal: dict, l2: dict, wallet_ctx: dict,
+                   sector_regime: dict | None = None) -> dict:
+    ctx = {
         # identity
         "mode":              "LIVE — real money",
         "ticker":            signal["ticker"],
@@ -194,6 +205,36 @@ def _build_context(signal: dict, l2: dict, wallet_ctx: dict) -> dict:
         "open_positions":    wallet_ctx["open_positions"],
         "sector_exposure":   wallet_ctx["sector_exposure"],
     }
+
+    # Sector regime context — gives Lock 3 macro cycle awareness
+    if sector_regime and sector_regime.get("available"):
+        sector_detail = sector_regime.get("sectors", {}).get(signal["sector"], {})
+        ctx.update({
+            "market_regime":       sector_regime["regime"],
+            "sector_signal":       sector_detail.get("signal"),
+            "sector_streak_days":  sector_detail.get("streak_days"),
+            "market_leader":       sector_regime.get("leader"),
+        })
+
+    # Rotation forecast — gives Lock 3 transition probability awareness
+    try:
+        from backend.sector_transitions import get_rotation_forecast
+        forecast = get_rotation_forecast()
+        if forecast.get("available"):
+            next_prob = next((item["probability"] for item in forecast.get("likely_next", [])
+                              if item["sector"] == signal["sector"]), None)
+            confirmed = forecast.get("confirmed_transition")
+            ctx.update({
+                "rotation_leader":          forecast["leader"],
+                "rotation_predecessor":     forecast.get("predecessor"),
+                "sector_next_probability":  next_prob,
+                "rotation_confirmed":       confirmed is not None,
+                "rotation_transition_prob": confirmed["probability"] if confirmed else None,
+            })
+    except Exception:
+        pass
+
+    return ctx
 
 
 def _gate_result(signal: dict, l1: dict, l2: dict | None, l3: dict | None, outcome: str) -> dict:
@@ -253,7 +294,7 @@ def _record_live_trade(signal: dict, notional: float, order_id: str, cfg: dict) 
         logger.warning(f"Failed to record live trade [{signal['ticker']}]: {e}")
 
 
-def _fire_trade_alert(ticker: str, signal: dict, notional: float, order_id: str) -> None:
+def _fire_trade_alert(ticker: str, signal: dict, notional: float, order_id: str, cfg: dict) -> None:
     try:
         from backend.alerts import alert_trade_executed
         price = signal["price"]
@@ -262,8 +303,8 @@ def _fire_trade_alert(ticker: str, signal: dict, notional: float, order_id: str)
             sector    = signal["sector"],
             notional  = notional,
             price     = price,
-            tp        = round(price * (1 + LIVE_TAKE_PROFIT_PCT), 2),
-            sl        = round(price * (1 - LIVE_STOP_LOSS_PCT), 2),
+            tp        = round(price * (1 + cfg["take_profit_pct"]), 2),
+            sl        = round(price * (1 - cfg["stop_loss_pct"]), 2),
             order_id  = order_id,
         )
     except Exception as e:

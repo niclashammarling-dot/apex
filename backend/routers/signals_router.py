@@ -6,7 +6,7 @@ from collections import defaultdict
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, field_validator
-from backend.db import latest_signals, signals_for_sector, prev_signals_avg_by_sector, get_sector_history
+from backend.db import latest_signals, signals_for_sector, prev_signals_avg_by_sector, prev_signals_by_ticker, get_sector_history
 from backend.gate import gate_runner
 from backend.ticker_config import get_sectors as _get_sectors, add_ticker, remove_ticker
 
@@ -69,6 +69,9 @@ def sectors_summary():
     """
     signals = latest_signals(limit=200)
     prev_avgs = prev_signals_avg_by_sector()
+    prev_ticker = prev_signals_by_ticker()
+    from backend.sector_regime import compute_ticker_signals
+    ticker_signals = compute_ticker_signals()
 
     sector_map: dict[str, list] = {}
     for s in signals:
@@ -95,6 +98,16 @@ def sectors_summary():
         top          = max(rows, key=lambda r: r["signal_score"])
         last_updated = max(r["timestamp"] for r in rows)
 
+        def _ticker_trend(ticker: str, score: float) -> str:
+            prev = prev_ticker.get(ticker)
+            if prev is None:
+                return "flat"
+            if score - prev > 0.01:
+                return "up"
+            if prev - score > 0.01:
+                return "down"
+            return "flat"
+
         tickers = sorted(
             [
                 {
@@ -104,6 +117,9 @@ def sectors_summary():
                     "volume_score":   r.get("volume_score"),
                     "rsi":            r.get("rsi"),
                     "price":          r.get("price"),
+                    "trend":          _ticker_trend(r["ticker"], r["signal_score"]),
+                    "signal":         ticker_signals.get(r["ticker"], {}).get("signal", "weak"),
+                    "streak_days":    ticker_signals.get(r["ticker"], {}).get("streak_days", 0),
                 }
                 for r in rows
             ],
@@ -158,6 +174,13 @@ def sectors_regime():
     """Current sector regime analysis — trend durations, rotation signals, risk-on/off."""
     from backend.sector_regime import compute_sector_regime
     return compute_sector_regime()
+
+
+@router.get("/sectors/rotation-forecast")
+def sectors_rotation_forecast():
+    """Sector rotation transition probabilities and current forecast."""
+    from backend.sector_transitions import get_rotation_forecast
+    return get_rotation_forecast()
 
 
 @router.post("/sectors/backfill")
@@ -417,3 +440,93 @@ def run_backtest(req: BacktestRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Backtest failed: {e}")
+
+
+# ── Watchlist ──────────────────────────────────────────────────────────────────
+
+@router.get("/watchlist")
+def get_watchlist():
+    """Return watchlist tickers enriched with current signal data."""
+    from backend.db import get_watchlist
+    from backend.sector_regime import compute_ticker_signals
+    from backend.db import prev_signals_by_ticker, latest_signals
+
+    entries    = get_watchlist()
+    tk_signals = compute_ticker_signals()
+    prev_tk    = prev_signals_by_ticker()
+
+    # Build current score map from latest signals
+    latest = {s["ticker"]: s["signal_score"] for s in latest_signals(limit=500)}
+
+    result = []
+    for e in entries:
+        ticker  = e["ticker"]
+        tk      = tk_signals.get(ticker, {})
+        score   = latest.get(ticker)
+        prev    = prev_tk.get(ticker)
+        if score is not None and prev is not None:
+            if score - prev > 0.01:   trend = "up"
+            elif prev - score > 0.01: trend = "down"
+            else:                     trend = "flat"
+        else:
+            trend = "flat"
+        result.append({
+            "ticker":      ticker,
+            "sector":      e["sector"],
+            "added_at":    e["added_at"],
+            "source":      e["source"],
+            "score":       round(score, 4) if score is not None else None,
+            "signal":      tk.get("signal", "weak"),
+            "streak_days": tk.get("streak_days", 0),
+            "trend":       trend,
+        })
+    return result
+
+
+@router.post("/watchlist/{ticker}")
+def add_to_watchlist(ticker: str):
+    """Manually add a ticker to the watchlist."""
+    ticker = _validate_ticker(ticker)
+    from backend.db import upsert_watchlist, latest_signals
+    signals = [s for s in latest_signals(limit=500) if s["ticker"] == ticker]
+    if not signals:
+        raise HTTPException(status_code=404, detail=f"No signal found for {ticker}")
+    upsert_watchlist(ticker, signals[0]["sector"], source="manual")
+    return {"ticker": ticker, "status": "added"}
+
+
+@router.delete("/watchlist/{ticker}")
+def remove_from_watchlist(ticker: str):
+    """Remove a ticker from the watchlist."""
+    ticker = _validate_ticker(ticker)
+    from backend.db import remove_watchlist
+    found = remove_watchlist(ticker)
+    if not found:
+        raise HTTPException(status_code=404, detail=f"{ticker} not in watchlist")
+    return {"ticker": ticker, "status": "removed"}
+
+
+# ── Threshold calibration ──────────────────────────────────────────────────────
+
+@router.post("/calibrate/ticker-thresholds")
+def calibrate_ticker_thresholds():
+    """
+    Recompute per-sector ticker thresholds from ticker_history.
+    Run after backfill completes. Takes ~5s.
+    """
+    from backend.ticker_threshold_calibration import calibrate, print_calibration_report
+    thresholds = calibrate()
+    return {"thresholds": thresholds, "sectors": len(thresholds)}
+
+
+@router.get("/calibrate/ticker-thresholds")
+def get_ticker_thresholds():
+    """Return currently active per-sector thresholds."""
+    from backend.db import get_ticker_thresholds
+    from backend.sector_regime import TICKER_THRESHOLD_DEFAULT
+    thresholds = get_ticker_thresholds()
+    return {
+        "thresholds": thresholds,
+        "default_fallback": TICKER_THRESHOLD_DEFAULT,
+        "calibrated": len(thresholds) > 0,
+    }

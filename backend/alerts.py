@@ -73,6 +73,16 @@ def alert_daily_loss_cap(loss: float, cap: float) -> None:
     _dispatch(title, body)
 
 
+def alert_config_corrupted(config_name: str, error: str) -> None:
+    title = f"[APEX] Config File Corrupted — {config_name}"
+    body  = (
+        f"The {config_name} config file was unreadable and has been reset to defaults.\n"
+        f"Error: {error}\n"
+        "Check your saved settings and re-apply any customisations."
+    )
+    _dispatch(title, body)
+
+
 def alert_gate_blocked(reason: str) -> None:
     mode  = _mode_label()
     title = f"[APEX {mode}] Gate Blocked"

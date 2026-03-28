@@ -9,6 +9,8 @@ Usage:
     from backend.live_config import get_live_config, set_live_config
 """
 import json
+import os
+import tempfile
 from pathlib import Path
 from loguru import logger
 
@@ -69,40 +71,48 @@ def get_live_config() -> dict:
             cfg.update({k: stored[k] for k in _KEYS if k in stored})
             return cfg
         except Exception as e:
-            logger.warning(f"live_config: failed to read {_CONFIG_PATH} — using defaults: {e}")
+            logger.error(f"live_config: corrupt config file — resetting to defaults: {e}")
+            _write_atomic(_defaults())
+            try:
+                from backend.alerts import alert_config_corrupted
+                alert_config_corrupted("live_config", str(e))
+            except Exception:
+                pass
     return _defaults()
 
 
 def set_live_config(updates: dict) -> dict:
-    """
-    Write updates to live_config.json. Only recognised keys are written.
-    Returns the full resulting config.
-    """
-    _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    """Write updates to live_config.json atomically. Returns the full resulting config."""
     current = get_live_config()
     for k in _KEYS:
         if k in updates:
             current[k] = updates[k]
-    with open(_CONFIG_PATH, "w") as f:
-        json.dump(current, f, indent=2)
+    _write_atomic(current)
     logger.info(f"live_config: saved to {_CONFIG_PATH}")
     return current
 
 
+def ensure_config_exists() -> None:
+    """Materialize defaults to disk if the config file doesn't exist yet."""
+    if not _CONFIG_PATH.exists():
+        _write_atomic(_defaults())
+        logger.info(f"live_config: created default config at {_CONFIG_PATH}")
+
+
+def _write_atomic(cfg: dict) -> None:
+    """Write config to a temp file then rename — prevents corrupt files on crash."""
+    _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=_CONFIG_PATH.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(cfg, f, indent=2)
+        os.replace(tmp, _CONFIG_PATH)
+    except Exception:
+        os.unlink(tmp)
+        raise
+
+
 def demo_thresholds() -> dict:
     """Return current demo gate thresholds for the Promote preview."""
-    from backend.config import (
-        LOCK1_THRESHOLD, LOCK2_SENTIMENT_MIN, LOCK3_CONFIDENCE_MIN,
-        TAKE_PROFIT_PCT, STOP_LOSS_PCT,
-        MAX_POSITIONS, MAX_POSITION_SIZE, DAILY_LOSS_CAP,
-    )
-    return {
-        "lock1_threshold":      LOCK1_THRESHOLD,
-        "lock2_sentiment_min":  LOCK2_SENTIMENT_MIN,
-        "lock3_confidence_min": LOCK3_CONFIDENCE_MIN,
-        "take_profit_pct":      TAKE_PROFIT_PCT,
-        "stop_loss_pct":        STOP_LOSS_PCT,
-        "max_positions":        MAX_POSITIONS,
-        "max_position_size":    MAX_POSITION_SIZE,
-        "daily_loss_cap":       DAILY_LOSS_CAP,
-    }
+    from backend.demo_config import get_demo_config
+    return get_demo_config()

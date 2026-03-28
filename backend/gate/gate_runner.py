@@ -34,9 +34,12 @@ def run() -> list[dict]:
     Returns list of full gate result dicts.
     """
     from backend.demo_config import get_demo_config
+    from backend.db import get_ticker_thresholds
     cfg = get_demo_config()
 
-    candidates = get_lock1_candidates(threshold=cfg["lock1_threshold"])
+    sector_thresholds = get_ticker_thresholds()
+    candidates = get_lock1_candidates(threshold=cfg["lock1_threshold"],
+                                      sector_thresholds=sector_thresholds)
 
     if not candidates:
         logger.info("Gate runner: no Lock 1 candidates this cycle")
@@ -74,7 +77,7 @@ def run() -> list[dict]:
 
     with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(candidates))) as pool:
         future_to_signal = {
-            pool.submit(_evaluate, signal, wallet_ctx, cfg, sector_regime): signal
+            pool.submit(_evaluate, signal, wallet_ctx, cfg, sector_regime, sector_thresholds): signal
             for signal in candidates
         }
         for future in as_completed(future_to_signal):
@@ -101,10 +104,13 @@ def run() -> list[dict]:
     return results
 
 
-def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict, sector_regime: dict | None = None) -> dict:
+def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
+              sector_regime: dict | None = None,
+              sector_thresholds: dict | None = None) -> dict:
     ticker = signal["ticker"]
 
-    l1 = lock1_quant.evaluate(signal, threshold=cfg["lock1_threshold"])
+    l1_threshold = (sector_thresholds or {}).get(signal.get("sector", ""), cfg["lock1_threshold"])
+    l1 = lock1_quant.evaluate(signal, threshold=l1_threshold)
 
     if not l1["passed"]:
         return _gate_result(signal, l1, None, None, "FILTERED_L1")
@@ -150,6 +156,26 @@ def _build_claude_context(signal: dict, l2: dict, wallet_ctx: dict,
             "sector_streak_days":  sector_detail.get("streak_days"), # duration of current trend
             "market_leader":       sector_regime.get("leader"),      # currently strongest sector
         })
+
+    # Rotation forecast — gives Lock 3 transition probability awareness
+    try:
+        from backend.sector_transitions import get_rotation_forecast
+        forecast = get_rotation_forecast()
+        if forecast.get("available"):
+            # Is this ticker's sector the predicted next rotation target?
+            next_sectors    = {item["sector"] for item in forecast.get("likely_next", [])}
+            next_prob       = next((item["probability"] for item in forecast.get("likely_next", [])
+                                    if item["sector"] == signal["sector"]), None)
+            confirmed       = forecast.get("confirmed_transition")
+            ctx.update({
+                "rotation_leader":          forecast["leader"],
+                "rotation_predecessor":     forecast.get("predecessor"),
+                "sector_next_probability":  next_prob,           # None if sector not predicted next
+                "rotation_confirmed":       confirmed is not None,
+                "rotation_transition_prob": confirmed["probability"] if confirmed else None,
+            })
+    except Exception:
+        pass
 
     return ctx
 

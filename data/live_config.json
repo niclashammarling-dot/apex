@@ -12,5 +12,5 @@
   "macro_event_blackout_days": 1,
   "macro_earnings_blackout_days": 3,
   "gate_cooloff_hours": 4,
-  "max_sector_exposure": 0.20
+  "max_sector_exposure": 0.2
 }

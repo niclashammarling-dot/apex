@@ -4,16 +4,21 @@ Dynamic sector exposure caps — score-based + duration-weighted.
 cap_i = base_cap × score_weight × duration_weight
 
 score_weight   = clamp(score_i / mean_score, 0.5, 1.5)
-duration_weight:
-  streak < 5d   → 0.85  (unconfirmed, hold back)
-  5–19d         → 1.00  (developing)
-  20–44d        → 1.15  (confirmed multi-week trend)
-  45d+          → 1.00  (extended — score starts reflecting any fade naturally)
+duration_weight — breakpoints derived from 26 years of sector_snapshots data:
 
-Together: a confirmed 3-week Energy uptrend gets meaningfully more cap than a
-sector that just spiked yesterday, without any manual override.
+  streak <  5d  → 0.85  (unconfirmed noise — p75 of above-streaks is 6d)
+  5–14d         → 1.00  (developing, not yet confirmed)
+  15–21d        → 1.15  (CONFIRMED zone — p90–p95, only top 10–5% of runs)
+  22d+          → 0.90  (EXTENDED zone — p95+, rotation statistically imminent,
+                          reduce new entries in this sector)
+
+The EXTENDED compression (0.90 vs old 1.00) creates a natural fade:
+as a sector approaches the historically rare territory where rotation is due,
+the system automatically starts pulling back on new position sizing.
 """
 from loguru import logger
+
+from backend.sector_regime import CONFIRMED_MIN, EXTENDED_MIN
 
 MIN_MULT = 0.5
 MAX_MULT = 1.5
@@ -21,12 +26,12 @@ MAX_MULT = 1.5
 
 def _duration_weight(streak_days: int) -> float:
     if streak_days < 5:
-        return 0.85
-    if streak_days < 20:
-        return 1.00
-    if streak_days < 45:
-        return 1.15
-    return 1.00   # extended — naturally fades as score drops
+        return 0.85                   # unconfirmed — hold back
+    if streak_days < CONFIRMED_MIN:   # 5–14d
+        return 1.00                   # developing
+    if streak_days < EXTENDED_MIN:    # 15–21d
+        return 1.15                   # confirmed — highest conviction window
+    return 0.90                       # 22d+ extended — rotation imminent, compress
 
 
 def compute_dynamic_caps(base_cap: float) -> dict[str, float]:

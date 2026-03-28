@@ -15,6 +15,10 @@ const REGIME_META = {
   neutral:  { label: "NEUTRAL",  color: "#888",    bg: "#88888818" },
 };
 
+const CYCLICAL  = new Set(["Technology", "Financials", "Industrials", "ConsumerDisc",
+                            "Energy", "Materials", "Communication"]);
+const DEFENSIVE = new Set(["Utilities", "Healthcare", "ConsumerStaples", "RealEstate"]);
+
 function weeks(days) {
   if (!days) return "—";
   if (days < 7)  return `${days}d`;
@@ -41,9 +45,10 @@ export default function SectorRegime() {
     </div>
   );
 
-  const regime   = REGIME_META[data.regime] ?? REGIME_META.neutral;
-  const sectors  = data.sectors ?? {};
-  const ordered  = Object.entries(sectors).sort((a, b) => b[1].score - a[1].score);
+  const regime    = REGIME_META[data.regime] ?? REGIME_META.neutral;
+  const sectors   = data.sectors ?? {};
+  const cyclical  = Object.entries(sectors).filter(([s]) => CYCLICAL.has(s)).sort((a, b) => b[1].score - a[1].score);
+  const defensive = Object.entries(sectors).filter(([s]) => DEFENSIVE.has(s)).sort((a, b) => b[1].score - a[1].score);
 
   return (
     <div style={{
@@ -112,28 +117,44 @@ export default function SectorRegime() {
         </div>
       )}
 
-      {/* Sector table */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 6 }}>
-        {ordered.map(([sector, stat]) => {
-          const sm    = SIGNAL_META[stat.signal] ?? SIGNAL_META.weak;
-          const score = stat.score?.toFixed(3) ?? "—";
-          return (
-            <div key={sector} style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              background: "#0e1525", borderRadius: 5, padding: "6px 10px",
-              border: `1px solid ${sm.color}22`,
+      {/* Sector columns */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        {[
+          { label: "Cyclical", color: "#4488ff", entries: cyclical },
+          { label: "Defensive", color: "#00ccaa", entries: defensive },
+        ].map(({ label, color, entries }) => (
+          <div key={label}>
+            <div style={{
+              fontFamily: "'DM Mono', monospace", fontSize: 10, fontWeight: 600,
+              color, letterSpacing: "0.08em", textTransform: "uppercase",
+              marginBottom: 6, paddingBottom: 4, borderBottom: `1px solid ${color}33`,
             }}>
-              <div>
-                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-2)", fontWeight: 500 }}>{sector}</div>
-                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: sm.color, marginTop: 1 }}>{sm.label}</div>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, color: sm.color, fontWeight: 600 }}>{score}</div>
-                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "var(--text-3)", marginTop: 1 }}>{weeks(stat.streak_days)}</div>
-              </div>
+              {label}
             </div>
-          );
-        })}
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {entries.map(([sector, stat]) => {
+                const sm    = SIGNAL_META[stat.signal] ?? SIGNAL_META.weak;
+                const score = stat.score?.toFixed(3) ?? "—";
+                return (
+                  <div key={sector} style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    background: "#0e1525", borderRadius: 5, padding: "6px 10px",
+                    border: `1px solid ${sm.color}22`,
+                  }}>
+                    <div>
+                      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-2)", fontWeight: 500 }}>{sector}</div>
+                      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: sm.color, marginTop: 1 }}>{sm.label}</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, color: sm.color, fontWeight: 600 }}>{score}</div>
+                      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "var(--text-3)", marginTop: 1 }}>{weeks(stat.streak_days)}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

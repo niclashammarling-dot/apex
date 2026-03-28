@@ -6,7 +6,7 @@ from loguru import logger
 
 from backend.config import POLL_INTERVAL_SECTORS, GATE_INTERVAL, EXIT_CHECK_INTERVAL
 from backend.data.fetcher_yahoo import fetch_all_sectors
-from backend.db import insert_signal, prune_signals, insert_sector_snapshots, prune_sector_snapshots
+from backend.db import insert_signal, prune_signals, insert_sector_snapshots, prune_sector_snapshots, insert_ticker_history
 
 NY = ZoneInfo("America/New_York")
 
@@ -33,6 +33,12 @@ def poll_all_sectors(force: bool = False) -> None:
 
     # Aggregate per-sector and snapshot for rotation tracking
     _snapshot_sectors(signals)
+
+    # Persist per-ticker scores for threshold calibration (never pruned)
+    _record_ticker_history(signals)
+
+    # Auto-manage watchlist based on RECOVERING ticker signals
+    _sync_watchlist()
 
 
 def run_gate_candidates() -> None:
@@ -96,6 +102,58 @@ def _snapshot_sectors(signals: list[dict]) -> None:
     logger.debug(f"Sector snapshots written: {len(snapshots)} sectors")
 
 
+def _record_ticker_history(signals: list[dict]) -> None:
+    """Write today's per-ticker scores to ticker_history (never pruned)."""
+    from datetime import date
+    today = date.today().isoformat()
+    rows = [
+        {
+            "ticker":       s["ticker"],
+            "sector":       s["sector"],
+            "day":          today,
+            "signal_score": s["signal_score"],
+        }
+        for s in signals if s.get("signal_score") is not None
+    ]
+    insert_ticker_history(rows)
+
+
+def _sync_watchlist() -> None:
+    """
+    Auto-add RECOVERING tickers to watchlist; remove auto entries that have faded.
+    Manual watchlist entries are never removed automatically.
+    """
+    from backend.sector_regime import compute_ticker_signals
+    from backend.db import upsert_watchlist, prune_watchlist_auto
+    from backend.ticker_config import get_sectors
+
+    ticker_sector = {
+        ticker: sector
+        for sector, cfg in get_sectors().items()
+        for ticker in cfg["tickers"]
+    }
+
+    signals = compute_ticker_signals()
+    recovering = {t for t, v in signals.items() if v["signal"] == "recovering"}
+
+    for ticker in recovering:
+        sector = ticker_sector.get(ticker, "Unknown")
+        upsert_watchlist(ticker, sector, source="auto")
+
+    removed = prune_watchlist_auto(keep_tickers=recovering)
+    if recovering or removed:
+        logger.debug(f"Watchlist sync: {len(recovering)} recovering, {removed} removed")
+
+
+def recalibrate_thresholds() -> None:
+    """Re-derive per-sector Lock 1 thresholds from ticker_history. Runs weekly."""
+    try:
+        from backend.ticker_threshold_calibration import calibrate
+        calibrate()
+    except Exception as e:
+        logger.warning(f"Threshold recalibration failed: {e}")
+
+
 def prune_old_signals() -> None:
     deleted = prune_signals(keep_per_ticker=10)
     if deleted:
@@ -147,6 +205,15 @@ def start_scheduler() -> None:
         hour=2,
         minute=0,
         id="prune_signals",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        recalibrate_thresholds,
+        "cron",
+        day_of_week="sun",
+        hour=3,
+        minute=0,
+        id="recalibrate_thresholds",
         replace_existing=True,
     )
     scheduler.start()

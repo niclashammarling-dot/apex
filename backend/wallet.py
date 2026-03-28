@@ -20,8 +20,7 @@ from datetime import datetime, timezone
 from loguru import logger
 
 from backend.config import (
-    STARTING_BALANCE, MAX_POSITIONS, MAX_SECTOR_EXPOSURE, MAX_POSITION_SIZE,
-    TAKE_PROFIT_PCT, STOP_LOSS_PCT, TIME_STOP_DAYS, DAILY_LOSS_CAP,
+    STARTING_BALANCE, MAX_POSITIONS, MAX_SECTOR_EXPOSURE, MAX_POSITION_SIZE, DAILY_LOSS_CAP,
 )
 from backend.demo_config import get_demo_config
 from backend.db import (
@@ -67,9 +66,10 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
         return None
 
     # Daily loss cap
-    daily_loss = _daily_realized_loss()
-    if daily_loss >= DAILY_LOSS_CAP:
-        logger.warning(f"Trade rejected [{ticker}]: daily loss cap hit (${daily_loss:.2f} >= ${DAILY_LOSS_CAP})")
+    daily_loss     = _daily_realized_loss()
+    daily_loss_cap = cfg.get("daily_loss_cap", DAILY_LOSS_CAP)
+    if daily_loss >= daily_loss_cap:
+        logger.warning(f"Trade rejected [{ticker}]: daily loss cap hit (${daily_loss:.2f} >= ${daily_loss_cap})")
         return None
 
     # Already holding this ticker?
@@ -78,7 +78,8 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
         logger.info(f"Trade skipped [{ticker}]: position already open")
         return None
 
-    amount = portfolio["cash"] * min(position, MAX_POSITION_SIZE)
+    max_position_size = cfg.get("max_position_size", MAX_POSITION_SIZE)
+    amount = portfolio["cash"] * min(position, max_position_size)
     if amount < 50:
         logger.warning(f"Trade rejected [{ticker}]: insufficient cash (${portfolio['cash']:.2f})")
         return None

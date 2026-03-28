@@ -2,6 +2,8 @@ import React, { useState, useEffect, Component } from "react";
 import SectorGrid      from "./components/SectorGrid.jsx";
 import SectorRotation  from "./components/SectorRotation.jsx";
 import SectorRegime    from "./components/SectorRegime.jsx";
+import Watchlist          from "./components/Watchlist.jsx";
+import RotationForecast   from "./components/RotationForecast.jsx";
 import WalletPanel   from "./components/WalletPanel.jsx";
 import GateFeed      from "./components/GateFeed.jsx";
 import EquityCurve   from "./components/EquityCurve.jsx";
@@ -445,6 +447,41 @@ const CSS = `
   .settings-save-btn:hover { background: #132a4a; border-color: #4a6a9a; }
   .settings-save-btn.saved { background: #0e2a1a; border-color: var(--green); color: var(--green); }
 
+  .sector-thresholds-toggle {
+    width: 100%; background: transparent; border: 1px solid var(--border);
+    border-radius: 5px; color: var(--text-3); cursor: pointer;
+    font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 0.07em;
+    padding: 8px 12px; text-align: left; margin-top: 20px;
+    display: flex; justify-content: space-between; align-items: center;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .sector-thresholds-toggle:hover { border-color: #3a4a68; color: var(--text-2); }
+  .sector-thresholds-body {
+    margin-top: 8px; border: 1px solid var(--border); border-radius: 5px;
+    padding: 12px 14px;
+  }
+  .sector-thresh-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 4px 0; border-bottom: 1px solid #1a2a3a; font-size: 11px;
+  }
+  .sector-thresh-row:last-child { border-bottom: none; }
+  .sector-thresh-name { color: var(--text-2); }
+  .sector-thresh-val  { color: var(--text-1); font-weight: 600; }
+  .sector-thresh-bar  {
+    height: 3px; background: #1e3a5a; border-radius: 2px;
+    flex: 1; margin: 0 10px; overflow: hidden;
+  }
+  .sector-thresh-fill { height: 100%; background: #4a8ac4; border-radius: 2px; }
+  .sector-thresh-fallback { color: var(--text-3); font-size: 10px; margin-top: 10px; }
+  .sector-thresh-recal {
+    background: transparent; border: 1px solid #2a4a6a; color: #4a8ac4;
+    border-radius: 4px; font-family: 'DM Mono', monospace; font-size: 10px;
+    letter-spacing: 0.06em; padding: 4px 10px; cursor: pointer; margin-top: 10px;
+    transition: all 0.15s;
+  }
+  .sector-thresh-recal:hover { background: #0e1e38; border-color: #4a6a9a; }
+  .sector-thresh-recal:disabled { opacity: 0.5; cursor: not-allowed; }
+
   .settings-tabs { display: flex; gap: 2px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
   .settings-tab {
     background: transparent; border: none; border-bottom: 2px solid transparent;
@@ -551,7 +588,7 @@ async function fetchWithRetry(url, maxAttempts = 3) {
 // ── Settings modal ────────────────────────────────────────────────────────────
 
 const SETTINGS_FIELDS = [
-  { key: "lock1_threshold",      label: "Lock 1 Threshold",      step: 0.01, min: 0,    max: 1   },
+  { key: "lock1_threshold",      label: "Lock 1 Fallback Threshold",      step: 0.01, min: 0,    max: 1   },
   { key: "lock2_sentiment_min",  label: "Lock 2 Sentiment Min",  step: 0.01, min: -1,   max: 1   },
   { key: "lock3_confidence_min", label: "Lock 3 Confidence Min", step: 0.01, min: 0,    max: 1   },
   { key: "take_profit_pct",      label: "Take Profit %",         step: 0.01, min: 0.01, max: 1   },
@@ -566,6 +603,68 @@ const SETTINGS_FIELDS = [
   { key: "gate_cooloff_hours",          label: "Gate Cooloff (hours)",       step: 1,    min: 0,   max: 24    },
   { key: "max_sector_exposure",         label: "Max Sector Exposure",        step: 0.05, min: 0.05, max: 1    },
 ];
+
+function SectorThresholds({ fallback }) {
+  const [open,       setOpen]       = React.useState(false);
+  const [thresholds, setThresholds] = React.useState(null);
+  const [recaling,   setRecaling]   = React.useState(false);
+
+  React.useEffect(() => {
+    fetch("/api/calibrate/ticker-thresholds")
+      .then(r => r.json())
+      .then(d => setThresholds(d.thresholds || {}))
+      .catch(() => {});
+  }, []);
+
+  async function recalibrate() {
+    setRecaling(true);
+    try {
+      const r = await fetch("/api/calibrate/ticker-thresholds", { method: "POST" });
+      const d = await r.json();
+      setThresholds(d.thresholds || {});
+    } finally {
+      setRecaling(false);
+    }
+  }
+
+  const sorted = thresholds
+    ? Object.entries(thresholds).sort((a, b) => b[1] - a[1])
+    : [];
+  const min = sorted.length ? sorted[sorted.length - 1][1] : 0.5;
+  const max = sorted.length ? sorted[0][1] : 0.65;
+
+  return (
+    <div style={{ gridColumn: "1 / -1" }}>
+      <button className="sector-thresholds-toggle" onClick={() => setOpen(o => !o)}>
+        <span>LOCK 1 — Per-sector thresholds</span>
+        <span>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="sector-thresholds-body">
+          {sorted.map(([sector, val]) => {
+            const pct = max === min ? 100 : ((val - min) / (max - min)) * 100;
+            return (
+              <div className="sector-thresh-row" key={sector}>
+                <span className="sector-thresh-name">{sector}</span>
+                <div className="sector-thresh-bar">
+                  <div className="sector-thresh-fill" style={{ width: `${pct}%` }} />
+                </div>
+                <span className="sector-thresh-val">{val.toFixed(4)}</span>
+              </div>
+            );
+          })}
+          {!sorted.length && <div className="muted" style={{ fontSize: 11 }}>No calibrated thresholds yet — run recalibrate.</div>}
+          <div className="sector-thresh-fallback">
+            Uncalibrated sectors use fallback: {fallback ?? "—"} — updates take effect on next gate cycle, no restart needed.
+          </div>
+          <button className="sector-thresh-recal" onClick={recalibrate} disabled={recaling}>
+            {recaling ? "Recalibrating…" : "↺ Recalibrate from history"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function SettingsCol({ title, config, accentColor, onSave }) {
   const [values, setValues] = React.useState(config || {});
@@ -676,6 +775,7 @@ function SettingsModal({ settings, tickers, onSave, onTickerAdd, onTickerRemove,
             <div className="settings-grid">
               <SettingsCol title="Demo" config={settings?.demo} accentColor="var(--text-2)" onSave={vals => onSave("demo", vals)} />
               <SettingsCol title="Live" config={settings?.live} accentColor="#a0c040"        onSave={vals => onSave("live", vals)} />
+              <SectorThresholds fallback={settings?.demo?.lock1_threshold} />
             </div>
           </>
         )}
@@ -737,7 +837,7 @@ function PromoteModal({ config, onConfirm, onCancel }) {
         </div>
         <table className="modal-table">
           <thead>
-            <tr><th>Setting</th><th>Current Live</th><th>New (Demo)</th></tr>
+            <tr><th>Setting</th><th>Demo (source)</th><th>Live (after promote)</th></tr>
           </thead>
           <tbody>
             {Object.keys(PROMOTE_LABELS).map(key => {
@@ -747,8 +847,8 @@ function PromoteModal({ config, onConfirm, onCancel }) {
               return (
                 <tr key={key}>
                   <td>{PROMOTE_LABELS[key]}</td>
-                  <td>{liveVal != null ? fmt(key, liveVal) : "—"}</td>
-                  <td className={changed ? "changed" : ""}>{demoVal != null ? fmt(key, demoVal) : "—"}</td>
+                  <td>{demoVal != null ? fmt(key, demoVal) : "—"}</td>
+                  <td className={changed ? "changed" : ""}>{liveVal != null ? fmt(key, liveVal) : "—"}</td>
                 </tr>
               );
             })}
@@ -975,6 +1075,12 @@ export default function App() {
                 <ErrorBoundary label="Sector Regime">
                   <SectorRegime />
                 </ErrorBoundary>
+                <ErrorBoundary label="Rotation Forecast">
+                  <RotationForecast />
+                </ErrorBoundary>
+                <ErrorBoundary label="Watchlist">
+                  <Watchlist />
+                </ErrorBoundary>
               </div>
 
               <ErrorBoundary label="Gate Activity">
@@ -1049,13 +1155,14 @@ export default function App() {
       )}
 
       {/* ── Promote modal ────────────────────────────────────────────────── */}
-      {showPromote && liveConfig && (
+      {showPromote && settings && (
         <PromoteModal
-          config={liveConfig}
+          config={settings}
           onConfirm={async () => {
             await fetch("/api/live/config/promote", { method: "POST" });
             setShowPromote(false);
             fetchData();
+            fetchLiveData(); // refresh live account/equity after config change
           }}
           onCancel={() => setShowPromote(false)}
         />
@@ -1066,6 +1173,18 @@ export default function App() {
         <>
         <main className="main">
           <div className="main-left">
+            <div>
+              <ErrorBoundary label="Sector Regime">
+                <SectorRegime />
+              </ErrorBoundary>
+              <ErrorBoundary label="Rotation Forecast">
+                <RotationForecast />
+              </ErrorBoundary>
+              <ErrorBoundary label="Watchlist">
+                <Watchlist />
+              </ErrorBoundary>
+            </div>
+
             <ErrorBoundary label="Live Gate Feed">
               <LiveGateFeed history={liveGateHist} />
             </ErrorBoundary>

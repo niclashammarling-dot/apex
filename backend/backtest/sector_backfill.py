@@ -15,7 +15,10 @@ from loguru import logger
 
 from backend.config import SPY_TICKER
 from backend.ticker_config import get_sectors
-from backend.db import insert_sector_snapshots, get_existing_snapshot_dates
+from backend.db import (
+    insert_sector_snapshots, get_existing_snapshot_dates,
+    insert_ticker_history, get_existing_ticker_history_dates,
+)
 from backend.backtest.engine import (
     _download_all,
     _score_all_tickers,
@@ -52,8 +55,10 @@ def backfill_sector_snapshots(start_date: str, end_date: str) -> int:
     trading_days = _trading_days(start, end, raw_data)
     logger.info(f"Sector backfill: {len(trading_days)} trading days, {len(ticker_sector)} tickers")
 
-    # Skip dates that already have snapshots
-    existing = get_existing_snapshot_dates(start_date, end_date)
+    # Skip dates that already have snapshots AND ticker history
+    existing_snaps   = get_existing_snapshot_dates(start_date, end_date)
+    existing_tickers = get_existing_ticker_history_dates(start_date, end_date)
+    existing = existing_snaps & existing_tickers   # only skip if both are present
     todo = [d for d in trading_days if d.isoformat() not in existing]
     logger.info(f"Sector backfill: {len(existing)} days already present, {len(todo)} to compute")
 
@@ -91,6 +96,18 @@ def backfill_sector_snapshots(start_date: str, end_date: str) -> int:
 
         insert_sector_snapshots(snapshots)
         inserted += len(snapshots)
+
+        # Also persist per-ticker scores for threshold calibration
+        ticker_rows = [
+            {
+                "ticker":       sig["ticker"],
+                "sector":       sig["sector"],
+                "day":          today.isoformat(),
+                "signal_score": sig["signal_score"],
+            }
+            for sig in candidates
+        ]
+        insert_ticker_history(ticker_rows)
 
     logger.info(f"Sector backfill complete: {inserted} rows inserted")
     return inserted

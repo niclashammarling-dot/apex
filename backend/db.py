@@ -133,6 +133,24 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_sector_snap_ts     ON sector_snapshots(timestamp DESC);
             CREATE INDEX IF NOT EXISTS idx_sector_snap_sector ON sector_snapshots(sector);
+
+            CREATE TABLE IF NOT EXISTS watchlist (
+                ticker    TEXT PRIMARY KEY,
+                sector    TEXT NOT NULL,
+                added_at  TEXT NOT NULL,
+                source    TEXT NOT NULL DEFAULT 'auto'
+            );
+
+            CREATE TABLE IF NOT EXISTS ticker_history (
+                ticker       TEXT NOT NULL,
+                sector       TEXT NOT NULL,
+                day          TEXT NOT NULL,
+                signal_score REAL NOT NULL,
+                PRIMARY KEY (ticker, day)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_ticker_hist_sector ON ticker_history(sector);
+            CREATE INDEX IF NOT EXISTS idx_ticker_hist_day    ON ticker_history(day DESC);
         """)
         conn.commit()
         logger.info(f"DB initialised at {DB_PATH}")
@@ -252,6 +270,47 @@ def prev_signals_avg_by_sector() -> dict[str, float]:
         conn.close()
 
 
+def prev_signals_by_ticker() -> dict[str, float]:
+    """
+    Returns the signal score from the second-most-recent poll per ticker.
+    Used to compute per-ticker trend arrows.
+    """
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT ticker, signal_score
+            FROM signals s1
+            WHERE timestamp = (
+                SELECT DISTINCT timestamp FROM signals s2
+                WHERE s2.ticker = s1.ticker
+                ORDER BY timestamp DESC
+                LIMIT 1 OFFSET 1
+            )
+        """).fetchall()
+        return {r["ticker"]: round(r["signal_score"], 4) for r in rows}
+    finally:
+        conn.close()
+
+
+def get_ticker_daily_scores(days: int = 90) -> list[dict]:
+    """
+    Daily average signal score per ticker for the last N days.
+    Used to compute per-ticker streak signals (breakout/trending/etc.).
+    """
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT ticker, DATE(timestamp) AS day, AVG(signal_score) AS avg_score
+            FROM signals
+            WHERE timestamp >= DATE('now', ? || ' days')
+            GROUP BY ticker, DATE(timestamp)
+            ORDER BY ticker, day
+        """, (f"-{days}",)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def signals_for_sector(sector: str) -> list[dict]:
     conn = get_db()
     try:
@@ -266,10 +325,15 @@ def signals_for_sector(sector: str) -> list[dict]:
         conn.close()
 
 
-def get_lock1_candidates(threshold: float | None = None) -> list[dict]:
-    """Latest signal per ticker where signal_score >= threshold (defaults to LOCK1_THRESHOLD)."""
+def get_lock1_candidates(threshold: float | None = None,
+                         sector_thresholds: dict | None = None) -> list[dict]:
+    """
+    Latest signal per ticker filtered by threshold.
+    If sector_thresholds provided, each ticker is filtered against its sector's
+    calibrated threshold (falling back to `threshold` for uncalibrated sectors).
+    """
     from backend.config import LOCK1_THRESHOLD
-    effective = threshold if threshold is not None else LOCK1_THRESHOLD
+    fallback = threshold if threshold is not None else LOCK1_THRESHOLD
     conn = get_db()
     try:
         rows = conn.execute("""
@@ -280,12 +344,18 @@ def get_lock1_candidates(threshold: float | None = None) -> list[dict]:
                 FROM signals
                 GROUP BY ticker
             ) latest ON s.ticker = latest.ticker AND s.timestamp = latest.max_ts
-            WHERE s.signal_score >= ?
             ORDER BY s.signal_score DESC
-        """, (effective,)).fetchall()
-        return [dict(r) for r in rows]
+        """).fetchall()
+        candidates = [dict(r) for r in rows]
     finally:
         conn.close()
+
+    if sector_thresholds:
+        return [
+            c for c in candidates
+            if c["signal_score"] >= sector_thresholds.get(c.get("sector", ""), fallback)
+        ]
+    return [c for c in candidates if c["signal_score"] >= fallback]
 
 
 def update_signal_gate(signal_id: int, result: dict) -> None:
@@ -738,6 +808,137 @@ def prune_sector_snapshots(keep_days: int = 1825) -> int:  # default 5 years
         cur = conn.execute("DELETE FROM sector_snapshots WHERE timestamp < ?", (cutoff,))
         conn.commit()
         return cur.rowcount
+    finally:
+        conn.close()
+
+
+def insert_ticker_history(rows: list[dict]) -> int:
+    """
+    Upsert per-ticker daily signal scores into ticker_history.
+    Each row: {ticker, sector, day, signal_score}.
+    Returns number of rows inserted (ignores duplicates).
+    """
+    if not rows:
+        return 0
+    conn = get_db()
+    try:
+        cur = conn.executemany("""
+            INSERT OR IGNORE INTO ticker_history (ticker, sector, day, signal_score)
+            VALUES (:ticker, :sector, :day, :signal_score)
+        """, rows)
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
+def get_existing_ticker_history_dates(start_date: str, end_date: str) -> set[str]:
+    """Return set of days that already have ticker_history rows in the date range."""
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT DISTINCT day FROM ticker_history
+            WHERE day >= ? AND day <= ?
+        """, (start_date, end_date)).fetchall()
+        return {r["day"] for r in rows}
+    finally:
+        conn.close()
+
+
+def get_ticker_thresholds() -> dict[str, float]:
+    """
+    Return per-sector calibrated thresholds from ticker_history.
+    Falls back to empty dict if not enough data.
+    Thresholds are stored in a simple key-value table.
+    """
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT sector, threshold FROM ticker_thresholds"
+        ).fetchall()
+        return {r["sector"]: r["threshold"] for r in rows}
+    except Exception:
+        return {}
+    finally:
+        conn.close()
+
+
+def save_ticker_thresholds(thresholds: dict[str, float]) -> None:
+    """Persist calibrated per-sector thresholds."""
+    conn = get_db()
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ticker_thresholds (
+                sector    TEXT PRIMARY KEY,
+                threshold REAL NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        conn.executemany("""
+            INSERT INTO ticker_thresholds (sector, threshold, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(sector) DO UPDATE SET threshold=excluded.threshold, updated_at=excluded.updated_at
+        """, [(s, t, now) for s, t in thresholds.items()])
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_watchlist() -> list[dict]:
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT ticker, sector, added_at, source FROM watchlist ORDER BY added_at DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def upsert_watchlist(ticker: str, sector: str, source: str = "auto") -> None:
+    """Add ticker to watchlist. If already present, only upgrades source to 'manual'."""
+    from datetime import datetime, timezone
+    conn = get_db()
+    try:
+        conn.execute("""
+            INSERT INTO watchlist (ticker, sector, added_at, source)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(ticker) DO UPDATE SET
+                source = CASE WHEN excluded.source = 'manual' THEN 'manual' ELSE source END
+        """, (ticker, sector, datetime.now(timezone.utc).isoformat(), source))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def remove_watchlist(ticker: str) -> bool:
+    """Remove ticker from watchlist. Returns True if it existed."""
+    conn = get_db()
+    try:
+        cur = conn.execute("DELETE FROM watchlist WHERE ticker = ?", (ticker,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def prune_watchlist_auto(keep_tickers: set[str]) -> int:
+    """
+    Remove auto-added tickers that are no longer RECOVERING.
+    Manual entries are never auto-removed.
+    """
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT ticker FROM watchlist WHERE source = 'auto'"
+        ).fetchall()
+        to_remove = [r["ticker"] for r in rows if r["ticker"] not in keep_tickers]
+        if to_remove:
+            conn.executemany("DELETE FROM watchlist WHERE ticker = ?", [(t,) for t in to_remove])
+            conn.commit()
+        return len(to_remove)
     finally:
         conn.close()
 

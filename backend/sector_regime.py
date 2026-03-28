@@ -25,11 +25,30 @@ DEFENSIVE = {"Utilities", "Healthcare", "ConsumerStaples", "RealEstate"}
 # a sector score is an average across tickers, most of which won't all peak together
 SECTOR_THRESHOLD = 0.50
 
-# Streak thresholds (trading days)
-BREAKOUT_MIN_PRIOR_WEAK  = 20   # must have been weak ≥20 days before calling it a breakout
-CONFIRMED_MIN            = 15   # above threshold ≥15 days → confirmed trend
-EXTENDED_MIN             = 45   # above threshold ≥45 days → late stage, start watching
-BREAKDOWN_MIN_PRIOR      = 15   # must have been strong ≥15 days before calling breakdown
+# Streak thresholds (trading days) — all derived from 26 years of sector_snapshots data
+#
+#   CONFIRMED_MIN = 15  → p90 of above-threshold streaks (only 10% of runs reach this)
+#   EXTENDED_MIN  = 21  → p95 of above-threshold streaks (top 5%, rotation statistically imminent)
+#   BREAKOUT_MIN_PRIOR_WEAK = 17 → p85 of below-threshold streaks (genuine extended weakness)
+#   BREAKDOWN_MIN_PRIOR     = 15 → equals CONFIRMED_MIN (must have been trending before breakdown means anything)
+#
+BREAKOUT_MIN_PRIOR_WEAK  = 17   # p85 of below-threshold streaks
+CONFIRMED_MIN            = 15   # p90 of above-threshold streaks
+EXTENDED_MIN             = 21   # p95 of above-threshold streaks — rotation imminent
+BREAKDOWN_MIN_PRIOR      = 15   # = CONFIRMED_MIN
+
+# Individual ticker threshold — default fallback until calibration runs
+# Per-sector thresholds are loaded from ticker_thresholds table (populated by
+# ticker_threshold_calibration.py after backfill completes).
+TICKER_THRESHOLD_DEFAULT = 0.55
+
+def _get_ticker_thresholds() -> dict[str, float]:
+    """Load per-sector thresholds, falling back to default for missing sectors."""
+    try:
+        from backend.db import get_ticker_thresholds
+        return get_ticker_thresholds()
+    except Exception:
+        return {}
 
 
 def compute_sector_regime() -> dict:
@@ -87,7 +106,101 @@ def compute_sector_regime() -> dict:
     }
 
 
+def compute_ticker_signals() -> dict[str, dict]:
+    """
+    Per-ticker streak-based signal classification using the same logic as sectors.
+    Uses daily averages from the signals table (last 90 days).
+    Returns {ticker: {score, signal, streak_days}} or {} if no data.
+    """
+    try:
+        from backend.db import get_ticker_daily_scores
+        rows = get_ticker_daily_scores(days=90)
+    except Exception:
+        return {}
+
+    if not rows:
+        return {}
+
+    by_ticker: dict[str, list] = defaultdict(list)
+    for row in rows:
+        by_ticker[row["ticker"]].append(row)
+
+    per_sector_thresholds = _get_ticker_thresholds()
+
+    # Build ticker→sector map from entries
+    ticker_sector: dict[str, str] = {}
+    for ticker, entries in by_ticker.items():
+        if entries:
+            ticker_sector[ticker] = entries[0].get("sector", "")
+
+    result = {}
+    for ticker, entries in by_ticker.items():
+        entries_sorted = sorted(entries, key=lambda r: r["day"])
+        if not entries_sorted:
+            continue
+
+        sector    = ticker_sector.get(ticker, "")
+        threshold = per_sector_thresholds.get(sector, TICKER_THRESHOLD_DEFAULT)
+
+        current_score = entries_sorted[-1]["avg_score"]
+        above_now     = current_score >= threshold
+
+        streak = 0
+        for row in reversed(entries_sorted):
+            if (row["avg_score"] >= threshold) == above_now:
+                streak += 1
+            else:
+                break
+
+        prior_rows = entries_sorted[: len(entries_sorted) - streak]
+        prior_streak = 0
+        if prior_rows:
+            prior_above = prior_rows[-1]["avg_score"] >= threshold
+            for row in reversed(prior_rows):
+                if (row["avg_score"] >= threshold) == prior_above:
+                    prior_streak += 1
+                else:
+                    break
+
+        if above_now:
+            if streak <= 5 and prior_streak >= BREAKOUT_MIN_PRIOR_WEAK:
+                signal = "breakout"
+            elif streak >= EXTENDED_MIN:
+                signal = "extended"
+            elif streak >= CONFIRMED_MIN:
+                signal = "trending"
+            else:
+                signal = "rising"
+        else:
+            if streak <= 5 and prior_streak >= BREAKDOWN_MIN_PRIOR:
+                signal = "breakdown"
+            elif _is_recovering(entries_sorted):
+                signal = "recovering"
+            else:
+                signal = "weak"
+
+        result[ticker] = {
+            "score":       round(current_score, 4),
+            "signal":      signal,
+            "streak_days": streak,
+        }
+
+    return result
+
+
 # ── Internal helpers ──────────────────────────────────────────────────────────
+
+def _is_recovering(entries_sorted: list) -> bool:
+    """
+    Returns True if a below-threshold ticker shows a sustained upward slope:
+    average of the last 3 days > average of the 3 days before that by ≥0.02.
+    Requires at least 6 data points to avoid noise.
+    """
+    if len(entries_sorted) < 6:
+        return False
+    recent = sum(r["avg_score"] for r in entries_sorted[-3:]) / 3
+    prior  = sum(r["avg_score"] for r in entries_sorted[-6:-3]) / 3
+    return recent - prior >= 0.02
 
 def _compute_sector_stats(history: list[dict]) -> dict[str, dict]:
     """
