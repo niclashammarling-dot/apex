@@ -6,6 +6,10 @@ Lock 2 and Lock 3 are not replayable (live LLM calls), so the backtest uses
 Lock 1 as the sole entry filter. This lets you validate whether the quant
 signal engine has genuine predictive value before attributing edge to the LLMs.
 
+Two additional lock proxies CAN be backtested from historical data:
+  - vix_threshold: skip new entries when VIX > N (Macro lock proxy)
+  - use_leading_rs: only enter if ticker outperforms its sector ETF over 5d (Leading lock RS proxy)
+
 Usage:
     from backend.backtest.engine import run
     results = run("2024-01-01", "2024-12-31", initial_balance=10_000)
@@ -84,6 +88,9 @@ def run(
     time_stop_days:     int   | None = None,
     lock1_threshold:    float | None = None,
     max_entries_per_day: int  | None = None,
+    vix_threshold:      float | None = None,
+    use_leading_rs:     bool        = False,
+    max_positions:      int   | None = None,
 ) -> BacktestResult:
     """
     Run a historical backtest from start_date to end_date.
@@ -100,6 +107,9 @@ def run(
         time_stop_days:      Override TIME_STOP_DAYS (e.g. 15)
         lock1_threshold:     Override LOCK1_THRESHOLD (e.g. 0.72)
         max_entries_per_day: Cap new positions opened on a single day (e.g. 2)
+        vix_threshold:       Skip new entries when VIX exceeds this level (e.g. 25). None disables.
+        use_leading_rs:      Only enter if ticker's 5d return > its sector ETF's 5d return.
+        max_positions:       Override MAX_POSITIONS (e.g. 3). Lower = more concentrated portfolio.
 
     Returns:
         BacktestResult dict with performance metrics and full trade log.
@@ -110,6 +120,7 @@ def run(
     tdays    = time_stop_days     if time_stop_days     is not None else TIME_STOP_DAYS
     l1       = lock1_threshold    if lock1_threshold    is not None else LOCK1_THRESHOLD
     max_epd  = max_entries_per_day  # None means unlimited
+    max_pos  = max_positions      if max_positions      is not None else MAX_POSITIONS
 
     start = date.fromisoformat(start_date)
     end   = date.fromisoformat(end_date)
@@ -119,10 +130,16 @@ def run(
 
     logger.info(f"Backtest: loading data {start} → {end} (tp={tp:.0%} sl={sl:.0%} days={tdays} l1={l1})")
 
-    # Download full history for all tickers + SPY + sector ETFs
+    # Download full history for all tickers + SPY + sector ETFs (+ VIX if macro filter active)
     lookback_start = start - timedelta(days=130)  # 130d buffer for 90d rolling indicators + MA50
     etf_tickers    = [cfg["etf"] for cfg in SECTORS.values()]
-    all_tickers    = [SPY_TICKER] + etf_tickers + [t for cfg in SECTORS.values() for t in cfg["tickers"]]
+    vix_ticker     = "^VIX" if vix_threshold is not None else None
+    all_tickers    = (
+        [SPY_TICKER]
+        + ([vix_ticker] if vix_ticker else [])
+        + etf_tickers
+        + [t for cfg in SECTORS.values() for t in cfg["tickers"]]
+    )
     raw_data       = _download_all(all_tickers, lookback_start, end)
 
     if raw_data.empty:
@@ -191,8 +208,11 @@ def run(
         daily_loss_today = daily_losses.get(today_str, 0.0)
         entries_today    = 0
 
-        for sig in sorted(candidates, key=lambda s: s["signal_score"], reverse=True):
-            if len(open_trades) >= MAX_POSITIONS:
+        # Macro lock proxy: skip new entries on high-VIX days
+        vix_blocked = vix_threshold is not None and _vix_on(raw_data, today) > vix_threshold
+
+        for sig in ([] if vix_blocked else sorted(candidates, key=lambda s: s["signal_score"], reverse=True)):
+            if len(open_trades) >= max_pos:
                 break
             if max_epd is not None and entries_today >= max_epd:
                 break
@@ -208,6 +228,10 @@ def run(
                 ticker_earnings = earnings_dates.get(sig["ticker"], set())
                 if any(today <= ed <= today + timedelta(days=earnings_filter_days) for ed in ticker_earnings):
                     continue
+
+            # Leading RS proxy: ticker must outperform its sector ETF over last 5 days
+            if use_leading_rs and not _leading_rs_pass(raw_data, sig["ticker"], sector_etf.get(sig["sector"], ""), today):
+                continue
 
             # Sector exposure check
             sector    = sig["sector"]
@@ -552,6 +576,33 @@ def _etf_regime_on(raw_data: pd.DataFrame, etf_ticker: str, today: date) -> floa
         return 1.0 if price >= ma20 else 0.85
     except Exception:
         return 1.0
+
+
+def _vix_on(raw_data: pd.DataFrame, today: date) -> float:
+    """Return VIX closing value on or before today. Returns 0 if unavailable."""
+    df = _slice_history(raw_data, "^VIX", today, lookback_days=5)
+    if df is None or df.empty:
+        return 0.0
+    try:
+        return float(df["Close"].iloc[-1])
+    except Exception:
+        return 0.0
+
+
+def _leading_rs_pass(raw_data: pd.DataFrame, ticker: str, etf: str, today: date) -> bool:
+    """Return True if ticker's 5-day return > sector ETF's 5-day return."""
+    if not etf:
+        return True  # no ETF mapped → don't filter
+    t_df   = _slice_history(raw_data, ticker, today, lookback_days=8)
+    etf_df = _slice_history(raw_data, etf,    today, lookback_days=8)
+    if t_df is None or etf_df is None or len(t_df) < 2 or len(etf_df) < 2:
+        return True  # data unavailable → don't filter
+    try:
+        t_ret   = float(t_df["Close"].iloc[-1]   / t_df["Close"].iloc[0])   - 1
+        etf_ret = float(etf_df["Close"].iloc[-1] / etf_df["Close"].iloc[0]) - 1
+        return t_ret > etf_ret
+    except Exception:
+        return True
 
 
 def _sector_exposure(open_trades: list[dict], initial_balance: float) -> dict[str, float]:

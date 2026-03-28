@@ -169,6 +169,26 @@ def init_db() -> None:
         _add_column_if_missing(conn, "signals", "macd_hist",        "REAL")
         _add_column_if_missing(conn, "signals", "ma50",             "REAL")
         _add_column_if_missing(conn, "signals", "rs_score",         "REAL")
+        # Leading lock columns
+        _add_column_if_missing(conn, "signals",           "lock_leading_pass",   "INTEGER DEFAULT 0")
+        _add_column_if_missing(conn, "signals",           "lock_leading_checks", "TEXT")
+        _add_column_if_missing(conn, "live_gate_history", "lock_leading_pass",   "INTEGER DEFAULT 0")
+        _add_column_if_missing(conn, "live_gate_history", "lock_leading_checks", "TEXT")
+        # Trailing stop — peak price tracking
+        _add_column_if_missing(conn, "trades", "peak_price", "REAL")
+
+        # Migrate old gate_decision values to canonical FILTERED_* form
+        conn.executescript("""
+            UPDATE signals SET gate_decision = 'TRADE_EXECUTED' WHERE gate_decision = 'BUY';
+            UPDATE signals SET gate_decision = 'FILTERED_L3'    WHERE gate_decision = 'HOLD';
+            UPDATE signals SET gate_decision = 'FILTERED_L3'    WHERE gate_decision = 'SELL';
+            UPDATE signals SET gate_decision = 'FILTERED_L1'    WHERE gate_decision = 'L1_FAIL';
+            UPDATE signals SET gate_decision = 'FILTERED_L2'    WHERE gate_decision = 'L2_FAIL';
+            UPDATE live_gate_history SET gate_decision = 'TRADE_EXECUTED' WHERE gate_decision = 'BUY';
+            UPDATE live_gate_history SET gate_decision = 'FILTERED_L3'    WHERE gate_decision = 'HOLD';
+            UPDATE live_gate_history SET gate_decision = 'FILTERED_L3'    WHERE gate_decision = 'SELL';
+        """)
+        conn.commit()
     finally:
         conn.close()
 
@@ -364,19 +384,23 @@ def update_signal_gate(signal_id: int, result: dict) -> None:
     try:
         conn.execute("""
             UPDATE signals
-            SET lock1_pass       = :lock1_pass,
-                lock2_pass       = :lock2_pass,
-                lock3_pass       = :lock3_pass,
-                gate_decision    = :gate_decision,
-                lock3_reasoning  = :lock3_reasoning
+            SET lock1_pass          = :lock1_pass,
+                lock2_pass          = :lock2_pass,
+                lock_leading_pass   = :lock_leading_pass,
+                lock_leading_checks = :lock_leading_checks,
+                lock3_pass          = :lock3_pass,
+                gate_decision       = :gate_decision,
+                lock3_reasoning     = :lock3_reasoning
             WHERE id = :id
         """, {
-            "lock1_pass":       result["lock1_pass"],
-            "lock2_pass":       result["lock2_pass"],
-            "lock3_pass":       result["lock3_pass"],
-            "gate_decision":    result["gate_decision"],
-            "lock3_reasoning":  result.get("claude_reasoning"),
-            "id":               signal_id,
+            "lock1_pass":          result["lock1_pass"],
+            "lock2_pass":          result["lock2_pass"],
+            "lock_leading_pass":   result.get("lock_leading_pass", 0),
+            "lock_leading_checks": result.get("lock_leading_checks"),
+            "lock3_pass":          result["lock3_pass"],
+            "gate_decision":       result["gate_decision"],
+            "lock3_reasoning":     result.get("claude_reasoning"),
+            "id":                  signal_id,
         })
         conn.commit()
     finally:
@@ -432,14 +456,23 @@ def insert_trade(row: dict) -> int:
             INSERT INTO trades
               (timestamp, ticker, sector, action, price, shares, amount,
                signal_score, sentiment_score, claude_confidence, claude_reasoning,
-               outcome, pnl)
+               outcome, pnl, peak_price)
             VALUES
               (:timestamp, :ticker, :sector, :action, :price, :shares, :amount,
                :signal_score, :sentiment_score, :claude_confidence, :claude_reasoning,
-               :outcome, :pnl)
-        """, row)
+               :outcome, :pnl, :peak_price)
+        """, {**row, "peak_price": row.get("peak_price", row.get("price"))})
         conn.commit()
         return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def update_trade_peak_price(trade_id: int, peak_price: float) -> None:
+    conn = get_db()
+    try:
+        conn.execute("UPDATE trades SET peak_price = ? WHERE id = ?", (peak_price, trade_id))
+        conn.commit()
     finally:
         conn.close()
 
@@ -545,6 +578,7 @@ def get_gate_history(limit: int = 30) -> list[dict]:
                    lock3_reasoning
             FROM signals
             WHERE gate_decision IS NOT NULL
+              AND gate_decision NOT IN ('SKIPPED_OPEN', 'SKIPPED_COOLOFF')
             ORDER BY timestamp DESC
             LIMIT ?
         """, (limit,)).fetchall()
@@ -553,22 +587,110 @@ def get_gate_history(limit: int = 30) -> list[dict]:
         conn.close()
 
 
-def get_equity_curve() -> list[dict]:
-    """Running balance over time from closed trades. Starts at STARTING_BALANCE."""
-    from backend.config import STARTING_BALANCE
+def get_gate_funnel_counts(since: str | None = None) -> dict:
+    """
+    Full funnel counts including pre-gate skips.
+    since: ISO timestamp cutoff (optional).
+    """
     conn = get_db()
     try:
-        rows = conn.execute("""
+        where = "WHERE gate_decision IS NOT NULL"
+        params: tuple = ()
+        if since:
+            where += " AND timestamp >= ?"
+            params = (since,)
+
+        rows = conn.execute(f"""
+            SELECT gate_decision, COUNT(*) AS cnt
+            FROM signals
+            {where}
+            GROUP BY gate_decision
+        """, params).fetchall()
+
+        counts = {r["gate_decision"]: r["cnt"] for r in rows}
+        skipped_open    = counts.get("SKIPPED_OPEN", 0)
+        skipped_cooloff = counts.get("SKIPPED_COOLOFF", 0)
+        l1_fail         = counts.get("FILTERED_L1", 0)
+        macro_fail      = counts.get("FILTERED_MACRO", 0)
+        l2_fail         = counts.get("FILTERED_L2", 0)
+        leading_fail    = counts.get("FILTERED_LEADING", 0)
+        l3_fail         = counts.get("FILTERED_L3", 0)
+        executed        = counts.get("TRADE_EXECUTED", 0)
+        rejected        = counts.get("TRADE_REJECTED", 0)
+
+        total_candidates = sum(counts.values())
+        evaluated = total_candidates - skipped_open - skipped_cooloff
+
+        return {
+            "total_candidates": total_candidates,
+            "skipped_open":     skipped_open,
+            "skipped_cooloff":  skipped_cooloff,
+            "evaluated":        evaluated,
+            "l1_fail":          l1_fail,
+            "macro_fail":       macro_fail,
+            "l2_fail":          l2_fail,
+            "leading_fail":     leading_fail,
+            "l3_fail":          l3_fail,
+            "executed":         executed,
+            "rejected":         rejected,
+        }
+    finally:
+        conn.close()
+
+
+def get_equity_curve() -> list[dict]:
+    """
+    Running balance over time from closed trades, plus a live 'Now' point that
+    marks open positions to market using the latest signal prices.
+
+    Without the MTM point, flat segments are ambiguous — they could mean
+    'nothing happened' or 'open positions are moving but not yet closed'.
+    """
+    from backend.config import STARTING_BALANCE
+    from datetime import datetime, timezone
+    conn = get_db()
+    try:
+        closed = conn.execute("""
             SELECT exited_at AS ts, pnl
             FROM trades
             WHERE outcome IN ('WIN','LOSS','EXPIRED') AND exited_at IS NOT NULL
             ORDER BY exited_at ASC
         """).fetchall()
-        points = [{"ts": "Start", "balance": STARTING_BALANCE}]
+
+        points = [{"ts": "Start", "balance": STARTING_BALANCE, "mtm": False}]
         balance = STARTING_BALANCE
-        for r in rows:
+        for r in closed:
             balance += r["pnl"] or 0
-            points.append({"ts": r["ts"][:10], "balance": round(balance, 2)})
+            points.append({"ts": r["ts"][:10], "balance": round(balance, 2), "mtm": False})
+
+        # Mark open positions to market using latest signal prices
+        open_trades = conn.execute("""
+            SELECT t.price AS entry_price, t.amount,
+                   s.price AS current_price
+            FROM trades t
+            LEFT JOIN (
+                SELECT ticker, price
+                FROM signals s1
+                WHERE timestamp = (
+                    SELECT MAX(timestamp) FROM signals s2 WHERE s2.ticker = s1.ticker
+                )
+            ) s ON s.ticker = t.ticker
+            WHERE t.outcome = 'OPEN' AND t.action = 'BUY'
+        """).fetchall()
+
+        unrealised = 0.0
+        for t in open_trades:
+            if t["current_price"] and t["entry_price"] and t["entry_price"] > 0:
+                unrealised += t["amount"] * (t["current_price"] - t["entry_price"]) / t["entry_price"]
+
+        now_ts = datetime.now(timezone.utc).strftime("%m/%d %H:%M")
+        points.append({
+            "ts":      now_ts,
+            "balance": round(balance + unrealised, 2),
+            "mtm":     True,
+            "unrealised": round(unrealised, 2),
+        })
+
         return points
     finally:
         conn.close()
@@ -618,13 +740,15 @@ def insert_live_gate_result(row: dict) -> int:
         cur = conn.execute("""
             INSERT INTO live_gate_history
               (timestamp, ticker, sector, signal_score,
-               lock1_pass, lock2_pass, lock3_pass,
-               gate_decision, lock3_reasoning, alpaca_order_id)
+               lock1_pass, lock2_pass, lock_leading_pass, lock_leading_checks,
+               lock3_pass, gate_decision, lock3_reasoning, alpaca_order_id)
             VALUES
               (:timestamp, :ticker, :sector, :signal_score,
-               :lock1_pass, :lock2_pass, :lock3_pass,
-               :gate_decision, :lock3_reasoning, :alpaca_order_id)
-        """, row)
+               :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
+               :lock3_pass, :gate_decision, :lock3_reasoning, :alpaca_order_id)
+        """, {**row,
+              "lock_leading_pass":   row.get("lock_leading_pass", 0),
+              "lock_leading_checks": row.get("lock_leading_checks")})
         conn.commit()
         return cur.lastrowid
     finally:
@@ -636,10 +760,59 @@ def get_live_gate_history(limit: int = 30) -> list[dict]:
     try:
         rows = conn.execute("""
             SELECT * FROM live_gate_history
+            WHERE gate_decision NOT IN ('SKIPPED_OPEN', 'SKIPPED_COOLOFF')
             ORDER BY timestamp DESC
             LIMIT ?
         """, (limit,)).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_live_gate_funnel_counts(since: str | None = None) -> dict:
+    """Full funnel counts for the live gate, including pre-gate skips."""
+    conn = get_db()
+    try:
+        where = "WHERE gate_decision IS NOT NULL"
+        params: tuple = ()
+        if since:
+            where += " AND timestamp >= ?"
+            params = (since,)
+
+        rows = conn.execute(f"""
+            SELECT gate_decision, COUNT(*) AS cnt
+            FROM live_gate_history
+            {where}
+            GROUP BY gate_decision
+        """, params).fetchall()
+
+        counts = {r["gate_decision"]: r["cnt"] for r in rows}
+        skipped_open    = counts.get("SKIPPED_OPEN", 0)
+        skipped_cooloff = counts.get("SKIPPED_COOLOFF", 0)
+        l1_fail         = counts.get("FILTERED_L1", 0)
+        macro_fail      = counts.get("FILTERED_MACRO", 0)
+        l2_fail         = counts.get("FILTERED_L2", 0)
+        leading_fail    = counts.get("FILTERED_LEADING", 0)
+        l3_fail         = counts.get("FILTERED_L3", 0)
+        executed        = counts.get("TRADE_EXECUTED", 0)
+        rejected        = counts.get("TRADE_REJECTED", 0)
+
+        total_candidates = sum(counts.values())
+        evaluated = total_candidates - skipped_open - skipped_cooloff
+
+        return {
+            "total_candidates": total_candidates,
+            "skipped_open":     skipped_open,
+            "skipped_cooloff":  skipped_cooloff,
+            "evaluated":        evaluated,
+            "l1_fail":          l1_fail,
+            "macro_fail":       macro_fail,
+            "l2_fail":          l2_fail,
+            "leading_fail":     leading_fail,
+            "l3_fail":          l3_fail,
+            "executed":         executed,
+            "rejected":         rejected,
+        }
     finally:
         conn.close()
 
@@ -823,11 +996,50 @@ def insert_ticker_history(rows: list[dict]) -> int:
     conn = get_db()
     try:
         cur = conn.executemany("""
-            INSERT OR IGNORE INTO ticker_history (ticker, sector, day, signal_score)
+            INSERT OR REPLACE INTO ticker_history (ticker, sector, day, signal_score)
             VALUES (:ticker, :sector, :day, :signal_score)
         """, rows)
         conn.commit()
         return cur.rowcount
+    finally:
+        conn.close()
+
+
+def get_yesterday_sector_avg_scores() -> dict[str, float]:
+    """
+    Returns the most recent completed day's average signal score per sector.
+    Used for day-over-day sector trend arrows.
+    """
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT sector, AVG(signal_score) AS avg_score
+            FROM ticker_history
+            WHERE day = (
+                SELECT MAX(day) FROM ticker_history WHERE day < DATE('now')
+            )
+            GROUP BY sector
+        """).fetchall()
+        return {r["sector"]: round(r["avg_score"], 4) for r in rows}
+    finally:
+        conn.close()
+
+
+def get_yesterday_ticker_scores() -> dict[str, float]:
+    """
+    Returns the most recent completed day's signal score per ticker from ticker_history.
+    Used for day-over-day trend arrows — more meaningful than poll-over-poll comparison.
+    """
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT ticker, signal_score
+            FROM ticker_history
+            WHERE day = (
+                SELECT MAX(day) FROM ticker_history WHERE day < DATE('now')
+            )
+        """).fetchall()
+        return {r["ticker"]: r["signal_score"] for r in rows}
     finally:
         conn.close()
 

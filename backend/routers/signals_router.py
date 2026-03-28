@@ -6,7 +6,7 @@ from collections import defaultdict
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, field_validator
-from backend.db import latest_signals, signals_for_sector, prev_signals_avg_by_sector, prev_signals_by_ticker, get_sector_history
+from backend.db import latest_signals, signals_for_sector, get_yesterday_sector_avg_scores, get_yesterday_ticker_scores, get_sector_history
 from backend.gate import gate_runner
 from backend.ticker_config import get_sectors as _get_sectors, add_ticker, remove_ticker
 
@@ -68,8 +68,8 @@ def sectors_summary():
     Aggregates from the most recent signal per ticker.
     """
     signals = latest_signals(limit=200)
-    prev_avgs = prev_signals_avg_by_sector()
-    prev_ticker = prev_signals_by_ticker()
+    prev_avgs = get_yesterday_sector_avg_scores()
+    prev_ticker = get_yesterday_ticker_scores()
     from backend.sector_regime import compute_ticker_signals
     ticker_signals = compute_ticker_signals()
 
@@ -277,8 +277,20 @@ def get_wallet():
 
 @router.get("/gate/history")
 def gate_history(limit: int = 100):
-    from backend.db import get_gate_history
-    return get_gate_history(limit)
+    from backend.db import get_gate_history, get_ticker_thresholds, get_gate_funnel_counts
+    from backend.demo_config import get_demo_config
+    import json as _json
+    rows = get_gate_history(limit)
+    thresholds = get_ticker_thresholds()
+    flat = get_demo_config().get("lock1_threshold", 0.5)
+    for row in rows:
+        row["l1_threshold"] = thresholds.get(row["sector"], flat)
+        if row.get("lock_leading_checks"):
+            try:
+                row["lock_leading_checks"] = _json.loads(row["lock_leading_checks"])
+            except Exception:
+                row["lock_leading_checks"] = None
+    return {"rows": rows, "funnel": get_gate_funnel_counts()}
 
 
 @router.get("/demo/trades")

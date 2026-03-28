@@ -1,12 +1,20 @@
 import { useState } from "react";
 
 const OUTCOME_LABELS = {
-  TRADE_EXECUTED:  { label: "EXECUTED", cls: "gate-executed" },
-  TRADE_REJECTED:  { label: "REJECTED", cls: "gate-rejected" },
-  FILTERED_L1:     { label: "L1 FAIL",  cls: "gate-fail"     },
-  FILTERED_MACRO:  { label: "MACRO",    cls: "gate-macro"    },
-  FILTERED_L2:     { label: "L2 FAIL",  cls: "gate-fail"     },
-  FILTERED_L3:     { label: "L3 FAIL",  cls: "gate-fail"     },
+  TRADE_EXECUTED:    { label: "EXECUTED", cls: "gate-executed" },
+  TRADE_REJECTED:    { label: "REJECTED", cls: "gate-rejected" },
+  FILTERED_L1:       { label: "L1 FAIL",  cls: "gate-fail"     },
+  FILTERED_MACRO:    { label: "MACRO",    cls: "gate-macro"    },
+  FILTERED_L2:       { label: "L2 FAIL",  cls: "gate-fail"     },
+  FILTERED_LEADING:  { label: "LD FAIL",  cls: "gate-fail"     },
+  FILTERED_L3:       { label: "L3 FAIL",  cls: "gate-fail"     },
+};
+
+const LEADING_CHECK_LABELS = {
+  relative_strength: "RS",
+  put_call_ratio:    "PC",
+  unusual_calls:     "UC",
+  insider_cluster:   "IN",
 };
 
 function fmtTime(iso) {
@@ -17,6 +25,24 @@ function fmtTime(iso) {
   });
 }
 
+function ScoreVsThreshold({ score, threshold }) {
+  if (score == null) return <span>—</span>;
+  const color = threshold == null ? "var(--text-1)"
+    : score >= threshold + 0.05 ? "var(--green)"
+    : score >= threshold        ? "#e8a020"
+    : "var(--red)";
+  return (
+    <div>
+      <span style={{ color, fontWeight: 600 }}>{score.toFixed(3)}</span>
+      {threshold != null && (
+        <div style={{ fontSize: 10, color: "var(--text-3)", marginTop: 1 }}>
+          thr {threshold.toFixed(3)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Lock({ pass }) {
   return (
     <span style={{ color: pass ? "var(--green)" : "var(--text-3)", fontSize: 14, fontWeight: 600 }}>
@@ -25,7 +51,30 @@ function Lock({ pass }) {
   );
 }
 
-export default function GateFeed({ history }) {
+function FunnelSummary({ funnel }) {
+  if (!funnel) return null;
+  const { total_candidates, skipped_open, skipped_cooloff, evaluated,
+          macro_fail, l2_fail, leading_fail, l3_fail, executed } = funnel;
+  const skipped = (skipped_open || 0) + (skipped_cooloff || 0);
+  return (
+    <div style={{
+      display: "flex", gap: 10, alignItems: "center",
+      fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)",
+      flexWrap: "wrap",
+    }}>
+      <span>{total_candidates} candidates</span>
+      {skipped > 0 && <span>→ {skipped} skipped ({skipped_open} held, {skipped_cooloff} cooloff)</span>}
+      <span>→ {evaluated} evaluated</span>
+      {macro_fail > 0    && <span>→ {macro_fail} macro</span>}
+      {l2_fail > 0       && <span>→ {l2_fail} L2 fail</span>}
+      {leading_fail > 0  && <span>→ {leading_fail} LD fail</span>}
+      {l3_fail > 0       && <span>→ {l3_fail} L3 fail</span>}
+      <span style={{ color: executed > 0 ? "var(--green)" : "var(--text-3)" }}>→ {executed} traded</span>
+    </div>
+  );
+}
+
+export default function GateFeed({ history, funnel }) {
   const [expanded,  setExpanded]  = useState({});
   const [collapsed, setCollapsed] = useState(false);
 
@@ -40,10 +89,14 @@ export default function GateFeed({ history }) {
       >
         <div className="card-title">Gate Activity</div>
         <div className="card-meta" style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <span>{history.length} evaluations</span>
           <span style={{ fontSize: 11, color: "var(--text-3)" }}>{collapsed ? "▶" : "▼"}</span>
         </div>
       </div>
+      {!collapsed && funnel && (
+        <div style={{ padding: "8px 16px", borderBottom: "1px solid var(--border)" }}>
+          <FunnelSummary funnel={funnel} />
+        </div>
+      )}
       {!collapsed && <div className="card-body" style={{ padding: 0 }}>
         {history.length === 0 ? (
           <div className="muted" style={{ padding: "16px" }}>
@@ -63,49 +116,72 @@ export default function GateFeed({ history }) {
             <tbody>
               {history.map((row, i) => {
                 const meta = OUTCOME_LABELS[row.gate_decision] || { label: row.gate_decision, cls: "gate-fail" };
-                const hasReasoning = !!row.lock3_reasoning;
+                const hasDetail  = !!(row.lock3_reasoning || row.lock_leading_checks);
                 const isExpanded = expanded[i];
+                const checks     = row.lock_leading_checks;
                 return (
                   <>
                     <tr
                       key={i}
-                      style={{ cursor: hasReasoning ? "pointer" : "default" }}
-                      onClick={() => hasReasoning && setExpanded(e => ({ ...e, [i]: !e[i] }))}
+                      style={{ cursor: hasDetail ? "pointer" : "default" }}
+                      onClick={() => hasDetail && setExpanded(e => ({ ...e, [i]: !e[i] }))}
                     >
                       <td className="muted">{fmtTime(row.timestamp)}</td>
                       <td>
                         <strong>{row.ticker}</strong>
-                        {hasReasoning && (
+                        {hasDetail && (
                           <span style={{ color: "var(--text-3)", fontSize: 11, marginLeft: 6 }}>
                             {isExpanded ? "▲" : "▼"}
                           </span>
                         )}
                       </td>
                       <td style={{ fontFamily: "'DM Mono', monospace" }}>
-                        {row.signal_score?.toFixed(3) ?? "—"}
+                        <ScoreVsThreshold score={row.signal_score} threshold={row.l1_threshold} />
                       </td>
-                      <td style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <Lock pass={row.lock1_pass} />
-                        <Lock pass={row.lock2_pass} />
-                        <Lock pass={row.lock3_pass} />
+                      <td>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          <Lock pass={row.lock1_pass} />
+                          <Lock pass={row.lock2_pass} />
+                          <Lock pass={row.lock_leading_pass} />
+                          <Lock pass={row.lock3_pass} />
+                        </div>
                       </td>
                       <td>
                         <span className={`gate-badge ${meta.cls}`}>{meta.label}</span>
                       </td>
                     </tr>
-                    {isExpanded && hasReasoning && (
-                      <tr key={`${i}-reason`}>
+                    {isExpanded && hasDetail && (
+                      <tr key={`${i}-detail`}>
                         <td colSpan={5} style={{
-                          padding: "10px 16px 12px",
+                          padding: "10px 16px 14px",
                           background: "#111828",
                           borderTop: "1px solid var(--border)",
-                          fontFamily: "'DM Sans', sans-serif",
-                          fontSize: 13,
-                          color: "var(--text-2)",
-                          lineHeight: 1.6,
+                          fontSize: 12,
+                          lineHeight: 1.7,
                         }}>
-                          <span style={{ color: "var(--text-3)", marginRight: 8, fontSize: 12 }}>L3 reasoning:</span>
-                          {row.lock3_reasoning}
+                          {checks && (
+                            <div style={{ marginBottom: row.lock3_reasoning ? 10 : 0 }}>
+                              <span style={{ color: "var(--text-3)", marginRight: 8 }}>Leading:</span>
+                              {Object.entries(LEADING_CHECK_LABELS).map(([key, label]) => {
+                                const c = checks[key];
+                                if (!c) return null;
+                                return (
+                                  <span key={key} style={{ marginRight: 12 }}>
+                                    <span style={{ color: c.pass ? "var(--green)" : "var(--red)", fontWeight: 600 }}>
+                                      {c.pass ? "✓" : "✗"} {label}
+                                    </span>
+                                    <span style={{ color: "var(--text-3)", marginLeft: 4 }}>{c.reason}</span>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
+                          {row.lock3_reasoning && (
+                            <div>
+                              <span style={{ color: "var(--text-3)", marginRight: 8 }}>L3 reasoning:</span>
+                              <span style={{ color: "var(--text-2)" }}>{row.lock3_reasoning}</span>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     )}

@@ -591,8 +591,9 @@ const SETTINGS_FIELDS = [
   { key: "lock1_threshold",      label: "Lock 1 Fallback Threshold",      step: 0.01, min: 0,    max: 1   },
   { key: "lock2_sentiment_min",  label: "Lock 2 Sentiment Min",  step: 0.01, min: -1,   max: 1   },
   { key: "lock3_confidence_min", label: "Lock 3 Confidence Min", step: 0.01, min: 0,    max: 1   },
-  { key: "take_profit_pct",      label: "Take Profit %",         step: 0.01, min: 0.01, max: 1   },
-  { key: "stop_loss_pct",        label: "Stop Loss %",           step: 0.01, min: 0.01, max: 0.5 },
+  { key: "take_profit_pct",      label: "Take Profit %",         step: 0.01, min: 0.01, max: 1,   nullable: false },
+  { key: "stop_loss_pct",        label: "Stop Loss %",           step: 0.01, min: 0.01, max: 0.5, nullable: false },
+  { key: "trailing_stop_pct",    label: "Trailing Stop %",       step: 0.01, min: 0.01, max: 0.5, nullable: true  },
   { key: "max_positions",        label: "Max Positions",         step: 1,    min: 1,    max: 20  },
   { key: "max_position_size",    label: "Max Position Size",     step: 0.01, min: 0.01, max: 0.5 },
   { key: "daily_loss_cap",       label: "Daily Loss Cap ($)",    step: 10,   min: 10,   max: 10000 },
@@ -677,6 +678,11 @@ function SettingsCol({ title, config, accentColor, onSave }) {
     setSaved(false);
   }
 
+  function handleNullableToggle(key, f, enabled) {
+    setValues(prev => ({ ...prev, [key]: enabled ? (f.min ?? 0.01) : null }));
+    setSaved(false);
+  }
+
   function handleSave() {
     onSave(values);
     setSaved(true);
@@ -686,20 +692,36 @@ function SettingsCol({ title, config, accentColor, onSave }) {
   return (
     <div>
       <div className="settings-col-title" style={{ color: accentColor }}>{title}</div>
-      {SETTINGS_FIELDS.map(f => (
-        <div className="settings-field" key={f.key}>
-          <div className="settings-label">{f.label}</div>
-          <input
-            className="settings-input"
-            type="number"
-            step={f.step}
-            min={f.min}
-            max={f.max}
-            value={values[f.key] ?? ""}
-            onChange={e => handleChange(f.key, e.target.value)}
-          />
-        </div>
-      ))}
+      {SETTINGS_FIELDS.map(f => {
+        const isNullable = f.nullable === true;
+        const isEnabled  = values[f.key] != null;
+        return (
+          <div className="settings-field" key={f.key}>
+            <div className="settings-label" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {isNullable && (
+                <input
+                  type="checkbox"
+                  checked={isEnabled}
+                  onChange={e => handleNullableToggle(f.key, f, e.target.checked)}
+                  style={{ cursor: "pointer", accentColor: "var(--green)" }}
+                />
+              )}
+              {f.label}
+            </div>
+            <input
+              className="settings-input"
+              type="number"
+              step={f.step}
+              min={f.min}
+              max={f.max}
+              value={values[f.key] ?? ""}
+              disabled={isNullable && !isEnabled}
+              onChange={e => handleChange(f.key, e.target.value)}
+              style={isNullable && !isEnabled ? { opacity: 0.35 } : {}}
+            />
+          </div>
+        );
+      })}
       <button
         className={`settings-save-btn ${saved ? "saved" : ""}`}
         onClick={handleSave}
@@ -806,6 +828,7 @@ const PROMOTE_LABELS = {
   lock3_confidence_min: "Lock 3 Confidence Min",
   take_profit_pct:      "Take Profit %",
   stop_loss_pct:        "Stop Loss %",
+  trailing_stop_pct:    "Trailing Stop %",
   max_positions:        "Max Positions",
   max_position_size:    "Max Position Size",
   daily_loss_cap:       "Daily Loss Cap ($)",
@@ -872,7 +895,7 @@ export default function App() {
   // ── Demo state ────────────────────────────────────────────────────────────
   const [sectors,       setSectors]       = useState([]);
   const [wallet,        setWallet]        = useState(null);
-  const [gateHist,      setGateHist]      = useState([]);
+  const [gateHist,      setGateHist]      = useState({ rows: [], funnel: null });
   const [demoTrades,    setDemoTrades]    = useState([]);
   const [equity,        setEquity]        = useState([]);
   const [sectorError,   setSectorError]   = useState(null);
@@ -886,7 +909,7 @@ export default function App() {
   const [liveStatus,    setLiveStatus]    = useState(null);
   const [liveAccount,   setLiveAccount]   = useState(null);
   const [liveTrades,    setLiveTrades]    = useState([]);
-  const [liveGateHist,  setLiveGateHist]  = useState([]);
+  const [liveGateHist,  setLiveGateHist]  = useState({ rows: [], funnel: null });
   const [liveEquity,    setLiveEquity]    = useState([]);
   const [compareData,   setCompareData]   = useState(null);
   const [liveConfig,    setLiveConfig]    = useState(null);
@@ -907,7 +930,7 @@ export default function App() {
       .catch(() => setWalletError("Failed to load wallet"));
 
     fetchWithRetry("/api/gate/history")
-      .then(data => { setGateHist(data || []); setGateError(null); })
+      .then(data => { setGateHist(data || { rows: [], funnel: null }); setGateError(null); })
       .catch(() => setGateError("Failed to load gate history"));
 
     fetchWithRetry("/api/demo/trades")
@@ -936,8 +959,8 @@ export default function App() {
       .catch(() => setLiveTrades([]));
 
     fetchWithRetry("/api/live/gate/history")
-      .then(data => setLiveGateHist(data || []))
-      .catch(() => setLiveGateHist([]));
+      .then(data => setLiveGateHist(data || { rows: [], funnel: null }))
+      .catch(() => setLiveGateHist({ rows: [], funnel: null }));
 
     fetchWithRetry("/api/live/equity")
       .then(data => setLiveEquity(data || []))
@@ -1086,7 +1109,7 @@ export default function App() {
               <ErrorBoundary label="Gate Activity">
                 {gateError
                   ? <div className="error-banner">{gateError}</div>
-                  : <GateFeed history={gateHist} />
+                  : <GateFeed history={gateHist.rows} funnel={gateHist.funnel} />
                 }
               </ErrorBoundary>
 
@@ -1186,7 +1209,7 @@ export default function App() {
             </div>
 
             <ErrorBoundary label="Live Gate Feed">
-              <LiveGateFeed history={liveGateHist} />
+              <LiveGateFeed history={liveGateHist.rows} funnel={liveGateHist.funnel} />
             </ErrorBoundary>
 
             <ErrorBoundary label="Compare">

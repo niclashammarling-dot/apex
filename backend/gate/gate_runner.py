@@ -16,7 +16,8 @@ from datetime import datetime, timezone
 
 from loguru import logger
 
-from backend.gate import lock1_quant, lock_macro, lock2_sentiment, lock3_claude
+import json
+from backend.gate import lock1_quant, lock_macro, lock2_sentiment, lock_leading, lock3_claude
 from backend.db import (
     get_lock1_candidates, update_signal_gate, get_wallet_context,
     get_open_tickers, get_recently_failed_tickers,
@@ -45,15 +46,23 @@ def run() -> list[dict]:
         logger.info("Gate runner: no Lock 1 candidates this cycle")
         return []
 
-    # Skip tickers already held or in cooloff
+    # Skip tickers already held or in cooloff — mark them in DB so funnel is complete
     open_tickers   = get_open_tickers()
     failed_tickers = get_recently_failed_tickers(cfg.get("gate_cooloff_hours", 4))
-    skip = open_tickers | failed_tickers
-    if skip:
-        before = len(candidates)
-        candidates = [c for c in candidates if c["ticker"] not in skip]
-        logger.info(f"Gate runner: skipped {before - len(candidates)} ticker(s) "
-                    f"(open={open_tickers & {c['ticker'] for c in candidates[:before]}}, cooloff={failed_tickers})")
+    skipped = [c for c in candidates if c["ticker"] in (open_tickers | failed_tickers)]
+    candidates = [c for c in candidates if c["ticker"] not in (open_tickers | failed_tickers)]
+
+    for c in skipped:
+        decision = "SKIPPED_OPEN" if c["ticker"] in open_tickers else "SKIPPED_COOLOFF"
+        update_signal_gate(c["id"], {
+            "lock1_pass": 1, "lock2_pass": 0, "lock3_pass": 0,
+            "gate_decision": decision, "lock3_reasoning": None,
+        })
+
+    if skipped:
+        logger.info(f"Gate runner: skipped {len(skipped)} ticker(s) "
+                    f"(open={len(open_tickers & {c['ticker'] for c in skipped})}, "
+                    f"cooloff={len(failed_tickers & {c['ticker'] for c in skipped})})")
 
     if not candidates:
         logger.info("Gate runner: all candidates skipped (open positions / cooloff)")
@@ -113,25 +122,30 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
     l1 = lock1_quant.evaluate(signal, threshold=l1_threshold)
 
     if not l1["passed"]:
-        return _gate_result(signal, l1, None, None, "FILTERED_L1")
+        return _gate_result(signal, l1, None, None, None, "FILTERED_L1")
 
     lm = lock_macro.evaluate(ticker, cfg)
     if not lm["passed"]:
-        return _gate_result(signal, l1, None, None, "FILTERED_MACRO")
+        return _gate_result(signal, l1, None, None, None, "FILTERED_MACRO")
 
     l2 = lock2_sentiment.evaluate(ticker, sentiment_min=cfg["lock2_sentiment_min"])
     if not l2["passed"]:
-        return _gate_result(signal, l1, l2, None, "FILTERED_L2")
+        return _gate_result(signal, l1, l2, None, None, "FILTERED_L2")
 
-    context = _build_claude_context(signal, l2, wallet_ctx, sector_regime)
+    l_leading = lock_leading.evaluate(ticker, signal.get("sector", ""),
+                                      min_pass=cfg.get("lock_leading_min_pass", 2))
+    if not l_leading["passed"]:
+        return _gate_result(signal, l1, l2, l_leading, None, "FILTERED_LEADING")
+
+    context = _build_claude_context(signal, l2, l_leading, wallet_ctx, sector_regime)
     l3 = lock3_claude.evaluate(context, confidence_min=cfg["lock3_confidence_min"])
 
     outcome = "TRADE_QUEUED" if l3["passed"] else "FILTERED_L3"
-    return _gate_result(signal, l1, l2, l3, outcome)
+    return _gate_result(signal, l1, l2, l_leading, l3, outcome)
 
 
-def _build_claude_context(signal: dict, l2: dict, wallet_ctx: dict,
-                          sector_regime: dict | None = None) -> dict:
+def _build_claude_context(signal: dict, l2: dict, l_leading: dict,
+                          wallet_ctx: dict, sector_regime: dict | None = None) -> dict:
     ctx = {
         # identity
         "ticker":            signal["ticker"],
@@ -141,6 +155,9 @@ def _build_claude_context(signal: dict, l2: dict, wallet_ctx: dict,
         "sentiment_volume":  l2["volume"],
         "sentiment_themes":  l2["key_themes"],
         "sentiment_summary": l2["summary"],
+        # leading indicators context
+        "leading_pass_count":     l_leading["pass_count"],
+        "leading_checks":         {k: v["pass"] for k, v in l_leading["checks"].items()},
         # portfolio context
         "wallet_balance":    wallet_ctx["balance"],
         "open_positions":    wallet_ctx["open_positions"],
@@ -180,7 +197,8 @@ def _build_claude_context(signal: dict, l2: dict, wallet_ctx: dict,
     return ctx
 
 
-def _gate_result(signal: dict, l1: dict, l2: dict | None, l3: dict | None, outcome: str) -> dict:
+def _gate_result(signal: dict, l1: dict, l2: dict | None,
+                 l_leading: dict | None, l3: dict | None, outcome: str) -> dict:
     return {
         "ticker":    signal["ticker"],
         "sector":    signal["sector"],
@@ -189,27 +207,33 @@ def _gate_result(signal: dict, l1: dict, l2: dict | None, l3: dict | None, outco
         "outcome":   outcome,
         "lock1":     l1,
         "lock2":     l2,
+        "lock_leading": l_leading,
         "lock3":     l3,
         # Flattened for DB update
-        "lock1_pass": int(l1["passed"]),
-        "lock2_pass": int(l2["passed"]) if l2 else 0,
-        "lock3_pass": int(l3["passed"]) if l3 else 0,
-        "gate_decision": l3["decision"] if l3 else ("L2_FAIL" if l2 else "L1_FAIL"),
-        "claude_confidence": l3["confidence"] if l3 else None,
-        "claude_reasoning":  l3["reasoning"]  if l3 else None,
-        "sentiment_score":   l2["score"]      if l2 else None,
+        "lock1_pass":          int(l1["passed"]),
+        "lock2_pass":          int(l2["passed"])       if l2        else 0,
+        "lock_leading_pass":   int(l_leading["passed"]) if l_leading else 0,
+        "lock_leading_checks": json.dumps(l_leading["checks"]) if l_leading else None,
+        "lock3_pass":          int(l3["passed"])       if l3        else 0,
+        "gate_decision":       outcome if outcome != "TRADE_QUEUED" else "TRADE_EXECUTED",
+        "claude_confidence":   l3["confidence"] if l3 else None,
+        "claude_reasoning":    l3["reasoning"]  if l3 else None,
+        "sentiment_score":     l2["score"]      if l2 else None,
     }
 
 
 def _log_summary(ticker: str, result: dict) -> None:
-    l1 = result["lock1"]
-    l2 = result.get("lock2")
-    l3 = result.get("lock3")
-    outcome = result["outcome"]
+    l1        = result["lock1"]
+    l2        = result.get("lock2")
+    l_leading = result.get("lock_leading")
+    l3        = result.get("lock3")
+    outcome   = result["outcome"]
 
     parts = [f"L1={'✓' if l1['passed'] else '✗'}({l1['score']:.3f})"]
     if l2:
         parts.append(f"L2={'✓' if l2['passed'] else '✗'}({l2.get('score', '?')})")
+    if l_leading:
+        parts.append(f"LD={'✓' if l_leading['passed'] else '✗'}({l_leading['pass_count']}/{l_leading['min_pass']})")
     if l3:
         parts.append(f"L3={'✓' if l3['passed'] else '✗'}({l3.get('decision')} {l3.get('confidence', 0):.2f})")
 

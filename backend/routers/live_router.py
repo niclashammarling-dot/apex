@@ -92,8 +92,21 @@ def live_trades():
 
 @router.get("/gate/history")
 def live_gate_history(limit: int = 100):
-    from backend.db import get_live_gate_history
-    return get_live_gate_history(limit)
+    from backend.db import get_live_gate_history, get_live_gate_funnel_counts, get_ticker_thresholds
+    from backend.live_config import get_live_config
+    import json as _json
+    rows = get_live_gate_history(limit)
+    thresholds = get_ticker_thresholds()
+    flat = get_live_config().get("lock1_threshold", 0.5)
+    for row in rows:
+        row["l1_threshold"] = thresholds.get(row["sector"], flat)
+        if row.get("lock_leading_checks"):
+            try:
+                row["lock_leading_checks"] = _json.loads(row["lock_leading_checks"])
+            except Exception:
+                row["lock_leading_checks"] = None
+    funnel = get_live_gate_funnel_counts()
+    return {"rows": rows, "funnel": funnel}
 
 
 @router.get("/compare")

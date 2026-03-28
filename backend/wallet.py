@@ -25,6 +25,7 @@ from backend.config import (
 from backend.demo_config import get_demo_config
 from backend.db import (
     get_open_trades, insert_trade, close_trade, get_portfolio_summary,
+    update_trade_peak_price,
 )
 
 
@@ -114,20 +115,27 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
 
 def check_exits() -> list[dict]:
     """
-    Check all open positions against TP, SL, and time-stop.
+    Check all open positions against TP, trailing stop, fixed SL, and time-stop.
     Reads thresholds from demo_config.json at call time so UI changes take effect immediately.
     Returns list of closed trade records.
+
+    Trailing stop logic (when trailing_stop_pct is set):
+      - Replaces the fixed SL.
+      - Tracks the highest price seen since entry (peak_price in DB).
+      - Fires when (peak - current) / peak >= trailing_stop_pct.
+      - Outcome is WIN if still above entry, LOSS if below.
     """
     open_trades = get_open_trades()
     if not open_trades:
         return []
 
-    cfg            = get_demo_config()
-    tp_pct         = cfg["take_profit_pct"]
-    sl_pct         = cfg["stop_loss_pct"]
-    max_hold_days  = cfg["max_hold_days"]
+    cfg               = get_demo_config()
+    tp_pct            = cfg["take_profit_pct"]
+    sl_pct            = cfg["stop_loss_pct"]
+    trail_pct         = cfg.get("trailing_stop_pct")  # None = disabled
+    max_hold_days     = cfg["max_hold_days"]
 
-    tickers       = list({t["ticker"] for t in open_trades})
+    tickers        = list({t["ticker"] for t in open_trades})
     current_prices = _batch_prices(tickers)
     closed         = []
 
@@ -140,11 +148,28 @@ def check_exits() -> list[dict]:
             logger.warning(f"Exit check [{ticker}]: could not fetch price — skipping")
             continue
 
+        # Update peak price
+        peak = trade.get("peak_price") or entry_price
+        if current > peak:
+            peak = current
+            update_trade_peak_price(trade["id"], peak)
+
         pnl_pct = (current - entry_price) / entry_price
 
         if pnl_pct >= tp_pct:
             reason  = "TP"
             outcome = "WIN"
+        elif trail_pct is not None:
+            # Trailing stop replaces fixed SL
+            drawdown_from_peak = (peak - current) / peak
+            if drawdown_from_peak >= trail_pct:
+                reason  = "TSL"
+                outcome = "WIN" if pnl_pct >= 0 else "LOSS"
+            elif _trading_days_since(trade["timestamp"]) >= max_hold_days:
+                reason  = "TIME"
+                outcome = "EXPIRED"
+            else:
+                continue
         elif pnl_pct <= -sl_pct:
             reason  = "SL"
             outcome = "LOSS"
@@ -156,17 +181,17 @@ def check_exits() -> list[dict]:
 
         pnl = trade["amount"] * pnl_pct
         close_trade(
-            trade_id      = trade["id"],
-            price_exit    = current,
-            pnl           = pnl,
-            outcome       = outcome,
-            exit_reason   = reason,
-            exited_at     = datetime.now(timezone.utc).isoformat(),
+            trade_id  = trade["id"],
+            price_exit = current,
+            pnl        = pnl,
+            outcome    = outcome,
+            exit_reason = reason,
+            exited_at  = datetime.now(timezone.utc).isoformat(),
         )
 
         logger.info(
             f"Exit [{ticker}]: {reason} entry=${entry_price:.2f} "
-            f"exit=${current:.2f} pnl={pnl:+.2f} ({pnl_pct:+.1%})"
+            f"peak=${peak:.2f} exit=${current:.2f} pnl={pnl:+.2f} ({pnl_pct:+.1%})"
         )
         closed.append({
             "ticker":      ticker,

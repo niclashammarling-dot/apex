@@ -1,18 +1,65 @@
 import { useState } from "react";
 
-function decisionBadge(decision, outcome) {
-  if (outcome === "TRADE_EXECUTED")  return { cls: "gate-executed", label: "EXECUTED" };
-  if (outcome === "TRADE_REJECTED")  return { cls: "gate-fail",     label: "REJECTED" };
-  if (outcome === "TRADE_FAILED")    return { cls: "gate-rejected", label: "FAILED"   };
-  if (outcome === "FILTERED_MACRO")  return { cls: "gate-macro",    label: "MACRO"    };
-  if (decision === "BUY")            return { cls: "gate-executed", label: "BUY"      };
-  if (decision === "SELL")           return { cls: "gate-rejected", label: "SELL"     };
-  if (decision === "L1_FAIL")        return { cls: "gate-fail",     label: "L1 FAIL"  };
-  if (decision === "L2_FAIL")        return { cls: "gate-fail",     label: "L2 FAIL"  };
-  return { cls: "gate-fail", label: decision ?? "HOLD" };
+function ScoreVsThreshold({ score, threshold }) {
+  if (score == null) return <span>—</span>;
+  const color = threshold == null ? "var(--text-1)"
+    : score >= threshold + 0.05 ? "var(--green)"
+    : score >= threshold        ? "#e8a020"
+    : "var(--red)";
+  return (
+    <div>
+      <span style={{ color, fontWeight: 600 }}>{score.toFixed(3)}</span>
+      {threshold != null && (
+        <div style={{ fontSize: 10, color: "var(--text-3)", marginTop: 1 }}>
+          thr {threshold.toFixed(3)}
+        </div>
+      )}
+    </div>
+  );
 }
 
-export default function LiveGateFeed({ history }) {
+function FunnelSummary({ funnel }) {
+  if (!funnel) return null;
+  const { total_candidates, skipped_open, skipped_cooloff, evaluated,
+          macro_fail, l2_fail, l3_fail, executed } = funnel;
+  const skipped = (skipped_open || 0) + (skipped_cooloff || 0);
+  return (
+    <div style={{
+      display: "flex", gap: 10, alignItems: "center",
+      fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)",
+      flexWrap: "wrap",
+    }}>
+      <span>{total_candidates} candidates</span>
+      {skipped > 0 && <span>→ {skipped} skipped ({skipped_open} held, {skipped_cooloff} cooloff)</span>}
+      <span>→ {evaluated} evaluated</span>
+      {macro_fail > 0 && <span>→ {macro_fail} macro</span>}
+      {l2_fail > 0    && <span>→ {l2_fail} L2 fail</span>}
+      {l3_fail > 0    && <span>→ {l3_fail} L3 fail</span>}
+      <span style={{ color: executed > 0 ? "var(--green)" : "var(--text-3)" }}>→ {executed} traded</span>
+    </div>
+  );
+}
+
+const LEADING_CHECK_LABELS = {
+  relative_strength: "RS",
+  put_call_ratio:    "PC",
+  unusual_calls:     "UC",
+  insider_cluster:   "IN",
+};
+
+function decisionBadge(decision) {
+  if (decision === "TRADE_EXECUTED")   return { cls: "gate-executed", label: "EXECUTED" };
+  if (decision === "TRADE_REJECTED")   return { cls: "gate-fail",     label: "REJECTED" };
+  if (decision === "TRADE_FAILED")     return { cls: "gate-rejected", label: "FAILED"   };
+  if (decision === "FILTERED_MACRO")   return { cls: "gate-macro",    label: "MACRO"    };
+  if (decision === "FILTERED_L1")      return { cls: "gate-fail",     label: "L1 FAIL"  };
+  if (decision === "FILTERED_L2")      return { cls: "gate-fail",     label: "L2 FAIL"  };
+  if (decision === "FILTERED_LEADING") return { cls: "gate-fail",     label: "LD FAIL"  };
+  if (decision === "FILTERED_L3")      return { cls: "gate-fail",     label: "L3 FAIL"  };
+  return { cls: "gate-fail", label: decision ?? "—" };
+}
+
+export default function LiveGateFeed({ history, funnel }) {
   const [expanded,  setExpanded]  = useState(null);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -34,10 +81,14 @@ export default function LiveGateFeed({ history }) {
       >
         <div className="card-title">Live Gate Activity</div>
         <div className="card-meta" style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <span>{history.length} evaluations</span>
           <span style={{ fontSize: 11, color: "var(--text-3)" }}>{collapsed ? "▶" : "▼"}</span>
         </div>
       </div>
+      {!collapsed && funnel && (
+        <div style={{ padding: "8px 16px", borderBottom: "1px solid var(--border)" }}>
+          <FunnelSummary funnel={funnel} />
+        </div>
+      )}
       {!collapsed && <table className="feed-table">
         <thead>
           <tr>
@@ -46,6 +97,7 @@ export default function LiveGateFeed({ history }) {
             <th>Score</th>
             <th>L1</th>
             <th>L2</th>
+            <th>LD</th>
             <th>L3</th>
             <th>Decision</th>
           </tr>
@@ -58,24 +110,33 @@ export default function LiveGateFeed({ history }) {
                   hour: "2-digit", minute: "2-digit", hour12: false,
                 })
               : "—";
-            const { cls, label } = decisionBadge(row.gate_decision, row.outcome);
-            const hasReasoning   = !!row.lock3_reasoning;
+            const { cls, label } = decisionBadge(row.gate_decision);
+            const hasDetail      = !!(row.lock3_reasoning || row.lock_leading_checks);
             const isOpen         = expanded === i;
+            const checks         = row.lock_leading_checks;
 
             return [
               <tr
                 key={i}
-                onClick={() => hasReasoning && setExpanded(isOpen ? null : i)}
-                style={{ cursor: hasReasoning ? "pointer" : "default" }}
+                onClick={() => hasDetail && setExpanded(isOpen ? null : i)}
+                style={{ cursor: hasDetail ? "pointer" : "default" }}
               >
                 <td style={{ fontFamily: "'DM Mono', monospace", fontSize: 12 }}>{ts}</td>
-                <td><strong>{row.ticker}</strong></td>
+                <td>
+                  <strong>{row.ticker}</strong>
+                  {hasDetail && (
+                    <span style={{ color: "var(--text-3)", fontSize: 11, marginLeft: 6 }}>
+                      {isOpen ? "▲" : "▼"}
+                    </span>
+                  )}
+                </td>
                 <td style={{ fontFamily: "'DM Mono', monospace" }}>
-                  {row.signal_score?.toFixed(3) ?? "—"}
+                  <ScoreVsThreshold score={row.signal_score} threshold={row.l1_threshold} />
                 </td>
                 <td>{row.lock1_pass ? "✓" : "✗"}</td>
                 <td>{row.lock2_pass ? "✓" : row.lock1_pass ? "✗" : "—"}</td>
-                <td>{row.lock3_pass ? "✓" : row.lock2_pass ? "✗" : "—"}</td>
+                <td>{row.lock_leading_pass ? "✓" : row.lock2_pass ? "✗" : "—"}</td>
+                <td>{row.lock3_pass ? "✓" : row.lock_leading_pass ? "✗" : "—"}</td>
                 <td>
                   <span className={`gate-badge ${cls}`}>{label}</span>
                   {row.alpaca_order_id && (
@@ -85,18 +146,38 @@ export default function LiveGateFeed({ history }) {
                   )}
                 </td>
               </tr>,
-              isOpen && (
-                <tr key={`${i}-reasoning`}>
-                  <td colSpan={7} style={{
+              isOpen && hasDetail && (
+                <tr key={`${i}-detail`}>
+                  <td colSpan={8} style={{
                     background: "#111827",
-                    padding: "10px 16px",
-                    borderBottom: "1px solid var(--border)",
-                    color: "var(--text-2)",
-                    fontStyle: "italic",
-                    fontSize: 13,
-                    lineHeight: 1.5,
+                    padding: "10px 16px 14px",
+                    borderTop: "1px solid var(--border)",
+                    fontSize: 12,
+                    lineHeight: 1.7,
                   }}>
-                    {row.lock3_reasoning}
+                    {checks && (
+                      <div style={{ marginBottom: row.lock3_reasoning ? 10 : 0 }}>
+                        <span style={{ color: "var(--text-3)", marginRight: 8 }}>Leading:</span>
+                        {Object.entries(LEADING_CHECK_LABELS).map(([key, lbl]) => {
+                          const c = checks[key];
+                          if (!c) return null;
+                          return (
+                            <span key={key} style={{ marginRight: 12 }}>
+                              <span style={{ color: c.pass ? "var(--green)" : "var(--red)", fontWeight: 600 }}>
+                                {c.pass ? "✓" : "✗"} {lbl}
+                              </span>
+                              <span style={{ color: "var(--text-3)", marginLeft: 4 }}>{c.reason}</span>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {row.lock3_reasoning && (
+                      <div>
+                        <span style={{ color: "var(--text-3)", marginRight: 8 }}>L3 reasoning:</span>
+                        <span style={{ color: "var(--text-2)" }}>{row.lock3_reasoning}</span>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ),
