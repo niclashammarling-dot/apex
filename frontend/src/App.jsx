@@ -4,13 +4,14 @@ import SectorRotation  from "./components/SectorRotation.jsx";
 import SectorRegime    from "./components/SectorRegime.jsx";
 import Watchlist          from "./components/Watchlist.jsx";
 import RotationForecast   from "./components/RotationForecast.jsx";
-import RotationLeaderboard from "./components/RotationLeaderboard.jsx";
 import WalletPanel   from "./components/WalletPanel.jsx";
 import GateFeed      from "./components/GateFeed.jsx";
 import EquityCurve   from "./components/EquityCurve.jsx";
 import BacktestPanel from "./components/BacktestPanel.jsx";
 import TradeLog      from "./components/TradeLog.jsx";
 import LiveAccount   from "./components/LiveAccount.jsx";
+import LivePositions from "./components/LivePositions.jsx";
+import LiveOrderLog  from "./components/LiveOrderLog.jsx";
 import LiveTradeLog  from "./components/LiveTradeLog.jsx";
 import LiveGateFeed  from "./components/LiveGateFeed.jsx";
 import ComparePanel  from "./components/ComparePanel.jsx";
@@ -116,7 +117,7 @@ const CSS = `
   }
 
   .main-left  { display: flex; flex-direction: column; gap: 24px; }
-  .main-right { display: flex; flex-direction: column; gap: 24px; position: sticky; top: 76px; }
+  .main-right { display: flex; flex-direction: column; gap: 24px; position: sticky; top: 108px; }
 
   /* ── Shared ──────────────────────────────────── */
   .section-label {
@@ -287,6 +288,9 @@ const CSS = `
     background: var(--bg-header);
     border-bottom: 1px solid var(--border);
     padding: 0 28px;
+    position: sticky;
+    top: 56px;
+    z-index: 9;
   }
 
   .tab-btn {
@@ -909,6 +913,8 @@ export default function App() {
   // ── Live state ────────────────────────────────────────────────────────────
   const [liveStatus,    setLiveStatus]    = useState(null);
   const [liveAccount,   setLiveAccount]   = useState(null);
+  const [livePositions, setLivePositions] = useState([]);
+  const [liveOrders,    setLiveOrders]    = useState([]);
   const [liveTrades,    setLiveTrades]    = useState([]);
   const [liveGateHist,  setLiveGateHist]  = useState({ rows: [], funnel: null });
   const [liveEquity,    setLiveEquity]    = useState([]);
@@ -954,6 +960,13 @@ export default function App() {
       .then(data => setLiveAccount(data))
       .catch(() => setLiveAccount(null));
 
+    fetchWithRetry("/api/live/positions")
+      .then(data => setLivePositions(data || []))
+      .catch(() => setLivePositions([]));
+
+    fetchWithRetry("/api/live/orders")
+      .then(data => setLiveOrders(data || []))
+      .catch(() => setLiveOrders([]));
 
     fetchWithRetry("/api/live/trades")
       .then(data => setLiveTrades(data || []))
@@ -1079,125 +1092,81 @@ export default function App() {
       </nav>
 
       {/* ── Demo tab ──────────────────────────────────────────────────────── */}
-      {activeTab === "demo" && (
-        <>
-          <main className="main">
-            <div className="main-left">
-              <div>
-                <div className="section-label">Sector Signals</div>
-                {sectorError
-                  ? <div className="error-banner">{sectorError}</div>
-                  : (
-                    <ErrorBoundary label="Sector Signals">
-                      <SectorGrid sectors={sectors} />
-                    </ErrorBoundary>
-                  )
-                }
-                <ErrorBoundary label="Sector Rotation">
-                  <SectorRotation />
-                </ErrorBoundary>
-                <ErrorBoundary label="Sector Regime">
-                  <SectorRegime />
-                </ErrorBoundary>
-                <ErrorBoundary label="Rotation Forecast">
-                  <RotationForecast />
-                </ErrorBoundary>
-                <ErrorBoundary label="Rotation Leaderboard">
-                  <RotationLeaderboard limit={10} />
-                </ErrorBoundary>
-                <ErrorBoundary label="Watchlist">
-                  <Watchlist />
-                </ErrorBoundary>
-              </div>
-
-              <ErrorBoundary label="Gate Activity">
-                {gateError
-                  ? <div className="error-banner">{gateError}</div>
-                  : <GateFeed history={gateHist.rows} funnel={gateHist.funnel} />
-                }
+      <div style={{ display: activeTab === "demo" ? "" : "none" }}>
+        <main className="main">
+          <div className="main-left">
+            <div>
+              <div className="section-label">Sector Signals</div>
+              {sectorError
+                ? <div className="error-banner">{sectorError}</div>
+                : (
+                  <ErrorBoundary label="Sector Signals">
+                    <SectorGrid sectors={sectors} />
+                  </ErrorBoundary>
+                )
+              }
+              <ErrorBoundary label="Sector Rotation">
+                <SectorRotation />
               </ErrorBoundary>
-
-              <ErrorBoundary label="Compare">
-                <ComparePanel data={compareData} />
+              <ErrorBoundary label="Sector Regime">
+                <SectorRegime />
+              </ErrorBoundary>
+              <ErrorBoundary label="Rotation Forecast">
+                <RotationForecast />
+              </ErrorBoundary>
+              <ErrorBoundary label="Watchlist">
+                <Watchlist />
               </ErrorBoundary>
             </div>
 
-            <div className="main-right">
-              <ErrorBoundary label="Wallet">
-                {walletError
-                  ? <div className="error-banner">{walletError}</div>
-                  : <WalletPanel wallet={wallet} />
-                }
-              </ErrorBoundary>
+            <ErrorBoundary label="Gate Activity">
+              {gateError
+                ? <div className="error-banner">{gateError}</div>
+                : <GateFeed history={gateHist.rows} funnel={gateHist.funnel} />
+              }
+            </ErrorBoundary>
 
-              <ErrorBoundary label="Equity Curve">
-                {equityError
-                  ? <div className="error-banner">{equityError}</div>
-                  : <EquityCurve equity={equity} />
-                }
-              </ErrorBoundary>
-
-              <ErrorBoundary label="Backtest">
-                <BacktestPanel onResult={setBacktestResult} />
-              </ErrorBoundary>
-            </div>
-          </main>
-
-          <div style={{ padding: "0 28px 28px" }}>
-            <ErrorBoundary label="Demo Trade Log">
-              <DemoTradeLog trades={demoTrades} />
+            <ErrorBoundary label="Compare">
+              <ComparePanel data={compareData} />
             </ErrorBoundary>
           </div>
 
-          {backtestResult && (
-            <div style={{ padding: "0 28px 28px" }}>
-              <TradeLog result={backtestResult} />
-            </div>
-          )}
-        </>
-      )}
+          <div className="main-right">
+            <ErrorBoundary label="Wallet">
+              {walletError
+                ? <div className="error-banner">{walletError}</div>
+                : <WalletPanel wallet={wallet} />
+              }
+            </ErrorBoundary>
 
-      {/* ── Settings modal ───────────────────────────────────────────────── */}
-      {showSettings && (
-        <SettingsModal
-          settings={settings}
-          tickers={tickers}
-          onSave={(side, updates) => {
-            fetch(`/api/settings/${side}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(updates),
-            }).then(() => fetchData());
-          }}
-          onTickerAdd={(sector, ticker) =>
-            fetch(`/api/tickers/${sector}/add?ticker=${ticker}`, { method: "POST" })
-              .then(() => fetchData())
-          }
-          onTickerRemove={(sector, ticker) =>
-            fetch(`/api/tickers/${sector}/remove?ticker=${ticker}`, { method: "POST" })
-              .then(() => fetchData())
-          }
-          onClose={() => setShowSettings(false)}
-        />
-      )}
+            <ErrorBoundary label="Equity Curve">
+              {equityError
+                ? <div className="error-banner">{equityError}</div>
+                : <EquityCurve equity={equity} />
+              }
+            </ErrorBoundary>
 
-      {/* ── Promote modal ────────────────────────────────────────────────── */}
-      {showPromote && settings && (
-        <PromoteModal
-          config={settings}
-          onConfirm={async () => {
-            await fetch("/api/live/config/promote", { method: "POST" });
-            setShowPromote(false);
-            fetchData();
-            fetchLiveData(); // refresh live account/equity after config change
-          }}
-          onCancel={() => setShowPromote(false)}
-        />
-      )}
+            <ErrorBoundary label="Backtest">
+              <BacktestPanel onResult={setBacktestResult} />
+            </ErrorBoundary>
+          </div>
+        </main>
+
+        <div style={{ padding: "0 28px 28px" }}>
+          <ErrorBoundary label="Demo Trade Log">
+            <DemoTradeLog trades={demoTrades} />
+          </ErrorBoundary>
+        </div>
+
+        {backtestResult && (
+          <div style={{ padding: "0 28px 28px" }}>
+            <TradeLog result={backtestResult} />
+          </div>
+        )}
+      </div>
 
       {/* ── Live tab ──────────────────────────────────────────────────────── */}
-      {activeTab === "live" && (
-        <>
+      <div style={{ display: activeTab === "live" ? "" : "none" }}>
         <main className="main">
           <div className="main-left">
             <div>
@@ -1206,9 +1175,6 @@ export default function App() {
               </ErrorBoundary>
               <ErrorBoundary label="Rotation Forecast">
                 <RotationForecast />
-              </ErrorBoundary>
-              <ErrorBoundary label="Rotation Leaderboard">
-                <RotationLeaderboard limit={10} />
               </ErrorBoundary>
               <ErrorBoundary label="Watchlist">
                 <Watchlist />
@@ -1237,10 +1203,13 @@ export default function App() {
               <LiveAccount account={liveAccount} status={liveStatus} />
             </ErrorBoundary>
 
+            <ErrorBoundary label="Live Positions">
+              <LivePositions positions={livePositions} />
+            </ErrorBoundary>
+
             <ErrorBoundary label="Live Equity Curve">
               <EquityCurve equity={liveEquity} />
             </ErrorBoundary>
-
           </div>
         </main>
 
@@ -1248,8 +1217,47 @@ export default function App() {
           <ErrorBoundary label="Live Trade Log">
             <LiveTradeLog trades={liveTrades} />
           </ErrorBoundary>
+          <ErrorBoundary label="Live Order Log">
+            <LiveOrderLog orders={liveOrders} />
+          </ErrorBoundary>
         </div>
-        </>
+      </div>
+
+      {/* ── Modals — rendered outside tabs so they work from either tab ──── */}
+      {showSettings && (
+        <SettingsModal
+          settings={settings}
+          tickers={tickers}
+          onSave={(side, updates) => {
+            fetch(`/api/settings/${side}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(updates),
+            }).then(() => fetchData());
+          }}
+          onTickerAdd={(sector, ticker) =>
+            fetch(`/api/tickers/${sector}/add?ticker=${ticker}`, { method: "POST" })
+              .then(() => fetchData())
+          }
+          onTickerRemove={(sector, ticker) =>
+            fetch(`/api/tickers/${sector}/remove?ticker=${ticker}`, { method: "POST" })
+              .then(() => fetchData())
+          }
+          onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      {showPromote && settings && (
+        <PromoteModal
+          config={settings}
+          onConfirm={async () => {
+            await fetch("/api/live/config/promote", { method: "POST" });
+            setShowPromote(false);
+            fetchData();
+            fetchLiveData();
+          }}
+          onCancel={() => setShowPromote(false)}
+        />
       )}
     </>
   );

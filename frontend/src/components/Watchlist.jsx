@@ -23,28 +23,6 @@ function scoreColor(score) {
   return "var(--red)";
 }
 
-function rotationScoreColor(rs) {
-  if (rs === null || rs === undefined) return "#4a5568";
-  if (rs >= 0.60) return "#00d48c";
-  if (rs >= 0.40) return "#4488ff";
-  return "#4a5568";
-}
-
-function RotationBar({ score }) {
-  if (score == null) return null;
-  const pct   = Math.round(score * 100);
-  const color = rotationScoreColor(score);
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 5 }} title={`Rotation score: ${pct}%`}>
-      <div style={{ background: "#1e2538", borderRadius: 2, height: 3, width: 36 }}>
-        <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 2 }} />
-      </div>
-      <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color, fontWeight: 600 }}>
-        {pct}%
-      </span>
-    </div>
-  );
-}
 
 export default function Watchlist() {
   const [items,   setItems]   = useState([]);
@@ -188,9 +166,6 @@ export default function Watchlist() {
                 {/* Velocity arrow */}
                 {item.velocity === "accelerating" && <span style={{ fontSize: 12, color: "#00d48c" }} title={`+${item.velocity_5d?.toFixed(3)} 5d`}>↑</span>}
                 {item.velocity === "decelerating" && <span style={{ fontSize: 12, color: "#ff3355" }} title={`${item.velocity_5d?.toFixed(3)} 5d`}>↓</span>}
-
-                {/* Rotation score bar */}
-                <RotationBar score={item.rotation_score} />
 
                 {/* Score + trend */}
                 <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginLeft: "auto" }}>

@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from "react";
 
 const SIGNAL_META = {
-  breakout:  { label: "BREAKOUT",  color: "#00d48c", desc: "Fresh crossover after extended weakness" },
-  trending:  { label: "TRENDING",  color: "#4488ff", desc: "Confirmed multi-week uptrend"            },
-  rising:    { label: "RISING",    color: "#7ab8ff", desc: "Early move, not yet confirmed"            },
-  extended:  { label: "EXTENDED",  color: "#ffaa00", desc: "Long uptrend — late stage"               },
-  breakdown: { label: "BREAKDOWN", color: "#ff3355", desc: "Fresh cross below threshold"             },
-  weak:      { label: "WEAK",      color: "#4a5568", desc: "Below threshold"                         },
+  breakout:   { label: "BREAKOUT",   color: "#00d48c" },
+  trending:   { label: "TRENDING",   color: "#4488ff" },
+  rising:     { label: "RISING",     color: "#7ab8ff" },
+  extended:   { label: "EXTENDED",   color: "#ffaa00" },
+  recovering: { label: "RECOVERING", color: "#a78bfa" },
+  breakdown:  { label: "BREAKDOWN",  color: "#ff3355" },
+  weak:       { label: "WEAK",       color: "#4a5568" },
 };
 
 const REGIME_META = {
@@ -22,20 +23,89 @@ const DEFENSIVE = new Set(["Utilities", "Healthcare", "ConsumerStaples", "RealEs
 function weeks(days) {
   if (!days) return "—";
   if (days < 7)  return `${days}d`;
-  return `${Math.round(days / 5)}w`;   // trading weeks
+  return `${Math.round(days / 5)}w`;
+}
+
+function TickerRows({ tickers }) {
+  if (!tickers.length) return (
+    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "var(--text-3)", padding: "4px 2px" }}>
+      No tickers tracked in this sector yet.
+    </div>
+  );
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      {tickers.map((t, i) => {
+        const tsm = SIGNAL_META[t.signal] ?? SIGNAL_META.weak;
+        return (
+          <div key={t.ticker} style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            background: i === 0 ? "#ffffff05" : "transparent",
+            borderRadius: 3, padding: "3px 6px",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{
+                fontFamily: "'DM Mono', monospace", fontSize: 12,
+                color: "var(--text-1)", fontWeight: 600, minWidth: 52,
+              }}>
+                {t.ticker}
+              </span>
+              <span style={{
+                fontFamily: "'DM Mono', monospace", fontSize: 9, fontWeight: 700,
+                color: tsm.color, background: `${tsm.color}18`,
+                border: `1px solid ${tsm.color}44`, borderRadius: 3, padding: "1px 5px",
+              }}>
+                {tsm.label}
+              </span>
+              {t.pre_rotation && (
+                <span style={{
+                  fontFamily: "'DM Mono', monospace", fontSize: 8, fontWeight: 700,
+                  color: "#00d48c", background: "#00d48c12",
+                  border: "1px solid #00d48c44", borderRadius: 3, padding: "1px 4px",
+                }}>
+                  PRE-ROT
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              {t.velocity === "accelerating" && <span style={{ fontSize: 11, color: "#00d48c" }}>↑</span>}
+              {t.velocity === "decelerating" && <span style={{ fontSize: 11, color: "#ff3355" }}>↓</span>}
+              <span style={{
+                fontFamily: "'DM Mono', monospace", fontSize: 11,
+                color: tsm.color, fontWeight: 600,
+              }}>
+                {t.rotation_score != null ? (t.rotation_score * 100).toFixed(0) + "%" : "—"}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function SectorRegime() {
-  const [data,    setData]    = useState(null);
-  const [error,   setError]   = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [data,     setData]     = useState(null);
+  const [tickers,  setTickers]  = useState([]);
+  const [error,    setError]    = useState(null);
+  const [loading,  setLoading]  = useState(true);
+  const [expanded, setExpanded] = useState({});
 
   useEffect(() => {
-    fetch("/api/sectors/regime")
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then(d => { setData(d); setLoading(false); })
+    Promise.all([
+      fetch("/api/sectors/regime").then(r => r.ok ? r.json() : Promise.reject(r.status)),
+      fetch("/api/sectors/rotation-leaderboard?limit=50").then(r => r.ok ? r.json() : []),
+    ])
+      .then(([regime, lb]) => { setData(regime); setTickers(lb); setLoading(false); })
       .catch(e => { setError(`Failed to load regime (${e})`); setLoading(false); });
   }, []);
+
+  function toggle(sector) {
+    setExpanded(prev => ({ ...prev, [sector]: !prev[sector] }));
+  }
+
+  function sectorTickers(sector) {
+    return tickers.filter(t => t.sector === sector);
+  }
 
   if (loading) return null;
   if (error)   return <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--red)", padding: "8px 0" }}>{error}</div>;
@@ -62,7 +132,6 @@ export default function SectorRegime() {
           Regime
         </div>
 
-        {/* Regime badge */}
         <div style={{
           fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 700,
           color: regime.color, background: regime.bg,
@@ -71,8 +140,7 @@ export default function SectorRegime() {
           {regime.label}
         </div>
 
-        {/* Regime confidence bar */}
-        {data.regime_confidence != null && (
+        {data.regime_confidence != null && data.regime !== "neutral" && (
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <div style={{ background: "#1e2538", borderRadius: 3, height: 4, width: 56 }}>
               <div style={{
@@ -86,7 +154,6 @@ export default function SectorRegime() {
           </div>
         )}
 
-        {/* Cyclical vs Defensive spread */}
         <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)" }}>
           Cyclical <span style={{ color: "#4488ff" }}>{data.cyclical_avg?.toFixed(3)}</span>
           {" vs "}
@@ -96,16 +163,9 @@ export default function SectorRegime() {
           </span>
         </div>
 
-        {/* Leader */}
-        {data.leader && (
-          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)", marginLeft: "auto" }}>
-            Leader: <span style={{ color: "var(--text-1)", fontWeight: 600 }}>{data.leader}</span>
-            <span style={{ color: "var(--text-3)" }}> · {weeks(data.leader_streak)} confirmed</span>
-          </div>
-        )}
       </div>
 
-      {/* Breakout / Extended alerts */}
+      {/* Breakout / Extended / Breakdown alerts */}
       {(data.breakouts?.length > 0 || data.extended?.length > 0 || data.breakdowns?.length > 0) && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
           {data.breakouts.map(s => (
@@ -135,7 +195,7 @@ export default function SectorRegime() {
       {/* Sector columns */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         {[
-          { label: "Cyclical", color: "#4488ff", entries: cyclical },
+          { label: "Cyclical",  color: "#4488ff", entries: cyclical  },
           { label: "Defensive", color: "#00ccaa", entries: defensive },
         ].map(({ label, color, entries }) => (
           <div key={label}>
@@ -148,34 +208,58 @@ export default function SectorRegime() {
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {entries.map(([sector, stat]) => {
-                const sm    = SIGNAL_META[stat.signal] ?? SIGNAL_META.weak;
-                const score = stat.score?.toFixed(3) ?? "—";
+                const sm       = SIGNAL_META[stat.signal] ?? SIGNAL_META.weak;
+                const score    = stat.score?.toFixed(3) ?? "—";
+                const isOpen   = !!expanded[sector];
+                const st       = sectorTickers(sector);
                 return (
                   <div key={sector} style={{
-                    display: "flex", alignItems: "center", justifyContent: "space-between",
-                    background: "#0e1525", borderRadius: 5, padding: "6px 10px",
-                    border: `1px solid ${sm.color}22`,
+                    background: "#0e1525", borderRadius: 5,
+                    border: `1px solid ${sm.color}22`, overflow: "hidden",
                   }}>
-                    <div>
-                      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-2)", fontWeight: 500 }}>{sector}</div>
-                      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: sm.color, marginTop: 1 }}>{sm.label}</div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      {/* Velocity arrow */}
-                      {stat.velocity === "accelerating" && (
-                        <span style={{ fontSize: 13, color: "#00d48c" }} title={`+${stat.velocity_5d?.toFixed(3)} 5d`}>↑</span>
-                      )}
-                      {stat.velocity === "decelerating" && (
-                        <span style={{ fontSize: 13, color: "#ff3355" }} title={`${stat.velocity_5d?.toFixed(3)} 5d`}>↓</span>
-                      )}
-                      {stat.velocity === "flat" && (
-                        <span style={{ fontSize: 13, color: "var(--text-3)" }} title="flat">→</span>
-                      )}
-                      <div style={{ textAlign: "right" }}>
-                        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, color: sm.color, fontWeight: 600 }}>{score}</div>
-                        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "var(--text-3)", marginTop: 1 }}>{weeks(stat.streak_days)}</div>
+                    {/* Sector header row — clickable */}
+                    <div
+                      onClick={() => toggle(sector)}
+                      style={{
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        padding: "6px 10px", cursor: "pointer",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <div>
+                          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-2)", fontWeight: 500 }}>{sector}</div>
+                          <div style={{ marginTop: 1 }}>
+                            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: sm.color }}>{sm.label}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {stat.velocity === "accelerating" && (
+                          <span style={{ fontSize: 13, color: "#00d48c" }} title={`+${stat.velocity_5d?.toFixed(3)} 5d`}>↑</span>
+                        )}
+                        {stat.velocity === "decelerating" && (
+                          <span style={{ fontSize: 13, color: "#ff3355" }} title={`${stat.velocity_5d?.toFixed(3)} 5d`}>↓</span>
+                        )}
+                        {stat.velocity === "flat" && (
+                          <span style={{ fontSize: 13, color: "var(--text-3)" }} title="flat">→</span>
+                        )}
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, color: sm.color, fontWeight: 600 }}>{score}</div>
+                          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "var(--text-3)", marginTop: 1 }}>{weeks(stat.streak_days)}</div>
+                        </div>
                       </div>
                     </div>
+
+                    {/* Ticker list — shown when expanded */}
+                    {isOpen && (
+                      <div style={{
+                        borderTop: `1px solid ${sm.color}22`,
+                        padding: "6px 10px 8px",
+                        background: "#0a1020",
+                      }}>
+                        <TickerRows tickers={st} />
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -184,52 +268,6 @@ export default function SectorRegime() {
         ))}
       </div>
 
-      {/* Velocity momentum strip — compact sweep across all sectors */}
-      {Object.keys(sectors).length > 0 && (() => {
-        const allSectors   = Object.entries(sectors);
-        const accelerating = allSectors.filter(([, s]) => s.velocity === "accelerating");
-        const decelerating = allSectors.filter(([, s]) => s.velocity === "decelerating");
-        const flat         = allSectors.filter(([, s]) => s.velocity === "flat");
-        return (
-          <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
-            <div style={{
-              fontFamily: "'DM Mono', monospace", fontSize: 9, color: "var(--text-3)",
-              letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8,
-            }}>
-              Momentum sweep — {accelerating.length} ↑ &nbsp; {decelerating.length} ↓ &nbsp; {flat.length} →
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-              {allSectors
-                .slice()
-                .sort((a, b) => (b[1].velocity_5d ?? 0) - (a[1].velocity_5d ?? 0))
-                .map(([sector, stat]) => {
-                  const vel   = stat.velocity;
-                  const color = vel === "accelerating" ? "#00d48c"
-                              : vel === "decelerating" ? "#ff3355"
-                              : "var(--text-3)";
-                  const arrow = vel === "accelerating" ? "↑"
-                              : vel === "decelerating" ? "↓" : "→";
-                  const delta = stat.velocity_5d != null
-                    ? (stat.velocity_5d >= 0 ? `+${stat.velocity_5d.toFixed(3)}` : stat.velocity_5d.toFixed(3))
-                    : "";
-                  return (
-                    <div key={sector} title={`${sector}: ${delta} 5d`} style={{
-                      display: "flex", alignItems: "center", gap: 3,
-                      background: `${color}10`,
-                      border: `1px solid ${color}33`,
-                      borderRadius: 4, padding: "2px 7px",
-                    }}>
-                      <span style={{ fontSize: 10, color }}>{arrow}</span>
-                      <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: "var(--text-2)" }}>
-                        {sector}
-                      </span>
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-        );
-      })()}
     </div>
   );
 }

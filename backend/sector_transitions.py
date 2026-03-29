@@ -31,6 +31,12 @@ MIN_REGIME_TRANSITIONS = 5
 _VELOCITY_NORM_CENTER = 0.10
 _VELOCITY_NORM_WIDTH  = 0.20
 
+# Blending weights for sector probability = historical prior + live momentum evidence.
+# Expand matrix candidate pool to top 5 before blending so momentum can re-rank them.
+_HISTORY_WEIGHT        = 0.60
+_MOMENTUM_WEIGHT       = 0.40
+_MATRIX_CANDIDATE_POOL = 5   # sectors pulled from matrix before momentum re-rank
+
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
@@ -118,28 +124,43 @@ def get_rotation_forecast() -> dict:
     conditioned_matrix, regime_sample_size = get_conditioned_transition_matrix(current_regime)
     unconditional_matrix                   = get_transition_matrix()
 
-    leader_conditioned_count = sum(conditioned_matrix.get(leader, {}).values())
-    if leader_conditioned_count >= MIN_REGIME_TRANSITIONS:
+    if regime_sample_size >= MIN_REGIME_TRANSITIONS:
         active_matrix       = conditioned_matrix
         regime_conditioned  = True
     else:
         active_matrix       = unconditional_matrix
         regime_conditioned  = False
 
-    leader_trans = active_matrix.get(leader, {})
-    likely_next  = [
-        {"sector": s, "probability": p}
-        for s, p in list(leader_trans.items())[:3]
-    ]
+    leader_trans     = active_matrix.get(leader, {})
+    sector_momentum  = compute_sector_rotation_scores()
+    sector_stats     = regime.get("sectors", {})
 
-    # confirmed_transition always uses unconditional matrix for stability
-    predecessor          = _find_predecessor(leader)
+    # Blend historical prior + live sector momentum, then re-rank top 3.
+    # Pull top-5 from the matrix so a momentum surge can promote a #4/#5 historical
+    # candidate above a fading #1/#2.  Default momentum to 0.5 when no ticker data.
+    blended: list[dict] = []
+    for s, hist_p in list(leader_trans.items())[:_MATRIX_CANDIDATE_POOL]:
+        momentum = sector_momentum.get(s, 0.5)
+        stats    = sector_stats.get(s, {})
+        blended.append({
+            "sector":          s,
+            "probability":     round(_HISTORY_WEIGHT * hist_p + _MOMENTUM_WEIGHT * momentum, 3),
+            "historical_prob": hist_p,
+            "sector_score":    stats.get("score"),
+            "sector_signal":   stats.get("signal"),
+        })
+    blended.sort(key=lambda x: x["probability"], reverse=True)
+    likely_next = blended[:3]
+
+    # confirmed_transition uses the most recent predecessor against the unconditional matrix
+    predecessors         = _find_predecessor_chain(leader, n=2)
+    recent_predecessor   = predecessors[-1] if predecessors else None
     confirmed_transition = None
-    if predecessor and predecessor in unconditional_matrix:
-        prob = unconditional_matrix[predecessor].get(leader, 0)
+    if recent_predecessor and recent_predecessor in unconditional_matrix:
+        prob = unconditional_matrix[recent_predecessor].get(leader, 0)
         if prob > 0:
             confirmed_transition = {
-                "from":        predecessor,
+                "from":        recent_predecessor,
                 "to":          leader,
                 "probability": prob,
             }
@@ -150,30 +171,30 @@ def get_rotation_forecast() -> dict:
         "available":            True,
         "leader":               leader,
         "leader_streak_days":   regime.get("leader_streak", 0),
-        "predecessor":          predecessor,
+        "predecessors":         predecessors,         # chronological list, oldest first
         "confirmed_transition": confirmed_transition,
         "likely_next":          likely_next,
         "watching":             watching,
-        "regime_conditioned":   regime_conditioned,   # True = using regime-specific matrix
-        "regime_sample_size":   regime_sample_size,   # transitions observed in this regime
+        "regime_conditioned":   regime_conditioned,
+        "regime_sample_size":   regime_sample_size,
     }
 
 
 def compute_ticker_rotation_scores() -> dict[str, float]:
     """
-    Composite rotation score per ticker (0–1).
+    Per-ticker rotation score (0–1) based purely on ticker-level signals.
+    Ticker scores are the bottom-up input that get aggregated into sector
+    momentum scores, which then blend with the historical transition matrix
+    to produce the final sector probability in the forecast.
 
     Components (weighted sum):
-      transition_prob  (50%) — P(ticker's sector is the next rotation target),
-                               from the regime-conditioned matrix; 0 if not in likely_next
-      velocity_score   (30%) — ticker's own 5d velocity normalised to [0, 1]:
+      velocity_score   (65%) — ticker's own 5d velocity normalised to [0, 1]:
                                velocity_5d = +0.10 → 1.0, flat → 0.5, -0.10 → 0.0
-      regime_alignment (20%) — cyclical sector in risk_on OR defensive in risk_off → 1.0;
+      regime_alignment (35%) — cyclical sector in risk_on OR defensive in risk_off → 1.0;
                                misaligned → 0.1; neutral regime or unknown sector → 0.5
 
     Returns {ticker: rotation_score} or {} if data unavailable.
-    The result is intentionally not cached — callers should compute once per gate cycle
-    and pass it down to avoid redundant calls.
+    Not cached — callers should compute once per gate cycle.
     """
     from backend.sector_regime import compute_sector_regime, compute_ticker_signals, CYCLICAL, DEFENSIVE
 
@@ -185,25 +206,19 @@ def compute_ticker_rotation_scores() -> dict[str, float]:
     if not ticker_signals:
         return {}
 
-    forecast       = get_rotation_forecast()
-    next_probs     = {item["sector"]: item["probability"]
-                      for item in forecast.get("likely_next", [])}
     current_regime = regime_data.get("regime", "neutral")
 
     result: dict[str, float] = {}
     for ticker, sig in ticker_signals.items():
         sector = sig.get("sector", "")
 
-        # 1. Transition probability (0 when sector not forecast as likely next)
-        transition_prob = next_probs.get(sector, 0.0)
-
-        # 2. Velocity score — normalise velocity_5d from [-0.10, +0.10] → [0, 1]
+        # 1. Velocity score — normalise velocity_5d from [-0.10, +0.10] → [0, 1]
         v5d            = sig.get("velocity_5d", 0.0)
         velocity_score = max(0.0, min(1.0,
             (v5d + _VELOCITY_NORM_CENTER) / _VELOCITY_NORM_WIDTH
         ))
 
-        # 3. Regime alignment
+        # 2. Regime alignment
         if current_regime == "risk_on":
             regime_alignment = 1.0 if sector in CYCLICAL  else 0.1
         elif current_regime == "risk_off":
@@ -212,12 +227,42 @@ def compute_ticker_rotation_scores() -> dict[str, float]:
             regime_alignment = 0.5
 
         result[ticker] = round(
-            0.50 * transition_prob +
-            0.30 * velocity_score  +
-            0.20 * regime_alignment,
+            0.65 * velocity_score  +
+            0.35 * regime_alignment,
             4,
         )
 
+    return result
+
+
+def compute_sector_rotation_scores() -> dict[str, float]:
+    """
+    Aggregate per-ticker rotation scores bottom-up to sector level.
+    Uses the average of the top-3 ticker scores within each sector.
+
+    This is the momentum evidence that blends with the historical transition
+    matrix inside get_rotation_forecast() to produce the final sector probability.
+
+    Returns {sector: score} where score is 0–1, or {} if data unavailable.
+    """
+    from backend.sector_regime import compute_ticker_signals
+
+    ticker_scores = compute_ticker_rotation_scores()
+    if not ticker_scores:
+        return {}
+
+    ticker_signals = compute_ticker_signals()
+
+    by_sector: dict[str, list[float]] = {}
+    for ticker, score in ticker_scores.items():
+        sector = ticker_signals.get(ticker, {}).get("sector", "")
+        if sector:
+            by_sector.setdefault(sector, []).append(score)
+
+    result: dict[str, float] = {}
+    for sector, scores in by_sector.items():
+        top3 = sorted(scores, reverse=True)[:3]
+        result[sector] = round(sum(top3) / len(top3), 4)
     return result
 
 
@@ -332,16 +377,21 @@ def _compute_raw_matrix() -> dict[str, dict[str, int]]:
     return dict(matrix)
 
 
-def _find_predecessor(current_leader: str) -> str | None:
+def _find_predecessor_chain(current_leader: str, n: int = 2) -> list[str]:
     """
-    Walk backwards through monthly rankings to find the sector that held top-2
-    just before the current leader entered.
+    Returns up to n predecessor sectors in chronological order (oldest first),
+    e.g. ["Materials", "Financials"] means Materials led, then Financials, then
+    current_leader.
+
+    Uses full history so long-running leaders (>6 months) are handled correctly.
+    Finds the current leader's entry point by scanning backwards from the most
+    recent month — robust against leaders that have been in top-2 for a long time.
     """
     try:
         from backend.db import get_sector_history
-        raw = get_sector_history(days=180)   # 6 months is plenty
+        raw = get_sector_history(days=0)   # full history, not capped at 180d
         if not raw:
-            return None
+            return []
 
         monthly: dict[str, dict[str, float]] = defaultdict(dict)
         for r in raw:
@@ -350,7 +400,7 @@ def _find_predecessor(current_leader: str) -> str | None:
 
         months = sorted(monthly.keys())
         if len(months) < 2:
-            return None
+            return []
 
         def _rank(scores):
             order = sorted(scores, key=lambda s: scores[s], reverse=True)
@@ -358,28 +408,47 @@ def _find_predecessor(current_leader: str) -> str | None:
 
         ranked = {m: _rank(monthly[m]) for m in months}
 
-        # Find the earliest month in the lookback where leader entered top-2
-        entry_idx = None
-        for i, m in enumerate(months):
-            if ranked[m].get(current_leader, 99) <= 2:
-                entry_idx = i
+        # Walk backwards from newest to find where current_leader entered top-2.
+        # This correctly handles leaders that have held for longer than any fixed lookback.
+        i = len(months) - 1
+        while i >= 0 and ranked[months[i]].get(current_leader, 99) <= 2:
+            i -= 1
+        # i is now the last month where leader was NOT in top-2 (-1 means always in top-2)
+        entry_idx = i + 1
+
+        if entry_idx == 0:
+            return []   # leader has been in top-2 for the entire history window
+
+        chain: list[str] = []
+        seen       = {current_leader}   # prevent cycles (e.g. Energy→RealEstate→Energy)
+        cur_entry  = entry_idx
+        cur_sector = current_leader
+
+        for _ in range(n):
+            if cur_entry == 0:
                 break
 
-        if entry_idx is None or entry_idx == 0:
-            return None
+            prev_m    = months[cur_entry - 1]
+            prev_top2 = {s for s, r in ranked[prev_m].items() if r <= 2}
+            prev_top2 -= seen   # exclude current leader and all sectors already in chain
+            if not prev_top2:
+                break
 
-        prev_m    = months[entry_idx - 1]
-        prev_top2 = {s for s, r in ranked[prev_m].items() if r <= 2}
-        prev_top2.discard(current_leader)
+            pred = max(prev_top2, key=lambda s: monthly[prev_m].get(s, 0))
+            chain.insert(0, pred)   # prepend → list stays chronological (oldest first)
+            seen.add(pred)
 
-        if not prev_top2:
-            return None
+            # Find when this predecessor entered top-2 to continue walking back
+            j = cur_entry - 1
+            while j >= 0 and ranked[months[j]].get(pred, 99) <= 2:
+                j -= 1
+            cur_entry  = j + 1
+            cur_sector = pred
 
-        prev_scores = monthly[prev_m]
-        return max(prev_top2, key=lambda s: prev_scores.get(s, 0))
+        return chain
 
     except Exception:
-        return None
+        return []
 
 
 def _watching_sectors(likely_next: list[dict], regime: dict) -> list[dict]:
@@ -398,13 +467,14 @@ def _watching_sectors(likely_next: list[dict], regime: dict) -> list[dict]:
         signal = stats.get("signal", "weak")
         if signal in early_signals:
             watching.append({
-                "sector":      sector,
-                "probability": item["probability"],
-                "signal":      signal,
-                "score":       stats.get("score"),
-                "streak_days": stats.get("streak_days"),
-                "velocity":    stats.get("velocity"),    # accelerating/decelerating/flat
-                "velocity_5d": stats.get("velocity_5d"), # raw 5d score delta
+                "sector":        sector,
+                "probability":   item["probability"],
+                "historical_prob": item.get("historical_prob"),
+                "signal":        signal,
+                "score":         stats.get("score"),
+                "streak_days":   stats.get("streak_days"),
+                "velocity":      stats.get("velocity"),
+                "velocity_5d":   stats.get("velocity_5d"),
             })
 
     return watching
