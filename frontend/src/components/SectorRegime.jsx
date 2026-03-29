@@ -183,6 +183,53 @@ export default function SectorRegime() {
           </div>
         ))}
       </div>
+
+      {/* Velocity momentum strip — compact sweep across all sectors */}
+      {Object.keys(sectors).length > 0 && (() => {
+        const allSectors   = Object.entries(sectors);
+        const accelerating = allSectors.filter(([, s]) => s.velocity === "accelerating");
+        const decelerating = allSectors.filter(([, s]) => s.velocity === "decelerating");
+        const flat         = allSectors.filter(([, s]) => s.velocity === "flat");
+        return (
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+            <div style={{
+              fontFamily: "'DM Mono', monospace", fontSize: 9, color: "var(--text-3)",
+              letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8,
+            }}>
+              Momentum sweep — {accelerating.length} ↑ &nbsp; {decelerating.length} ↓ &nbsp; {flat.length} →
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+              {allSectors
+                .slice()
+                .sort((a, b) => (b[1].velocity_5d ?? 0) - (a[1].velocity_5d ?? 0))
+                .map(([sector, stat]) => {
+                  const vel   = stat.velocity;
+                  const color = vel === "accelerating" ? "#00d48c"
+                              : vel === "decelerating" ? "#ff3355"
+                              : "var(--text-3)";
+                  const arrow = vel === "accelerating" ? "↑"
+                              : vel === "decelerating" ? "↓" : "→";
+                  const delta = stat.velocity_5d != null
+                    ? (stat.velocity_5d >= 0 ? `+${stat.velocity_5d.toFixed(3)}` : stat.velocity_5d.toFixed(3))
+                    : "";
+                  return (
+                    <div key={sector} title={`${sector}: ${delta} 5d`} style={{
+                      display: "flex", alignItems: "center", gap: 3,
+                      background: `${color}10`,
+                      border: `1px solid ${color}33`,
+                      borderRadius: 4, padding: "2px 7px",
+                    }}>
+                      <span style={{ fontSize: 10, color }}>{arrow}</span>
+                      <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: "var(--text-2)" }}>
+                        {sector}
+                      </span>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

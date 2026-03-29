@@ -4,6 +4,7 @@ import SectorRotation  from "./components/SectorRotation.jsx";
 import SectorRegime    from "./components/SectorRegime.jsx";
 import Watchlist          from "./components/Watchlist.jsx";
 import RotationForecast   from "./components/RotationForecast.jsx";
+import RotationLeaderboard from "./components/RotationLeaderboard.jsx";
 import WalletPanel   from "./components/WalletPanel.jsx";
 import GateFeed      from "./components/GateFeed.jsx";
 import EquityCurve   from "./components/EquityCurve.jsx";
@@ -1101,6 +1102,9 @@ export default function App() {
                 <ErrorBoundary label="Rotation Forecast">
                   <RotationForecast />
                 </ErrorBoundary>
+                <ErrorBoundary label="Rotation Leaderboard">
+                  <RotationLeaderboard limit={10} />
+                </ErrorBoundary>
                 <ErrorBoundary label="Watchlist">
                   <Watchlist />
                 </ErrorBoundary>
@@ -1202,6 +1206,9 @@ export default function App() {
               </ErrorBoundary>
               <ErrorBoundary label="Rotation Forecast">
                 <RotationForecast />
+              </ErrorBoundary>
+              <ErrorBoundary label="Rotation Leaderboard">
+                <RotationLeaderboard limit={10} />
               </ErrorBoundary>
               <ErrorBoundary label="Watchlist">
                 <Watchlist />

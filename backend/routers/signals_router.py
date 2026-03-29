@@ -183,6 +183,44 @@ def sectors_rotation_forecast():
     return get_rotation_forecast()
 
 
+@router.get("/sectors/rotation-leaderboard")
+def sectors_rotation_leaderboard(limit: int = 10):
+    """
+    Top tickers ranked by composite rotation_score.
+    Returns [{ticker, sector, signal, streak_days, velocity, velocity_5d,
+              rotation_score, pre_rotation}] sorted descending.
+    """
+    from backend.sector_transitions import compute_ticker_rotation_scores, get_rotation_forecast
+    from backend.sector_regime import compute_ticker_signals
+
+    rotation_scores = compute_ticker_rotation_scores()
+    tk_signals      = compute_ticker_signals()
+
+    try:
+        forecast         = get_rotation_forecast()
+        watching_sectors = {w["sector"] for w in forecast.get("watching", [])} \
+                           if forecast.get("available") else set()
+    except Exception:
+        watching_sectors = set()
+
+    rows = []
+    for ticker, score in rotation_scores.items():
+        tk = tk_signals.get(ticker, {})
+        rows.append({
+            "ticker":         ticker,
+            "sector":         tk.get("sector", ""),
+            "signal":         tk.get("signal", "weak"),
+            "streak_days":    tk.get("streak_days", 0),
+            "velocity":       tk.get("velocity"),
+            "velocity_5d":    round(tk["velocity_5d"], 4) if tk.get("velocity_5d") is not None else None,
+            "rotation_score": score,
+            "pre_rotation":   tk.get("sector", "") in watching_sectors,
+        })
+
+    rows.sort(key=lambda r: r["rotation_score"], reverse=True)
+    return rows[:max(1, min(limit, 50))]
+
+
 @router.post("/sectors/backfill")
 def sectors_backfill(req: BackfillRequest):
     """
