@@ -42,6 +42,14 @@ BREAKDOWN_MIN_PRIOR      = 15   # = CONFIRMED_MIN
 # ticker_threshold_calibration.py after backfill completes).
 TICKER_THRESHOLD_DEFAULT = 0.55
 
+# Velocity — minimum 5d score delta to be considered meaningful movement
+# avg_score is 0–1; a 0.015 delta over 5 trading days is ~1.5 pp/day, non-trivial
+VELOCITY_THRESHOLD = 0.015
+
+# Regime confidence — spread at which the spread component saturates to 1.0
+# Historically cyclical/defensive spreads rarely exceed 0.25 in normal markets
+MAX_SPREAD = 0.25
+
 def _get_ticker_thresholds() -> dict[str, float]:
     """Load per-sector thresholds, falling back to default for missing sectors."""
     try:
@@ -91,18 +99,19 @@ def compute_sector_regime() -> dict:
     leader = max(sector_stats, key=lambda s: sector_stats[s]["score"]) if sector_stats else None
 
     return {
-        "available":      True,
-        "regime":         regime_info["regime"],
-        "cyclical_avg":   regime_info["cyclical_avg"],
-        "defensive_avg":  regime_info["defensive_avg"],
-        "spread":         regime_info["spread"],
-        "leader":         leader,
-        "leader_streak":  sector_stats[leader]["streak_days"] if leader else 0,
-        "breakouts":      breakouts,
-        "breakdowns":     breakdowns,
-        "extended":       extended,
-        "sectors":        sector_stats,
-        "threshold":      SECTOR_THRESHOLD,
+        "available":         True,
+        "regime":            regime_info["regime"],
+        "regime_confidence": regime_info["regime_confidence"],
+        "cyclical_avg":      regime_info["cyclical_avg"],
+        "defensive_avg":     regime_info["defensive_avg"],
+        "spread":            regime_info["spread"],
+        "leader":            leader,
+        "leader_streak":     sector_stats[leader]["streak_days"] if leader else 0,
+        "breakouts":         breakouts,
+        "breakdowns":        breakdowns,
+        "extended":          extended,
+        "sectors":           sector_stats,
+        "threshold":         SECTOR_THRESHOLD,
     }
 
 
@@ -179,10 +188,17 @@ def compute_ticker_signals() -> dict[str, dict]:
             else:
                 signal = "weak"
 
+        vel = _compute_velocity([r["avg_score"] for r in entries_sorted])
+
         result[ticker] = {
-            "score":       round(current_score, 4),
-            "signal":      signal,
-            "streak_days": streak,
+            "score":        round(current_score, 4),
+            "signal":       signal,
+            "streak_days":  streak,
+            "sector":       sector,
+            "velocity":     vel["velocity"],
+            "velocity_5d":  vel["velocity_5d"],
+            "velocity_20d": vel["velocity_20d"],
+            "accel":        vel["accel"],
         }
 
     return result
@@ -201,6 +217,45 @@ def _is_recovering(entries_sorted: list) -> bool:
     recent = sum(r["avg_score"] for r in entries_sorted[-3:]) / 3
     prior  = sum(r["avg_score"] for r in entries_sorted[-6:-3]) / 3
     return recent - prior >= 0.02
+
+def _compute_velocity(scores: list[float]) -> dict:
+    """
+    Compute momentum metrics from a list of daily avg_scores (oldest → newest).
+
+    velocity_5d  — score delta over the last 5 trading days
+    velocity_20d — score delta over the last 20 trading days
+    accel        — change in 5d velocity (velocity_5d minus the previous 5d window)
+                   positive = momentum building, negative = momentum fading
+    velocity     — "accelerating" | "decelerating" | "flat"
+
+    Safe when fewer than 21 rows are available — clamps lookback to available history.
+    """
+    n   = len(scores)
+    cur = scores[-1]
+
+    score_5d_ago  = scores[max(0, n - 6)]   # 5 trading days back
+    score_10d_ago = scores[max(0, n - 11)]  # 10 trading days back (prior 5d window start)
+    score_20d_ago = scores[max(0, n - 21)]  # 20 trading days back
+
+    velocity_5d       = round(cur - score_5d_ago, 4)
+    velocity_20d      = round(cur - score_20d_ago, 4)
+    velocity_5d_prior = round(score_5d_ago - score_10d_ago, 4)  # 5d slope 5d ago
+    accel             = round(velocity_5d - velocity_5d_prior, 4)
+
+    if velocity_5d >= VELOCITY_THRESHOLD:
+        vel_signal = "accelerating"
+    elif velocity_5d <= -VELOCITY_THRESHOLD:
+        vel_signal = "decelerating"
+    else:
+        vel_signal = "flat"
+
+    return {
+        "velocity_5d":  velocity_5d,
+        "velocity_20d": velocity_20d,
+        "accel":        accel,
+        "velocity":     vel_signal,
+    }
+
 
 def _compute_sector_stats(history: list[dict]) -> dict[str, dict]:
     """
@@ -255,17 +310,33 @@ def _compute_sector_stats(history: list[dict]) -> dict[str, dict]:
             else:
                 signal = "weak"
 
+        vel = _compute_velocity([r["avg_score"] for r in rows_sorted])
+
         result[sector] = {
-            "score":       round(current_score, 4),
-            "above":       above_now,
-            "streak_days": streak,
-            "signal":      signal,
+            "score":        round(current_score, 4),
+            "above":        above_now,
+            "streak_days":  streak,
+            "signal":       signal,
+            "velocity":     vel["velocity"],
+            "velocity_5d":  vel["velocity_5d"],
+            "velocity_20d": vel["velocity_20d"],
+            "accel":        vel["accel"],
         }
 
     return result
 
 
 def _compute_regime(sector_stats: dict) -> dict:
+    """
+    Regime classification plus a continuous confidence score (0–1).
+
+    confidence is built from three components:
+      spread_score        (50%) — how large is the cyclical/defensive spread?
+      participation_score (30%) — what fraction of the leading camp is above threshold?
+      duration_score      (20%) — how long has the top sector in that camp been confirmed?
+
+    Neutral regime has confidence = 0.0 by definition (no directional conviction).
+    """
     cyclical_scores  = [v["score"] for k, v in sector_stats.items() if k in CYCLICAL]
     defensive_scores = [v["score"] for k, v in sector_stats.items() if k in DEFENSIVE]
 
@@ -280,5 +351,38 @@ def _compute_regime(sector_stats: dict) -> dict:
     else:
         regime = "neutral"
 
-    return {"regime": regime, "cyclical_avg": cyclical_avg,
-            "defensive_avg": defensive_avg, "spread": spread}
+    # ── confidence components ──────────────────────────────────────────────
+    if regime == "neutral":
+        confidence = 0.0
+    else:
+        leading_camp = CYCLICAL if regime == "risk_on" else DEFENSIVE
+
+        # 1. Spread magnitude
+        spread_score = min(abs(spread) / MAX_SPREAD, 1.0)
+
+        # 2. Sector participation — fraction of leading-camp sectors above threshold
+        above_in_camp = sum(1 for k, v in sector_stats.items()
+                            if k in leading_camp and v.get("above", False))
+        participation_score = above_in_camp / len(leading_camp) if leading_camp else 0.0
+
+        # 3. Duration — max streak among above-threshold sectors in the leading camp,
+        #    normalised to CONFIRMED_MIN (full confidence once a sector is confirmed)
+        streaks = [v["streak_days"] for k, v in sector_stats.items()
+                   if k in leading_camp and v.get("above", False)]
+        max_streak     = max(streaks) if streaks else 0
+        duration_score = min(max_streak / CONFIRMED_MIN, 1.0)
+
+        confidence = round(
+            0.50 * spread_score +
+            0.30 * participation_score +
+            0.20 * duration_score,
+            4,
+        )
+
+    return {
+        "regime":            regime,
+        "regime_confidence": confidence,
+        "cyclical_avg":      cyclical_avg,
+        "defensive_avg":     defensive_avg,
+        "spread":            spread,
+    }

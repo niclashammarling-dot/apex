@@ -74,6 +74,7 @@ def _score_ticker(
     spy_return_20d: float,
     rolling_win_rate: float | None,
     etf_mult: float = 1.0,
+    poll_ts: str | None = None,
 ) -> dict | None:
     try:
         df = yf.Ticker(symbol).history(period="90d", auto_adjust=True)
@@ -131,7 +132,7 @@ def _score_ticker(
         )
 
         return {
-            "timestamp":         datetime.now(timezone.utc).isoformat(),
+            "timestamp":         poll_ts or datetime.now(timezone.utc).isoformat(),
             "ticker":            symbol,
             "sector":            sector,
             # momentum
@@ -180,6 +181,7 @@ def fetch_sector(sector_name: str) -> list[dict]:
     spy              = _spy_data()
     rolling_win_rate = get_rolling_win_rate()
     etf_mult         = _etf_regime(cfg["etf"])
+    poll_ts          = datetime.now(timezone.utc).isoformat()
 
     results = []
     for symbol in tickers:
@@ -187,6 +189,7 @@ def fetch_sector(sector_name: str) -> list[dict]:
             symbol, sector_name,
             spy["regime"], spy["return_20d"],
             rolling_win_rate, etf_mult,
+            poll_ts=poll_ts,
         )
         if row:
             results.append(row)
@@ -195,9 +198,11 @@ def fetch_sector(sector_name: str) -> list[dict]:
 
 def fetch_all_sectors() -> list[dict]:
     """Fetch every configured sector. Called by the scheduler."""
-    # Fetch shared inputs once — not once per ticker
+    # Shared inputs and timestamp generated once — all tickers in this cycle
+    # share the same poll_ts so trend comparisons work correctly.
     spy              = _spy_data()
     rolling_win_rate = get_rolling_win_rate()
+    poll_ts          = datetime.now(timezone.utc).isoformat()
 
     all_signals = []
     for sector_name, cfg in get_sectors().items():
@@ -207,6 +212,7 @@ def fetch_all_sectors() -> list[dict]:
                 symbol, sector_name,
                 spy["regime"], spy["return_20d"],
                 rolling_win_rate, etf_mult,
+                poll_ts=poll_ts,
             )
             if row:
                 all_signals.append(row)

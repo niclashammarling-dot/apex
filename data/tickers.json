@@ -1,0 +1,101 @@
+{
+  "Technology": {
+    "etf": "XLK",
+    "tickers": [
+      "AAPL",
+      "MSFT",
+      "NVDA",
+      "META"
+    ]
+  },
+  "Healthcare": {
+    "etf": "XLV",
+    "tickers": [
+      "JNJ",
+      "PFE",
+      "UNH",
+      "MRNA"
+    ]
+  },
+  "Energy": {
+    "etf": "XLE",
+    "tickers": [
+      "XOM",
+      "CVX",
+      "HAL"
+    ]
+  },
+  "Industrials": {
+    "etf": "XLI",
+    "tickers": [
+      "CAT",
+      "BA",
+      "GE",
+      "HON"
+    ]
+  },
+  "Financials": {
+    "etf": "XLF",
+    "tickers": [
+      "JPM",
+      "BAC",
+      "GS",
+      "V"
+    ]
+  },
+  "ConsumerDisc": {
+    "etf": "XLY",
+    "tickers": [
+      "AMZN",
+      "TSLA",
+      "NKE",
+      "MCD"
+    ]
+  },
+  "ConsumerStaples": {
+    "etf": "XLP",
+    "tickers": [
+      "PG",
+      "KO",
+      "PEP",
+      "WMT"
+    ]
+  },
+  "Communication": {
+    "etf": "XLC",
+    "tickers": [
+      "GOOGL",
+      "NFLX",
+      "DIS",
+      "T"
+    ]
+  },
+  "Utilities": {
+    "etf": "XLU",
+    "tickers": [
+      "DUK",
+      "SO",
+      "AEP",
+      "EXC",
+      "NEE"
+    ]
+  },
+  "Materials": {
+    "etf": "XLB",
+    "tickers": [
+      "LIN",
+      "APD",
+      "NEM",
+      "FCX"
+    ]
+  },
+  "RealEstate": {
+    "etf": "XLRE",
+    "tickers": [
+      "PLD",
+      "AMT",
+      "EQIX",
+      "SPG"
+    ]
+  }
+}

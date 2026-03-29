@@ -71,11 +71,11 @@ function TickerRow({ t }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1, margin: "0 12px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "var(--text-3)", width: 22 }}>MOM</span>
-          <MiniBar value={t.momentum_score} color="#5a8fe8" />
+          <MiniBar value={Math.max(0, (t.momentum_score - 0.5) * 2)} color="#5a8fe8" />
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "var(--text-3)", width: 22 }}>VOL</span>
-          <MiniBar value={t.volume_score} color="#8a5ae8" />
+          <MiniBar value={Math.max(0, (t.volume_score - 0.5) * 2)} color="#8a5ae8" />
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "var(--text-3)", width: 22 }}>RSI</span>

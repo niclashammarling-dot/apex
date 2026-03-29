@@ -70,11 +70,13 @@ function CustomTooltip({ active, payload, label }) {
 }
 
 export default function SectorRotation() {
-  const [days,          setDays]    = useState(30);
-  const [rawData,       setRawData] = useState([]);
-  const [loading,       setLoading] = useState(true);
-  const [error,         setError]   = useState(null);
-  const [hiddenSectors, setHidden]  = useState(new Set());
+  const [days,          setDays]      = useState(30);
+  const [rawData,       setRawData]   = useState([]);
+  const [loading,       setLoading]   = useState(true);
+  const [error,         setError]     = useState(null);
+  const [hiddenSectors, setHidden]    = useState(new Set());
+  const [normalized,    setNormalized] = useState(false);
+  const [thresholds,    setThresholds] = useState({});
 
   // Backfill state
   const [showBackfill, setShowBackfill] = useState(false);
@@ -85,6 +87,13 @@ export default function SectorRotation() {
   const [bfInserted,   setBfInserted]   = useState(0);
   const [bfError,      setBfError]      = useState(null);
   const bfPollRef = React.useRef(null);
+
+  useEffect(() => {
+    fetch("/api/calibrate/ticker-thresholds")
+      .then(r => r.ok ? r.json() : {})
+      .then(data => setThresholds(data.thresholds ?? {}))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -102,11 +111,18 @@ export default function SectorRotation() {
   }, [days]);
 
   // Pivot flat rows into [{timestamp, Sector1: score, Sector2: score, ...}]
+  const FLAT_THRESHOLD = 0.55;
   const sectors = [...new Set(rawData.map(r => r.sector))].sort();
   const tsMap = {};
   for (const row of rawData) {
     if (!tsMap[row.timestamp]) tsMap[row.timestamp] = { timestamp: row.timestamp };
-    tsMap[row.timestamp][row.sector] = row.avg_score;
+    const score = row.avg_score;
+    if (normalized) {
+      const thr = thresholds[row.sector] ?? FLAT_THRESHOLD;
+      tsMap[row.timestamp][row.sector] = thr > 0 ? Math.round((score / thr) * 1000) / 1000 : score;
+    } else {
+      tsMap[row.timestamp][row.sector] = score;
+    }
   }
   const chartData = Object.values(tsMap).sort((a, b) =>
     new Date(a.timestamp) - new Date(b.timestamp)
@@ -178,7 +194,19 @@ export default function SectorRotation() {
             }}
           >⟳ backfill</button>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <button
+            onClick={() => setNormalized(v => !v)}
+            title={normalized ? "Show raw scores" : "Normalize by L1 threshold — makes sectors comparable"}
+            style={{
+              fontFamily: "'DM Mono', monospace", fontSize: 10,
+              padding: "3px 10px", borderRadius: 4, cursor: "pointer",
+              border: `1px solid ${normalized ? "var(--accent)" : "var(--border)"}`,
+              background: normalized ? "var(--accent)" : "transparent",
+              color: normalized ? "#fff" : "var(--text-3)",
+              marginRight: 4,
+            }}
+          >normalized</button>
           {RANGES.map(r => (
             <button
               key={r.days}
@@ -300,13 +328,16 @@ export default function SectorRotation() {
               interval="preserveStartEnd"
             />
             <YAxis
-              domain={[0, 1]}
+              domain={normalized ? [0.5, 1.5] : [0, 1]}
               tick={{ fontFamily: "'DM Mono', monospace", fontSize: 10, fill: "var(--text-3)" }}
               axisLine={false} tickLine={false}
-              tickFormatter={v => v.toFixed(1)}
+              tickFormatter={v => normalized ? `${v.toFixed(1)}×` : v.toFixed(1)}
             />
             <Tooltip content={<CustomTooltip />} />
-            <ReferenceLine y={0.55} stroke="#2a3450" strokeDasharray="3 3" />
+            <ReferenceLine
+              y={normalized ? 1.0 : 0.55}
+              stroke="#2a3450" strokeDasharray="3 3"
+            />
             {sectors
               .filter(s => !hiddenSectors.has(s))
               .map(s => (
@@ -327,7 +358,10 @@ export default function SectorRotation() {
       )}
 
       <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "var(--text-3)", marginTop: 8 }}>
-        Dashed line = Lock 1 threshold (0.55). Click sectors to toggle.
+        {normalized
+          ? "Normalized: score ÷ per-sector L1 threshold. 1.0× = exactly at threshold. Sectors are directly comparable."
+          : "Raw scores. Dashed line = 0.55 (approximate). Use Normalized view for cross-sector comparison."
+        } Click sectors to toggle visibility.
       </div>
     </div>
   );

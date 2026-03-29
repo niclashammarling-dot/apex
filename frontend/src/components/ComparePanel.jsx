@@ -1,23 +1,34 @@
 const METRICS = [
-  { key: "balance",          label: "Balance",          fmt: v => `$${v.toLocaleString("en-US", { minimumFractionDigits: 2 })}` },
-  { key: "total_return_pct", label: "Total Return",     fmt: v => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`, color: true },
-  { key: "realized_pnl",     label: "Realized P&L",    fmt: v => `${v >= 0 ? "+" : ""}$${Math.abs(v).toFixed(2)}`, color: true },
-  { key: "total_trades",     label: "Closed Trades",   fmt: v => v },
-  { key: "open_positions",   label: "Open Positions",  fmt: v => v },
-  { key: "win_rate",         label: "Win Rate",         fmt: v => v != null ? `${v.toFixed(1)}%` : "—" },
-  { key: "profit_factor",    label: "Profit Factor",   fmt: v => v != null ? v.toFixed(2) : "—" },
-  { key: "avg_win",          label: "Avg Win",          fmt: v => v != null ? `$${v.toFixed(2)}` : "—", color: true },
-  { key: "avg_loss",         label: "Avg Loss",         fmt: v => v != null ? `-$${v.toFixed(2)}` : "—" },
+  { key: "balance",          label: "Balance",         fmt: v => `$${v.toLocaleString("en-US", { minimumFractionDigits: 2 })}` },
+  { key: "total_return_pct", label: "Total Return",    fmt: v => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`, color: true },
+  { key: "realized_pnl",     label: "Realized P&L",   fmt: v => `${v >= 0 ? "+" : ""}$${Math.abs(v).toFixed(2)}`, color: true },
+  { key: "total_trades",     label: "Closed Trades",  fmt: v => v },
+  { key: "open_positions",   label: "Open Positions", fmt: v => v },
+  { key: "win_rate",         label: "Win Rate",        fmt: v => v != null ? `${v.toFixed(1)}%` : "—", nKey: "total_trades" },
+  { key: "profit_factor",    label: "Profit Factor",  fmt: v => v != null ? v.toFixed(2) : "—",        nKey: "total_trades" },
+  { key: "avg_win",          label: "Avg Win",         fmt: v => v != null ? `$${v.toFixed(2)}` : "—", color: true },
+  { key: "avg_loss",         label: "Avg Loss",        fmt: v => v != null ? `-$${v.toFixed(2)}` : "—" },
 ];
 
-function Cell({ value, fmt, color }) {
+function nColor(n) {
+  if (n == null) return "var(--text-3)";
+  if (n < 5)  return "var(--text-3)";   // too small — muted
+  if (n < 20) return "#e8a020";          // low confidence — amber
+  return "var(--text-3)";                // reasonable — normal muted
+}
+
+function Cell({ value, fmt, color, n }) {
   if (value == null) return <td style={{ color: "var(--text-3)", fontFamily: "'DM Mono', monospace" }}>—</td>;
   const display = fmt(value);
-  let style = { fontFamily: "'DM Mono', monospace", color: "var(--text-2)" };
-  if (color) {
-    style.color = value >= 0 ? "var(--green)" : "var(--red)";
-  }
-  return <td style={style}>{display}</td>;
+  const valueColor = color ? (value >= 0 ? "var(--green)" : "var(--red)") : "var(--text-2)";
+  return (
+    <td style={{ fontFamily: "'DM Mono', monospace" }}>
+      <span style={{ color: valueColor }}>{display}</span>
+      {n != null && (
+        <span style={{ fontSize: 10, color: nColor(n), marginLeft: 5 }}>n={n}</span>
+      )}
+    </td>
+  );
 }
 
 export default function ComparePanel({ data }) {
@@ -50,8 +61,8 @@ export default function ComparePanel({ data }) {
           {METRICS.map(m => (
             <tr key={m.key}>
               <td style={{ color: "var(--text-3)", fontSize: 12 }}>{m.label}</td>
-              <Cell value={demo?.[m.key] ?? null} fmt={m.fmt} color={m.color} />
-              <Cell value={live?.[m.key] ?? null} fmt={m.fmt} color={m.color} />
+              <Cell value={demo?.[m.key] ?? null} fmt={m.fmt} color={m.color} n={m.nKey ? demo?.[m.nKey] : null} />
+              <Cell value={live?.[m.key] ?? null} fmt={m.fmt} color={m.color} n={m.nKey ? live?.[m.nKey] : null} />
             </tr>
           ))}
         </tbody>

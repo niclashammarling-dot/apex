@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\promenix\\\\apex\\\\backend\\\\\")",
+      "Read(//c/Users/Nix/Desktop/apex2/frontend/**)",
+      "Read(//c/Users/Nix/Desktop/apex2/frontend/src/**)",
+      "Read(//c/Users/Nix/Desktop/apex2/frontend/src/hooks/**)",
+      "Read(//c/Users/Nix/Desktop/apex2/frontend/src/api/**)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(mkdir -p /home/promenix/apex/tests)",
+      "Bash(touch /home/promenix/apex/tests/__init__.py)",
+      "Read(///wsl.localhost/Ubuntu/home/promenix/**)",
+      "Bash(.venv/bin/python tests/test_signals.py)",
+      "Bash(wsl -d Ubuntu -e bash -c \"cd /home/promenix/apex && .venv/bin/python tests/test_signals.py 2>&1\")",
+      "Bash(wsl -d Ubuntu -e bash -c \"cd /home/promenix/apex && PYTHONPATH=/home/promenix/apex .venv/bin/python tests/test_signals.py 2>&1\")",
+      "Bash(wsl -d Ubuntu -e bash -c \"cd /home/promenix/apex && PYTHONPATH=/home/promenix/apex .venv/bin/python tests/test_api.py 2>&1\")",
+      "Bash(wsl -d Ubuntu -e bash -c \"cd /home/promenix/apex && PYTHONPATH=/home/promenix/apex .venv/bin/python tests/test_wallet.py 2>&1\")",
+      "Bash(python -c \"import json; f=open\\(r''C:\\\\Users\\\\Nix\\\\.claude\\\\settings.json''\\); json.load\\(f\\); print\\(''valid JSON''\\)\")",
+      "Bash(python3 -c \"import json; f=open\\(r''C:/Users/Nix/.claude/settings.json''\\); json.load\\(f\\); print\\(''valid JSON''\\)\")",
+      "Bash(py -c \"import json; f=open\\(r''C:/Users/Nix/.claude/settings.json''\\); json.load\\(f\\); print\\(''valid JSON''\\)\")",
+      "Bash(wsl -d Ubuntu -e python3 -c \"import json; f=open\\(''/mnt/c/Users/Nix/.claude/settings.json''\\); json.load\\(f\\); print\\(''valid JSON''\\)\")",
+      "Bash(wsl -d Ubuntu -e bash -c \"USERPROFILE=''''C:\\\\Users\\\\Nix'''' python3 /home/promenix/.claude/read_settings.py 2>&1\")"
+    ]
+  }
+}

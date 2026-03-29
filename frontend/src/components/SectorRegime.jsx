@@ -71,6 +71,21 @@ export default function SectorRegime() {
           {regime.label}
         </div>
 
+        {/* Regime confidence bar */}
+        {data.regime_confidence != null && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ background: "#1e2538", borderRadius: 3, height: 4, width: 56 }}>
+              <div style={{
+                width: `${Math.round(data.regime_confidence * 100)}%`,
+                height: "100%", background: regime.color, borderRadius: 3, opacity: 0.8,
+              }} />
+            </div>
+            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "var(--text-3)" }}>
+              {Math.round(data.regime_confidence * 100)}% conviction
+            </span>
+          </div>
+        )}
+
         {/* Cyclical vs Defensive spread */}
         <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)" }}>
           Cyclical <span style={{ color: "#4488ff" }}>{data.cyclical_avg?.toFixed(3)}</span>
@@ -145,9 +160,21 @@ export default function SectorRegime() {
                       <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-2)", fontWeight: 500 }}>{sector}</div>
                       <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: sm.color, marginTop: 1 }}>{sm.label}</div>
                     </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, color: sm.color, fontWeight: 600 }}>{score}</div>
-                      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "var(--text-3)", marginTop: 1 }}>{weeks(stat.streak_days)}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {/* Velocity arrow */}
+                      {stat.velocity === "accelerating" && (
+                        <span style={{ fontSize: 13, color: "#00d48c" }} title={`+${stat.velocity_5d?.toFixed(3)} 5d`}>↑</span>
+                      )}
+                      {stat.velocity === "decelerating" && (
+                        <span style={{ fontSize: 13, color: "#ff3355" }} title={`${stat.velocity_5d?.toFixed(3)} 5d`}>↓</span>
+                      )}
+                      {stat.velocity === "flat" && (
+                        <span style={{ fontSize: 13, color: "var(--text-3)" }} title="flat">→</span>
+                      )}
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, color: sm.color, fontWeight: 600 }}>{score}</div>
+                        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "var(--text-3)", marginTop: 1 }}>{weeks(stat.streak_days)}</div>
+                      </div>
                     </div>
                   </div>
                 );

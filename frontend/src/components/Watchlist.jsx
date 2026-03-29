@@ -23,6 +23,29 @@ function scoreColor(score) {
   return "var(--red)";
 }
 
+function rotationScoreColor(rs) {
+  if (rs === null || rs === undefined) return "#4a5568";
+  if (rs >= 0.60) return "#00d48c";
+  if (rs >= 0.40) return "#4488ff";
+  return "#4a5568";
+}
+
+function RotationBar({ score }) {
+  if (score == null) return null;
+  const pct   = Math.round(score * 100);
+  const color = rotationScoreColor(score);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 5 }} title={`Rotation score: ${pct}%`}>
+      <div style={{ background: "#1e2538", borderRadius: 2, height: 3, width: 36 }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 2 }} />
+      </div>
+      <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color, fontWeight: 600 }}>
+        {pct}%
+      </span>
+    </div>
+  );
+}
+
 export default function Watchlist() {
   const [items,   setItems]   = useState([]);
   const [loading, setLoading] = useState(true);
@@ -131,11 +154,14 @@ export default function Watchlist() {
             const color   = scoreColor(item.score);
             const streak  = weeks(item.streak_days);
             const isBreakout = item.signal === "breakout" || item.signal === "trending";
+            const rowBg   = item.pre_rotation ? "#00d48c06"
+                          : isBreakout        ? `${sm.color}0d`
+                          :                    "#0e1525";
+            const rowBorder = item.pre_rotation ? "#00d48c44" : `${sm.color}33`;
             return (
               <div key={item.ticker} style={{
                 display: "flex", alignItems: "center", gap: 10,
-                background: isBreakout ? `${sm.color}0d` : "#0e1525",
-                border: `1px solid ${sm.color}33`,
+                background: rowBg, border: `1px solid ${rowBorder}`,
                 borderRadius: 5, padding: "7px 12px",
               }}>
                 {/* Ticker + sector */}
@@ -159,6 +185,13 @@ export default function Watchlist() {
                   {streak && <span style={{ fontWeight: 400, opacity: 0.7 }}> · {streak}</span>}
                 </div>
 
+                {/* Velocity arrow */}
+                {item.velocity === "accelerating" && <span style={{ fontSize: 12, color: "#00d48c" }} title={`+${item.velocity_5d?.toFixed(3)} 5d`}>↑</span>}
+                {item.velocity === "decelerating" && <span style={{ fontSize: 12, color: "#ff3355" }} title={`${item.velocity_5d?.toFixed(3)} 5d`}>↓</span>}
+
+                {/* Rotation score bar */}
+                <RotationBar score={item.rotation_score} />
+
                 {/* Score + trend */}
                 <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginLeft: "auto" }}>
                   <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, color, fontWeight: 600 }}>
@@ -168,6 +201,18 @@ export default function Watchlist() {
                   {item.trend === "down" && <span style={{ fontSize: 12, color: "var(--red)" }}>↓</span>}
                   {item.trend === "flat" && <span style={{ fontSize: 12, color: "var(--text-3)" }}>→</span>}
                 </div>
+
+                {/* Pre-rotation badge */}
+                {item.pre_rotation && (
+                  <div style={{
+                    fontFamily: "'DM Mono', monospace", fontSize: 9, fontWeight: 700,
+                    color: "#00d48c", background: "#00d48c12",
+                    border: "1px solid #00d48c44", borderRadius: 3, padding: "1px 5px",
+                    whiteSpace: "nowrap",
+                  }}>
+                    PRE-ROT
+                  </div>
+                )}
 
                 {/* Source badge */}
                 <div style={{

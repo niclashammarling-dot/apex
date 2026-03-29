@@ -154,6 +154,30 @@ def recalibrate_thresholds() -> None:
         logger.warning(f"Threshold recalibration failed: {e}")
 
 
+def send_weekly_report() -> None:
+    """Build and email/Slack the weekly performance report. Runs Friday at market close."""
+    try:
+        from backend.weekly_report import send_weekly_report as _send
+        _send()
+    except Exception as e:
+        logger.error(f"Weekly report failed: {e}")
+
+
+def run_weekend_sweep() -> None:
+    """Run parameter grid search over last 90d. Runs Saturday night."""
+    try:
+        from backend.backtest.weekend_sweep import run_sweep
+        run_sweep()
+    except Exception as e:
+        logger.error(f"Weekend sweep failed: {e}")
+
+
+def precache_monday_data() -> None:
+    """Pre-fetch all sector signals Sunday evening so Monday's first poll is instant."""
+    logger.info("Sunday pre-cache: fetching all sectors…")
+    poll_all_sectors(force=True)
+
+
 def prune_old_signals() -> None:
     deleted = prune_signals(keep_per_ticker=10)
     if deleted:
@@ -214,6 +238,34 @@ def start_scheduler() -> None:
         hour=3,
         minute=0,
         id="recalibrate_thresholds",
+        replace_existing=True,
+    )
+    # ── Weekend jobs ──────────────────────────────────────────────────────────
+    scheduler.add_job(
+        send_weekly_report,
+        "cron",
+        day_of_week="fri",
+        hour=16,
+        minute=5,           # 5 min after market close
+        id="weekly_report",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_weekend_sweep,
+        "cron",
+        day_of_week="sat",
+        hour=20,
+        minute=0,           # Saturday 8pm — sweep runs overnight
+        id="weekend_sweep",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        precache_monday_data,
+        "cron",
+        day_of_week="sun",
+        hour=18,
+        minute=0,           # Sunday 6pm — fresh signals before Monday open
+        id="precache_monday",
         replace_existing=True,
     )
     scheduler.start()

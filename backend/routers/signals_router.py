@@ -461,11 +461,21 @@ def get_watchlist():
     """Return watchlist tickers enriched with current signal data."""
     from backend.db import get_watchlist
     from backend.sector_regime import compute_ticker_signals
+    from backend.sector_transitions import compute_ticker_rotation_scores, get_rotation_forecast
     from backend.db import prev_signals_by_ticker, latest_signals
 
-    entries    = get_watchlist()
-    tk_signals = compute_ticker_signals()
-    prev_tk    = prev_signals_by_ticker()
+    entries         = get_watchlist()
+    tk_signals      = compute_ticker_signals()
+    rotation_scores = compute_ticker_rotation_scores()
+    prev_tk         = prev_signals_by_ticker()
+
+    # Sectors currently identified as pre-rotation setups
+    try:
+        forecast         = get_rotation_forecast()
+        watching_sectors = {w["sector"] for w in forecast.get("watching", [])} \
+                           if forecast.get("available") else set()
+    except Exception:
+        watching_sectors = set()
 
     # Build current score map from latest signals
     latest = {s["ticker"]: s["signal_score"] for s in latest_signals(limit=500)}
@@ -483,14 +493,18 @@ def get_watchlist():
         else:
             trend = "flat"
         result.append({
-            "ticker":      ticker,
-            "sector":      e["sector"],
-            "added_at":    e["added_at"],
-            "source":      e["source"],
-            "score":       round(score, 4) if score is not None else None,
-            "signal":      tk.get("signal", "weak"),
-            "streak_days": tk.get("streak_days", 0),
-            "trend":       trend,
+            "ticker":         ticker,
+            "sector":         e["sector"],
+            "added_at":       e["added_at"],
+            "source":         e["source"],
+            "score":          round(score, 4) if score is not None else None,
+            "signal":         tk.get("signal", "weak"),
+            "streak_days":    tk.get("streak_days", 0),
+            "trend":          trend,
+            "velocity":       tk.get("velocity"),           # accelerating/decelerating/flat
+            "velocity_5d":    tk.get("velocity_5d"),        # raw 5d score delta
+            "rotation_score": rotation_scores.get(ticker),  # composite 0–1 rotation score
+            "pre_rotation":   e["sector"] in watching_sectors,  # in a predicted-next sector
         })
     return result
 

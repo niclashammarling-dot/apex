@@ -623,15 +623,16 @@ class TestLockLeading:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Lock 3 — Claude / OpenAI
+# Lock 3 — Claude primary, GPT-4o fallback
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestLock3Claude:
     from backend.gate import lock3_claude as _mod
 
     def setup_method(self):
-        # Reset module-level client between tests
-        self._mod._client = None
+        # Reset module-level clients between tests
+        self._mod._anthropic_client = None
+        self._mod._openai_client    = None
 
     def _context(self, **overrides) -> dict:
         ctx = {
@@ -645,114 +646,156 @@ class TestLock3Claude:
                 "unusual_calls": True, "insider_cluster": False,
             },
             "wallet_balance": 10000, "open_positions": 1, "sector_exposure": {},
+            "risk_limits": {
+                "starting_balance": 10000, "max_positions": 4,
+                "max_sector_exposure": 0.25, "max_position_size": 0.15,
+                "daily_loss_cap": 500,
+            },
         }
         ctx.update(overrides)
         return ctx
 
-    def _mock_openai(self, decision="BUY", confidence=0.85, position=0.1,
-                     reasoning="Strong setup, low portfolio risk."):
+    def _claude_client(self, decision="BUY", confidence=0.85, position=0.1,
+                       reasoning="Strong setup, low portfolio risk."):
         payload = json.dumps({
-            "decision":         decision,
-            "confidence":       confidence,
+            "decision":          decision,
+            "confidence":        confidence,
             "position_size_pct": position,
-            "reasoning":        reasoning,
+            "reasoning":         reasoning,
+        })
+        client = MagicMock()
+        resp   = MagicMock()
+        resp.content[0].text = payload
+        client.messages.create.return_value = resp
+        return client
+
+    def _openai_client(self, decision="BUY", confidence=0.85, position=0.1,
+                       reasoning="GPT-4o fallback reasoning."):
+        payload = json.dumps({
+            "decision":          decision,
+            "confidence":        confidence,
+            "position_size_pct": position,
+            "reasoning":         reasoning,
         })
         client = MagicMock()
         resp   = MagicMock()
         resp.choices[0].message.content = payload
         client.chat.completions.create.return_value = resp
-        return patch.object(self._mod, "_get_client", return_value=client)
+        return client
+
+    # ── Primary (Claude) path ─────────────────────────────────────────────────
 
     def test_pass_buy_above_confidence_min(self):
-        with self._mock_openai(decision="BUY", confidence=0.85):
+        with patch.object(self._mod, "_get_anthropic", return_value=self._claude_client()):
             result = self._mod.evaluate(self._context(), confidence_min=0.6)
         assert result["passed"] is True
         assert result["decision"] == "BUY"
         assert result["confidence"] == pytest.approx(0.85)
+        assert result["model"] == self._mod._CLAUDE_MODEL
 
     def test_fail_buy_below_confidence_min(self):
-        with self._mock_openai(decision="BUY", confidence=0.5):
+        with patch.object(self._mod, "_get_anthropic", return_value=self._claude_client(confidence=0.5)):
             result = self._mod.evaluate(self._context(), confidence_min=0.6)
         assert result["passed"] is False
         assert "confidence" in result["reason"]
 
     def test_fail_hold_decision(self):
-        with self._mock_openai(decision="HOLD", confidence=0.9):
+        with patch.object(self._mod, "_get_anthropic", return_value=self._claude_client(decision="HOLD")):
             result = self._mod.evaluate(self._context(), confidence_min=0.6)
         assert result["passed"] is False
         assert result["decision"] == "HOLD"
 
     def test_fail_sell_decision(self):
-        with self._mock_openai(decision="SELL", confidence=0.9):
+        with patch.object(self._mod, "_get_anthropic", return_value=self._claude_client(decision="SELL")):
             result = self._mod.evaluate(self._context(), confidence_min=0.6)
         assert result["passed"] is False
 
     def test_confidence_exactly_at_min_passes(self):
-        with self._mock_openai(decision="BUY", confidence=0.6):
+        with patch.object(self._mod, "_get_anthropic", return_value=self._claude_client(confidence=0.6)):
             result = self._mod.evaluate(self._context(), confidence_min=0.6)
         assert result["passed"] is True
 
     def test_confidence_just_below_min_fails(self):
-        with self._mock_openai(decision="BUY", confidence=0.5999):
+        with patch.object(self._mod, "_get_anthropic", return_value=self._claude_client(confidence=0.5999)):
             result = self._mod.evaluate(self._context(), confidence_min=0.6)
-        assert result["passed"] is False
-
-    def test_json_parse_failure_treated_as_hold(self):
-        client = MagicMock()
-        resp   = MagicMock()
-        resp.choices[0].message.content = "not valid json {"
-        client.chat.completions.create.return_value = resp
-        with patch.object(self._mod, "_get_client", return_value=client):
-            result = self._mod.evaluate(self._context(), confidence_min=0.6)
-        assert result["passed"] is False
-        assert result["decision"] == "HOLD"
-        assert result["reason"] == "json_parse_failed"
-
-    def test_api_exception_returns_fail(self):
-        client = MagicMock()
-        client.chat.completions.create.side_effect = Exception("API timeout")
-        with patch.object(self._mod, "_get_client", return_value=client):
-            result = self._mod.evaluate(self._context(), confidence_min=0.6)
-        assert result["passed"] is False
-        assert "api_error" in result["reason"]
-
-    def test_no_api_key_fails_closed(self):
-        with patch("backend.gate.lock3_claude.OPENAI_API_KEY", ""):
-            result = self._mod.evaluate(self._context(), confidence_min=0.6)
-        assert result["passed"] is False
-        assert result["reason"] == "openai_key_missing"
-
-    def test_missing_decision_field_defaults_hold(self):
-        payload = json.dumps({"confidence": 0.9, "position_size_pct": 0.1,
-                              "reasoning": "Good setup"})
-        client = MagicMock()
-        resp   = MagicMock()
-        resp.choices[0].message.content = payload
-        client.chat.completions.create.return_value = resp
-        with patch.object(self._mod, "_get_client", return_value=client):
-            result = self._mod.evaluate(self._context(), confidence_min=0.6)
-        assert result["decision"] == "HOLD"
         assert result["passed"] is False
 
     def test_lowercase_decision_normalised(self):
-        with self._mock_openai(decision="buy", confidence=0.85):
+        with patch.object(self._mod, "_get_anthropic", return_value=self._claude_client(decision="buy")):
             result = self._mod.evaluate(self._context(), confidence_min=0.6)
         assert result["decision"] == "BUY"
         assert result["passed"] is True
 
     def test_position_size_returned(self):
-        with self._mock_openai(decision="BUY", confidence=0.8, position=0.15):
+        with patch.object(self._mod, "_get_anthropic", return_value=self._claude_client(position=0.15)):
             result = self._mod.evaluate(self._context(), confidence_min=0.6)
         assert result["position_size_pct"] == pytest.approx(0.15)
 
-    def test_missing_confidence_defaults_zero_fails(self):
-        payload = json.dumps({"decision": "BUY", "position_size_pct": 0.1,
-                              "reasoning": "Good"})
+    def test_missing_decision_field_defaults_hold(self):
         client = MagicMock()
         resp   = MagicMock()
-        resp.choices[0].message.content = payload
-        client.chat.completions.create.return_value = resp
-        with patch.object(self._mod, "_get_client", return_value=client):
+        resp.content[0].text = json.dumps({"confidence": 0.9, "position_size_pct": 0.1,
+                                           "reasoning": "Good setup"})
+        client.messages.create.return_value = resp
+        with patch.object(self._mod, "_get_anthropic", return_value=client):
+            result = self._mod.evaluate(self._context(), confidence_min=0.6)
+        assert result["decision"] == "HOLD"
+        assert result["passed"] is False
+
+    def test_missing_confidence_defaults_zero_fails(self):
+        client = MagicMock()
+        resp   = MagicMock()
+        resp.content[0].text = json.dumps({"decision": "BUY", "position_size_pct": 0.1,
+                                           "reasoning": "Good"})
+        client.messages.create.return_value = resp
+        with patch.object(self._mod, "_get_anthropic", return_value=client):
             result = self._mod.evaluate(self._context(), confidence_min=0.6)
         assert result["confidence"] == 0.0
         assert result["passed"] is False
+
+    # ── Fallback (GPT-4o) path ────────────────────────────────────────────────
+
+    def test_claude_api_error_falls_back_to_openai(self):
+        claude = MagicMock()
+        claude.messages.create.side_effect = Exception("API timeout")
+        with (patch.object(self._mod, "_get_anthropic", return_value=claude),
+              patch.object(self._mod, "_get_openai",    return_value=self._openai_client())):
+            result = self._mod.evaluate(self._context(), confidence_min=0.6)
+        assert result["passed"] is True
+        assert result["model"] == self._mod._GPT_MODEL
+
+    def test_claude_json_error_falls_back_to_openai(self):
+        claude = MagicMock()
+        resp   = MagicMock()
+        resp.content[0].text = "not valid json {"
+        claude.messages.create.return_value = resp
+        with (patch.object(self._mod, "_get_anthropic", return_value=claude),
+              patch.object(self._mod, "_get_openai",    return_value=self._openai_client())):
+            result = self._mod.evaluate(self._context(), confidence_min=0.6)
+        assert result["passed"] is True
+        assert result["model"] == self._mod._GPT_MODEL
+
+    def test_no_anthropic_key_falls_back_to_openai(self):
+        with (patch("backend.gate.lock3_claude.ANTHROPIC_API_KEY", ""),
+              patch.object(self._mod, "_get_openai", return_value=self._openai_client())):
+            result = self._mod.evaluate(self._context(), confidence_min=0.6)
+        assert result["passed"] is True
+        assert result["model"] == self._mod._GPT_MODEL
+
+    def test_both_providers_fail_closes(self):
+        claude = MagicMock()
+        claude.messages.create.side_effect = Exception("Claude down")
+        openai = MagicMock()
+        openai.chat.completions.create.side_effect = Exception("OpenAI down")
+        with (patch.object(self._mod, "_get_anthropic", return_value=claude),
+              patch.object(self._mod, "_get_openai",    return_value=openai)):
+            result = self._mod.evaluate(self._context(), confidence_min=0.6)
+        assert result["passed"] is False
+        assert result["reason"] == "both_providers_failed"
+
+    def test_no_keys_at_all_fails_closed(self):
+        with (patch("backend.gate.lock3_claude.ANTHROPIC_API_KEY", ""),
+              patch("backend.gate.lock3_claude.OPENAI_API_KEY",    "")):
+            result = self._mod.evaluate(self._context(), confidence_min=0.6)
+        assert result["passed"] is False
+        assert result["reason"] == "both_providers_failed"

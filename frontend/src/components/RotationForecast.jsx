@@ -65,8 +65,24 @@ export default function RotationForecast() {
     }}>
 
       {/* Header */}
-      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 500, marginBottom: 16 }}>
-        Rotation Forecast
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 500 }}>
+          Rotation Forecast
+        </div>
+        {/* Regime-conditioning badge */}
+        {data.regime_conditioned != null && (
+          <div style={{
+            fontFamily: "'DM Mono', monospace", fontSize: 9, fontWeight: 600,
+            color:       data.regime_conditioned ? "#00d48c" : "#888",
+            background:  data.regime_conditioned ? "#00d48c12" : "#88888812",
+            border:     `1px solid ${data.regime_conditioned ? "#00d48c44" : "#88888844"}`,
+            borderRadius: 3, padding: "1px 6px", whiteSpace: "nowrap",
+          }}>
+            {data.regime_conditioned
+              ? `✓ regime-conditioned · n=${data.regime_sample_size}`
+              : `unconditional matrix${data.regime_sample_size != null ? ` · n=${data.regime_sample_size}` : ""}`}
+          </div>
+        )}
       </div>
 
       {/* Rotation path */}
@@ -138,8 +154,13 @@ export default function RotationForecast() {
                     borderRadius: 5, padding: "8px 12px",
                   }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "var(--text-1)", fontWeight: 600 }}>
-                        {w.sector}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "var(--text-1)", fontWeight: 600 }}>
+                          {w.sector}
+                        </div>
+                        {w.velocity === "accelerating" && <span style={{ fontSize: 12, color: "#00d48c" }}>↑</span>}
+                        {w.velocity === "decelerating" && <span style={{ fontSize: 12, color: "#ff3355" }}>↓</span>}
+                        {w.velocity === "flat"         && <span style={{ fontSize: 12, color: "var(--text-3)" }}>→</span>}
                       </div>
                       <Pill color={sm.color}>{sm.label}</Pill>
                     </div>

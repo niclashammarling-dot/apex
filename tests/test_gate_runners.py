@@ -38,7 +38,10 @@ def _demo_cfg(**overrides):
         "macro_event_blackout_days":    1,
         "macro_earnings_blackout_days": 3,
         "gate_cooloff_hours":           4,
-        "max_sector_exposure":          0.4,
+        "max_positions":                4,
+        "max_sector_exposure":          0.25,
+        "max_position_size":            0.15,
+        "daily_loss_cap":               500.0,
         "take_profit_pct":              0.08,
         "stop_loss_pct":                0.04,
     }

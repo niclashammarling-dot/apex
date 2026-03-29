@@ -5,9 +5,10 @@ import {
 
 function CustomTooltip({ active, payload, starting }) {
   if (!active || !payload?.length) return null;
-  const val = payload[0].value;
-  const diff = val - starting;
-  const sign = diff >= 0 ? "+" : "";
+  const pt    = payload[0].payload;
+  const val   = payload[0].value;
+  const diff  = val - starting;
+  const sign  = diff >= 0 ? "+" : "";
   const color = diff >= 0 ? "var(--green)" : "var(--red)";
   return (
     <div style={{
@@ -15,9 +16,18 @@ function CustomTooltip({ active, payload, starting }) {
       padding: "10px 14px", borderRadius: 6,
       fontFamily: "'DM Mono', monospace", fontSize: 13,
     }}>
-      <div style={{ color: "var(--text-3)", marginBottom: 4 }}>{payload[0].payload.ts}</div>
-      <div style={{ color: "var(--text-1)", fontWeight: 500 }}>${val.toLocaleString("en-US", { minimumFractionDigits: 2 })}</div>
+      <div style={{ color: "var(--text-3)", marginBottom: 4 }}>
+        {pt.ts}{pt.mtm ? " — live" : ""}
+      </div>
+      <div style={{ color: "var(--text-1)", fontWeight: 500 }}>
+        ${val.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+      </div>
       <div style={{ color, marginTop: 2 }}>{sign}${diff.toFixed(2)}</div>
+      {pt.mtm && pt.unrealised != null && (
+        <div style={{ color: pt.unrealised >= 0 ? "var(--green)" : "var(--red)", marginTop: 4, fontSize: 11 }}>
+          unrealised {pt.unrealised >= 0 ? "+" : ""}${pt.unrealised.toFixed(2)}
+        </div>
+      )}
     </div>
   );
 }
@@ -72,7 +82,17 @@ export default function EquityCurve({ equity }) {
             <Line
               type="monotone" dataKey="balance"
               stroke={stroke} strokeWidth={2}
-              dot={equity.length < 20}
+              dot={(props) => {
+                const pt = props.payload;
+                if (!pt.mtm) return equity.length < 20
+                  ? <circle key={props.key} cx={props.cx} cy={props.cy} r={3} fill={stroke} />
+                  : null;
+                // MTM point — hollow dot with dashed look
+                return (
+                  <circle key={props.key} cx={props.cx} cy={props.cy} r={5}
+                    fill="var(--bg-card)" stroke={stroke} strokeWidth={2} strokeDasharray="3 2" />
+                );
+              }}
               activeDot={{ r: 5, fill: stroke }}
             />
           </LineChart>

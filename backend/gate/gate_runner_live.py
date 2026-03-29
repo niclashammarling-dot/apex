@@ -23,6 +23,8 @@ from backend.config import LIVE_ENABLED
 
 _MAX_WORKERS = 4
 
+from backend.gate.gate_runner import PRE_ROTATION_FLOOR
+
 
 def run() -> list[dict]:
     """
@@ -97,15 +99,43 @@ def run() -> list[dict]:
         "sector_exposure": {},  # not computed for live — Lock 3 prompt uses open_positions count
     }
 
-    # Compute sector regime once per gate cycle — passed to all evaluations
+    # Compute sector regime + rotation scores once per gate cycle — passed to all evaluations
     from backend.sector_regime import compute_sector_regime
-    sector_regime = compute_sector_regime()
+    from backend.sector_transitions import compute_ticker_rotation_scores, get_rotation_forecast
+    sector_regime   = compute_sector_regime()
+    rotation_scores = compute_ticker_rotation_scores()
+
+    # Pre-rotation promotion — same logic as demo gate
+    forecast         = get_rotation_forecast()
+    watching_sectors = {w["sector"] for w in forecast.get("watching", [])}
+    if watching_sectors:
+        pr_sector_thresholds = {
+            s: (sector_thresholds or {}).get(s, cfg["lock1_threshold"]) * PRE_ROTATION_FLOOR
+            for s in watching_sectors
+        }
+        pr_candidates = get_lock1_candidates(
+            threshold=cfg["lock1_threshold"] * PRE_ROTATION_FLOOR,
+            sector_thresholds=pr_sector_thresholds,
+        )
+        existing = {c["ticker"] for c in candidates}
+        for c in pr_candidates:
+            if (c.get("sector") in watching_sectors
+                    and c["ticker"] not in existing
+                    and c["ticker"] not in open_tickers
+                    and c["ticker"] not in failed_tickers):
+                c = dict(c)
+                c["pre_rotation"] = True
+                candidates.append(c)
+                existing.add(c["ticker"])
+        pr_count = sum(1 for c in candidates if c.get("pre_rotation"))
+        if pr_count:
+            logger.info(f"Live gate: +{pr_count} pre-rotation candidate(s) from {sorted(watching_sectors)}")
 
     evaluated: list[tuple[dict, dict]] = []
 
     with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(candidates))) as pool:
         future_to_signal = {
-            pool.submit(_evaluate, signal, wallet_ctx, cfg, sector_regime, sector_thresholds): signal
+            pool.submit(_evaluate, signal, wallet_ctx, cfg, sector_regime, sector_thresholds, rotation_scores): signal
             for signal in candidates
         }
         for future in as_completed(future_to_signal):
@@ -179,10 +209,13 @@ def run() -> list[dict]:
 
 def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
               sector_regime: dict | None = None,
-              sector_thresholds: dict | None = None) -> dict:
+              sector_thresholds: dict | None = None,
+              rotation_scores: dict | None = None) -> dict:
     ticker = signal["ticker"]
 
     l1_threshold = (sector_thresholds or {}).get(signal.get("sector", ""), cfg["lock1_threshold"])
+    if signal.get("pre_rotation"):
+        l1_threshold = l1_threshold * PRE_ROTATION_FLOOR
     l1 = lock1_quant.evaluate(signal, threshold=l1_threshold)
     if not l1["passed"]:
         return _gate_result(signal, l1, None, None, None, "FILTERED_L1")
@@ -200,7 +233,7 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
     if not l_leading["passed"]:
         return _gate_result(signal, l1, l2, l_leading, None, "FILTERED_LEADING")
 
-    context = _build_context(signal, l2, l_leading, wallet_ctx, sector_regime)
+    context = _build_context(signal, l2, l_leading, wallet_ctx, cfg, sector_regime, rotation_scores)
     l3 = lock3_claude.evaluate(context, confidence_min=cfg["lock3_confidence_min"])
 
     outcome = "TRADE_QUEUED" if l3["passed"] else "FILTERED_L3"
@@ -208,7 +241,9 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
 
 
 def _build_context(signal: dict, l2: dict, l_leading: dict,
-                   wallet_ctx: dict, sector_regime: dict | None = None) -> dict:
+                   wallet_ctx: dict, cfg: dict,
+                   sector_regime: dict | None = None,
+                   rotation_scores: dict | None = None) -> dict:
     ctx = {
         # identity
         "mode":              "LIVE — real money",
@@ -222,10 +257,18 @@ def _build_context(signal: dict, l2: dict, l_leading: dict,
         # leading indicators context
         "leading_pass_count":     l_leading["pass_count"],
         "leading_checks":         {k: v["pass"] for k, v in l_leading["checks"].items()},
-        # portfolio context
+        # portfolio state
         "wallet_balance":    wallet_ctx["balance"],
         "open_positions":    wallet_ctx["open_positions"],
         "sector_exposure":   wallet_ctx["sector_exposure"],
+        # configured risk limits — model uses these for its checks
+        "risk_limits": {
+            "starting_balance":    wallet_ctx.get("starting_balance", cfg.get("starting_balance")),
+            "max_positions":       cfg["max_positions"],
+            "max_sector_exposure": cfg["max_sector_exposure"],
+            "max_position_size":   cfg["max_position_size"],
+            "daily_loss_cap":      cfg["daily_loss_cap"],
+        },
     }
 
     # Sector regime context — gives Lock 3 macro cycle awareness
@@ -233,9 +276,13 @@ def _build_context(signal: dict, l2: dict, l_leading: dict,
         sector_detail = sector_regime.get("sectors", {}).get(signal["sector"], {})
         ctx.update({
             "market_regime":       sector_regime["regime"],
+            "regime_confidence":   sector_regime.get("regime_confidence"), # 0–1 conviction score
             "sector_signal":       sector_detail.get("signal"),
             "sector_streak_days":  sector_detail.get("streak_days"),
             "market_leader":       sector_regime.get("leader"),
+            "sector_velocity":     sector_detail.get("velocity"),          # accelerating/decelerating/flat
+            "sector_velocity_5d":  sector_detail.get("velocity_5d"),       # raw 5d score delta
+            "sector_accel":        sector_detail.get("accel"),             # change in 5d velocity
         })
 
     # Rotation forecast — gives Lock 3 transition probability awareness
@@ -247,14 +294,20 @@ def _build_context(signal: dict, l2: dict, l_leading: dict,
                               if item["sector"] == signal["sector"]), None)
             confirmed = forecast.get("confirmed_transition")
             ctx.update({
-                "rotation_leader":          forecast["leader"],
-                "rotation_predecessor":     forecast.get("predecessor"),
-                "sector_next_probability":  next_prob,
-                "rotation_confirmed":       confirmed is not None,
-                "rotation_transition_prob": confirmed["probability"] if confirmed else None,
+                "rotation_leader":           forecast["leader"],
+                "rotation_predecessor":      forecast.get("predecessor"),
+                "sector_next_probability":   next_prob,
+                "rotation_confirmed":        confirmed is not None,
+                "rotation_transition_prob":  confirmed["probability"] if confirmed else None,
+                "rotation_regime_conditioned": forecast.get("regime_conditioned"),
+                "rotation_regime_sample_size": forecast.get("regime_sample_size"),
             })
     except Exception:
         pass
+
+    # Rotation score — pre-computed once per gate cycle, passed in from run()
+    if rotation_scores is not None:
+        ctx["ticker_rotation_score"] = rotation_scores.get(signal["ticker"])
 
     return ctx
 
@@ -262,15 +315,16 @@ def _build_context(signal: dict, l2: dict, l_leading: dict,
 def _gate_result(signal: dict, l1: dict, l2: dict | None,
                  l_leading: dict | None, l3: dict | None, outcome: str) -> dict:
     return {
-        "ticker":    signal["ticker"],
-        "sector":    signal["sector"],
-        "signal_id": signal["id"],
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "outcome":   outcome,
-        "lock1":     l1,
-        "lock2":     l2,
+        "ticker":       signal["ticker"],
+        "sector":       signal["sector"],
+        "signal_id":    signal["id"],
+        "pre_rotation": signal.get("pre_rotation", False),
+        "timestamp":    datetime.now(timezone.utc).isoformat(),
+        "outcome":      outcome,
+        "lock1":        l1,
+        "lock2":        l2,
         "lock_leading": l_leading,
-        "lock3":     l3,
+        "lock3":        l3,
         "lock1_pass":          int(l1["passed"]),
         "lock2_pass":          int(l2["passed"])        if l2        else 0,
         "lock_leading_pass":   int(l_leading["passed"]) if l_leading else 0,
