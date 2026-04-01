@@ -118,12 +118,13 @@ def compute_sector_regime() -> dict:
 def compute_ticker_signals() -> dict[str, dict]:
     """
     Per-ticker streak-based signal classification using the same logic as sectors.
-    Uses daily averages from the signals table (last 90 days).
+    Uses 180 days of daily averages (merging ticker_history + live signals) so the
+    streak algo has enough history even during the Jan–Mar 2026 ticker_history gap.
     Returns {ticker: {score, signal, streak_days}} or {} if no data.
     """
     try:
         from backend.db import get_ticker_daily_scores
-        rows = get_ticker_daily_scores(days=90)
+        rows = get_ticker_daily_scores(days=180)
     except Exception:
         return {}
 

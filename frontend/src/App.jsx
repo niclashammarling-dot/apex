@@ -17,6 +17,7 @@ import LiveGateFeed  from "./components/LiveGateFeed.jsx";
 import ComparePanel  from "./components/ComparePanel.jsx";
 import DemoTradeLog  from "./components/DemoTradeLog.jsx";
 import DemoPositions from "./components/DemoPositions.jsx";
+import NightLog      from "./components/NightLog.jsx";
 
 const CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -595,21 +596,44 @@ async function fetchWithRetry(url, maxAttempts = 3) {
 // ── Settings modal ────────────────────────────────────────────────────────────
 
 const SETTINGS_FIELDS = [
-  { key: "lock1_threshold",      label: "Lock 1 Fallback Threshold",      step: 0.01, min: 0,    max: 1   },
-  { key: "lock2_sentiment_min",  label: "Lock 2 Sentiment Min",  step: 0.01, min: -1,   max: 1   },
-  { key: "lock3_confidence_min", label: "Lock 3 Confidence Min", step: 0.01, min: 0,    max: 1   },
-  { key: "take_profit_pct",      label: "Take Profit %",         step: 0.01, min: 0.01, max: 1,   nullable: false },
-  { key: "stop_loss_pct",        label: "Stop Loss %",           step: 0.01, min: 0.01, max: 0.5, nullable: false },
-  { key: "trailing_stop_pct",    label: "Trailing Stop %",       step: 0.01, min: 0.01, max: 0.5, nullable: true  },
-  { key: "max_positions",        label: "Max Positions",         step: 1,    min: 1,    max: 20  },
-  { key: "max_position_size",    label: "Max Position Size",     step: 0.01, min: 0.01, max: 0.5 },
-  { key: "daily_loss_cap",       label: "Daily Loss Cap ($)",    step: 10,   min: 10,   max: 10000 },
-  { key: "max_hold_days",                label: "Time Stop (days)",           step: 1,    min: 1,   max: 90    },
-  { key: "vix_threshold",               label: "VIX Block Threshold",        step: 1,    min: 10,  max: 80    },
-  { key: "macro_event_blackout_days",   label: "Event Blackout (days)",      step: 1,    min: 0,   max: 5     },
-  { key: "macro_earnings_blackout_days",label: "Earnings Blackout (days)",   step: 1,    min: 0,   max: 7     },
-  { key: "gate_cooloff_hours",          label: "Gate Cooloff (hours)",       step: 1,    min: 0,   max: 24    },
-  { key: "max_sector_exposure",         label: "Max Sector Exposure",        step: 0.05, min: 0.05, max: 1    },
+  { key: "lock1_threshold",      label: "Lock 1 Fallback Threshold", step: 0.01, min: 0,    max: 1,
+    hint: "Fallback only — applies to sectors with insufficient history for calibration. Calibrated sectors use their own thresholds above. Dead zone below 0.65 (filter has no effect).",
+    warnBelow: 0.65, critBelow: 0.60,
+    warnMsg: v => v < 0.60 ? "Critical: in dead zone (< 0.60)" : "Below recommended minimum (0.65)" },
+  { key: "lock2_sentiment_min",  label: "Lock 2 Sentiment Min",  step: 0.01, min: -1, max: 1,
+    hint: "Minimum Grok sentiment score required to pass Lock 2. Score ranges from -1 (very bearish) to +1 (very bullish). 0.0 = neutral or better. Raising this filters out weak or mixed sentiment." },
+  { key: "lock3_confidence_min", label: "Lock 3 Confidence Min", step: 0.01, min: 0,  max: 1,
+    hint: "Minimum confidence score from Claude's LLM reasoning to pass Lock 3. 0 to 1 scale. At 0.7 Claude must be fairly certain before approving an entry. Raising this reduces false positives but may miss valid trades." },
+  { key: "take_profit_pct",      label: "Take Profit %",         step: 0.01, min: 0.01, max: 1, nullable: false,
+    hint: "At 15% only 28% of trades hit target — 6–8% hits 55%+",
+    warnAbove: 0.08,
+    warnMsg: () => "Above 8% — most trades won't reach target" },
+  { key: "stop_loss_pct",        label: "Stop Loss %",           step: 0.01, min: 0.01, max: 0.5, nullable: false,
+    hint: "Hard exit if price falls this % below entry. 0.05 = exit at -5%. Tighter stops reduce loss size but increase whipsaw exits on volatile tickers." },
+  { key: "trailing_stop_pct",    label: "Trailing Stop %",       step: 0.01, min: 0.01, max: 0.5, nullable: true,
+    hint: "Locks in gains by trailing the stop up as price rises. 0.05 = stop trails 5% below the peak price. Leave blank to disable. Combines with hard stop loss — whichever triggers first wins." },
+  { key: "max_positions",        label: "Max Positions",         step: 1,    min: 1,    max: 20,
+    hint: "Above 6 dilutes signal quality",
+    warnAbove: 6,
+    warnMsg: () => "Above 6 — signal quality degrades" },
+  { key: "max_position_size",    label: "Max Position Size",     step: 0.01, min: 0.01, max: 0.5,
+    hint: "Maximum fraction of account balance in a single position. 0.20 = no more than 20% per trade. Kelly sizing may suggest larger — this caps it." },
+  { key: "daily_loss_cap",       label: "Daily Loss Cap ($)",    step: 10,   min: 10,   max: 10000,
+    hint: "Stops new entries for the rest of the day once cumulative losses hit this dollar amount. Prevents a bad day from compounding. Does not close open positions — only blocks new ones." },
+  { key: "max_hold_days",        label: "Time Stop (days)",      step: 1,    min: 1,    max: 90,
+    hint: "Force-exits a position after this many calendar days regardless of P&L. Prevents capital from being tied up in stalled trades. Typically 5–10 days." },
+  { key: "vix_threshold",        label: "VIX Block Threshold",   step: 1,    min: 10,   max: 80,
+    hint: "At 25 blocked 52–61% of trading days in 2020/2022, missing recovery rallies",
+    warnBelow: 30,
+    warnMsg: () => "Below 30 — blocks recovery rallies" },
+  { key: "macro_event_blackout_days",    label: "Event Blackout (days)",    step: 1, min: 0, max: 5,
+    hint: "Blocks new entries N days around scheduled macro events (Fed meetings, CPI, NFP). 0 = disabled. 1–2 days is typical to avoid pre-event volatility." },
+  { key: "macro_earnings_blackout_days", label: "Earnings Blackout (days)", step: 1, min: 0, max: 7,
+    hint: "Blocks new entries N days before a ticker's earnings report. Reduces gap-risk from surprise results. 3–5 days is typical. 0 = disabled." },
+  { key: "gate_cooloff_hours",   label: "Gate Cooloff (hours)",  step: 1,    min: 0,   max: 24,
+    hint: "Prevents the gate from re-evaluating the same ticker within this many hours after a decision. Stops the system from hammering the same ticker repeatedly in a volatile session. 0 = no cooloff." },
+  { key: "max_sector_exposure",  label: "Max Sector Exposure",   step: 0.05, min: 0.05, max: 1,
+    hint: "Maximum fraction of total account value in a single sector. 0.30 = no more than 30% in e.g. Technology at once. Prevents sector concentration risk." },
 ];
 
 function SectorThresholds({ fallback }) {
@@ -663,7 +687,7 @@ function SectorThresholds({ fallback }) {
           })}
           {!sorted.length && <div className="muted" style={{ fontSize: 11 }}>No calibrated thresholds yet — run recalibrate.</div>}
           <div className="sector-thresh-fallback">
-            Uncalibrated sectors use fallback: {fallback ?? "—"} — updates take effect on next gate cycle, no restart needed.
+            Sectors without enough history for calibration fall back to: {fallback ?? "—"}. Recalibrate after backfill to reduce reliance on the fallback.
           </div>
           <button className="sector-thresh-recal" onClick={recalibrate} disabled={recaling}>
             {recaling ? "Recalibrating…" : "↺ Recalibrate from history"}
@@ -702,6 +726,13 @@ function SettingsCol({ title, config, accentColor, onSave }) {
       {SETTINGS_FIELDS.map(f => {
         const isNullable = f.nullable === true;
         const isEnabled  = values[f.key] != null;
+        const val        = parseFloat(values[f.key]);
+        const isCrit     = !isNaN(val) && f.critBelow  != null && val < f.critBelow;
+        const isWarn     = !isNaN(val) && !isCrit && (
+          (f.warnBelow != null && val < f.warnBelow) ||
+          (f.warnAbove != null && val > f.warnAbove)
+        );
+        const borderColor = isCrit ? "var(--red)" : isWarn ? "#e8a020" : undefined;
         return (
           <div className="settings-field" key={f.key}>
             <div className="settings-label" style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -715,6 +746,11 @@ function SettingsCol({ title, config, accentColor, onSave }) {
               )}
               {f.label}
             </div>
+            {f.hint && (
+              <div style={{ fontSize: 10, color: "var(--text-3)", marginBottom: 3, lineHeight: 1.4 }}>
+                {f.hint}
+              </div>
+            )}
             <input
               className="settings-input"
               type="number"
@@ -724,8 +760,16 @@ function SettingsCol({ title, config, accentColor, onSave }) {
               value={values[f.key] ?? ""}
               disabled={isNullable && !isEnabled}
               onChange={e => handleChange(f.key, e.target.value)}
-              style={isNullable && !isEnabled ? { opacity: 0.35 } : {}}
+              style={{
+                ...(isNullable && !isEnabled ? { opacity: 0.35 } : {}),
+                ...(borderColor ? { borderColor, boxShadow: `0 0 0 1px ${borderColor}` } : {}),
+              }}
             />
+            {(isCrit || isWarn) && f.warnMsg && (
+              <div style={{ fontSize: 10, color: borderColor, marginTop: 3, fontWeight: 600 }}>
+                ⚠ {f.warnMsg(val)}
+              </div>
+            )}
           </div>
         );
       })}
@@ -922,6 +966,7 @@ export default function App() {
   const [liveEquity,    setLiveEquity]    = useState([]);
   const [compareData,   setCompareData]   = useState(null);
   const [liveConfig,    setLiveConfig]    = useState(null);
+  const [auditReports,  setAuditReports]  = useState([]);
   const [showPromote,   setShowPromote]   = useState(false);
   const [settings,      setSettings]      = useState(null);
   const [showSettings,  setShowSettings]  = useState(false);
@@ -1006,9 +1051,17 @@ export default function App() {
     fetchLiveData();
   }
 
+  function fetchAuditReports() {
+    fetch("/api/audit/reports")
+      .then(r => r.json())
+      .then(d => setAuditReports(d.reports || []))
+      .catch(() => {});
+  }
+
   useEffect(() => {
     fetchData();
     fetchSettings();
+    fetchAuditReports();
     const iv = setInterval(fetchData, 30_000);
     return () => clearInterval(iv);
   }, []);
@@ -1235,6 +1288,10 @@ export default function App() {
                 <TradeLog result={backtestResult} />
               </ErrorBoundary>
             )}
+
+            <ErrorBoundary label="Night Log">
+              <NightLog reports={auditReports} />
+            </ErrorBoundary>
           </div>
 
           <div className="main-right">

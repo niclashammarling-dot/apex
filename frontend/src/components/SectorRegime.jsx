@@ -127,7 +127,7 @@ export default function SectorRegime() {
     }}>
 
       {/* Header row */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 8, flexWrap: "wrap" }}>
         <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 500 }}>
           Regime
         </div>
@@ -165,32 +165,14 @@ export default function SectorRegime() {
 
       </div>
 
-      {/* Breakout / Extended / Breakdown alerts */}
-      {(data.breakouts?.length > 0 || data.extended?.length > 0 || data.breakdowns?.length > 0) && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-          {data.breakouts.map(s => (
-            <div key={s} style={{
-              fontFamily: "'DM Mono', monospace", fontSize: 10, fontWeight: 600,
-              color: "#00d48c", background: "#00d48c18",
-              border: "1px solid #00d48c44", borderRadius: 4, padding: "2px 8px",
-            }}>↑ {s} BREAKOUT</div>
-          ))}
-          {data.extended.map(s => (
-            <div key={s} style={{
-              fontFamily: "'DM Mono', monospace", fontSize: 10, fontWeight: 600,
-              color: "#ffaa00", background: "#ffaa0018",
-              border: "1px solid #ffaa0044", borderRadius: 4, padding: "2px 8px",
-            }}>⚠ {s} EXTENDED</div>
-          ))}
-          {data.breakdowns.map(s => (
-            <div key={s} style={{
-              fontFamily: "'DM Mono', monospace", fontSize: 10, fontWeight: 600,
-              color: "#ff3355", background: "#ff335518",
-              border: "1px solid #ff335544", borderRadius: 4, padding: "2px 8px",
-            }}>↓ {s} BREAKDOWN</div>
-          ))}
-        </div>
-      )}
+      {/* Clarification subtitle */}
+      <div style={{
+        fontFamily: "'DM Mono', monospace", fontSize: 10, color: "var(--text-3)",
+        marginBottom: 14, lineHeight: 1.5,
+      }}>
+        Sector-level trend signals derived from 365d of daily averages —
+        distinct from the live per-ticker scores shown in the sector cards.
+      </div>
 
       {/* Sector columns */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>

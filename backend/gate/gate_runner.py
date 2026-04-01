@@ -20,7 +20,7 @@ import json
 from backend.gate import lock1_quant, lock_macro, lock2_sentiment, lock_leading, lock3_claude
 from backend.db import (
     get_lock1_candidates, update_signal_gate, get_wallet_context,
-    get_open_tickers, get_recently_failed_tickers,
+    get_open_tickers, get_recently_failed_tickers, insert_demo_gate_result,
 )
 from backend import wallet
 
@@ -57,11 +57,20 @@ def run() -> list[dict]:
     skipped = [c for c in candidates if c["ticker"] in (open_tickers | failed_tickers)]
     candidates = [c for c in candidates if c["ticker"] not in (open_tickers | failed_tickers)]
 
+    ts = datetime.now(timezone.utc).isoformat()
     for c in skipped:
         decision = "SKIPPED_OPEN" if c["ticker"] in open_tickers else "SKIPPED_COOLOFF"
         update_signal_gate(c["id"], {
             "lock1_pass": 1, "lock2_pass": 0, "lock3_pass": 0,
             "gate_decision": decision, "lock3_reasoning": None,
+        })
+        insert_demo_gate_result({
+            "timestamp": ts, "ticker": c["ticker"], "sector": c.get("sector", ""),
+            "signal_score": c["signal_score"],
+            "lock1_pass": 1, "lock2_pass": 0, "lock_leading_pass": 0,
+            "lock_leading_checks": None, "lock3_pass": 0,
+            "gate_decision": decision, "lock3_reasoning": None,
+            "l2_summary": None, "macro_reason": None,
         })
 
     if skipped:
@@ -143,6 +152,21 @@ def run() -> list[dict]:
 
         results.append(result)
         update_signal_gate(signal["id"], result)
+        insert_demo_gate_result({
+            "timestamp":           result["timestamp"],
+            "ticker":              ticker,
+            "sector":              signal.get("sector", ""),
+            "signal_score":        signal["signal_score"],
+            "lock1_pass":          result["lock1_pass"],
+            "lock2_pass":          result["lock2_pass"],
+            "lock_leading_pass":   result.get("lock_leading_pass", 0),
+            "lock_leading_checks": result.get("lock_leading_checks"),
+            "lock3_pass":          result["lock3_pass"],
+            "gate_decision":       result["gate_decision"],
+            "lock3_reasoning":     result.get("claude_reasoning"),
+            "l2_summary":          result.get("l2_summary"),
+            "macro_reason":        result.get("macro_reason"),
+        })
         _log_summary(ticker, result)
 
     return results

@@ -111,6 +111,23 @@ def init_db() -> None:
                 alpaca_order_id TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS demo_gate_history (
+                id                  INTEGER PRIMARY KEY,
+                timestamp           TEXT NOT NULL,
+                ticker              TEXT NOT NULL,
+                sector              TEXT NOT NULL,
+                signal_score        REAL,
+                lock1_pass          INTEGER DEFAULT 0,
+                lock2_pass          INTEGER DEFAULT 0,
+                lock_leading_pass   INTEGER DEFAULT 0,
+                lock_leading_checks TEXT,
+                lock3_pass          INTEGER DEFAULT 0,
+                gate_decision       TEXT,
+                lock3_reasoning     TEXT,
+                l2_summary          TEXT,
+                macro_reason        TEXT
+            );
+
             CREATE INDEX IF NOT EXISTS idx_signals_ticker    ON signals(ticker);
             CREATE INDEX IF NOT EXISTS idx_signals_sector    ON signals(sector);
             CREATE INDEX IF NOT EXISTS idx_signals_timestamp ON signals(timestamp DESC);
@@ -180,6 +197,7 @@ def init_db() -> None:
         _add_column_if_missing(conn, "signals",           "macro_reason", "TEXT")
         _add_column_if_missing(conn, "live_gate_history", "l2_summary",   "TEXT")
         _add_column_if_missing(conn, "live_gate_history", "macro_reason", "TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_demo_gate_ts ON demo_gate_history(timestamp DESC)")
 
         # Migrate old gate_decision values to canonical FILTERED_* form
         conn.executescript("""
@@ -318,18 +336,36 @@ def prev_signals_by_ticker() -> dict[str, float]:
 
 def get_ticker_daily_scores(days: int = 90) -> list[dict]:
     """
-    Daily average signal score per ticker for the last N days.
-    Used to compute per-ticker streak signals (breakout/trending/etc.).
+    Daily signal score per ticker for the last N days.
+    Merges ticker_history (backfilled daily scores) with the signals table
+    (live intraday → daily aggregate) so streak signals work even when
+    ticker_history has a gap between backfill end and system start.
+    ticker_history is preferred; signals fills days not present there.
     """
     conn = get_db()
     try:
         rows = conn.execute("""
-            SELECT ticker, sector, DATE(timestamp) AS day, AVG(signal_score) AS avg_score
-            FROM signals
-            WHERE timestamp >= DATE('now', ? || ' days')
-            GROUP BY ticker, sector, DATE(timestamp)
+            SELECT ticker, sector, day, AVG(avg_score) AS avg_score
+            FROM (
+                SELECT ticker, sector, day, signal_score AS avg_score
+                FROM ticker_history
+                WHERE day >= DATE('now', ? || ' days')
+
+                UNION ALL
+
+                SELECT ticker, sector, DATE(timestamp) AS day, AVG(signal_score) AS avg_score
+                FROM signals
+                WHERE timestamp >= DATE('now', ? || ' days')
+                  AND DATE(timestamp) NOT IN (
+                      SELECT day FROM ticker_history th
+                      WHERE th.ticker = signals.ticker
+                        AND th.day >= DATE('now', ? || ' days')
+                  )
+                GROUP BY ticker, sector, DATE(timestamp)
+            )
+            GROUP BY ticker, sector, day
             ORDER BY ticker, day
-        """, (f"-{days}",)).fetchall()
+        """, (f"-{days}", f"-{days}", f"-{days}")).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
@@ -686,6 +722,62 @@ def get_gate_history(limit: int = 30) -> list[dict]:
             LIMIT ?
         """, (limit,)).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def insert_demo_gate_result(row: dict) -> None:
+    conn = get_db()
+    try:
+        conn.execute("""
+            INSERT INTO demo_gate_history
+                (timestamp, ticker, sector, signal_score,
+                 lock1_pass, lock2_pass, lock_leading_pass, lock_leading_checks,
+                 lock3_pass, gate_decision, lock3_reasoning, l2_summary, macro_reason)
+            VALUES
+                (:timestamp, :ticker, :sector, :signal_score,
+                 :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
+                 :lock3_pass, :gate_decision, :lock3_reasoning, :l2_summary, :macro_reason)
+        """, row)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_demo_gate_history(limit: int = 100) -> list[dict]:
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT ticker, sector, timestamp, signal_score,
+                   gate_decision, lock1_pass, lock2_pass, lock_leading_pass,
+                   lock_leading_checks, lock3_pass, lock3_reasoning,
+                   l2_summary, macro_reason
+            FROM demo_gate_history
+            ORDER BY timestamp DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_demo_gate_funnel_counts() -> dict:
+    conn = get_db()
+    try:
+        row = conn.execute("""
+            SELECT
+                count(*)                                                         AS total_candidates,
+                sum(gate_decision = 'SKIPPED_OPEN')                              AS skipped_open,
+                sum(gate_decision = 'SKIPPED_COOLOFF')                           AS skipped_cooloff,
+                sum(gate_decision NOT IN ('SKIPPED_OPEN','SKIPPED_COOLOFF'))     AS evaluated,
+                sum(gate_decision = 'FILTERED_MACRO')                            AS macro_fail,
+                sum(gate_decision = 'FILTERED_L2')                               AS l2_fail,
+                sum(gate_decision = 'FILTERED_LEADING')                          AS leading_fail,
+                sum(gate_decision = 'FILTERED_L3')                               AS l3_fail,
+                sum(gate_decision IN ('TRADE_EXECUTED','TRADE_REJECTED'))         AS executed
+            FROM demo_gate_history
+        """).fetchone()
+        return dict(row) if row else {}
     finally:
         conn.close()
 

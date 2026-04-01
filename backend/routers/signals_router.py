@@ -3,6 +3,7 @@ import time
 import threading
 import uuid
 from collections import defaultdict
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, field_validator
@@ -315,10 +316,10 @@ def get_wallet():
 
 @router.get("/gate/history")
 def gate_history(limit: int = 100):
-    from backend.db import get_gate_history, get_ticker_thresholds, get_gate_funnel_counts
+    from backend.db import get_demo_gate_history, get_ticker_thresholds, get_demo_gate_funnel_counts
     from backend.demo_config import get_demo_config
     import json as _json
-    rows = get_gate_history(limit)
+    rows = get_demo_gate_history(limit)
     thresholds = get_ticker_thresholds()
     flat = get_demo_config().get("lock1_threshold", 0.5)
     for row in rows:
@@ -328,7 +329,7 @@ def gate_history(limit: int = 100):
                 row["lock_leading_checks"] = _json.loads(row["lock_leading_checks"])
             except Exception:
                 row["lock_leading_checks"] = None
-    return {"rows": rows, "funnel": get_gate_funnel_counts()}
+    return {"rows": rows, "funnel": get_demo_gate_funnel_counts()}
 
 
 @router.get("/demo/trades")
@@ -495,6 +496,56 @@ def run_backtest(req: BacktestRequest):
         raise HTTPException(status_code=500, detail=f"Backtest failed: {e}")
 
 
+class BacktestABRequest(BacktestRequest):
+    """Extends BacktestRequest with Sharpe engine params for A/B comparison."""
+    vol_target:   float = 0.15
+    vol_lookback: int   = 20
+    max_leverage: float = 2.0
+
+
+@router.post("/backtest/run-ab")
+def run_backtest_ab(req: BacktestABRequest):
+    """
+    Run both engines on the same precomputed data and return side-by-side results.
+    Engine A: return-optimized (engine_fast, fixed Kelly sizing).
+    Engine B: Sharpe-optimized (engine_sharpe, vol-targeting + SPY regime sizing).
+    Precompute is called once and shared — no duplicate downloads.
+    """
+    from backend.backtest.engine_fast import run as run_fast, precompute
+    from backend.backtest.engine_sharpe import run as run_sharpe
+    try:
+        pc = precompute(req.start_date, req.end_date)
+
+        shared = dict(
+            take_profit_pct=req.take_profit_pct,
+            stop_loss_pct=req.stop_loss_pct,
+            trailing_stop_pct=req.trailing_stop_pct,
+            time_stop_days=req.time_stop_days,
+            lock1_threshold=req.lock1_threshold,
+            max_entries_per_day=req.max_entries_per_day,
+            precomputed=pc,
+        )
+
+        result_a = run_fast(
+            req.start_date, req.end_date, req.initial_balance,
+            atr_exits=req.atr_exits,
+            earnings_filter_days=req.earnings_filter_days,
+            **shared,
+        )
+        result_b = run_sharpe(
+            req.start_date, req.end_date, req.initial_balance,
+            vol_target=req.vol_target,
+            vol_lookback=req.vol_lookback,
+            max_leverage=req.max_leverage,
+            **shared,
+        )
+        return {"a": result_a, "b": result_b}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"A/B backtest failed: {e}")
+
+
 # ── Watchlist ──────────────────────────────────────────────────────────────────
 
 @router.get("/watchlist")
@@ -597,3 +648,31 @@ def get_ticker_thresholds():
         "default_fallback": TICKER_THRESHOLD_DEFAULT,
         "calibrated": len(thresholds) > 0,
     }
+
+
+# ── Audit reports ──────────────────────────────────────────────────────────────
+
+_AUDIT_DIR = Path(__file__).parent.parent.parent / "audit"
+
+@router.get("/audit/reports")
+def get_audit_reports():
+    """
+    Return all nightly audit reports, newest first.
+    Each entry includes the date, summary line, and full markdown content.
+    """
+    if not _AUDIT_DIR.exists():
+        return {"reports": []}
+
+    reports = []
+    for path in sorted(_AUDIT_DIR.glob("nightly-report-*.md"), reverse=True):
+        content = path.read_text()
+        # Extract summary line: "X issues found: Y critical, Z warnings, W info"
+        summary = None
+        for line in content.splitlines():
+            if "issues found" in line or "Clean" in line:
+                summary = line.strip("# ").strip()
+                break
+        date = path.stem.replace("nightly-report-", "")
+        reports.append({"date": date, "summary": summary, "content": content})
+
+    return {"reports": reports}
