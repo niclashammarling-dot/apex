@@ -172,6 +172,24 @@ def run_weekend_sweep() -> None:
         logger.error(f"Weekend sweep failed: {e}")
 
 
+def run_optimizer() -> None:
+    """Run autoresearch optimizer over last ~9 months. Runs Saturday night after sweep."""
+    try:
+        from backend.backtest.optimizer import run_optimizer as _run
+        _run()
+    except Exception as e:
+        logger.error(f"Optimizer failed: {e}")
+
+
+def run_structural_checks() -> None:
+    """Run structural integrity checks. Runs Saturday morning before the sweep."""
+    try:
+        from backend.maintenance import run_structural_checks as _run
+        _run()
+    except Exception as e:
+        logger.error(f"Structural checks failed: {e}")
+
+
 def precache_monday_data() -> None:
     """Pre-fetch all sector signals Sunday evening so Monday's first poll is instant."""
     logger.info("Sunday pre-cache: fetching all sectors…")
@@ -251,12 +269,30 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
     scheduler.add_job(
+        run_structural_checks,
+        "cron",
+        day_of_week="sat",
+        hour=6,
+        minute=0,           # Saturday 6am — surface issues before the sweep runs
+        id="structural_checks",
+        replace_existing=True,
+    )
+    scheduler.add_job(
         run_weekend_sweep,
         "cron",
         day_of_week="sat",
         hour=20,
         minute=0,           # Saturday 8pm — sweep runs overnight
         id="weekend_sweep",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_optimizer,
+        "cron",
+        day_of_week="sat",
+        hour=22,
+        minute=0,           # Saturday 10pm — optimizer runs after sweep
+        id="optimizer",
         replace_existing=True,
     )
     scheduler.add_job(

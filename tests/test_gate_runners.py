@@ -42,6 +42,9 @@ def _demo_cfg(**overrides):
         "max_sector_exposure":          0.25,
         "max_position_size":            0.15,
         "daily_loss_cap":               500.0,
+        "lock_leading_min_pass":        2,
+        "starting_balance":             10000.0,
+        "max_drawdown_pct":             0.20,
         "take_profit_pct":              0.08,
         "stop_loss_pct":                0.04,
     }
@@ -55,6 +58,7 @@ def _live_cfg(**overrides):
         "daily_loss_cap":    500.0,
         "max_positions":     5,
         "max_position_size": 0.10,
+        "starting_balance":  10000.0,
     })
     base.update(overrides)
     return base
@@ -463,12 +467,23 @@ class TestLiveGateRunner:
         boom = patch("backend.brokers.alpaca.place_bracket_order",
                      side_effect=Exception("order rejected"))
         with ExitStack() as stack:
-            for p in patches:
-                stack.enter_context(p)
+            mocks = [stack.enter_context(p) for p in patches]
             stack.enter_context(boom)
             from backend.gate import gate_runner_live
             results = gate_runner_live.run()
         assert results[0]["outcome"] == "TRADE_FAILED"
+        # gate_decision written to DB must match the final outcome — not the
+        # pre-set "TRADE_EXECUTED" value from _gate_result which is never updated
+        saved = mocks[7].call_args[0][0]  # insert_live_gate_result arg
+        assert saved["gate_decision"] == "TRADE_FAILED"
+        assert saved["alpaca_order_id"] is None
+
+    def test_max_positions_gate_decision_in_db(self):
+        positions = [{"ticker": f"T{i}"} for i in range(5)]
+        results, mocks = _run_live(candidates=[_signal()], positions=positions,
+                                   cfg_overrides={"max_positions": 5})
+        saved = mocks[7].call_args[0][0]
+        assert saved["gate_decision"] == "TRADE_REJECTED"
 
     def test_gate_decision_not_buy_for_executed_trade(self):
         results, _ = _run_live(candidates=[_signal()])

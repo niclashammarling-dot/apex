@@ -16,6 +16,7 @@ import LiveTradeLog  from "./components/LiveTradeLog.jsx";
 import LiveGateFeed  from "./components/LiveGateFeed.jsx";
 import ComparePanel  from "./components/ComparePanel.jsx";
 import DemoTradeLog  from "./components/DemoTradeLog.jsx";
+import DemoPositions from "./components/DemoPositions.jsx";
 
 const CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -279,6 +280,7 @@ const CSS = `
   .gate-rejected { background: #2a1e00; color: #d4a020; }
   .gate-fail     { background: #1e2030; color: var(--text-3); }
   .gate-macro    { background: #1e1a00; color: #c8a020; }
+  .gate-skipped  { background: #111318; color: var(--text-3); }
 
   /* ── Tab bar ─────────────────────────────────── */
   .tab-bar {
@@ -987,7 +989,9 @@ export default function App() {
     fetchWithRetry("/api/live/config")
       .then(data => setLiveConfig(data || null))
       .catch(() => setLiveConfig(null));
+  }
 
+  function fetchSettings() {
     fetchWithRetry("/api/settings")
       .then(data => setSettings(data || null))
       .catch(() => setSettings(null));
@@ -1004,6 +1008,7 @@ export default function App() {
 
   useEffect(() => {
     fetchData();
+    fetchSettings();
     const iv = setInterval(fetchData, 30_000);
     return () => clearInterval(iv);
   }, []);
@@ -1089,6 +1094,13 @@ export default function App() {
             </span>
           )}
         </button>
+        <button
+          className={`tab-btn ${activeTab === "test" ? "active" : ""}`}
+          onClick={() => setActiveTab("test")}
+          style={{ marginLeft: "auto" }}
+        >
+          Test
+        </button>
       </nav>
 
       {/* ── Demo tab ──────────────────────────────────────────────────────── */}
@@ -1125,10 +1137,6 @@ export default function App() {
                 : <GateFeed history={gateHist.rows} funnel={gateHist.funnel} />
               }
             </ErrorBoundary>
-
-            <ErrorBoundary label="Compare">
-              <ComparePanel data={compareData} />
-            </ErrorBoundary>
           </div>
 
           <div className="main-right">
@@ -1139,6 +1147,10 @@ export default function App() {
               }
             </ErrorBoundary>
 
+            <ErrorBoundary label="Open Positions">
+              <DemoPositions positions={wallet?.open_positions ?? []} />
+            </ErrorBoundary>
+
             <ErrorBoundary label="Equity Curve">
               {equityError
                 ? <div className="error-banner">{equityError}</div>
@@ -1146,9 +1158,6 @@ export default function App() {
               }
             </ErrorBoundary>
 
-            <ErrorBoundary label="Backtest">
-              <BacktestPanel onResult={setBacktestResult} />
-            </ErrorBoundary>
           </div>
         </main>
 
@@ -1157,12 +1166,6 @@ export default function App() {
             <DemoTradeLog trades={demoTrades} />
           </ErrorBoundary>
         </div>
-
-        {backtestResult && (
-          <div style={{ padding: "0 28px 28px" }}>
-            <TradeLog result={backtestResult} />
-          </div>
-        )}
       </div>
 
       {/* ── Live tab ──────────────────────────────────────────────────────── */}
@@ -1183,10 +1186,6 @@ export default function App() {
 
             <ErrorBoundary label="Live Gate Feed">
               <LiveGateFeed history={liveGateHist.rows} funnel={liveGateHist.funnel} />
-            </ErrorBoundary>
-
-            <ErrorBoundary label="Compare">
-              <ComparePanel data={compareData} />
             </ErrorBoundary>
           </div>
 
@@ -1223,6 +1222,29 @@ export default function App() {
         </div>
       </div>
 
+      {/* ── Test tab ──────────────────────────────────────────────────────── */}
+      <div style={{ display: activeTab === "test" ? "" : "none" }}>
+        <main className="main">
+          <div className="main-left">
+            <ErrorBoundary label="Compare">
+              <ComparePanel data={compareData} />
+            </ErrorBoundary>
+
+            {backtestResult && (
+              <ErrorBoundary label="Backtest Results">
+                <TradeLog result={backtestResult} />
+              </ErrorBoundary>
+            )}
+          </div>
+
+          <div className="main-right">
+            <ErrorBoundary label="Backtest">
+              <BacktestPanel onResult={setBacktestResult} />
+            </ErrorBoundary>
+          </div>
+        </main>
+      </div>
+
       {/* ── Modals — rendered outside tabs so they work from either tab ──── */}
       {showSettings && (
         <SettingsModal
@@ -1233,7 +1255,7 @@ export default function App() {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(updates),
-            }).then(() => fetchData());
+            }).then(() => fetchSettings());
           }}
           onTickerAdd={(sector, ticker) =>
             fetch(`/api/tickers/${sector}/add?ticker=${ticker}`, { method: "POST" })

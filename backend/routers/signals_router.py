@@ -339,8 +339,11 @@ def get_demo_trades():
 
 @router.get("/wallet/equity")
 def wallet_equity():
-    from backend.db import get_equity_curve
-    return get_equity_curve()
+    from backend.db import get_equity_curve, get_all_trades
+    from backend.wallet import _batch_prices
+    open_tickers = [t["ticker"] for t in get_all_trades() if t["outcome"] == "OPEN"]
+    prices = _batch_prices(open_tickers) if open_tickers else {}
+    return get_equity_curve(current_prices=prices)
 
 
 # ── Backtest ──────────────────────────────────────────────────────────────────
@@ -470,7 +473,7 @@ def run_backtest(req: BacktestRequest):
     Downloads historical OHLCV data and simulates the full position lifecycle
     (entry on signal, exit on TP/SL/time-stop) across the requested date range.
     """
-    from backend.backtest.engine import run
+    from backend.backtest.engine_fast import run
     try:
         result = run(
             req.start_date,

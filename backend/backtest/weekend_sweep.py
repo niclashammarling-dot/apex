@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import itertools
 import json
-import traceback
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -50,7 +49,7 @@ def _date_range() -> tuple[str, str]:
 
 def run_sweep() -> None:
     """Run the full parameter sweep and persist results. Called by scheduler."""
-    from backend.backtest import engine
+    from backend.backtest.engine_fast import run as engine_run, precompute
 
     start_date, end_date = _date_range()
     combos = list(itertools.product(
@@ -65,10 +64,14 @@ def run_sweep() -> None:
     total = len(combos)
     logger.info(f"Weekend sweep: {total} combos over {start_date} → {end_date}")
 
+    # Build caches once — all combos share the same date range
+    logger.info("Weekend sweep: precomputing signal cache…")
+    pc = precompute(start_date, end_date)
+
     results = []
     for i, (l1, tp, sl, hold, vix, rs, mpos) in enumerate(combos, 1):
         try:
-            r = engine.run(
+            r = engine_run(
                 start_date=start_date,
                 end_date=end_date,
                 initial_balance=10_000.0,
@@ -79,6 +82,7 @@ def run_sweep() -> None:
                 vix_threshold=vix,
                 use_leading_rs=rs,
                 max_positions=mpos,
+                precomputed=pc,
             )
             if r["total_trades"] < MIN_TRADES:
                 continue

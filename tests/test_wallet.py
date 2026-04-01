@@ -46,6 +46,10 @@ def make_gate_result(ticker, sector, price, decision="BUY", confidence=0.80):
         "low_60d":        price * 0.90,
         "atr_pct":        0.015,
         "effective_sl":   0.05,
+        "trend_score":    0.65,
+        "macd_hist":      0.02,
+        "ma50":           price * 0.99,
+        "rs_score":       0.55,
     })
     return {
         "id":             sid,

@@ -42,10 +42,11 @@ Lock 1 (quantitative momentum and volume) and Lock 2 (social sentiment and news)
 Do NOT re-evaluate those — trust that they have done their job.
 
 Your sole responsibilities are:
-1. Portfolio risk — compare open_positions against risk_limits.max_positions. Compute drawdown as (risk_limits.starting_balance - wallet_balance) / risk_limits.starting_balance. Reject if positions are at the limit or drawdown exceeds 20%.
+1. Portfolio risk — compare open_positions against risk_limits.max_positions. Compute drawdown as (risk_limits.starting_balance - wallet_balance) / risk_limits.starting_balance. Reject if positions are at the limit or drawdown exceeds risk_limits.max_drawdown_pct.
 2. Sector concentration — compare this ticker's sector value in sector_exposure against risk_limits.max_sector_exposure. Reject if at or near the limit.
 3. Sentiment synthesis — given the social themes and sentiment summary from Lock 2, is there any macro or qualitative reason NOT to enter this specific ticker right now?
-4. When genuinely uncertain across all three, output HOLD.
+4. Gate history — if ticker_gate_history is provided, treat it as a pattern signal. Repeated L2 fails indicate persistent sentiment weakness. Repeated leading fails indicate smart money is not positioning. A recent TRADE_EXECUTED means the ticker was entered recently and may still be in play. Weight this history alongside current signals — do not ignore it.
+5. When genuinely uncertain across all factors, output HOLD.
 
 Return ONLY valid JSON with exactly these keys:
 {

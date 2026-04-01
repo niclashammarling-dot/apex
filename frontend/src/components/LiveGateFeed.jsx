@@ -21,7 +21,7 @@ function ScoreVsThreshold({ score, threshold }) {
 function FunnelSummary({ funnel }) {
   if (!funnel) return null;
   const { total_candidates, skipped_open, skipped_cooloff, evaluated,
-          macro_fail, l2_fail, l3_fail, executed } = funnel;
+          macro_fail, l2_fail, leading_fail, l3_fail, executed } = funnel;
   const skipped = (skipped_open || 0) + (skipped_cooloff || 0);
   return (
     <div style={{
@@ -32,11 +32,20 @@ function FunnelSummary({ funnel }) {
       <span>{total_candidates} candidates</span>
       {skipped > 0 && <span>→ {skipped} skipped ({skipped_open} held, {skipped_cooloff} cooloff)</span>}
       <span>→ {evaluated} evaluated</span>
-      {macro_fail > 0 && <span>→ {macro_fail} macro</span>}
-      {l2_fail > 0    && <span>→ {l2_fail} L2 fail</span>}
-      {l3_fail > 0    && <span>→ {l3_fail} L3 fail</span>}
+      {macro_fail > 0    && <span>→ {macro_fail} macro</span>}
+      {l2_fail > 0       && <span>→ {l2_fail} L2 fail</span>}
+      {leading_fail > 0  && <span>→ {leading_fail} LD fail</span>}
+      {l3_fail > 0       && <span>→ {l3_fail} L3 fail</span>}
       <span style={{ color: executed > 0 ? "var(--green)" : "var(--text-3)" }}>→ {executed} traded</span>
     </div>
+  );
+}
+
+function Lock({ pass }) {
+  return (
+    <span style={{ color: pass ? "var(--green)" : "var(--text-3)", fontSize: 14, fontWeight: 600 }}>
+      {pass ? "✓" : "✗"}
+    </span>
   );
 }
 
@@ -56,6 +65,8 @@ function decisionBadge(decision) {
   if (decision === "FILTERED_L2")      return { cls: "gate-fail",     label: "L2 FAIL"  };
   if (decision === "FILTERED_LEADING") return { cls: "gate-fail",     label: "LD FAIL"  };
   if (decision === "FILTERED_L3")      return { cls: "gate-fail",     label: "L3 FAIL"  };
+  if (decision === "SKIPPED_OPEN")     return { cls: "gate-skipped",  label: "HELD"     };
+  if (decision === "SKIPPED_COOLOFF")  return { cls: "gate-skipped",  label: "COOLOFF"  };
   return { cls: "gate-fail", label: decision ?? "—" };
 }
 
@@ -95,10 +106,7 @@ export default function LiveGateFeed({ history, funnel }) {
             <th>Time</th>
             <th>Ticker</th>
             <th>Score</th>
-            <th>L1</th>
-            <th>L2</th>
-            <th>LD</th>
-            <th>L3</th>
+            <th>Locks</th>
             <th>Decision</th>
           </tr>
         </thead>
@@ -111,7 +119,8 @@ export default function LiveGateFeed({ history, funnel }) {
                 })
               : "—";
             const { cls, label } = decisionBadge(row.gate_decision);
-            const hasDetail      = !!(row.lock3_reasoning || row.lock_leading_checks);
+            const isSkipped      = row.gate_decision === "SKIPPED_OPEN" || row.gate_decision === "SKIPPED_COOLOFF";
+            const hasDetail      = !isSkipped && !!(row.lock3_reasoning || row.lock_leading_checks || row.l2_summary || row.macro_reason);
             const isOpen         = expanded === i;
             const checks         = row.lock_leading_checks;
 
@@ -133,10 +142,18 @@ export default function LiveGateFeed({ history, funnel }) {
                 <td style={{ fontFamily: "'DM Mono', monospace" }}>
                   <ScoreVsThreshold score={row.signal_score} threshold={row.l1_threshold} />
                 </td>
-                <td>{row.lock1_pass ? "✓" : "✗"}</td>
-                <td>{row.lock2_pass ? "✓" : row.lock1_pass ? "✗" : "—"}</td>
-                <td>{row.lock_leading_pass ? "✓" : row.lock2_pass ? "✗" : "—"}</td>
-                <td>{row.lock3_pass ? "✓" : row.lock_leading_pass ? "✗" : "—"}</td>
+                <td>
+                  {isSkipped ? (
+                    <span style={{ color: "var(--text-3)", fontSize: 12 }}>—</span>
+                  ) : (
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <Lock pass={row.lock1_pass} />
+                      <Lock pass={row.lock2_pass} />
+                      <Lock pass={row.lock_leading_pass} />
+                      <Lock pass={row.lock3_pass} />
+                    </div>
+                  )}
+                </td>
                 <td>
                   <span className={`gate-badge ${cls}`}>{label}</span>
                   {row.alpaca_order_id && (
@@ -148,15 +165,27 @@ export default function LiveGateFeed({ history, funnel }) {
               </tr>,
               isOpen && hasDetail && (
                 <tr key={`${i}-detail`}>
-                  <td colSpan={8} style={{
+                  <td colSpan={5} style={{
                     background: "#111827",
                     padding: "10px 16px 14px",
                     borderTop: "1px solid var(--border)",
                     fontSize: 12,
                     lineHeight: 1.7,
                   }}>
+                    {row.macro_reason && (
+                      <div style={{ marginBottom: 8 }}>
+                        <span style={{ color: "var(--text-3)", marginRight: 8 }}>Macro:</span>
+                        <span style={{ color: "var(--text-2)" }}>{row.macro_reason}</span>
+                      </div>
+                    )}
+                    {row.l2_summary && (
+                      <div style={{ marginBottom: checks || row.lock3_reasoning ? 8 : 0 }}>
+                        <span style={{ color: "var(--text-3)", marginRight: 8 }}>Sentiment:</span>
+                        <span style={{ color: "var(--text-2)" }}>{row.l2_summary}</span>
+                      </div>
+                    )}
                     {checks && (
-                      <div style={{ marginBottom: row.lock3_reasoning ? 10 : 0 }}>
+                      <div style={{ marginBottom: row.lock3_reasoning ? 8 : 0 }}>
                         <span style={{ color: "var(--text-3)", marginRight: 8 }}>Leading:</span>
                         {Object.entries(LEADING_CHECK_LABELS).map(([key, lbl]) => {
                           const c = checks[key];

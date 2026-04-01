@@ -164,7 +164,7 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
 
     lm = lock_macro.evaluate(ticker, cfg)
     if not lm["passed"]:
-        return _gate_result(signal, l1, None, None, None, "FILTERED_MACRO")
+        return _gate_result(signal, l1, None, None, None, "FILTERED_MACRO", lm=lm)
 
     l2 = lock2_sentiment.evaluate(ticker, sentiment_min=cfg["lock2_sentiment_min"])
     if not l2["passed"]:
@@ -186,7 +186,6 @@ def _build_claude_context(signal: dict, l2: dict, l_leading: dict,
                           wallet_ctx: dict, cfg: dict,
                           sector_regime: dict | None = None,
                           rotation_scores: dict | None = None) -> dict:
-    from backend.config import STARTING_BALANCE
     ctx = {
         # identity
         "ticker":            signal["ticker"],
@@ -205,11 +204,12 @@ def _build_claude_context(signal: dict, l2: dict, l_leading: dict,
         "sector_exposure":   wallet_ctx["sector_exposure"],
         # configured risk limits — model uses these for its checks
         "risk_limits": {
-            "starting_balance":    STARTING_BALANCE,
+            "starting_balance":    cfg["starting_balance"],
             "max_positions":       cfg["max_positions"],
             "max_sector_exposure": cfg["max_sector_exposure"],
             "max_position_size":   cfg["max_position_size"],
             "daily_loss_cap":      cfg["daily_loss_cap"],
+            "max_drawdown_pct":    cfg.get("max_drawdown_pct", 0.20),
         },
     }
 
@@ -253,11 +253,21 @@ def _build_claude_context(signal: dict, l2: dict, l_leading: dict,
     if rotation_scores is not None:
         ctx["ticker_rotation_score"] = rotation_scores.get(signal["ticker"])
 
+    # Recent gate fail history — lets Lock 3 see patterns (repeated L2 fails, etc.)
+    try:
+        from backend.db import get_ticker_gate_fails
+        fails = get_ticker_gate_fails(signal["ticker"], limit=5)
+        if fails:
+            ctx["ticker_gate_history"] = fails
+    except Exception:
+        pass
+
     return ctx
 
 
 def _gate_result(signal: dict, l1: dict, l2: dict | None,
-                 l_leading: dict | None, l3: dict | None, outcome: str) -> dict:
+                 l_leading: dict | None, l3: dict | None, outcome: str,
+                 lm: dict | None = None) -> dict:
     return {
         "ticker":       signal["ticker"],
         "sector":       signal["sector"],
@@ -279,6 +289,8 @@ def _gate_result(signal: dict, l1: dict, l2: dict | None,
         "claude_confidence":   l3["confidence"] if l3 else None,
         "claude_reasoning":    l3["reasoning"]  if l3 else None,
         "sentiment_score":     l2["score"]      if l2 else None,
+        "l2_summary":          l2["summary"]    if l2 else None,
+        "macro_reason":        lm["reason"]     if lm else None,
     }
 
 

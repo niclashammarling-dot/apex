@@ -31,6 +31,9 @@ _KEYS = [
     "macro_earnings_blackout_days",
     "gate_cooloff_hours",
     "max_sector_exposure",
+    "lock_leading_min_pass",
+    "starting_balance",
+    "max_drawdown_pct",
 ]
 
 
@@ -40,7 +43,7 @@ def _defaults() -> dict:
         TAKE_PROFIT_PCT, STOP_LOSS_PCT,
         MAX_POSITIONS, MAX_POSITION_SIZE, DAILY_LOSS_CAP, TIME_STOP_DAYS,
         MACRO_VIX_THRESHOLD, MACRO_EVENT_BLACKOUT_DAYS, MACRO_EARNINGS_BLACKOUT_DAYS, GATE_COOLOFF_HOURS,
-        MAX_SECTOR_EXPOSURE,
+        MAX_SECTOR_EXPOSURE, LOCK_LEADING_MIN_PASS, LOCK3_MAX_DRAWDOWN_PCT, STARTING_BALANCE,
     )
     return {
         "lock1_threshold":              LOCK1_THRESHOLD,
@@ -58,6 +61,9 @@ def _defaults() -> dict:
         "macro_earnings_blackout_days": MACRO_EARNINGS_BLACKOUT_DAYS,
         "gate_cooloff_hours":           GATE_COOLOFF_HOURS,
         "max_sector_exposure":          MAX_SECTOR_EXPOSURE,
+        "lock_leading_min_pass":        LOCK_LEADING_MIN_PASS,
+        "starting_balance":             STARTING_BALANCE,
+        "max_drawdown_pct":             LOCK3_MAX_DRAWDOWN_PCT,
     }
 
 

@@ -94,9 +94,10 @@ def run() -> list[dict]:
     logger.info(f"Live gate runner: {len(candidates)} candidate(s) — {[c['ticker'] for c in candidates]}")
 
     wallet_ctx = {
-        "balance":         acct["equity"],
-        "open_positions":  len(broker.get_positions()),
-        "sector_exposure": {},  # not computed for live — Lock 3 prompt uses open_positions count
+        "balance":          acct["equity"],
+        "open_positions":   len(broker.get_positions()),
+        "sector_exposure":  {},  # not computed for live — Lock 3 prompt uses open_positions count
+        "starting_balance": cfg["starting_balance"],
     }
 
     # Compute sector regime + rotation scores once per gate cycle — passed to all evaluations
@@ -196,9 +197,11 @@ def run() -> list[dict]:
             "lock_leading_pass":   result.get("lock_leading_pass", 0),
             "lock_leading_checks": result.get("lock_leading_checks"),
             "lock3_pass":          result["lock3_pass"],
-            "gate_decision":       result["gate_decision"],
+            "gate_decision":       result["outcome"],  # use final outcome — gate_decision is set early and not updated on TRADE_FAILED/REJECTED
             "lock3_reasoning":     result.get("claude_reasoning"),
             "alpaca_order_id":     order_id,
+            "l2_summary":          result.get("l2_summary"),
+            "macro_reason":        result.get("macro_reason"),
         })
 
         _log_summary(ticker, result)
@@ -222,7 +225,7 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
 
     lm = lock_macro.evaluate(ticker, cfg)
     if not lm["passed"]:
-        return _gate_result(signal, l1, None, None, None, "FILTERED_MACRO")
+        return _gate_result(signal, l1, None, None, None, "FILTERED_MACRO", lm=lm)
 
     l2 = lock2_sentiment.evaluate(ticker, sentiment_min=cfg["lock2_sentiment_min"])
     if not l2["passed"]:
@@ -263,11 +266,12 @@ def _build_context(signal: dict, l2: dict, l_leading: dict,
         "sector_exposure":   wallet_ctx["sector_exposure"],
         # configured risk limits — model uses these for its checks
         "risk_limits": {
-            "starting_balance":    wallet_ctx.get("starting_balance", cfg.get("starting_balance")),
+            "starting_balance":    wallet_ctx["starting_balance"],
             "max_positions":       cfg["max_positions"],
             "max_sector_exposure": cfg["max_sector_exposure"],
             "max_position_size":   cfg["max_position_size"],
             "daily_loss_cap":      cfg["daily_loss_cap"],
+            "max_drawdown_pct":    cfg.get("max_drawdown_pct", 0.20),
         },
     }
 
@@ -309,11 +313,21 @@ def _build_context(signal: dict, l2: dict, l_leading: dict,
     if rotation_scores is not None:
         ctx["ticker_rotation_score"] = rotation_scores.get(signal["ticker"])
 
+    # Recent gate fail history — lets Lock 3 see patterns (repeated L2 fails, etc.)
+    try:
+        from backend.db import get_live_ticker_gate_fails
+        fails = get_live_ticker_gate_fails(signal["ticker"], limit=5)
+        if fails:
+            ctx["ticker_gate_history"] = fails
+    except Exception:
+        pass
+
     return ctx
 
 
 def _gate_result(signal: dict, l1: dict, l2: dict | None,
-                 l_leading: dict | None, l3: dict | None, outcome: str) -> dict:
+                 l_leading: dict | None, l3: dict | None, outcome: str,
+                 lm: dict | None = None) -> dict:
     return {
         "ticker":       signal["ticker"],
         "sector":       signal["sector"],
@@ -334,6 +348,8 @@ def _gate_result(signal: dict, l1: dict, l2: dict | None,
         "claude_confidence":   l3["confidence"] if l3 else None,
         "claude_reasoning":    l3["reasoning"]  if l3 else None,
         "sentiment_score":     l2["score"]      if l2 else None,
+        "l2_summary":          l2["summary"]    if l2 else None,
+        "macro_reason":        lm["reason"]     if lm else None,
     }
 
 

@@ -18,7 +18,7 @@ ALPACA_BASE_URL   = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.marke
 LIVE_ENABLED      = os.getenv("LIVE_ENABLED", "false").lower() == "true"
 
 # --- Signal thresholds ---
-LOCK1_THRESHOLD       = 0.55
+LOCK1_THRESHOLD       = 0.70
 LOCK2_SENTIMENT_MIN   = 0.1
 LOCK3_CONFIDENCE_MIN  = 0.60
 
@@ -29,26 +29,35 @@ EXIT_CHECK_INTERVAL   = 5
 GROK_CACHE_TTL        = 60  # minutes
 
 # --- Wallet ---
-STARTING_BALANCE      = 10_000.0
-MAX_POSITIONS         = 6
+STARTING_BALANCE      = 2_000.0
+MAX_POSITIONS         = 4
 MAX_SECTOR_EXPOSURE   = 0.25
-MAX_POSITION_SIZE     = 0.15  # max 15% of balance per trade (~$1500 on $10k)
-DAILY_LOSS_CAP        = 500.0
+MAX_POSITION_SIZE     = 0.15  # max 15% of balance per trade (~$300 on $2k)
+DAILY_LOSS_CAP        = 100.0
 
 # --- Exit conditions ---
-TAKE_PROFIT_PCT = 0.15
+TAKE_PROFIT_PCT = 0.06
 STOP_LOSS_PCT   = 0.05
-TIME_STOP_DAYS  = 5
+TIME_STOP_DAYS  = 40
 
 # --- Macro filter (Lock 1.5) ---
-MACRO_VIX_THRESHOLD           = 25.0
+MACRO_VIX_THRESHOLD           = 30.0
 MACRO_EVENT_BLACKOUT_DAYS     = 1     # days before/after FOMC, CPI, NFP
 MACRO_EARNINGS_BLACKOUT_DAYS  = 3     # days before a ticker's earnings
 GATE_COOLOFF_HOURS            = 4     # hours before re-evaluating a ticker that failed L2/L3/MACRO
 
+# --- Lock Leading ---
+LOCK_LEADING_MIN_PASS = 2      # checks that must pass (out of 4) to advance
+
+# --- Lock 3 risk limits ---
+LOCK3_MAX_DRAWDOWN_PCT = 0.20  # drawdown threshold passed to Claude in context
+
 # --- P(win) base rate (decoupled from signal score) ---
 BASE_WIN_RATE        = 0.55
 WIN_RATE_MIN_TRADES  = 20  # use rolling win rate only after this many closed trades
+
+# --- Live starting balance (used for drawdown calc in Lock 3 context) ---
+LIVE_STARTING_BALANCE = float(os.getenv("LIVE_STARTING_BALANCE", "2000.0"))
 
 # --- Live gate thresholds — defaults only. Runtime values live in data/live_config.json
 # (written by the Promote feature). Import get_live_config() to read effective values.

@@ -113,12 +113,13 @@ def place_bracket_order(
     Returns the Alpaca order ID string.
 
     Uses notional → qty conversion because Alpaca bracket orders require qty.
-    Prices rounded to 2dp (sufficient for US equities).
+    Alpaca bracket orders do not support fractional shares — qty is floored to
+    the nearest whole share. Prices rounded to 2dp (sufficient for US equities).
     """
     from alpaca.trading.requests import MarketOrderRequest, TakeProfitRequest, StopLossRequest
     from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
 
-    qty = round(notional / current_price, 6)
+    qty = int(notional / current_price)  # floor to whole shares — bracket orders require integer qty
     if qty <= 0:
         raise ValueError(f"Computed qty={qty} for {ticker} @ ${current_price:.2f} notional=${notional:.2f}")
 

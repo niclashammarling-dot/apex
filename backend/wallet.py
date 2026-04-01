@@ -1,7 +1,7 @@
 """
 Wallet — demo trade execution and exit management.
 
-Starting balance: $10,000 (STARTING_BALANCE in config).
+Starting balance: $2,000 (STARTING_BALANCE in config).
 All trades are simulated — no real money involved.
 
 Execute flow:
@@ -12,7 +12,7 @@ Execute flow:
 Exit flow (scheduler every 5 min during market hours):
   check_exits() fetches all open trades
   → gets current price via yfinance
-  → closes on TP (+15%), SL (-5%), or time-stop (5 trading days)
+  → closes on TP, SL, trailing stop, or time-stop (all configurable via demo_config)
 """
 import yfinance as yf
 import pandas as pd

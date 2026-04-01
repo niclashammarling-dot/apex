@@ -66,8 +66,7 @@ def init_db() -> None:
                 claude_confidence     REAL,
                 claude_reasoning      TEXT,
                 outcome               TEXT DEFAULT 'OPEN',
-                pnl                   REAL,
-                wallet_balance_after  REAL
+                pnl                   REAL
             );
 
             CREATE TABLE IF NOT EXISTS news (
@@ -176,6 +175,11 @@ def init_db() -> None:
         _add_column_if_missing(conn, "live_gate_history", "lock_leading_checks", "TEXT")
         # Trailing stop — peak price tracking
         _add_column_if_missing(conn, "trades", "peak_price", "REAL")
+        # Gate fail reasoning — why each lock failed
+        _add_column_if_missing(conn, "signals",           "l2_summary",   "TEXT")
+        _add_column_if_missing(conn, "signals",           "macro_reason", "TEXT")
+        _add_column_if_missing(conn, "live_gate_history", "l2_summary",   "TEXT")
+        _add_column_if_missing(conn, "live_gate_history", "macro_reason", "TEXT")
 
         # Migrate old gate_decision values to canonical FILTERED_* form
         conn.executescript("""
@@ -320,10 +324,10 @@ def get_ticker_daily_scores(days: int = 90) -> list[dict]:
     conn = get_db()
     try:
         rows = conn.execute("""
-            SELECT ticker, DATE(timestamp) AS day, AVG(signal_score) AS avg_score
+            SELECT ticker, sector, DATE(timestamp) AS day, AVG(signal_score) AS avg_score
             FROM signals
             WHERE timestamp >= DATE('now', ? || ' days')
-            GROUP BY ticker, DATE(timestamp)
+            GROUP BY ticker, sector, DATE(timestamp)
             ORDER BY ticker, day
         """, (f"-{days}",)).fetchall()
         return [dict(r) for r in rows]
@@ -390,7 +394,9 @@ def update_signal_gate(signal_id: int, result: dict) -> None:
                 lock_leading_checks = :lock_leading_checks,
                 lock3_pass          = :lock3_pass,
                 gate_decision       = :gate_decision,
-                lock3_reasoning     = :lock3_reasoning
+                lock3_reasoning     = :lock3_reasoning,
+                l2_summary          = :l2_summary,
+                macro_reason        = :macro_reason
             WHERE id = :id
         """, {
             "lock1_pass":          result["lock1_pass"],
@@ -400,6 +406,8 @@ def update_signal_gate(signal_id: int, result: dict) -> None:
             "lock3_pass":          result["lock3_pass"],
             "gate_decision":       result["gate_decision"],
             "lock3_reasoning":     result.get("claude_reasoning"),
+            "l2_summary":          result.get("l2_summary"),
+            "macro_reason":        result.get("macro_reason"),
             "id":                  signal_id,
         })
         conn.commit()
@@ -542,6 +550,101 @@ def get_open_live_tickers() -> set[str]:
         conn.close()
 
 
+def get_ticker_gate_fails(ticker: str, limit: int = 5) -> list[dict]:
+    """
+    Recent non-skip gate decisions for a ticker from the demo signals table.
+    Returns up to `limit` rows newest-first, with the most relevant fail detail
+    collapsed into a single 'detail' string for Lock 3 context injection.
+    """
+    import json as _json
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT timestamp, gate_decision, l2_summary, macro_reason,
+                   lock_leading_checks, lock3_reasoning
+            FROM signals
+            WHERE ticker = ?
+              AND gate_decision IS NOT NULL
+              AND gate_decision NOT IN ('SKIPPED_OPEN', 'SKIPPED_COOLOFF')
+            ORDER BY timestamp DESC
+            LIMIT ?
+        """, (ticker, limit)).fetchall()
+    finally:
+        conn.close()
+
+    result = []
+    for r in rows:
+        decision = r["gate_decision"]
+        detail = None
+        if r["l2_summary"]:
+            detail = r["l2_summary"]
+        elif r["macro_reason"]:
+            detail = r["macro_reason"]
+        elif r["lock_leading_checks"]:
+            try:
+                checks = _json.loads(r["lock_leading_checks"])
+                failed = [k for k, v in checks.items() if not v.get("pass")]
+                reasons = [checks[k].get("reason", "") for k in failed if checks[k].get("reason")]
+                detail = "leading failed: " + "; ".join(reasons) if reasons else "leading checks failed"
+            except Exception:
+                detail = "leading checks failed"
+        elif r["lock3_reasoning"]:
+            detail = r["lock3_reasoning"]
+        result.append({
+            "date":     r["timestamp"][:10],
+            "outcome":  decision,
+            "detail":   detail,
+        })
+    return result
+
+
+def get_live_ticker_gate_fails(ticker: str, limit: int = 5) -> list[dict]:
+    """
+    Recent non-skip gate decisions for a ticker from live_gate_history.
+    Same shape as get_ticker_gate_fails for consistent context injection.
+    """
+    import json as _json
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT timestamp, gate_decision, l2_summary, macro_reason,
+                   lock_leading_checks, lock3_reasoning
+            FROM live_gate_history
+            WHERE ticker = ?
+              AND gate_decision IS NOT NULL
+              AND gate_decision NOT IN ('SKIPPED_OPEN', 'SKIPPED_COOLOFF')
+            ORDER BY timestamp DESC
+            LIMIT ?
+        """, (ticker, limit)).fetchall()
+    finally:
+        conn.close()
+
+    result = []
+    for r in rows:
+        decision = r["gate_decision"]
+        detail = None
+        if r["l2_summary"]:
+            detail = r["l2_summary"]
+        elif r["macro_reason"]:
+            detail = r["macro_reason"]
+        elif r["lock_leading_checks"]:
+            try:
+                checks = _json.loads(r["lock_leading_checks"])
+                failed = [k for k, v in checks.items() if not v.get("pass")]
+                reasons = [checks[k].get("reason", "") for k in failed if checks[k].get("reason")]
+                detail = "leading failed: " + "; ".join(reasons) if reasons else "leading checks failed"
+            except Exception:
+                detail = "leading checks failed"
+        elif r["lock3_reasoning"]:
+            detail = r["lock3_reasoning"]
+        result.append({
+            "date":     r["timestamp"][:10],
+            "outcome":  decision,
+            "detail":   detail,
+        })
+    return result
+
+
 def get_recently_failed_live_tickers(hours: float) -> set[str]:
     """Return tickers that failed L2, L3, or MACRO in the live gate within the last N hours."""
     from datetime import datetime, timezone, timedelta
@@ -574,11 +677,11 @@ def get_gate_history(limit: int = 30) -> list[dict]:
     try:
         rows = conn.execute("""
             SELECT ticker, sector, timestamp, signal_score,
-                   gate_decision, lock1_pass, lock2_pass, lock3_pass,
-                   lock3_reasoning
+                   gate_decision, lock1_pass, lock2_pass, lock_leading_pass,
+                   lock_leading_checks, lock3_pass, lock3_reasoning,
+                   l2_summary, macro_reason
             FROM signals
             WHERE gate_decision IS NOT NULL
-              AND gate_decision NOT IN ('SKIPPED_OPEN', 'SKIPPED_COOLOFF')
             ORDER BY timestamp DESC
             LIMIT ?
         """, (limit,)).fetchall()
@@ -638,10 +741,13 @@ def get_gate_funnel_counts(since: str | None = None) -> dict:
         conn.close()
 
 
-def get_equity_curve() -> list[dict]:
+def get_equity_curve(current_prices: dict[str, float] | None = None) -> list[dict]:
     """
     Running balance over time from closed trades, plus a live 'Now' point that
-    marks open positions to market using the latest signal prices.
+    marks open positions to market.
+
+    current_prices: live price dict {ticker: price} supplied by the caller.
+    If not provided, falls back to the latest stored signal price (up to 15 min stale).
 
     Without the MTM point, flat segments are ambiguous — they could mean
     'nothing happened' or 'open positions are moving but not yet closed'.
@@ -663,10 +769,10 @@ def get_equity_curve() -> list[dict]:
             balance += r["pnl"] or 0
             points.append({"ts": r["ts"][:10], "balance": round(balance, 2), "mtm": False})
 
-        # Mark open positions to market using latest signal prices
+        # Mark open positions to market
         open_trades = conn.execute("""
-            SELECT t.price AS entry_price, t.amount,
-                   s.price AS current_price
+            SELECT t.ticker, t.price AS entry_price, t.amount,
+                   s.price AS signal_price
             FROM trades t
             LEFT JOIN (
                 SELECT ticker, price
@@ -680,8 +786,12 @@ def get_equity_curve() -> list[dict]:
 
         unrealised = 0.0
         for t in open_trades:
-            if t["current_price"] and t["entry_price"] and t["entry_price"] > 0:
-                unrealised += t["amount"] * (t["current_price"] - t["entry_price"]) / t["entry_price"]
+            if current_prices is not None:
+                price = current_prices.get(t["ticker"])
+            else:
+                price = t["signal_price"]
+            if price and t["entry_price"] and t["entry_price"] > 0:
+                unrealised += t["amount"] * (price - t["entry_price"]) / t["entry_price"]
 
         now_ts = datetime.now(timezone.utc).strftime("%m/%d %H:%M")
         points.append({
@@ -741,14 +851,18 @@ def insert_live_gate_result(row: dict) -> int:
             INSERT INTO live_gate_history
               (timestamp, ticker, sector, signal_score,
                lock1_pass, lock2_pass, lock_leading_pass, lock_leading_checks,
-               lock3_pass, gate_decision, lock3_reasoning, alpaca_order_id)
+               lock3_pass, gate_decision, lock3_reasoning, alpaca_order_id,
+               l2_summary, macro_reason)
             VALUES
               (:timestamp, :ticker, :sector, :signal_score,
                :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
-               :lock3_pass, :gate_decision, :lock3_reasoning, :alpaca_order_id)
+               :lock3_pass, :gate_decision, :lock3_reasoning, :alpaca_order_id,
+               :l2_summary, :macro_reason)
         """, {**row,
               "lock_leading_pass":   row.get("lock_leading_pass", 0),
-              "lock_leading_checks": row.get("lock_leading_checks")})
+              "lock_leading_checks": row.get("lock_leading_checks"),
+              "l2_summary":          row.get("l2_summary"),
+              "macro_reason":        row.get("macro_reason")})
         conn.commit()
         return cur.lastrowid
     finally:
@@ -760,7 +874,6 @@ def get_live_gate_history(limit: int = 30) -> list[dict]:
     try:
         rows = conn.execute("""
             SELECT * FROM live_gate_history
-            WHERE gate_decision NOT IN ('SKIPPED_OPEN', 'SKIPPED_COOLOFF')
             ORDER BY timestamp DESC
             LIMIT ?
         """, (limit,)).fetchall()
@@ -1158,15 +1271,18 @@ def prune_watchlist_auto(keep_tickers: set[str]) -> int:
 def prune_signals(keep_per_ticker: int = 10) -> int:
     """
     Delete old signal rows, keeping only the most recent `keep_per_ticker`
-    rows per ticker. Returns the number of rows deleted.
+    rows per ticker. Rows with a gate_decision are always preserved so that
+    gate history is not lost. Returns the number of rows deleted.
     """
     conn = get_db()
     try:
         cur = conn.execute("""
             DELETE FROM signals
-            WHERE id NOT IN (
+            WHERE gate_decision IS NULL
+              AND id NOT IN (
                 SELECT id FROM signals s2
                 WHERE s2.ticker = signals.ticker
+                  AND s2.gate_decision IS NULL
                 ORDER BY s2.timestamp DESC
                 LIMIT ?
             )

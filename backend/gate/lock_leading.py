@@ -18,16 +18,17 @@ from datetime import datetime, timedelta, timezone
 from loguru import logger
 
 SECTOR_ETF = {
-    "Technology":    "XLK",
-    "Energy":        "XLE",
-    "Consumer":      "XLY",
-    "Healthcare":    "XLV",
-    "Financials":    "XLF",
-    "Industrials":   "XLI",
-    "Materials":     "XLB",
-    "Utilities":     "XLU",
-    "Real Estate":   "XLRE",
-    "Communication": "XLC",
+    "Technology":      "XLK",
+    "Energy":          "XLE",
+    "ConsumerDisc":    "XLY",
+    "ConsumerStaples": "XLP",
+    "Healthcare":      "XLV",
+    "Financials":      "XLF",
+    "Industrials":     "XLI",
+    "Materials":       "XLB",
+    "Utilities":       "XLU",
+    "RealEstate":      "XLRE",
+    "Communication":   "XLC",
 }
 
 _EDGAR_SEARCH = (

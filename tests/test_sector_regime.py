@@ -408,29 +408,28 @@ class TestTickerRotationScores:
         for score in scores.values():
             assert score == round(score, 4)
 
-    # ── transition_prob component ─────────────────────────────────────────
+    # ── regime_alignment drives sector differentiation ────────────────────
 
-    def test_higher_score_when_sector_in_likely_next(self, monkeypatch):
+    def test_higher_score_when_sector_is_cyclical_in_risk_on(self, monkeypatch):
         cyc_sector = next(iter(CYCLICAL))
         signals = {
-            "IN_LIST":  {"sector": cyc_sector, "velocity_5d": 0.0},
-            "NOT_LIST": {"sector": "UnknownSector", "velocity_5d": 0.0},
+            "CYC":  {"sector": cyc_sector, "velocity_5d": 0.0},
+            "UNK":  {"sector": "UnknownSector", "velocity_5d": 0.0},
         }
-        _patch_rotation_dependencies(monkeypatch, regime="neutral",
-                                     next_probs={cyc_sector: 0.50},
-                                     ticker_signals=signals)
+        _patch_rotation_dependencies(monkeypatch, regime="risk_on",
+                                     next_probs={}, ticker_signals=signals)
         scores = compute_ticker_rotation_scores()
-        assert scores["IN_LIST"] > scores["NOT_LIST"]
+        assert scores["CYC"] > scores["UNK"]
 
-    def test_zero_transition_prob_when_sector_not_in_likely_next(self, monkeypatch):
+    def test_neutral_regime_same_score_across_sectors(self, monkeypatch):
         cyc_sector = next(iter(CYCLICAL))
         signals = {"AAPL": {"sector": cyc_sector, "velocity_5d": 0.0}}
         _patch_rotation_dependencies(monkeypatch, regime="neutral",
-                                     next_probs={},  # empty — no predictions
+                                     next_probs={},  # irrelevant — not used in scoring
                                      ticker_signals=signals)
         scores = compute_ticker_rotation_scores()
-        # transition_prob = 0, velocity_score = 0.5, regime_alignment = 0.5
-        expected = round(0.50 * 0.0 + 0.30 * 0.5 + 0.20 * 0.5, 4)
+        # velocity_score = 0.5, regime_alignment = 0.5 (neutral)
+        expected = round(0.65 * 0.5 + 0.35 * 0.5, 4)
         assert scores["AAPL"] == pytest.approx(expected, abs=1e-4)
 
     # ── velocity_score component ──────────────────────────────────────────
@@ -441,9 +440,9 @@ class TestTickerRotationScores:
         _patch_rotation_dependencies(monkeypatch, regime="neutral",
                                      next_probs={}, ticker_signals=signals)
         scores = compute_ticker_rotation_scores()
-        # velocity_score = (0.0 + 0.10) / 0.20 = 0.5
-        # score = 0.30 * 0.5 + 0.20 * 0.5 = 0.25
-        expected = round(0.30 * 0.5 + 0.20 * 0.5, 4)
+        # velocity_score = (0.0 + 0.10) / 0.20 = 0.5, regime_alignment = 0.5 (neutral)
+        # score = 0.65 * 0.5 + 0.35 * 0.5 = 0.50
+        expected = round(0.65 * 0.5 + 0.35 * 0.5, 4)
         assert scores["AAPL"] == pytest.approx(expected, abs=1e-4)
 
     def test_velocity_score_clamps_to_1_for_large_positive(self, monkeypatch):
@@ -452,7 +451,8 @@ class TestTickerRotationScores:
         _patch_rotation_dependencies(monkeypatch, regime="neutral",
                                      next_probs={}, ticker_signals=signals)
         scores = compute_ticker_rotation_scores()
-        expected = round(0.30 * 1.0 + 0.20 * 0.5, 4)
+        # velocity_score clamped to 1.0, regime_alignment = 0.5 (neutral)
+        expected = round(0.65 * 1.0 + 0.35 * 0.5, 4)
         assert scores["AAPL"] == pytest.approx(expected, abs=1e-4)
 
     def test_velocity_score_clamps_to_0_for_large_negative(self, monkeypatch):
@@ -461,7 +461,8 @@ class TestTickerRotationScores:
         _patch_rotation_dependencies(monkeypatch, regime="neutral",
                                      next_probs={}, ticker_signals=signals)
         scores = compute_ticker_rotation_scores()
-        expected = round(0.30 * 0.0 + 0.20 * 0.5, 4)
+        # velocity_score clamped to 0.0, regime_alignment = 0.5 (neutral)
+        expected = round(0.65 * 0.0 + 0.35 * 0.5, 4)
         assert scores["AAPL"] == pytest.approx(expected, abs=1e-4)
 
     # ── regime_alignment component ────────────────────────────────────────

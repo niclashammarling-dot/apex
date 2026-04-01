@@ -649,7 +649,7 @@ class TestLock3Claude:
             "risk_limits": {
                 "starting_balance": 10000, "max_positions": 4,
                 "max_sector_exposure": 0.25, "max_position_size": 0.15,
-                "daily_loss_cap": 500,
+                "daily_loss_cap": 500, "max_drawdown_pct": 0.20,
             },
         }
         ctx.update(overrides)

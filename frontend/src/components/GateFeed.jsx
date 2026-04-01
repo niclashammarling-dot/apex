@@ -8,6 +8,8 @@ const OUTCOME_LABELS = {
   FILTERED_L2:       { label: "L2 FAIL",  cls: "gate-fail"     },
   FILTERED_LEADING:  { label: "LD FAIL",  cls: "gate-fail"     },
   FILTERED_L3:       { label: "L3 FAIL",  cls: "gate-fail"     },
+  SKIPPED_OPEN:      { label: "HELD",     cls: "gate-skipped"  },
+  SKIPPED_COOLOFF:   { label: "COOLOFF",  cls: "gate-skipped"  },
 };
 
 const LEADING_CHECK_LABELS = {
@@ -116,7 +118,8 @@ export default function GateFeed({ history, funnel }) {
             <tbody>
               {history.map((row, i) => {
                 const meta = OUTCOME_LABELS[row.gate_decision] || { label: row.gate_decision, cls: "gate-fail" };
-                const hasDetail  = !!(row.lock3_reasoning || row.lock_leading_checks);
+                const isSkipped  = row.gate_decision === "SKIPPED_OPEN" || row.gate_decision === "SKIPPED_COOLOFF";
+                const hasDetail  = !isSkipped && !!(row.lock3_reasoning || row.lock_leading_checks || row.l2_summary || row.macro_reason);
                 const isExpanded = expanded[i];
                 const checks     = row.lock_leading_checks;
                 return (
@@ -139,12 +142,16 @@ export default function GateFeed({ history, funnel }) {
                         <ScoreVsThreshold score={row.signal_score} threshold={row.l1_threshold} />
                       </td>
                       <td>
-                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                          <Lock pass={row.lock1_pass} />
-                          <Lock pass={row.lock2_pass} />
-                          <Lock pass={row.lock_leading_pass} />
-                          <Lock pass={row.lock3_pass} />
-                        </div>
+                        {isSkipped ? (
+                          <span style={{ color: "var(--text-3)", fontSize: 12 }}>—</span>
+                        ) : (
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            <Lock pass={row.lock1_pass} />
+                            <Lock pass={row.lock2_pass} />
+                            <Lock pass={row.lock_leading_pass} />
+                            <Lock pass={row.lock3_pass} />
+                          </div>
+                        )}
                       </td>
                       <td>
                         <span className={`gate-badge ${meta.cls}`}>{meta.label}</span>
@@ -159,8 +166,20 @@ export default function GateFeed({ history, funnel }) {
                           fontSize: 12,
                           lineHeight: 1.7,
                         }}>
+                          {row.macro_reason && (
+                            <div style={{ marginBottom: 8 }}>
+                              <span style={{ color: "var(--text-3)", marginRight: 8 }}>Macro:</span>
+                              <span style={{ color: "var(--text-2)" }}>{row.macro_reason}</span>
+                            </div>
+                          )}
+                          {row.l2_summary && (
+                            <div style={{ marginBottom: checks || row.lock3_reasoning ? 8 : 0 }}>
+                              <span style={{ color: "var(--text-3)", marginRight: 8 }}>Sentiment:</span>
+                              <span style={{ color: "var(--text-2)" }}>{row.l2_summary}</span>
+                            </div>
+                          )}
                           {checks && (
-                            <div style={{ marginBottom: row.lock3_reasoning ? 10 : 0 }}>
+                            <div style={{ marginBottom: row.lock3_reasoning ? 8 : 0 }}>
                               <span style={{ color: "var(--text-3)", marginRight: 8 }}>Leading:</span>
                               {Object.entries(LEADING_CHECK_LABELS).map(([key, label]) => {
                                 const c = checks[key];
