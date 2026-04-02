@@ -705,7 +705,7 @@ function SettingsCol({ title, config, accentColor, onSave }) {
   React.useEffect(() => { setValues(config || {}); }, [config]);
 
   function handleChange(key, val) {
-    setValues(prev => ({ ...prev, [key]: parseFloat(val) }));
+    setValues(prev => ({ ...prev, [key]: val === "" ? null : parseFloat(val) }));
     setSaved(false);
   }
 

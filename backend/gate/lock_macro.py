@@ -135,8 +135,10 @@ def evaluate(ticker: str, cfg: dict) -> dict:
     Returns {"passed": bool, "reason": str, "vix": float|None}
     """
     vix_threshold      = cfg.get("vix_threshold", 25.0)
-    event_blackout     = cfg.get("macro_event_blackout_days", 1)
-    earnings_blackout  = cfg.get("macro_earnings_blackout_days", 3)
+    _eb = cfg.get("macro_event_blackout_days")
+    event_blackout     = _eb if _eb is not None else 1
+    _earn = cfg.get("macro_earnings_blackout_days")
+    earnings_blackout  = _earn if _earn is not None else 3
     today              = date.today()
 
     # 1. VIX check
