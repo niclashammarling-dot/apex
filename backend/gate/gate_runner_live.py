@@ -365,8 +365,9 @@ def _daily_loss_exceeded(current_equity: float, cap: float) -> bool:
         if day_loss >= cap:
             logger.warning(f"Live gate: day loss ${day_loss:.2f} >= cap ${cap:.2f}")
             return True
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Live gate: daily loss cap check failed — blocking new entries: {e}")
+        return True
     return False
 
 
