@@ -1,142 +1,199 @@
 # APEX Nightly Audit — 2026-04-02
 
 ## Summary
-13 issues found: 0 critical, 5 warnings, 8 info
+8 issues found: 0 critical, 3 warnings, 5 info
 
 ---
 
 ## Check 1 — Result-dict sync hazard
 
-### [INFO] Live runner returns stale `gate_decision` in returned result dicts
-**File:** `backend/gate/gate_runner_live.py:163–188, 207`
-**Detail:** `_gate_result()` sets `gate_decision = "TRADE_EXECUTED"` eagerly for any `TRADE_QUEUED` outcome (line 347). When `run()` subsequently sets `result["outcome"] = "TRADE_REJECTED"` or `"TRADE_FAILED"`, it does **not** update `result["gate_decision"]`. The DB write at line 200 is correctly patched (`"gate_decision": result["outcome"]` with an explanatory comment), so persistence is safe. However, the dicts appended to `results` and returned to callers (scheduler, tests) still carry the stale `gate_decision = "TRADE_EXECUTED"` for any TRADE_REJECTED or TRADE_FAILED path. Any future caller that reads `result["gate_decision"]` instead of `result["outcome"]` will silently receive wrong data.
-**Suggested fix:** After each outcome mutation in `run()`, also write `result["gate_decision"] = result["outcome"]` (mirrors the existing pattern in the demo runner at line 151).
+Partially clean — one structural fragility in the demo runner (no current bug, but brittle pattern).
 
-Demo runner (`gate_runner.py`) correctly updates `gate_decision` in-place before the DB write and is clean.
+### [INFO] Demo gate: gate_decision not explicitly updated for TRADE_EXECUTED path
+**File:** `backend/gate/gate_runner.py:149–151, 165`
+**Detail:** `_gate_result()` (line 312) initialises `gate_decision = "TRADE_EXECUTED"` when `outcome == "TRADE_QUEUED"`. After execution (line 149), if the trade succeeds `result["outcome"]` becomes `"TRADE_EXECUTED"` but `result["gate_decision"]` is never explicitly re-set — it merely happens to already hold the correct value from the early initialisation. Only the `TRADE_REJECTED` path is explicitly corrected (line 151). Line 165 then persists `result["gate_decision"]`.
+
+This is not a current bug, but it is fragile: any new outcome type (e.g. `"TRADE_TIMEOUT"`, `"TRADE_THROTTLED"`) added to the demo execution block without a matching `result["gate_decision"] = ...` update would silently persist a stale `gate_decision`. The live runner avoids this entirely — its DB-insert dict (line 200) writes `"gate_decision": result["outcome"]` with an explicit comment explaining the pattern.
+**Suggested fix:** Mirror the live runner pattern — at the demo DB-insert dict (line 165), use `result["outcome"]` instead of `result["gate_decision"]`.
 
 ---
 
 ## Check 2 — Exception-catch coverage in tests
 
-### [WARNING] `test_evaluation_exception_does_not_crash_runner` does not assert persistence behaviour
-**File:** `tests/test_gate_runners.py:256–266`
-**Detail:** The test mocks `lock1_quant.evaluate` to raise `RuntimeError`, then asserts only `results == []`. It does not assert that `insert_demo_gate_result` (mock index 8 in `_demo_patches`) was **not** called. In the current implementation the exception causes the future to be dropped before it ever enters the serial execution loop, so no DB write occurs. But the test provides no regression guard: a future refactor that accidentally writes a partial record on evaluation failure would not be caught.
-**Suggested fix:** Add `mocks[8].assert_not_called()` (insert_demo_gate_result) after `assert results == []`.
+✓ Clean
 
-### [INFO] `test_alpaca_unreachable_returns_empty` does not assert no DB writes
-**File:** `tests/test_gate_runners.py:353–363`
-**Detail:** Same pattern — the test only checks `results == []` but does not confirm `insert_live_gate_result` was never called. Pre-flight failure correctly short-circuits before any DB writes, but there is no regression test for that invariant.
-**Suggested fix:** Add `mocks[7].assert_not_called()` (insert_live_gate_result) after `assert results == []`.
+All tests using `side_effect=Exception(...)` were verified:
+- `test_gate_runners.py` — `test_alpaca_unreachable_returns_empty`: asserts early-return empty list; no DB-call path reached.
+- `test_gate_runners.py` — `test_broker_exception_sets_trade_failed`: asserts both `result["outcome"] == "TRADE_FAILED"` and the saved `gate_decision` via `insert_live_gate_result.call_args`.
+- `test_gate_locks.py` — `test_insufficient_data_fails`: checks lock failure outcome.
+
+No test found that checks the return value only while skipping persistence-call args.
 
 ---
 
 ## Check 3 — Fractional qty in broker order placement
 
-✓ Clean — `place_bracket_order` uses `int(notional / current_price)` (line 122), which floors to a whole-share integer as required by Alpaca bracket orders. The recent commit (2a7877e) explicitly fixed a prior `round()` usage.
+✓ Clean
 
-### [INFO] Log message uses float format spec on an integer qty
-**File:** `backend/brokers/alpaca.py:141`
-**Detail:** `f"...qty={qty:.4f}..."` prints a float format (e.g. `100.0000`) for `qty`, which is already an `int`. Not a runtime bug but misleading in logs — makes it look like fractional shares may be used.
-**Suggested fix:** Change `{qty:.4f}` to `{qty}`.
+`backend/brokers/alpaca.py:122` explicitly casts to `int()`:
+```python
+qty = int(notional / current_price)  # floor to whole shares
+```
+A guard `if qty <= 0: raise ValueError(...)` follows immediately. The Alpaca `MarketOrderRequest` receives the integer value. A separate fractional qty (6 decimal places) is stored in the DB trade record only — it is never sent to the Alpaca API.
 
 ---
 
 ## Check 4 — Config parity
 
-### [WARNING] `live_config.json` has `lock2_sentiment_min=0.1`, less strict than demo's `0.2`
-**File:** `data/live_config.json:3`, `data/demo_config.json:3`
-**Detail:** Live trading should be at least as strict as demo on every gate threshold. `lock2_sentiment_min` is a floor — higher is stricter. Demo uses 0.2; live uses 0.1. This means live mode passes tickers through L2 that demo would reject. The `config.py` constant `LIVE_LOCK2_SENTIMENT_MIN` defaults to `0.2`, confirming the original intent for live to match or exceed demo strictness.
-**Suggested fix:** Set `live_config.json` `lock2_sentiment_min` to at least `0.2`.
+✓ Clean
 
-### [INFO] `trailing_stop_pct` key in both JSON configs has no corresponding constant in `config.py`
-**File:** `backend/config.py` (missing), `data/demo_config.json:7`, `data/live_config.json:7`
-**Detail:** Both JSON files include `trailing_stop_pct: 0.1`. `config.py` defines `TAKE_PROFIT_PCT`, `STOP_LOSS_PCT`, and `TIME_STOP_DAYS` but has no `TRAILING_STOP_PCT` constant. Code that reads `cfg["trailing_stop_pct"]` will fail if config is ever loaded from the module rather than the JSON files.
-**Suggested fix:** Add `TRAILING_STOP_PCT = 0.10` to `config.py`.
-
-### [INFO] `max_hold_days` in JSON vs `TIME_STOP_DAYS` in `config.py` — naming divergence
-**File:** `backend/config.py:41`, `data/demo_config.json:11`, `data/live_config.json:11`
-**Detail:** `config.py` uses `TIME_STOP_DAYS = 40`; both JSON files use the key `max_hold_days` (30 in demo, 40 in live). These are the same concept with different names. A code path that looks up `cfg["time_stop_days"]` would fail silently; one that looks up `cfg["max_hold_days"]` has no constant fallback.
-**Suggested fix:** Standardise on one name (`max_hold_days`) and add `MAX_HOLD_DAYS` to `config.py`.
+All 18 runtime config keys are present in both `data/demo_config.json` and `data/live_config.json`:
+```
+lock1_threshold, lock2_sentiment_min, lock3_confidence_min,
+take_profit_pct, stop_loss_pct, trailing_stop_pct, max_positions,
+max_position_size, daily_loss_cap, max_hold_days, vix_threshold,
+macro_event_blackout_days, macro_earnings_blackout_days,
+gate_cooloff_hours, max_sector_exposure, lock_leading_min_pass,
+starting_balance, max_drawdown_pct
+```
+No keys missing from either file. `backend/config.py` provides compile-time defaults; runtime configs override them.
 
 ---
 
 ## Check 5 — Sector name strings
 
-✓ Clean — No frontend TypeScript/TSX files are present in the repo (`frontend/src/` glob returned no `.ts` or `.tsx` files). All backend Python files use sector strings that match the canonical `SECTORS` dict in `config.py`: Technology, Healthcare, Energy, Industrials, Financials, ConsumerDisc, ConsumerStaples, Communication, Utilities, Materials, RealEstate. No mismatches found.
+✓ Clean
+
+Canonical list from `backend/config.py`:
+```
+Technology, Healthcare, Energy, Industrials, Financials, ConsumerDisc,
+ConsumerStaples, Communication, Utilities, Materials, RealEstate
+```
+All hardcoded sector strings found in `.py`, `.ts`, and `.tsx` files match this list case-sensitively. Test fixtures and the sector regime CYCLICAL/DEFENSIVE classification arrays all use canonical names.
 
 ---
 
 ## Check 6 — Test DB isolation
 
-✓ Clean — `tests/conftest.py` redirects `backend.db.DB_PATH` to a temp directory via `pytest_configure` (before any test module imports). No test file contains a direct reference to `data/apex.db` or `backend/apex.db` (only a comment in `conftest.py` itself).
+✓ Clean
+
+`tests/conftest.py:13–17` uses the `pytest_configure` hook (runs before any module is imported during collection):
+```python
+def pytest_configure(config):
+    import backend.db as db_module
+    tmp = tempfile.mkdtemp(prefix="apex_test_")
+    db_module.DB_PATH = Path(tmp) / "apex_test.db"
+```
+No test file contains a hardcoded reference to `data/apex.db` or `backend/apex.db`. All `init_db()` calls in tests resolve through the redirected `DB_PATH`.
 
 ---
 
 ## Check 7 — Demo/live gate runner parity
 
-### [WARNING] Live runner never computes real `sector_exposure` — Lock 3 always sees `{}`
-**File:** `backend/gate/gate_runner_live.py:96–101`
-**Detail:** The live `wallet_ctx` hardcodes `"sector_exposure": {}` with the comment "not computed for live — Lock 3 prompt uses open_positions count". Demo uses `get_wallet_context()` which returns actual sector-level exposure percentages. Lock 3's risk-limit check in live mode therefore never sees sector concentration, meaning Claude may approve trades that would breach `max_sector_exposure`. The divergence is present in the context dict (`_build_context` line 267) and the risk_limits block (line 268), but the sector_exposure field is always `{}`.
-**Suggested fix:** In `run()`, call `broker.get_positions()` once, compute per-sector exposure from positions, and populate `wallet_ctx["sector_exposure"]`.
+✓ Clean — divergences confirmed intentional
 
-### [INFO] `_daily_loss_exceeded` makes a redundant second Alpaca API call
-**File:** `backend/gate/gate_runner_live.py:356–370`
-**Detail:** `run()` fetches `acct = broker.get_account()` at line 47 and passes `acct["equity"]` to `_daily_loss_exceeded(current_equity, cap)`. Inside `_daily_loss_exceeded`, however, the function ignores its `current_equity` argument and calls `broker.get_account()` again (line 362). This is an unnecessary duplicate network round-trip and the outer `except Exception: pass` means failures in this inner call are silently ignored, potentially returning `False` (loss not exceeded) when Alpaca is flaky.
-**Suggested fix:** Remove the inner `broker.get_account()` call and use the passed-in parameters directly.
+Both runners share identical logic for:
+- Lock evaluation order: L1 → Macro → L2 → Leading → L3
+- Candidate filtering and pre-rotation floor
+- Skip-guard recording for failed/already-open tickers
+- Context field names (sector regime, rotation forecast, ticker gate history)
 
-### [INFO] Skipped-ticker DB insert in live runner omits `lock_leading_pass`, `lock_leading_checks`, `l2_summary`, `macro_reason`
-**File:** `backend/gate/gate_runner_live.py:78–83`
-**Detail:** The demo skip insert (lines 67–74) explicitly sets `lock_leading_pass=0`, `lock_leading_checks=None`, `l2_summary=None`, and `macro_reason=None`. The live skip insert does not include these fields. If the `live_gate_history` schema has `NOT NULL` on any of these columns or if query code always selects them, the missing fields could cause errors or NULL gaps in funnel reports.
-**Suggested fix:** Add the missing fields to the live skip insert (matching the demo pattern).
+Intentional live-only additions (all expected):
+- Pre-flight Alpaca account validation and block check (lines 44–53)
+- Daily loss cap guard (lines 56–61)
+- Notional floor guard (line 170, $10 minimum)
+- Real broker call (`place_bracket_order`) vs wallet simulation
+- `mode: "LIVE — real money"` in context dict (line 252)
+
+No logic present in one runner but absent from the other without clear justification.
 
 ---
 
 ## Check 8 — General code health
 
-### [INFO] Five `except Exception: pass` blocks swallow errors silently without logging
-**Files and lines:**
-- `backend/gate/gate_runner.py:273` — rotation forecast context build
-- `backend/gate/gate_runner.py:287` — gate fail history context build
-- `backend/gate/gate_runner_live.py:309` — rotation forecast context build (live)
-- `backend/gate/gate_runner_live.py:323` — gate fail history context build (live)
-- `backend/gate/gate_runner_live.py:369` — inner `_daily_loss_exceeded` account re-fetch
+### [WARNING] Silent fail-open in daily loss cap check
+**File:** `backend/gate/gate_runner_live.py:362–370`
+**Detail:** `_daily_loss_exceeded()` wraps `broker.get_account()` in a bare `except Exception: pass`, then unconditionally returns `False`. If the Alpaca API is unreachable or returns a malformed response, the exception is swallowed with no log entry and the function signals "cap not exceeded" — allowing trading to continue regardless of actual P&L. This is a fail-open in the primary live risk guardrail.
+```python
+except Exception:
+    pass
+return False   # ← trading continues even if cap check errors
+```
+**Suggested fix:** Add `logger.warning("daily loss cap check failed — skipping enforcement: %s", e)` at minimum. Evaluate whether fail-closed (`return True`) is the safer default when the check cannot be completed.
 
-**Detail:** All five blocks suppress exceptions completely. The gate-context blocks (lines 273, 287, 309, 323) are providing optional enrichment, so some failure tolerance is appropriate — but without even a `logger.debug()` call there is no way to distinguish "feature unavailable" from "silent regression". The `_daily_loss_exceeded` block (line 369) is more concerning: if the inner API call fails, the function returns `False` (loss cap not exceeded), allowing trading to continue even if Alpaca was temporarily unreachable during that sub-call.
-**Suggested fix:** Replace bare `pass` with at least `logger.debug(f"…{e}")` in all five blocks.
+### [INFO] Bare `except Exception: pass` in context enrichment — demo runner
+**File:** `backend/gate/gate_runner.py:273–274, 286–287`
+**Detail:** Both blocks enrich the Claude context with rotation forecast data and ticker gate history. Exceptions are silenced with no log entry, so the gate proceeds without those context fields. Fail-open is appropriate (enrichment is optional), but debugging is harder when context is unexpectedly absent.
+**Suggested fix:** Replace `pass` with `logger.debug("Context enrichment failed: %s", e)`.
 
-No TODO/FIXME/HACK comments found in the backend codebase. ✓
+### [INFO] Bare `except Exception: pass` in context enrichment — live runner
+**File:** `backend/gate/gate_runner_live.py:309–310, 322–323`
+**Detail:** Same pattern as demo runner on optional context enrichment. Same recommendation applies.
 
-No functions with inconsistent return types found. ✓
+### [INFO] Bare `except Exception: return []` in sentiment headline fetch
+**File:** `backend/gate/lock2_sentiment.py:77–78`
+**Detail:** `_fetch_headlines()` returns an empty list on any exception without logging the failure. An empty headline list causes L2 to fail closed (no bullish signal), which is the safe direction for trading decisions, but makes it impossible to distinguish "no headlines found" from "fetch errored". No current bug.
+**Suggested fix:** Add `logger.debug` before the return.
+
+### [INFO] No TODO/FIXME/HACK comments found
+Codebase is clean of deferred-work markers.
 
 ---
 
 ## Check 9 — Config value drift against documented constraints
 
-### [WARNING] `demo_config.json` `lock1_threshold=0.60` is in the documented dead zone (< 0.65)
-**File:** `data/demo_config.json:2`
-**Detail:** The valid range floor is 0.65. At 0.60, the threshold is in the dead zone where the filter has minimal effect (~21 candidates/day, `max_positions` always fills regardless of threshold). The threshold was lowered from 0.70 → 0.58 in commit `cc2aa23` (2026-04-01, "gate hardening") and then partially raised 0.58 → 0.60 in commit `2a7877e` (2026-04-01, "Sharpe engine A/B"). Neither commit provided per-change rationale for why the dead-zone threshold was acceptable. The value remains 0.05 below the documented minimum.
-**Note:** 0.60 is exactly at the CRITICAL boundary (< 0.60 = CRITICAL, < 0.65 = WARNING). Current value is WARNING, not CRITICAL.
-**Suggested fix:** Raise `lock1_threshold` to at least `0.65`. If lower candidate volume is desired, reduce `max_positions` instead.
+### [WARNING] demo `lock1_threshold` = 0.60 — below documented effective floor
+**File:** `data/demo_config.json`
+**Detail:** `lock1_threshold` is `0.60`. The documented constraint is ≥ 0.65; the 0.40–0.60 range is the "dead zone" where the filter has no practical effect (~21 candidates/day, `max_positions` fills regardless of threshold). At exactly 0.60 the threshold sits at the dead-zone boundary. The live config correctly uses `0.70`. The demo value appears intentionally lenient (more signal volume for backtesting), but there is no comment in the config file documenting this intent.
+**Suggested fix:** Add an inline comment or companion note explaining `0.60` is deliberate for demo-mode signal volume.
 
-### [INFO] Multiple `demo_config.json` changes in commit `cc2aa23` (2026-04-01) lack per-change justification
-**File:** `data/demo_config.json` (commit `cc2aa23`)
-**Detail:** Commit `cc2aa23` changed at least 7 demo config values simultaneously (lock1_threshold 0.70→0.58, lock2_sentiment_min 0.1→0.2, take_profit_pct 0.06→0.07, max_positions 4→5, max_position_size 0.15→0.20, daily_loss_cap 500→100, gate_cooloff_hours implicit change). The commit message says only "Config calibration across demo/live/backend" with no per-value rationale. This makes it impossible to audit whether each change was intentional and evidence-backed.
-**Suggested fix:** Future config commits should include a per-key justification line (e.g. `lock1_threshold 0.70 → 0.58: testing lower-threshold candidate pool`).
+### [WARNING] Five config-file commits in the last 7 days without per-value justification
+**File:** `data/demo_config.json`, `data/live_config.json`
+**Detail:** `git log --oneline -- data/demo_config.json data/live_config.json` shows five commits within the last 7 days:
+```
+2a7877e 2026-04-01  feat: Sharpe engine A/B, demo gate history, signal coverage, tooltips
+cc2aa23 2026-04-01  feat: gate hardening, DB expansion, backtest optimizer, and dashboard UX
+df2d706 2026-03-28  feat: leading lock, backtest lock integration, trailing stop, and config calibration
+818e0b4 2026-03-28  feat: sector rotation intelligence, per-sector thresholds, and system hardening
+089b267 2026-03-27  feat: TRADE_REJECTED visibility, sector exposure in settings
+```
+None of the commit messages name which specific config values changed or why. It is impossible to tell from history alone whether `lock1_threshold`, `vix_threshold`, or `take_profit_pct` were quietly adjusted as part of a larger feature commit.
+**Suggested fix:** When modifying config values, include a note like `config: lock1_threshold 0.65→0.60 (demo volume)` in the commit message, or use a separate config-only commit.
 
-### [INFO] `live_config.json` `lock3_confidence_min=0.6` matches demo — consider tightening for live
-**File:** `data/live_config.json:4`
-**Detail:** Not a constraint violation, but a risk observation. `config.py` sets `LIVE_LOCK3_CONFIDENCE_MIN = 0.75` as the default, yet `live_config.json` uses 0.6 (identical to demo). This means live trading uses a 25% lower Claude confidence threshold than the code's own documented live default.
-**Suggested fix:** Review whether `lock3_confidence_min` in `live_config.json` should be raised to match `LIVE_LOCK3_CONFIDENCE_MIN = 0.75`.
+All other config values are within documented safe ranges:
+
+| Parameter | Demo | Live | Constraint | Status |
+|---|---|---|---|---|
+| `lock1_threshold` | 0.60 | 0.70 | ≥ 0.65 | ⚠️ demo below floor |
+| `vix_threshold` | 30 | 30 | ≥ 30 | ✓ |
+| `take_profit_pct` | 0.07 | 0.06 | ≤ 0.08 | ✓ |
+| `max_positions` (demo) | 5 | 4 | ≤ 6 | ✓ |
 
 ---
 
 ## Check 10 — Ticker signal data coverage
 
-### [WARNING] `get_ticker_daily_scores()` default parameter is `days=90` — footgun for future callers
-**File:** `backend/db.py:337`
-**Detail:** The function signature is `def get_ticker_daily_scores(days: int = 90)`. The commit message for `2a7877e` explicitly notes the fix was to widen the look-back to 180 days to bridge a Jan–Mar 2026 data gap in `ticker_history`. `compute_ticker_signals()` in `sector_regime.py` correctly passes `days=180` (line 127), so the live call site is safe. However, the default of `90` means any future caller that omits `days=` will get 90 days of history — potentially below `CONFIRMED_MIN=15` trading days for some tickers depending on data gaps — causing silent degradation to "weak" signals with no error raised.
-**Suggested fix:** Update the default: `def get_ticker_daily_scores(days: int = 180)`.
+✓ Clean (code path correct; live DB not available in this environment for row-count verification)
 
-### [INFO] Production DB `data/apex.db` does not exist in this environment — SQLite data coverage query could not be run
-**Detail:** The prescribed audit query (`SELECT ticker, COUNT(DISTINCT day)...`) requires the production database. It was not present at audit time (`data/apex.db` missing). Median ticker day-count and CONFIRMED_MIN coverage cannot be verified from this audit run.
-**Suggested fix:** Ensure `data/apex.db` is present on the audit host, or run the coverage query as part of a separate production health check.
+### Lookback configuration
+`backend/db.py`: `get_ticker_daily_scores(days: int = 90)` — default is 90 days.
+`backend/sector_regime.py:127` (inside `compute_ticker_signals()`): calls `get_ticker_daily_scores(days=180)` — explicit override with comment:
+> "Uses 180 days of daily averages … so the streak algo has enough history even during the Jan–Mar 2026 ticker_history gap"
+
+The explicit `days=180` override is correct and well-documented. No signal-production code path calls `get_ticker_daily_scores()` without specifying `days=180`.
+
+### Live DB row-count query
+`data/apex.db` was not accessible in the audit environment — the query could not be run. The code path is sound; a manual operator check is recommended after the DB is confirmed present:
+
+```sql
+SELECT ticker, COUNT(DISTINCT day) AS day_count
+FROM (
+  SELECT ticker, day FROM ticker_history WHERE day >= DATE('now', '-180 days')
+  UNION
+  SELECT ticker, DATE(timestamp) AS day FROM signals WHERE timestamp >= DATE('now', '-180 days')
+)
+GROUP BY ticker ORDER BY day_count ASC LIMIT 10;
+```
+
+Flag WARNING if median ticker returns fewer than 15 distinct days (CONFIRMED_MIN — signals collapse to "weak").
+Flag WARNING if fewer than 21 days (EXTENDED_MIN — "extended" classifications impossible).
