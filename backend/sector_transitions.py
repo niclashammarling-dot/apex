@@ -149,6 +149,27 @@ def get_rotation_forecast() -> dict:
             "sector_score":    stats.get("score"),
             "sector_signal":   stats.get("signal"),
         })
+
+    # If the matrix has fewer than 3 candidates for this leader (sparse history),
+    # fill remaining slots with the highest-momentum sectors not already listed.
+    if len(blended) < 3:
+        already  = {b["sector"] for b in blended} | {leader}
+        momentum_fill = sorted(
+            [(s, m) for s, m in sector_momentum.items() if s not in already],
+            key=lambda x: x[1], reverse=True,
+        )
+        for s, momentum in momentum_fill:
+            if len(blended) >= 3:
+                break
+            stats = sector_stats.get(s, {})
+            blended.append({
+                "sector":          s,
+                "probability":     round(_MOMENTUM_WEIGHT * momentum, 3),
+                "historical_prob": None,   # no matrix data — momentum-only slot
+                "sector_score":    stats.get("score"),
+                "sector_signal":   stats.get("signal"),
+            })
+
     blended.sort(key=lambda x: x["probability"], reverse=True)
     likely_next = blended[:3]
 
@@ -380,13 +401,23 @@ def _compute_raw_matrix() -> dict[str, dict[str, int]]:
 def _find_predecessor_chain(current_leader: str, n: int = 2) -> list[str]:
     """
     Returns up to n predecessor sectors in chronological order (oldest first),
-    e.g. ["Materials", "Financials"] means Materials led, then Financials, then
+    e.g. ["Energy", "Financials"] means Energy led, then Financials, then
     current_leader.
 
-    Uses full history so long-running leaders (>6 months) are handled correctly.
-    Finds the current leader's entry point by scanning backwards from the most
-    recent month — robust against leaders that have been in top-2 for a long time.
+    Tracks rank-1 (leader) changes rather than top-2 membership.  This avoids
+    a common false positive: a sector that briefly hits rank-1 for a single month
+    while the real predecessor is still fading out of the top-2.
+
+    A sector must have held rank-1 for at least MIN_PREDECESSOR_MONTHS consecutive
+    months to qualify as a predecessor.  Shorter blips are skipped entirely so the
+    chain reflects meaningful leadership periods, not noise.
     """
+    # Minimum consecutive months at rank-1 required to count as a true predecessor.
+    # 1 = any sector that held rank-1 for at least 1 month qualifies.
+    # Keeping this at 1 ensures we show the most recent actual leaders rather than
+    # reaching back to stale history when recent tenures are short (e.g. volatile markets).
+    MIN_PREDECESSOR_MONTHS = 1
+
     try:
         from backend.db import get_sector_history
         raw = get_sector_history(days=0)   # full history, not capped at 180d
@@ -406,44 +437,54 @@ def _find_predecessor_chain(current_leader: str, n: int = 2) -> list[str]:
             order = sorted(scores, key=lambda s: scores[s], reverse=True)
             return {s: i + 1 for i, s in enumerate(order)}
 
-        ranked = {m: _rank(monthly[m]) for m in months}
+        ranked  = {m: _rank(monthly[m]) for m in months}
+        # Rank-1 leader for each month — the single sector with the highest score
+        leaders = [min(ranked[m], key=ranked[m].get) for m in months]
 
-        # Walk backwards from newest to find where current_leader entered top-2.
-        # This correctly handles leaders that have held for longer than any fixed lookback.
+        # Walk backwards from newest to find where current_leader became rank-1
         i = len(months) - 1
-        while i >= 0 and ranked[months[i]].get(current_leader, 99) <= 2:
+        while i >= 0 and leaders[i] == current_leader:
             i -= 1
-        # i is now the last month where leader was NOT in top-2 (-1 means always in top-2)
-        entry_idx = i + 1
+        # i is the last month current_leader was NOT rank-1 (-1 = always rank-1)
 
-        if entry_idx == 0:
-            return []   # leader has been in top-2 for the entire history window
+        if i < 0:
+            return []   # leader has held rank-1 for the entire history window
 
-        chain: list[str] = []
-        seen       = {current_leader}   # prevent cycles (e.g. Energy→RealEstate→Energy)
-        cur_entry  = entry_idx
-        cur_sector = current_leader
+        chain:      list[str] = []
+        seen:       set[str]  = {current_leader}
+        search_end: int       = i   # search months[0..search_end] for predecessors
 
         for _ in range(n):
-            if cur_entry == 0:
+            pred = None
+            j    = search_end
+
+            while j >= 0:
+                candidate = leaders[j]
+
+                if candidate in seen:
+                    j -= 1
+                    continue
+
+                # Count consecutive months this candidate held rank-1 ending at month j
+                k = j
+                while k >= 0 and leaders[k] == candidate:
+                    k -= 1
+                # candidate held rank-1 from months[k+1] to months[j]  (j-k months)
+                tenure = j - k
+
+                if tenure >= MIN_PREDECESSOR_MONTHS:
+                    pred       = candidate
+                    search_end = k   # look before this predecessor's tenure next iteration
+                    break
+
+                # This candidate had too short a tenure — skip it entirely and look further back
+                j = k
+
+            if pred is None:
                 break
 
-            prev_m    = months[cur_entry - 1]
-            prev_top2 = {s for s, r in ranked[prev_m].items() if r <= 2}
-            prev_top2 -= seen   # exclude current leader and all sectors already in chain
-            if not prev_top2:
-                break
-
-            pred = max(prev_top2, key=lambda s: monthly[prev_m].get(s, 0))
             chain.insert(0, pred)   # prepend → list stays chronological (oldest first)
             seen.add(pred)
-
-            # Find when this predecessor entered top-2 to continue walking back
-            j = cur_entry - 1
-            while j >= 0 and ranked[months[j]].get(pred, 99) <= 2:
-                j -= 1
-            cur_entry  = j + 1
-            cur_sector = pred
 
         return chain
 

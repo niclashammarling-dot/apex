@@ -12,6 +12,39 @@ NY = ZoneInfo("America/New_York")
 
 scheduler = BackgroundScheduler(timezone="America/New_York")
 
+# Persistent RegimeBayes singleton — keeps in-memory posteriors between daily runs
+# (DB also persists them, so restarts are safe)
+_regime_bayes = None
+
+
+def _get_regime_bayes():
+    """Return the singleton RegimeBayes instance, creating it on first call."""
+    global _regime_bayes
+    if _regime_bayes is None:
+        from backend.ticker_config import get_sectors
+        from backend.regime.regime_bayes import RegimeBayes, build_transition_priors
+        from backend.db import get_sector_history
+
+        sectors_cfg    = get_sectors()
+        sector_etf_map = {s: cfg["etf"] for s, cfg in sectors_cfg.items()}
+
+        # Build transition priors from full leadership history
+        raw_history  = get_sector_history(days=0)
+        from collections import defaultdict
+        monthly: dict = defaultdict(dict)
+        for r in raw_history:
+            monthly[r["timestamp"][:7]][r["sector"]] = r["avg_score"]
+        leadership = [
+            {"date": m, "leader": max(scores, key=scores.get)}
+            for m, scores in sorted(monthly.items())
+            if scores
+        ]
+        transition_priors = build_transition_priors(leadership)
+
+        _regime_bayes = RegimeBayes(sectors_cfg, sector_etf_map, transition_priors)
+        logger.info(f"RegimeBayes initialised — {len(transition_priors)} prior rows loaded")
+    return _regime_bayes
+
 
 def is_market_open() -> bool:
     now = datetime.now(NY)
@@ -145,6 +178,71 @@ def _sync_watchlist() -> None:
         logger.debug(f"Watchlist sync: {len(recovering)} recovering, {removed} removed")
 
 
+def run_eod_regime() -> None:
+    """
+    End-of-day Bayesian regime update.
+    Runs at 4:15 PM after market close on trading days.
+
+    Steps:
+      1. IPO sentiment — fetch/cache today's IPO sector shares from EDGAR
+      2. Download raw OHLCV for all tickers + ETFs (60d lookback)
+      3. RegimeBayes.update() — compute posteriors, allocation, persist to DB
+    """
+    from datetime import date
+    import yfinance as yf
+    from backend.ticker_config import get_sectors
+    from backend.db import get_latest_sector_scores
+    from backend.regime.ipo_sentiment import IpoSentiment
+
+    logger.info("EOD regime update starting…")
+
+    sectors_cfg = get_sectors()
+
+    # Step 1: IPO sentiment
+    try:
+        ipo        = IpoSentiment(sectors_cfg)
+        ipo_result = ipo.compute()
+        ipo_shares = ipo_result.ipo_shares
+        logger.info(
+            f"IPO sentiment: total={ipo_result.total_ipos} "
+            f"risk_off={ipo_result.risk_off}"
+        )
+    except Exception as e:
+        logger.warning(f"IPO sentiment failed — using uniform shares: {e}")
+        n          = len(sectors_cfg)
+        ipo_shares = {s: round(1.0 / n, 4) for s in sectors_cfg}
+
+    # Step 2: raw OHLCV for all tickers + ETFs
+    try:
+        all_symbols = list({
+            t
+            for cfg in sectors_cfg.values()
+            for t in cfg["tickers"] + [cfg["etf"]]
+        })
+        raw_data = yf.download(
+            all_symbols,
+            period="60d",
+            auto_adjust=True,
+            progress=False,
+            group_by="ticker",
+        )
+    except Exception as e:
+        logger.error(f"EOD regime: raw data download failed — aborting: {e}")
+        return
+
+    # Step 3: RegimeBayes update
+    try:
+        sector_snapshots = get_latest_sector_scores()
+        rb     = _get_regime_bayes()
+        result = rb.update(date.today(), raw_data, sector_snapshots, ipo_shares)
+        logger.info(
+            f"Regime update complete — leader={result.leader} "
+            f"qualifiers={result.qualifiers}"
+        )
+    except Exception as e:
+        logger.error(f"RegimeBayes update failed: {e}")
+
+
 def recalibrate_thresholds() -> None:
     """Re-derive per-sector Lock 1 thresholds from ticker_history. Runs weekly."""
     try:
@@ -239,6 +337,15 @@ def start_scheduler() -> None:
         "interval",
         minutes=EXIT_CHECK_INTERVAL,
         id="check_live_exits",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_eod_regime,
+        "cron",
+        day_of_week="mon-fri",
+        hour=16,
+        minute=15,          # 15 min after market close — snapshots settled
+        id="eod_regime",
         replace_existing=True,
     )
     scheduler.add_job(

@@ -67,8 +67,8 @@ function TickerRows({ tickers }) {
               )}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              {t.velocity === "accelerating" && <span style={{ fontSize: 11, color: "#00d48c" }}>↑</span>}
-              {t.velocity === "decelerating" && <span style={{ fontSize: 11, color: "#ff3355" }}>↓</span>}
+              {t.velocity === "accelerating" && <span style={{ fontSize: 11, color: "#00d48c" }} title={`+${t.velocity_5d?.toFixed(3)} 5d`}>↑</span>}
+              {t.velocity === "decelerating" && <span style={{ fontSize: 11, color: "#ff3355" }} title={`${t.velocity_5d?.toFixed(3)} 5d`}>↓</span>}
               <span style={{
                 fontFamily: "'DM Mono', monospace", fontSize: 11,
                 color: tsm.color, fontWeight: 600,

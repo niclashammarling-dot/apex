@@ -153,6 +153,7 @@ def run() -> list[dict]:
     open_positions = broker.get_positions()
     open_tickers   = {p["ticker"] for p in open_positions}
 
+    evaluated.sort(key=lambda x: (0 if x[0].get("pre_rotation") else 1, x[0].get("signal_score", 0)), reverse=True)
     for signal, result in evaluated:
         ticker     = signal["ticker"]
         order_id   = None

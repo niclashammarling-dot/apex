@@ -2,6 +2,7 @@ import React, { useState, useEffect, Component } from "react";
 import SectorGrid      from "./components/SectorGrid.jsx";
 import SectorRotation  from "./components/SectorRotation.jsx";
 import SectorRegime    from "./components/SectorRegime.jsx";
+import RegimeBayes    from "./components/RegimeBayes.jsx";
 import Watchlist          from "./components/Watchlist.jsx";
 import RotationForecast   from "./components/RotationForecast.jsx";
 import WalletPanel   from "./components/WalletPanel.jsx";
@@ -1176,6 +1177,9 @@ export default function App() {
               <ErrorBoundary label="Sector Regime">
                 <SectorRegime />
               </ErrorBoundary>
+              <ErrorBoundary label="Regime Allocation">
+                <RegimeBayes />
+              </ErrorBoundary>
               <ErrorBoundary label="Rotation Forecast">
                 <RotationForecast />
               </ErrorBoundary>
@@ -1228,6 +1232,9 @@ export default function App() {
             <div>
               <ErrorBoundary label="Sector Regime">
                 <SectorRegime />
+              </ErrorBoundary>
+              <ErrorBoundary label="Regime Allocation">
+                <RegimeBayes />
               </ErrorBoundary>
               <ErrorBoundary label="Rotation Forecast">
                 <RotationForecast />

@@ -624,6 +624,66 @@ def remove_from_watchlist(ticker: str):
     return {"ticker": ticker, "status": "removed"}
 
 
+# ── Regime Bayes ──────────────────────────────────────────────────────────────
+
+@router.get("/sectors/regime-bayes")
+def sectors_regime_bayes():
+    """
+    Latest Bayesian regime result: sector posteriors, adjusted scores,
+    allocation percentages, and IPO sentiment.
+    Returns {"available": false} if no EOD run has completed yet.
+    """
+    from backend.scheduler import _get_regime_bayes
+    from backend.regime.ipo_sentiment import CACHE_PATH
+    import json
+
+    rb     = _get_regime_bayes()
+    result = rb.last_result()
+
+    if result is None:
+        return {"available": False, "reason": "Waiting for first EOD regime run (4:15 PM)"}
+
+    # Load cached IPO context if available
+    ipo_context = None
+    try:
+        with open(CACHE_PATH) as f:
+            ipo_context = json.load(f).get("context")
+    except Exception:
+        pass
+
+    return {
+        "available":   True,
+        "date":        result.date,
+        "leader":      result.leader,
+        "qualifiers":  result.qualifiers,
+        "allocation":  result.allocation,
+        "leaderboard": [
+            {
+                "rank":            e.rank,
+                "sector":          e.sector,
+                "aggregate_score": e.aggregate_score,
+                "posterior":       e.posterior,
+                "adjusted_score":  e.adjusted_score,
+                "allocation":      e.allocation,
+                "signal_trace":    e.signal_trace,
+            }
+            for e in result.leaderboard
+        ],
+        "ipo_context": ipo_context,
+    }
+
+
+@router.post("/sectors/regime-bayes/run")
+def trigger_regime_bayes():
+    """Manually trigger an EOD regime update (for testing outside market hours)."""
+    from backend.scheduler import run_eod_regime
+    try:
+        run_eod_regime()
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Threshold calibration ──────────────────────────────────────────────────────
 
 @router.post("/calibrate/ticker-thresholds")
@@ -676,3 +736,56 @@ def get_audit_reports():
         reports.append({"date": date, "summary": summary, "content": content})
 
     return {"reports": reports}
+
+
+# ── Drift monitor ─────────────────────────────────────────────────────────────
+
+@router.get("/drift/alerts")
+def get_drift_alerts(
+    severity:     str | None = None,
+    acknowledged: bool       = False,
+    limit:        int        = 20,
+):
+    """
+    Return drift alerts ranked by severity then deviation magnitude.
+    Query params:
+      severity     — filter to HIGH / MEDIUM / LOW (optional)
+      acknowledged — include acknowledged alerts (default false)
+      limit        — max results (default 20)
+    """
+    from backend.db import get_drift_alerts as _get
+    return {"alerts": _get(severity=severity, acknowledged=acknowledged, limit=limit)}
+
+
+@router.post("/drift/alerts/{alert_id}/acknowledge")
+def acknowledge_drift_alert(alert_id: int):
+    """Mark a drift alert as acknowledged (won't resurface until next nightly run detects it again)."""
+    from backend.db import acknowledge_drift_alert as _ack
+    _ack(alert_id)
+    return {"ok": True}
+
+
+@router.post("/drift/seed")
+def seed_drift_baselines(start: str = "2020-01-01", end: str = "2024-12-31"):
+    """
+    Manually trigger baseline seeding from a backtest run.
+    Use this to re-seed after a major market regime change or after the 2000–2026
+    full-cycle backtest is available.
+    """
+    from backend.drift_monitor import seed_baselines
+    try:
+        summary = seed_baselines(start=start, end=end)
+        return {"seeded_sectors": len(summary), "summary": summary}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Seeding failed: {e}")
+
+
+@router.post("/drift/run")
+def run_drift_monitor_now():
+    """Manually trigger a drift monitor run (normally happens nightly at 16:30 ET)."""
+    from backend.drift_monitor import run_drift_monitor
+    try:
+        run_drift_monitor()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Drift monitor failed: {e}")

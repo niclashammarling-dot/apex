@@ -167,6 +167,42 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_ticker_hist_sector ON ticker_history(sector);
             CREATE INDEX IF NOT EXISTS idx_ticker_hist_day    ON ticker_history(day DESC);
+
+            CREATE TABLE IF NOT EXISTS drift_baselines (
+                parameter      TEXT NOT NULL,
+                sector         TEXT NOT NULL,
+                metric         TEXT NOT NULL,
+                baseline_value REAL NOT NULL,
+                n_trades       INTEGER NOT NULL,
+                computed_at    TEXT NOT NULL,
+                PRIMARY KEY (parameter, sector, metric)
+            );
+
+            CREATE TABLE IF NOT EXISTS drift_alerts (
+                id             INTEGER PRIMARY KEY,
+                created_at     TEXT NOT NULL,
+                updated_at     TEXT NOT NULL,
+                parameter      TEXT NOT NULL,
+                sector         TEXT NOT NULL,
+                metric         TEXT NOT NULL,
+                baseline_value REAL NOT NULL,
+                current_value  REAL NOT NULL,
+                deviation_pct  REAL NOT NULL,
+                confidence     REAL NOT NULL,
+                severity       TEXT NOT NULL,
+                n_trades       INTEGER NOT NULL,
+                acknowledged   INTEGER NOT NULL DEFAULT 0,
+                UNIQUE (parameter, sector, metric)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_drift_alerts_severity ON drift_alerts(severity);
+            CREATE INDEX IF NOT EXISTS idx_drift_alerts_ack      ON drift_alerts(acknowledged);
+
+            CREATE TABLE IF NOT EXISTS sector_posteriors (
+                sector      TEXT PRIMARY KEY,
+                posterior   REAL NOT NULL,
+                updated_at  TEXT NOT NULL
+            );
         """)
         conn.commit()
         logger.info(f"DB initialised at {DB_PATH}")
@@ -1381,5 +1417,164 @@ def prune_signals(keep_per_ticker: int = 10) -> int:
         """, (keep_per_ticker,))
         conn.commit()
         return cur.rowcount
+    finally:
+        conn.close()
+
+
+# ── Drift monitor ─────────────────────────────────────────────────────────────
+
+def has_drift_baselines() -> bool:
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT COUNT(*) AS cnt FROM drift_baselines").fetchone()
+        return row["cnt"] > 0
+    finally:
+        conn.close()
+
+
+def upsert_drift_baseline(parameter: str, sector: str, metric: str,
+                          value: float, n_trades: int) -> None:
+    from datetime import datetime, timezone
+    conn = get_db()
+    try:
+        conn.execute("""
+            INSERT INTO drift_baselines (parameter, sector, metric, baseline_value, n_trades, computed_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(parameter, sector, metric)
+            DO UPDATE SET baseline_value = excluded.baseline_value,
+                          n_trades       = excluded.n_trades,
+                          computed_at    = excluded.computed_at
+        """, (parameter, sector, metric, value, n_trades,
+              datetime.now(timezone.utc).isoformat()))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_drift_baselines() -> dict:
+    """Returns {(parameter, sector, metric): {baseline_value, n_trades}}."""
+    conn = get_db()
+    try:
+        rows = conn.execute("SELECT * FROM drift_baselines").fetchall()
+        return {(r["parameter"], r["sector"], r["metric"]): dict(r) for r in rows}
+    finally:
+        conn.close()
+
+
+def upsert_drift_alert(row: dict) -> None:
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_db()
+    try:
+        conn.execute("""
+            INSERT INTO drift_alerts
+              (created_at, updated_at, parameter, sector, metric,
+               baseline_value, current_value, deviation_pct,
+               confidence, severity, n_trades, acknowledged)
+            VALUES
+              (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            ON CONFLICT(parameter, sector, metric)
+            DO UPDATE SET
+                updated_at     = excluded.updated_at,
+                baseline_value = excluded.baseline_value,
+                current_value  = excluded.current_value,
+                deviation_pct  = excluded.deviation_pct,
+                confidence     = excluded.confidence,
+                severity       = excluded.severity,
+                n_trades       = excluded.n_trades,
+                acknowledged   = 0
+        """, (now, now,
+              row["parameter"], row["sector"], row["metric"],
+              row["baseline_value"], row["current_value"], row["deviation_pct"],
+              row["confidence"], row["severity"], row["n_trades"]))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_drift_alerts(severity: str | None = None,
+                     acknowledged: bool = False,
+                     limit: int = 20) -> list[dict]:
+    conn = get_db()
+    try:
+        filters = ["acknowledged = ?"]
+        params: list = [int(acknowledged)]
+        if severity:
+            filters.append("severity = ?")
+            params.append(severity.upper())
+        where = "WHERE " + " AND ".join(filters)
+        rows = conn.execute(f"""
+            SELECT * FROM drift_alerts
+            {where}
+            ORDER BY
+                CASE severity WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 ELSE 2 END,
+                ABS(deviation_pct) DESC
+            LIMIT ?
+        """, (*params, limit)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def acknowledge_drift_alert(alert_id: int) -> None:
+    conn = get_db()
+    try:
+        conn.execute("UPDATE drift_alerts SET acknowledged = 1 WHERE id = ?", (alert_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_closed_trades_for_drift(limit: int = 200) -> list[dict]:
+    """Returns closed demo trades for drift metric computation."""
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT ticker, sector, signal_score, sentiment_score, claude_confidence,
+                   outcome, pnl, amount, timestamp, exited_at
+            FROM trades
+            WHERE outcome IN ('WIN', 'LOSS')
+              AND signal_score IS NOT NULL
+            ORDER BY exited_at DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+# ── Regime Bayesian posteriors ────────────────────────────────────────────────
+
+def get_sector_posteriors() -> dict[str, float]:
+    """Load persisted Bayesian posteriors for all sectors."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT sector, posterior FROM sector_posteriors"
+        ).fetchall()
+        return {r["sector"]: r["posterior"] for r in rows}
+    finally:
+        conn.close()
+
+
+def upsert_sector_posteriors(posteriors: dict[str, float]) -> None:
+    """Persist Bayesian posteriors. Called after every daily regime update."""
+    from datetime import datetime, timezone
+    now  = datetime.now(timezone.utc).isoformat()
+    conn = get_db()
+    try:
+        conn.executemany(
+            """
+            INSERT INTO sector_posteriors (sector, posterior, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(sector) DO UPDATE SET
+                posterior  = excluded.posterior,
+                updated_at = excluded.updated_at
+            """,
+            [(sector, posterior, now) for sector, posterior in posteriors.items()],
+        )
+        conn.commit()
+    except Exception as e:
+        logger.warning(f"upsert_sector_posteriors: {e}")
     finally:
         conn.close()

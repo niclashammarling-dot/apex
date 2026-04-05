@@ -31,6 +31,7 @@ export default function Watchlist() {
   const [input,   setInput]   = useState("");
   const [adding,  setAdding]  = useState(false);
   const [addErr,  setAddErr]  = useState(null);
+  const [open,    setOpen]    = useState(false);
 
   const load = useCallback(() => {
     fetch("/api/watchlist")
@@ -69,21 +70,34 @@ export default function Watchlist() {
       borderRadius: 8, padding: "18px 20px", marginTop: 14,
     }}>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+      <div
+        onClick={() => setOpen(v => !v)}
+        style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", cursor: "pointer" }}
+      >
         <div style={{
           fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)",
           letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 500,
+          userSelect: "none",
         }}>
-          Watchlist
+          {open ? "▾" : "▸"} Watchlist {items.length > 0 && !open && (
+            <span style={{ fontWeight: 400, opacity: 0.6 }}>({items.length})</span>
+          )}
         </div>
+        {open && (
         <div style={{
           fontFamily: "'DM Mono', monospace", fontSize: 10, color: "var(--text-3)",
         }}>
           — tickers recovering below threshold, likely pre-breakout
         </div>
+        )}
 
+      </div>
+
+      {open && (
+        <>
         {/* Manual add */}
-        <form onSubmit={handleAdd} style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+        <form onSubmit={handleAdd} style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 14, marginBottom: 4 }}
+          onClick={e => e.stopPropagation()}>
           <input
             value={input}
             onChange={e => { setInput(e.target.value.toUpperCase()); setAddErr(null); }}
@@ -107,27 +121,26 @@ export default function Watchlist() {
             {adding ? "…" : "+ Watch"}
           </button>
         </form>
-      </div>
 
-      {addErr && (
-        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--red)", marginBottom: 10 }}>
-          {addErr}
-        </div>
-      )}
+        {addErr && (
+          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--red)", marginBottom: 10 }}>
+            {addErr}
+          </div>
+        )}
 
-      {error && (
-        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--red)" }}>{error}</div>
-      )}
+        {error && (
+          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--red)" }}>{error}</div>
+        )}
 
-      {!error && items.length === 0 && (
-        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)" }}>
-          No tickers on watchlist. RECOVERING tickers are added automatically after each poll.
-        </div>
-      )}
+        {!error && items.length === 0 && (
+          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)" }}>
+            No tickers on watchlist. RECOVERING tickers are added automatically after each poll.
+          </div>
+        )}
 
       {items.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          {items.map(item => {
+          {[...items].sort((a, b) => (b.score ?? -1) - (a.score ?? -1)).map(item => {
             const sm      = SIGNAL_META[item.signal] ?? SIGNAL_META.weak;
             const color   = scoreColor(item.score);
             const streak  = weeks(item.streak_days);
@@ -163,18 +176,11 @@ export default function Watchlist() {
                   {streak && <span style={{ fontWeight: 400, opacity: 0.7 }}> · {streak}</span>}
                 </div>
 
-                {/* Velocity arrow */}
-                {item.velocity === "accelerating" && <span style={{ fontSize: 12, color: "#00d48c" }} title={`+${item.velocity_5d?.toFixed(3)} 5d`}>↑</span>}
-                {item.velocity === "decelerating" && <span style={{ fontSize: 12, color: "#ff3355" }} title={`${item.velocity_5d?.toFixed(3)} 5d`}>↓</span>}
-
-                {/* Score + trend */}
-                <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginLeft: "auto" }}>
+                {/* Score */}
+                <div style={{ marginLeft: "auto" }}>
                   <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, color, fontWeight: 600 }}>
                     {item.score?.toFixed(3) ?? "—"}
                   </span>
-                  {item.trend === "up"   && <span style={{ fontSize: 12, color: "var(--green)" }}>↑</span>}
-                  {item.trend === "down" && <span style={{ fontSize: 12, color: "var(--red)" }}>↓</span>}
-                  {item.trend === "flat" && <span style={{ fontSize: 12, color: "var(--text-3)" }}>→</span>}
                 </div>
 
                 {/* Pre-rotation badge */}
@@ -214,6 +220,8 @@ export default function Watchlist() {
             );
           })}
         </div>
+      )}
+        </>
       )}
     </div>
   );

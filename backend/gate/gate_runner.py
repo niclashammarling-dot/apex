@@ -92,7 +92,10 @@ def run() -> list[dict]:
     from backend.sector_regime import compute_sector_regime
     from backend.sector_transitions import compute_ticker_rotation_scores, get_rotation_forecast
     from backend.config import MAX_SECTOR_EXPOSURE
-    dynamic_caps    = compute_dynamic_caps(cfg.get("max_sector_exposure", MAX_SECTOR_EXPOSURE))
+    from backend.scheduler import _get_regime_bayes
+    regime_bayes_result = _get_regime_bayes().last_result()
+    dynamic_caps    = compute_dynamic_caps(cfg.get("max_sector_exposure", MAX_SECTOR_EXPOSURE),
+                                           regime_result=regime_bayes_result)
     sector_regime   = compute_sector_regime()
     rotation_scores = compute_ticker_rotation_scores()
 
@@ -130,7 +133,8 @@ def run() -> list[dict]:
 
     with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(candidates))) as pool:
         future_to_signal = {
-            pool.submit(_evaluate, signal, wallet_ctx, cfg, sector_regime, sector_thresholds, rotation_scores): signal
+            pool.submit(_evaluate, signal, wallet_ctx, cfg, sector_regime, sector_thresholds,
+                        rotation_scores, regime_bayes_result): signal
             for signal in candidates
         }
         for future in as_completed(future_to_signal):
@@ -142,6 +146,7 @@ def run() -> list[dict]:
                 continue
             evaluated.append((signal, result))
 
+    evaluated.sort(key=lambda x: (0 if x[0].get("pre_rotation") else 1, x[0].get("signal_score", 0)), reverse=True)
     for signal, result in evaluated:
         ticker = signal["ticker"]
         if result["outcome"] == "TRADE_QUEUED":
@@ -175,7 +180,8 @@ def run() -> list[dict]:
 def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
               sector_regime: dict | None = None,
               sector_thresholds: dict | None = None,
-              rotation_scores: dict | None = None) -> dict:
+              rotation_scores: dict | None = None,
+              regime_bayes_result=None) -> dict:
     ticker = signal["ticker"]
 
     l1_threshold = (sector_thresholds or {}).get(signal.get("sector", ""), cfg["lock1_threshold"])
@@ -199,7 +205,8 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
     if not l_leading["passed"]:
         return _gate_result(signal, l1, l2, l_leading, None, "FILTERED_LEADING")
 
-    context = _build_claude_context(signal, l2, l_leading, wallet_ctx, cfg, sector_regime, rotation_scores)
+    context = _build_claude_context(signal, l2, l_leading, wallet_ctx, cfg, sector_regime,
+                                    rotation_scores, regime_bayes_result)
     l3 = lock3_claude.evaluate(context, confidence_min=cfg["lock3_confidence_min"])
 
     outcome = "TRADE_QUEUED" if l3["passed"] else "FILTERED_L3"
@@ -209,7 +216,8 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
 def _build_claude_context(signal: dict, l2: dict, l_leading: dict,
                           wallet_ctx: dict, cfg: dict,
                           sector_regime: dict | None = None,
-                          rotation_scores: dict | None = None) -> dict:
+                          rotation_scores: dict | None = None,
+                          regime_bayes_result=None) -> dict:
     ctx = {
         # identity
         "ticker":            signal["ticker"],
@@ -276,6 +284,18 @@ def _build_claude_context(signal: dict, l2: dict, l_leading: dict,
     # Rotation score — pre-computed once per gate cycle, passed in from run()
     if rotation_scores is not None:
         ctx["ticker_rotation_score"] = rotation_scores.get(signal["ticker"])
+
+    # Bayesian regime allocation — sector-level conviction and portfolio weight
+    if regime_bayes_result is not None:
+        sector = signal.get("sector", "")
+        alloc  = regime_bayes_result.allocation.get(sector, 0.0)
+        entry  = next((e for e in regime_bayes_result.leaderboard if e.sector == sector), None)
+        ctx["regime_bayes_allocation"]      = alloc                          # portfolio % for this sector
+        ctx["regime_bayes_posterior"]       = entry.posterior       if entry else None
+        ctx["regime_bayes_adjusted_score"]  = entry.adjusted_score  if entry else None
+        ctx["regime_bayes_rank"]            = entry.rank            if entry else None
+        ctx["regime_bayes_qualified"]       = alloc > 0             # in top 5 and above threshold
+        ctx["regime_bayes_leader"]          = regime_bayes_result.leader
 
     # Recent gate fail history — lets Lock 3 see patterns (repeated L2 fails, etc.)
     try:

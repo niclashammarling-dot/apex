@@ -74,7 +74,12 @@ export default function SectorRotation() {
   const [rawData,       setRawData]   = useState([]);
   const [loading,       setLoading]   = useState(true);
   const [error,         setError]     = useState(null);
-  const [hiddenSectors, setHidden]    = useState(new Set());
+  const [hiddenSectors, setHidden]    = useState(() => {
+    try {
+      const saved = localStorage.getItem("apex_hidden_sectors");
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch { return new Set(); }
+  });
   const [normalized,    setNormalized] = useState(false);
   const [thresholds,    setThresholds] = useState({});
 
@@ -136,6 +141,7 @@ export default function SectorRotation() {
     setHidden(prev => {
       const next = new Set(prev);
       next.has(s) ? next.delete(s) : next.add(s);
+      try { localStorage.setItem("apex_hidden_sectors", JSON.stringify([...next])); } catch {}
       return next;
     });
   }
