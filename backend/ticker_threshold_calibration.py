@@ -23,8 +23,26 @@ from __future__ import annotations
 
 import statistics
 from collections import defaultdict
+from datetime import datetime, timezone
+from pathlib import Path
 
 from loguru import logger
+
+_CALIBRATION_MARKER = Path(__file__).parent.parent / "data" / "calibration_done.txt"
+
+
+def _this_week_label() -> str:
+    return datetime.now(timezone.utc).strftime("%G-W%V")
+
+
+def _mark_calibrated() -> None:
+    _CALIBRATION_MARKER.write_text(_this_week_label())
+
+
+def was_calibrated_this_week() -> bool:
+    if not _CALIBRATION_MARKER.exists():
+        return False
+    return _CALIBRATION_MARKER.read_text().strip() == _this_week_label()
 
 
 def calibrate(min_rows: int = 500) -> dict[str, float]:
@@ -59,6 +77,7 @@ def calibrate(min_rows: int = 500) -> dict[str, float]:
         )
 
     save_ticker_thresholds(final)
+    _mark_calibrated()
     logger.info(f"Calibration complete — {len(final)} sector thresholds saved")
     return final
 

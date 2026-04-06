@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11
+APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16
 Pure grep/parse, no LLM. Writes findings to audit/nightly-report-YYYY-MM-DD.md.
 """
 
 import json
 import re
+import sqlite3
 import subprocess
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 REPO = Path(__file__).parent.parent
@@ -358,6 +359,97 @@ def check11():
                          f"cfg.get({k!r}, default) — default won't fire for stored None")
 
 
+# ── CHECK 14 — EOD regime freshness ──────────────────────────────────────────
+
+def check14():
+    """
+    sector_posteriors.updated_at must be within 3 calendar days.
+    3 days covers the widest normal gap: Sunday 1 AM audit, last EOD on Friday.
+    Anything older means the catch-up also failed.
+    """
+    db = REPO / "data/apex.db"
+    if not db.exists():
+        return
+    try:
+        conn = sqlite3.connect(db)
+        row  = conn.execute("SELECT MAX(updated_at) FROM sector_posteriors").fetchone()
+        conn.close()
+    except Exception as e:
+        flag(14, "EOD regime freshness", "WARNING", "data/apex.db:sector_posteriors",
+             f"could not query sector_posteriors: {e}")
+        return
+
+    if not row or not row[0]:
+        flag(14, "EOD regime freshness", "CRITICAL", "data/apex.db:sector_posteriors",
+             "sector_posteriors empty — EOD regime has never run")
+        return
+
+    last_dt = datetime.fromisoformat(row[0])
+    if last_dt.tzinfo is None:
+        last_dt = last_dt.replace(tzinfo=timezone.utc)
+    age_days = (datetime.now(timezone.utc) - last_dt).total_seconds() / 86400
+
+    if age_days > 3:
+        flag(14, "EOD regime freshness", "WARNING", "data/apex.db:sector_posteriors",
+             f"EOD regime last updated {age_days:.1f} days ago ({row[0][:10]}) — catch-up may have failed")
+
+
+# ── CHECK 15 — Calibration freshness ─────────────────────────────────────────
+
+def check15():
+    """
+    data/calibration_done.txt must contain the current ISO week label.
+    Missing or stale marker means Sunday 3 AM cron was missed AND catch-up failed.
+    """
+    marker = REPO / "data/calibration_done.txt"
+    current_week = datetime.now(timezone.utc).strftime("%G-W%V")
+
+    if not marker.exists():
+        flag(15, "Calibration freshness", "WARNING", "data/calibration_done.txt:—",
+             f"calibration marker missing — thresholds not calibrated this week ({current_week})")
+        return
+
+    stored = marker.read_text().strip()
+    if stored != current_week:
+        flag(15, "Calibration freshness", "WARNING", "data/calibration_done.txt:—",
+             f"calibration last ran {stored}, current week {current_week} — catch-up may have failed")
+
+
+# ── CHECK 16 — yfinance scalar extraction ─────────────────────────────────────
+
+def check16():
+    """
+    Flag .iloc[-1] applied directly to a yfinance column slice without .flatten().
+    Newer yfinance returns multi-column DataFrames even for single tickers — .iloc[-1]
+    yields a Series instead of a scalar, silently breaking float() conversion.
+    Safe pattern: .values.flatten()[-1]
+    """
+    # Matches ["Close"].iloc[-1] or ['close'].iloc[-1] — the dangerous extraction pattern
+    _PATTERN = re.compile(r'\[["\']\w*[Cc]lose["\']\]\.iloc\[-1\]')
+
+    for fpath in REPO.rglob("*.py"):
+        if any(skip in str(fpath) for skip in ["node_modules", "venv", ".git", "__pycache__"]):
+            continue
+        text = fpath.read_text(errors="ignore")
+        if "yf.download" not in text:
+            continue  # only scan files that call yf.download — Ticker.history() is safe
+        if "_slice_history" in text:
+            continue  # file uses a wrapper that drops the MultiIndex ticker level — safe
+        lines = text.splitlines()
+        for i, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue  # skip comment lines
+            if _PATTERN.search(line) and ".flatten()" not in line and ".values" not in line:
+                # Skip if a yf.Ticker call appears in the 5 lines before — that path is safe
+                context = "\n".join(lines[max(0, i - 6):i - 1])
+                if "yf.Ticker" in context:
+                    continue
+                rel = str(fpath.relative_to(REPO))
+                flag(16, "yfinance scalar extraction", "WARNING", f"{rel}:{i}",
+                     f"`.iloc[-1]` on column slice without `.flatten()`: {stripped[:70]}")
+
+
 # ── Update check registry ─────────────────────────────────────────────────────
 
 def update_registry():
@@ -405,13 +497,15 @@ def update_registry():
 def write_report(retirement_candidates):
     REPORT.parent.mkdir(exist_ok=True)
 
-    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12, 13}
+    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16}
     rows = []
     check_names = {
         3: "Fractional qty", 4: "Config parity", 5: "Sector name strings",
         6: "Test DB isolation", 9: "Config value drift",
         10: "Ticker data coverage", 11: "NaN/null pipeline",
         12: "Lock3 context parity", 13: "Undisclosed config change",
+        14: "EOD regime freshness", 15: "Calibration freshness",
+        16: "yfinance scalar extraction",
     }
 
     # One clean row per check that had no findings
@@ -459,5 +553,8 @@ if __name__ == "__main__":
     check11()
     check12()
     check13()
+    check14()
+    check15()
+    check16()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])

@@ -303,6 +303,63 @@ def prune_old_signals() -> None:
         logger.info(f"Sector snapshot pruning: removed {snap_deleted} old rows")
 
 
+def _check_missed_eod_regime() -> None:
+    """
+    Run the EOD regime update on startup if it was missed (server down at 16:15 ET).
+    Determines the most recent trading day for which EOD should have already run,
+    then compares against the last updated_at in sector_posteriors.
+    """
+    from datetime import date, timedelta
+    from backend.db import get_db
+
+    now     = datetime.now(NY)
+    today   = now.date()
+    weekday = now.weekday()  # 0=Mon … 4=Fri, 5=Sat, 6=Sun
+
+    if weekday == 5:                        # Saturday — EOD should have run Friday
+        expected = today - timedelta(days=1)
+    elif weekday == 6:                      # Sunday — EOD should have run Friday
+        expected = today - timedelta(days=2)
+    elif now.time() >= time(16, 15):        # Weekday past 16:15 — today
+        expected = today
+    elif weekday == 0:                      # Monday before 16:15 — last Friday
+        expected = today - timedelta(days=3)
+    else:                                   # Tue–Fri before 16:15 — yesterday
+        expected = today - timedelta(days=1)
+
+    try:
+        with get_db() as conn:
+            row = conn.execute("SELECT MAX(updated_at) FROM sector_posteriors").fetchone()
+        last_updated_str = row[0] if row and row[0] else None
+    except Exception as e:
+        logger.warning(f"EOD regime catch-up: DB check failed — {e}")
+        return
+
+    last_date = datetime.fromisoformat(last_updated_str).date() if last_updated_str else None
+    if last_date and last_date >= expected:
+        return
+
+    logger.warning(
+        f"EOD regime missed for {expected} "
+        f"(last update: {last_date or 'never'}) — running now"
+    )
+    run_eod_regime()
+
+
+def _check_missed_calibration() -> None:
+    """
+    Run threshold calibration on startup if the server was down at the
+    scheduled Sunday 3 AM window and it hasn't run yet this week.
+    """
+    from backend.ticker_threshold_calibration import calibrate, was_calibrated_this_week
+    if not was_calibrated_this_week():
+        logger.warning("Threshold calibration was missed this week — running now")
+        try:
+            calibrate()
+        except Exception as e:
+            logger.warning(f"Catch-up calibration failed: {e}")
+
+
 def _check_missed_weekly_report() -> None:
     """
     Fire the weekly report immediately on startup if the server was down
@@ -431,6 +488,8 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
     scheduler.start()
+    _check_missed_eod_regime()
+    _check_missed_calibration()
     _check_missed_weekly_report()
     logger.info(
         f"Scheduler started — sectors every {POLL_INTERVAL_SECTORS}m, "

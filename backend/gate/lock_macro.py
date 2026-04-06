@@ -32,7 +32,7 @@ def _get_vix() -> float | None:
 
     try:
         data  = yf.download("^VIX", period="1d", interval="1m", progress=False, auto_adjust=True)
-        value = float(data["Close"].iloc[-1]) if not data.empty else None
+        value = float(data["Close"].values.flatten()[-1]) if not data.empty else None
         with _vix_lock:
             _vix_cache["value"]      = value
             _vix_cache["expires_at"] = time.time() + _VIX_TTL
