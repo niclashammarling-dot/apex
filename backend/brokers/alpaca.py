@@ -138,7 +138,7 @@ def place_bracket_order(
 
     order = _client().submit_order(req)
     logger.info(
-        f"Alpaca bracket order placed [{ticker}]: qty={qty:.4f} @ ~${current_price:.2f} "
+        f"Alpaca bracket order placed [{ticker}]: qty={qty} @ ~${current_price:.2f} "
         f"TP=${tp_price:.2f} SL=${sl_price:.2f} order_id={order.id}"
     )
     return str(order.id)

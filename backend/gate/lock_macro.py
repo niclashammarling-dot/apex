@@ -134,7 +134,8 @@ def evaluate(ticker: str, cfg: dict) -> dict:
     cfg keys used: vix_threshold, macro_event_blackout_days, macro_earnings_blackout_days
     Returns {"passed": bool, "reason": str, "vix": float|None}
     """
-    vix_threshold      = cfg.get("vix_threshold", 25.0)
+    _vix = cfg.get("vix_threshold")
+    vix_threshold      = _vix if _vix is not None else 25.0
     _eb = cfg.get("macro_event_blackout_days")
     event_blackout     = _eb if _eb is not None else 1
     _earn = cfg.get("macro_earnings_blackout_days")

@@ -100,11 +100,13 @@ def run() -> list[dict]:
         "starting_balance": cfg["starting_balance"],
     }
 
-    # Compute sector regime + rotation scores once per gate cycle — passed to all evaluations
+    # Compute sector regime + rotation scores + Bayesian regime once per gate cycle
     from backend.sector_regime import compute_sector_regime
     from backend.sector_transitions import compute_ticker_rotation_scores, get_rotation_forecast
-    sector_regime   = compute_sector_regime()
-    rotation_scores = compute_ticker_rotation_scores()
+    from backend.scheduler import _get_regime_bayes
+    sector_regime      = compute_sector_regime()
+    rotation_scores    = compute_ticker_rotation_scores()
+    regime_bayes_result = _get_regime_bayes().last_result()
 
     # Pre-rotation promotion — same logic as demo gate
     forecast         = get_rotation_forecast()
@@ -136,7 +138,8 @@ def run() -> list[dict]:
 
     with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(candidates))) as pool:
         future_to_signal = {
-            pool.submit(_evaluate, signal, wallet_ctx, cfg, sector_regime, sector_thresholds, rotation_scores): signal
+            pool.submit(_evaluate, signal, wallet_ctx, cfg, sector_regime, sector_thresholds,
+                        rotation_scores, regime_bayes_result): signal
             for signal in candidates
         }
         for future in as_completed(future_to_signal):
@@ -214,7 +217,8 @@ def run() -> list[dict]:
 def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
               sector_regime: dict | None = None,
               sector_thresholds: dict | None = None,
-              rotation_scores: dict | None = None) -> dict:
+              rotation_scores: dict | None = None,
+              regime_bayes_result=None) -> dict:
     ticker = signal["ticker"]
 
     l1_threshold = (sector_thresholds or {}).get(signal.get("sector", ""), cfg["lock1_threshold"])
@@ -237,7 +241,8 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
     if not l_leading["passed"]:
         return _gate_result(signal, l1, l2, l_leading, None, "FILTERED_LEADING")
 
-    context = _build_context(signal, l2, l_leading, wallet_ctx, cfg, sector_regime, rotation_scores)
+    context = _build_context(signal, l2, l_leading, wallet_ctx, cfg, sector_regime, rotation_scores,
+                             regime_bayes_result)
     l3 = lock3_claude.evaluate(context, confidence_min=cfg["lock3_confidence_min"])
 
     outcome = "TRADE_QUEUED" if l3["passed"] else "FILTERED_L3"
@@ -247,7 +252,8 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
 def _build_context(signal: dict, l2: dict, l_leading: dict,
                    wallet_ctx: dict, cfg: dict,
                    sector_regime: dict | None = None,
-                   rotation_scores: dict | None = None) -> dict:
+                   rotation_scores: dict | None = None,
+                   regime_bayes_result=None) -> dict:
     ctx = {
         # identity
         "mode":              "LIVE — real money",
@@ -313,6 +319,18 @@ def _build_context(signal: dict, l2: dict, l_leading: dict,
     # Rotation score — pre-computed once per gate cycle, passed in from run()
     if rotation_scores is not None:
         ctx["ticker_rotation_score"] = rotation_scores.get(signal["ticker"])
+
+    # Bayesian regime allocation — sector-level conviction and portfolio weight
+    if regime_bayes_result is not None:
+        sector = signal.get("sector", "")
+        alloc  = regime_bayes_result.allocation.get(sector, 0.0)
+        entry  = next((e for e in regime_bayes_result.leaderboard if e.sector == sector), None)
+        ctx["regime_bayes_allocation"]      = alloc
+        ctx["regime_bayes_posterior"]       = entry.posterior       if entry else None
+        ctx["regime_bayes_adjusted_score"]  = entry.adjusted_score  if entry else None
+        ctx["regime_bayes_rank"]            = entry.rank            if entry else None
+        ctx["regime_bayes_qualified"]       = alloc > 0
+        ctx["regime_bayes_leader"]          = regime_bayes_result.leader
 
     # Recent gate fail history — lets Lock 3 see patterns (repeated L2 fails, etc.)
     try:

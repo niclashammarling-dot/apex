@@ -370,7 +370,7 @@ def prev_signals_by_ticker() -> dict[str, float]:
         conn.close()
 
 
-def get_ticker_daily_scores(days: int = 90) -> list[dict]:
+def get_ticker_daily_scores(days: int = 180) -> list[dict]:
     """
     Daily signal score per ticker for the last N days.
     Merges ticker_history (backfilled daily scores) with the signals table
