@@ -294,6 +294,15 @@ def precache_monday_data() -> None:
     poll_all_sectors(force=True)
 
 
+def run_sentiment_prefetch() -> None:
+    """Pre-fetch Reddit and RSS sentiment for all watchlist tickers at market open."""
+    from backend.sentiment.sentiment_prefetch import run as prefetch_run
+    summary = prefetch_run()
+    logger.info(
+        f"Sentiment pre-fetch: {summary['success']}/{summary['tickers']} tickers cached"
+    )
+
+
 def prune_old_signals() -> None:
     deleted = prune_signals(keep_per_ticker=10)
     if deleted:
@@ -422,6 +431,15 @@ def start_scheduler() -> None:
         hour=16,
         minute=15,          # 15 min after market close — snapshots settled
         id="eod_regime",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_sentiment_prefetch,
+        "cron",
+        day_of_week="mon-fri",
+        hour=9,
+        minute=35,          # 9:35 AM ET — 5 min after market open, first prints settling
+        id="sentiment_prefetch",
         replace_existing=True,
     )
     scheduler.add_job(

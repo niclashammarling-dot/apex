@@ -198,15 +198,21 @@ class TestLock2Sentiment:
         self._mod._cache.clear()
         self._mod._cb_failures   = 0
         self._mod._cb_open_until = 0.0
-        # Prevent real yfinance calls in all lock2 tests
+        # Prevent real yfinance / prefetch calls in all lock2 tests
         self._signals_patcher = patch(
             "backend.gate.lock2_sentiment.fetch_market_signals",
             return_value=self._EMPTY_SIGNALS,
         )
+        self._prefetch_patcher = patch(
+            "backend.gate.lock2_sentiment.get_prefetch_content",
+            return_value="",
+        )
         self._signals_patcher.start()
+        self._prefetch_patcher.start()
 
     def teardown_method(self):
         self._signals_patcher.stop()
+        self._prefetch_patcher.stop()
 
     def _grok_response(self, sentiment="positive", score=0.7,
                        conviction="high", themes=None, summary="Bullish") -> dict:

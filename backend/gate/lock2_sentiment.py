@@ -21,6 +21,7 @@ from loguru import logger
 
 from backend.config import XAI_API_KEY, LOCK2_SENTIMENT_MIN, GROK_CACHE_TTL
 from backend.data.fetcher_sentiment import fetch_market_signals
+from backend.sentiment.sentiment_prefetch import get_combined_content as get_prefetch_content
 
 GROK_URL   = "https://api.x.ai/v1/chat/completions"
 GROK_MODEL = "grok-3"
@@ -83,7 +84,7 @@ def _fetch_rss(ticker: str) -> list[str]:
         return []
 
 
-def _build_prompt(ticker: str, signals: dict, rss_headlines: list[str]) -> str:
+def _build_prompt(ticker: str, signals: dict, rss_headlines: list[str], prefetch: str = "") -> str:
     """
     Build a structured, data-driven prompt for Grok.
 
@@ -152,6 +153,10 @@ def _build_prompt(ticker: str, signals: dict, rss_headlines: list[str]) -> str:
         headline_block = "\n".join(f"- {h}" for h in all_headlines)
         blocks.append(f"RECENT NEWS:\n{headline_block}")
 
+    # ── Pre-fetched Reddit / RSS content ─────────────────────────────────────
+    if prefetch:
+        blocks.append(f"PRE-FETCHED COMMUNITY & NEWS CONTENT:\n{prefetch}")
+
     # ── Grok instruction ──────────────────────────────────────────────────────
     blocks.append(
         "Also search X/Twitter and live web for any breaking news, unusual social "
@@ -174,7 +179,7 @@ def _build_prompt(ticker: str, signals: dict, rss_headlines: list[str]) -> str:
     return "\n\n".join(blocks)
 
 
-def _call_grok(ticker: str, signals: dict, rss_headlines: list[str]) -> dict | None:
+def _call_grok(ticker: str, signals: dict, rss_headlines: list[str], prefetch: str = "") -> dict | None:
     """Makes the Grok API call. Returns parsed dict or None on failure."""
     if not XAI_API_KEY:
         logger.warning("Lock 2: XAI_API_KEY not set — failing closed")
@@ -186,7 +191,7 @@ def _call_grok(ticker: str, signals: dict, rss_headlines: list[str]) -> dict | N
 
     payload = {
         "model": GROK_MODEL,
-        "messages": [{"role": "user", "content": _build_prompt(ticker, signals, rss_headlines)}],
+        "messages": [{"role": "user", "content": _build_prompt(ticker, signals, rss_headlines, prefetch)}],
         "response_format": {"type": "json_object"},
         "temperature": 0.1,
     }
@@ -242,15 +247,17 @@ def evaluate(ticker: str, sentiment_min: float | None = None) -> dict:
         logger.debug(f"Lock 2 [{ticker}]: cache hit")
         grok = cached["result"]
     else:
-        signals      = fetch_market_signals(ticker)
+        signals       = fetch_market_signals(ticker)
         rss_headlines = _fetch_rss(ticker)
+        prefetch      = get_prefetch_content(ticker)
         logger.debug(
             f"Lock 2 [{ticker}]: {len(signals.get('news_titles', []))} yf news, "
             f"{len(rss_headlines)} RSS headlines, "
+            f"prefetch={'yes' if prefetch else 'no'}, "
             f"analyst={signals.get('analyst_label')}, "
             f"short={signals.get('short_pct_float')}"
         )
-        grok = _call_grok(ticker, signals, rss_headlines)
+        grok = _call_grok(ticker, signals, rss_headlines, prefetch)
         if grok:
             _cache[ticker] = {
                 "expires_at": now + GROK_CACHE_TTL * 60,
