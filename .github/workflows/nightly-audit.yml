@@ -45,6 +45,9 @@ jobs:
             git commit -m "audit: nightly report $(date +%Y-%m-%d)"
           git push
 
+      - name: Verify LLM findings
+        run: python audit/verify_llm_findings.py
+
       - name: Alert on CRITICAL findings
         env:
           ALERT_EMAIL_TO:   ${{ secrets.ALERT_EMAIL_TO }}
