@@ -318,7 +318,7 @@ def check13():
 
         # Check if a subsequent commit acknowledged these keys
         ack_result = subprocess.run(
-            ["git", "log", "--format=%s", f"{last_sha}..HEAD"],
+            ["git", "log", "--format=%B", f"{last_sha}..HEAD"],
             cwd=REPO, capture_output=True, text=True
         )
         ack_messages = ack_result.stdout.lower()
