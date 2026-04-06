@@ -65,11 +65,6 @@ RSS_FEEDS: list[dict] = [
         "ticker": False,
     },
     {
-        "name":   "Yahoo Finance",
-        "url":    "https://finance.yahoo.com/rss/headline?s={ticker}",
-        "ticker": True,
-    },
-    {
         "name":   "Investopedia",
         "url":    "https://www.investopedia.com/feedbuilder/feed/getfeed/?feedName=rss_articles",
         "ticker": False,
