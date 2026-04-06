@@ -450,6 +450,52 @@ def check16():
                      f"`.iloc[-1]` on column slice without `.flatten()`: {stripped[:70]}")
 
 
+# ── CHECK 17 — Sentiment cache freshness ─────────────────────────────────────
+
+def check17():
+    """
+    sentiment_cache must have been populated today (Mon–Fri).
+    A stale or missing cache means the 9:35 AM pre-fetch failed or was skipped,
+    and Lock 2 is running without Reddit/RSS content for watchlist tickers.
+    Only fires on weekdays — cache is intentionally not refreshed on weekends.
+    """
+    today = date.today()
+    if today.weekday() >= 5:  # Saturday=5, Sunday=6
+        return
+
+    db = REPO / "data/apex.db"
+    if not db.exists():
+        return
+
+    try:
+        conn = sqlite3.connect(db)
+        row  = conn.execute("SELECT MAX(fetched_at) FROM sentiment_cache").fetchone()
+        conn.close()
+    except sqlite3.OperationalError:
+        # Table doesn't exist yet — pre-fetch has never run
+        flag(17, "Sentiment cache freshness", "WARNING", "data/apex.db:sentiment_cache",
+             "sentiment_cache table missing — pre-fetch has never run")
+        return
+    except Exception as e:
+        flag(17, "Sentiment cache freshness", "WARNING", "data/apex.db:sentiment_cache",
+             f"could not query sentiment_cache: {e}")
+        return
+
+    if not row or not row[0]:
+        flag(17, "Sentiment cache freshness", "WARNING", "data/apex.db:sentiment_cache",
+             "sentiment_cache is empty — pre-fetch has never successfully run")
+        return
+
+    last_dt  = datetime.fromisoformat(row[0])
+    if last_dt.tzinfo is None:
+        last_dt = last_dt.replace(tzinfo=timezone.utc)
+    age_hours = (datetime.now(timezone.utc) - last_dt).total_seconds() / 3600
+
+    if age_hours > 26:  # more than a trading day old
+        flag(17, "Sentiment cache freshness", "WARNING", "data/apex.db:sentiment_cache",
+             f"sentiment_cache last populated {age_hours:.1f}h ago — pre-fetch may have failed")
+
+
 # ── Update check registry ─────────────────────────────────────────────────────
 
 def update_registry():
@@ -497,7 +543,7 @@ def update_registry():
 def write_report(retirement_candidates):
     REPORT.parent.mkdir(exist_ok=True)
 
-    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16}
+    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17}
     rows = []
     check_names = {
         3: "Fractional qty", 4: "Config parity", 5: "Sector name strings",
@@ -505,7 +551,7 @@ def write_report(retirement_candidates):
         10: "Ticker data coverage", 11: "NaN/null pipeline",
         12: "Lock3 context parity", 13: "Undisclosed config change",
         14: "EOD regime freshness", 15: "Calibration freshness",
-        16: "yfinance scalar extraction",
+        16: "yfinance scalar extraction", 17: "Sentiment cache freshness",
     }
 
     # One clean row per check that had no findings
@@ -556,5 +602,6 @@ if __name__ == "__main__":
     check14()
     check15()
     check16()
+    check17()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])
