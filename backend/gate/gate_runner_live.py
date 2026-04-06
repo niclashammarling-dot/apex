@@ -261,7 +261,7 @@ def _build_context(signal: dict, l2: dict, l_leading: dict,
         "sector":            signal["sector"],
         # L2 sentiment context
         "sentiment_score":   l2["score"],
-        "sentiment_volume":  l2["volume"],
+        "sentiment_conviction": l2["conviction"],
         "sentiment_themes":  l2["key_themes"],
         "sentiment_summary": l2["summary"],
         # leading indicators context

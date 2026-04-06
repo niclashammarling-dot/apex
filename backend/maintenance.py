@@ -60,7 +60,7 @@ def check_context_parity() -> list[str]:
     from backend.live_config import get_live_config
 
     signal    = {"ticker": "_CHECK", "sector": "Technology"}
-    l2        = {"score": 0.5, "volume": "low", "key_themes": [], "summary": "check"}
+    l2        = {"score": 0.5, "conviction": "low", "key_themes": [], "summary": "check"}
     l_leading = {"pass_count": 2, "checks": {}}
 
     demo_cfg  = get_demo_config()

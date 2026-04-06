@@ -1,5 +1,9 @@
 """
-Lock 2 — Grok sentiment evaluation.
+Lock 2 — Sentiment evaluation.
+
+Grok synthesizes quantitative signals (analyst consensus, short interest,
+recent analyst actions, news) fetched from yfinance, then supplements with
+a live X/web search for breaking catalysts.
 
 Fail-closed: if Grok is unreachable after retries, the lock fails.
 Cache TTL: GROK_CACHE_TTL minutes per ticker (config.py).
@@ -16,6 +20,7 @@ import httpx
 from loguru import logger
 
 from backend.config import XAI_API_KEY, LOCK2_SENTIMENT_MIN, GROK_CACHE_TTL
+from backend.data.fetcher_sentiment import fetch_market_signals
 
 GROK_URL   = "https://api.x.ai/v1/chat/completions"
 GROK_MODEL = "grok-3"
@@ -68,8 +73,8 @@ def _record_failure() -> None:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _fetch_news(ticker: str) -> list[str]:
-    """Fetch recent RSS headlines for context. Returns list of headline strings."""
+def _fetch_rss(ticker: str) -> list[str]:
+    """Fetch recent RSS headlines for the ticker. Returns list of title strings."""
     try:
         from backend.data.fetcher_rss import fetch_headlines
         items = fetch_headlines(ticker, max_items=5)
@@ -78,32 +83,99 @@ def _fetch_news(ticker: str) -> list[str]:
         return []
 
 
-def _prompt(ticker: str, headlines: list[str]) -> str:
-    news_block = ""
-    if headlines:
-        lines = "\n".join(f"- {h}" for h in headlines)
-        news_block = f"\n\nRecent news headlines:\n{lines}"
+def _build_prompt(ticker: str, signals: dict, rss_headlines: list[str]) -> str:
+    """
+    Build a structured, data-driven prompt for Grok.
 
-    return (
-        f"Analyze current social sentiment on X/Twitter about ${ticker}."
-        f"{news_block}\n\n"
-        "Consider both the social signals and any news context above.\n"
-        "Look for insider-adjacent signals, unusual volume spikes, "
-        "trend setters, or anomalies that precede market moves.\n"
+    Presents quantitative signals first (analyst, short interest, news),
+    then asks Grok to supplement with a live X/web search for breaking catalysts
+    not captured in the structured data.
+    """
+    company = signals.get("company_name", ticker)
+    blocks  = [f"Sentiment evaluation for {company} ({ticker})."]
+
+    # ── Analyst signals ───────────────────────────────────────────────────────
+    analyst_lines = []
+
+    mean  = signals.get("analyst_mean")
+    label = signals.get("analyst_label")
+    count = signals.get("analyst_count", 0)
+    if mean is not None:
+        analyst_lines.append(
+            f"Consensus: {mean:.1f}/5 ({label}) from {count} analyst(s)"
+        )
+
+    target  = signals.get("price_target_mean")
+    current = signals.get("current_price")
+    upside  = signals.get("upside_pct")
+    if target and current and upside is not None:
+        analyst_lines.append(
+            f"Price target: ${target:.0f} mean vs ${current:.0f} current "
+            f"({upside:+.1f}% implied upside)"
+        )
+
+    actions = signals.get("recent_analyst_actions", [])
+    if actions:
+        action_strs = []
+        for a in actions[:5]:
+            t_str = f" @ ${a['target']:.0f}" if a.get("target") else ""
+            action_strs.append(
+                f"  {a['date']} {a['firm']}: {a['from'] or '?'} → {a['to']}{t_str}"
+            )
+        analyst_lines.append("Recent grade changes (14d):\n" + "\n".join(action_strs))
+
+    if analyst_lines:
+        blocks.append("ANALYST SIGNALS:\n" + "\n".join(analyst_lines))
+
+    # ── Short interest ────────────────────────────────────────────────────────
+    short_lines = []
+    short_pct   = signals.get("short_pct_float")
+    short_ratio = signals.get("short_ratio")
+    if short_pct is not None:
+        pct   = short_pct * 100
+        slbl  = "high" if pct > 15 else "moderate" if pct > 7 else "low"
+        short_lines.append(f"{pct:.1f}% of float short ({slbl})")
+    if short_ratio is not None:
+        short_lines.append(f"{short_ratio:.1f} days to cover at avg volume")
+
+    if short_lines:
+        blocks.append("SHORT INTEREST:\n" + "\n".join(short_lines))
+
+    # ── News headlines ────────────────────────────────────────────────────────
+    # Merge yfinance news with RSS, deduplicate, cap at 10
+    seen: dict[str, None] = {}
+    for title in signals.get("news_titles", []) + rss_headlines:
+        seen[title] = None
+    all_headlines = list(seen.keys())[:10]
+
+    if all_headlines:
+        headline_block = "\n".join(f"- {h}" for h in all_headlines)
+        blocks.append(f"RECENT NEWS:\n{headline_block}")
+
+    # ── Grok instruction ──────────────────────────────────────────────────────
+    blocks.append(
+        "Also search X/Twitter and live web for any breaking news, unusual social "
+        "activity, or material catalysts about this ticker not captured above.\n\n"
+        "Synthesize all signals — analyst positioning, market structure, and social — "
+        "into a sentiment assessment. "
         "Return a JSON object with exactly these keys:\n"
-        '{\n'
+        "{\n"
         '  "sentiment": "positive" | "neutral" | "negative",\n'
         '  "score": float between -1.0 and 1.0,\n'
-        '  "volume": "high" | "medium" | "low",\n'
+        '  "conviction": "high" | "medium" | "low",\n'
         '  "key_themes": [list of 3 short strings],\n'
         '  "summary": "one sentence"\n'
-        '}\n'
+        "}\n"
+        "conviction = how aligned and consistent are the signals across all sources. "
+        "high = strong multi-source agreement. low = mixed, divergent, or very thin signal. "
         "Only return the JSON. No preamble."
     )
 
+    return "\n\n".join(blocks)
 
-def _call_grok(ticker: str, headlines: list[str]) -> dict | None:
-    """Makes the API call. Returns parsed dict or None on failure."""
+
+def _call_grok(ticker: str, signals: dict, rss_headlines: list[str]) -> dict | None:
+    """Makes the Grok API call. Returns parsed dict or None on failure."""
     if not XAI_API_KEY:
         logger.warning("Lock 2: XAI_API_KEY not set — failing closed")
         return None
@@ -114,7 +186,7 @@ def _call_grok(ticker: str, headlines: list[str]) -> dict | None:
 
     payload = {
         "model": GROK_MODEL,
-        "messages": [{"role": "user", "content": _prompt(ticker, headlines)}],
+        "messages": [{"role": "user", "content": _build_prompt(ticker, signals, rss_headlines)}],
         "response_format": {"type": "json_object"},
         "temperature": 0.1,
     }
@@ -152,24 +224,33 @@ def _call_grok(ticker: str, headlines: list[str]) -> dict | None:
 
 def evaluate(ticker: str, sentiment_min: float | None = None) -> dict:
     """
-    Evaluate Grok sentiment for a ticker.
-    Pass condition: score > sentiment_min (defaults to LOCK2_SENTIMENT_MIN) AND volume != "low"
+    Evaluate sentiment for a ticker.
+
+    Collects quantitative signals (analyst, short interest, news) from yfinance,
+    then asks Grok to synthesize them alongside a live X/web search.
+
+    Pass condition: score > sentiment_min AND conviction != "low".
     """
     effective_min = sentiment_min if sentiment_min is not None else LOCK2_SENTIMENT_MIN
     now = datetime.now(timezone.utc).timestamp()
 
-    # Periodically clean stale cache entries (cheap, no extra dep)
     _cache_cleanup()
 
-    # Check cache
+    # Check cache — skip signal fetch and Grok call entirely on hit
     cached = _cache.get(ticker)
     if cached and now < cached["expires_at"]:
         logger.debug(f"Lock 2 [{ticker}]: cache hit")
         grok = cached["result"]
     else:
-        headlines = _fetch_news(ticker)
-        logger.debug(f"Lock 2 [{ticker}]: {len(headlines)} RSS headlines fetched")
-        grok = _call_grok(ticker, headlines)
+        signals      = fetch_market_signals(ticker)
+        rss_headlines = _fetch_rss(ticker)
+        logger.debug(
+            f"Lock 2 [{ticker}]: {len(signals.get('news_titles', []))} yf news, "
+            f"{len(rss_headlines)} RSS headlines, "
+            f"analyst={signals.get('analyst_label')}, "
+            f"short={signals.get('short_pct_float')}"
+        )
+        grok = _call_grok(ticker, signals, rss_headlines)
         if grok:
             _cache[ticker] = {
                 "expires_at": now + GROK_CACHE_TTL * 60,
@@ -181,19 +262,19 @@ def evaluate(ticker: str, sentiment_min: float | None = None) -> dict:
             "lock":       2,
             "passed":     False,
             "score":      None,
-            "volume":     None,
+            "conviction": None,
             "key_themes": [],
             "summary":    None,
             "reason":     "grok_unavailable",
         }
 
-    score  = float(grok.get("score", 0.0))
-    volume = grok.get("volume", "low")
-    passed = score > effective_min and volume != "low"
+    score      = float(grok.get("score", 0.0))
+    conviction = grok.get("conviction", "low")
+    passed     = score > effective_min and conviction != "low"
 
     reason = "pass" if passed else (
         f"score {score:.2f} <= {effective_min}" if score <= effective_min
-        else "volume too low"
+        else "conviction too low"
     )
 
     return {
@@ -201,7 +282,7 @@ def evaluate(ticker: str, sentiment_min: float | None = None) -> dict:
         "passed":     passed,
         "score":      score,
         "sentiment":  grok.get("sentiment"),
-        "volume":     volume,
+        "conviction": conviction,
         "key_themes": grok.get("key_themes", []),
         "summary":    grok.get("summary"),
         "reason":     reason,

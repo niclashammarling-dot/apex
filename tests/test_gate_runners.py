@@ -68,7 +68,7 @@ def _lock_pass():
     return {
         "passed": True, "score": 0.7, "threshold": 0.5, "reason": "pass",
         "decision": "BUY", "confidence": 0.85, "position_size_pct": 0.1,
-        "reasoning": "Good setup.", "volume": "high", "key_themes": [],
+        "reasoning": "Good setup.", "conviction": "high", "key_themes": [],
         "summary": "Bullish.", "pass_count": 3, "min_pass": 2,
         "checks": {
             "relative_strength": {"pass": True,  "reason": "outperforms"},
@@ -83,7 +83,7 @@ def _lock_fail(reason="fail"):
     return {
         "passed": False, "score": 0.3, "reason": reason,
         "decision": "HOLD", "confidence": 0.0, "position_size_pct": 0.0,
-        "reasoning": None, "volume": "low", "key_themes": [], "summary": None,
+        "reasoning": None, "conviction": "low", "key_themes": [], "summary": None,
         "pass_count": 0, "min_pass": 2,
         "checks": {
             "relative_strength": {"pass": False, "reason": "lag"},

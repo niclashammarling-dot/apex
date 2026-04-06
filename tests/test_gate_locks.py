@@ -186,42 +186,58 @@ class TestLockMacro:
 class TestLock2Sentiment:
     from backend.gate import lock2_sentiment as _mod
 
+    _EMPTY_SIGNALS = {
+        "company_name": "Test Corp", "short_pct_float": None, "short_ratio": None,
+        "analyst_mean": None, "analyst_label": None, "analyst_count": 0,
+        "price_target_mean": None, "current_price": None, "upside_pct": None,
+        "recent_analyst_actions": [], "news_titles": [],
+    }
+
     def setup_method(self):
         # Reset module-level state between tests
         self._mod._cache.clear()
         self._mod._cb_failures   = 0
         self._mod._cb_open_until = 0.0
+        # Prevent real yfinance calls in all lock2 tests
+        self._signals_patcher = patch(
+            "backend.gate.lock2_sentiment.fetch_market_signals",
+            return_value=self._EMPTY_SIGNALS,
+        )
+        self._signals_patcher.start()
+
+    def teardown_method(self):
+        self._signals_patcher.stop()
 
     def _grok_response(self, sentiment="positive", score=0.7,
-                       volume="high", themes=None, summary="Bullish") -> dict:
+                       conviction="high", themes=None, summary="Bullish") -> dict:
         return {
-            "sentiment": sentiment,
-            "score":     score,
-            "volume":    volume,
+            "sentiment":  sentiment,
+            "score":      score,
+            "conviction": conviction,
             "key_themes": themes or ["momentum", "breakout", "institutional buying"],
-            "summary":   summary,
+            "summary":    summary,
         }
 
     def _mock_call(self, response: dict | None):
         return patch.object(self._mod, "_call_grok", return_value=response)
 
-    def test_pass_high_score_high_volume(self):
-        with self._mock_call(self._grok_response(score=0.7, volume="high")):
+    def test_pass_high_score_high_conviction(self):
+        with self._mock_call(self._grok_response(score=0.7, conviction="high")):
             result = self._mod.evaluate("AAPL", sentiment_min=0.2)
         assert result["passed"] is True
         assert result["score"] == 0.7
 
     def test_fail_score_below_min(self):
-        with self._mock_call(self._grok_response(score=0.1, volume="high")):
+        with self._mock_call(self._grok_response(score=0.1, conviction="high")):
             result = self._mod.evaluate("AAPL", sentiment_min=0.2)
         assert result["passed"] is False
         assert "score" in result["reason"]
 
-    def test_fail_low_volume_even_with_good_score(self):
-        with self._mock_call(self._grok_response(score=0.9, volume="low")):
+    def test_fail_low_conviction_even_with_good_score(self):
+        with self._mock_call(self._grok_response(score=0.9, conviction="low")):
             result = self._mod.evaluate("AAPL", sentiment_min=0.2)
         assert result["passed"] is False
-        assert "volume" in result["reason"]
+        assert "conviction" in result["reason"]
 
     def test_fail_when_grok_unavailable(self):
         with self._mock_call(None):
@@ -232,27 +248,27 @@ class TestLock2Sentiment:
 
     def test_score_exactly_at_min_fails(self):
         # pass condition is score > min (strict)
-        with self._mock_call(self._grok_response(score=0.2, volume="high")):
+        with self._mock_call(self._grok_response(score=0.2, conviction="high")):
             result = self._mod.evaluate("AAPL", sentiment_min=0.2)
         assert result["passed"] is False
 
     def test_score_just_above_min_passes(self):
-        with self._mock_call(self._grok_response(score=0.201, volume="medium")):
+        with self._mock_call(self._grok_response(score=0.201, conviction="medium")):
             result = self._mod.evaluate("AAPL", sentiment_min=0.2)
         assert result["passed"] is True
 
-    def test_medium_volume_passes(self):
-        with self._mock_call(self._grok_response(score=0.5, volume="medium")):
+    def test_medium_conviction_passes(self):
+        with self._mock_call(self._grok_response(score=0.5, conviction="medium")):
             result = self._mod.evaluate("AAPL", sentiment_min=0.2)
         assert result["passed"] is True
 
     def test_negative_score_fails(self):
-        with self._mock_call(self._grok_response(score=-0.5, volume="high")):
+        with self._mock_call(self._grok_response(score=-0.5, conviction="high")):
             result = self._mod.evaluate("TSLA", sentiment_min=0.2)
         assert result["passed"] is False
 
     def test_cache_hit_skips_api(self):
-        response = self._grok_response(score=0.8, volume="high")
+        response = self._grok_response(score=0.8, conviction="high")
         # Warm cache manually
         self._mod._cache["MSFT"] = {
             "expires_at": time.time() + 3600,
@@ -264,8 +280,8 @@ class TestLock2Sentiment:
         assert result["passed"] is True
 
     def test_expired_cache_refreshes(self):
-        old_response = self._grok_response(score=0.1, volume="low")
-        new_response = self._grok_response(score=0.8, volume="high")
+        old_response = self._grok_response(score=0.1, conviction="low")
+        new_response = self._grok_response(score=0.8, conviction="high")
         self._mod._cache["NVDA"] = {
             "expires_at": time.time() - 1,  # already expired
             "result": old_response,
@@ -298,7 +314,7 @@ class TestLock2Sentiment:
         # Must mock at httpx layer so _record_success() inside _call_grok is reached
         self._mod._cb_failures   = 2
         self._mod._cb_open_until = 0.0
-        payload = json.dumps(self._grok_response(score=0.8, volume="high"))
+        payload = json.dumps(self._grok_response(score=0.8, conviction="high"))
         http_resp = MagicMock()
         http_resp.raise_for_status.return_value = None
         http_resp.json.return_value = {
@@ -316,7 +332,7 @@ class TestLock2Sentiment:
 
     def test_missing_score_field_defaults_zero(self):
         # Grok returns response missing 'score'
-        with self._mock_call({"sentiment": "positive", "volume": "high",
+        with self._mock_call({"sentiment": "positive", "conviction": "high",
                               "key_themes": [], "summary": ""}):
             result = self._mod.evaluate("AAPL", sentiment_min=0.2)
         assert result["score"] == 0.0
