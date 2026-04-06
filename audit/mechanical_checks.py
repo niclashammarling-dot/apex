@@ -244,6 +244,91 @@ def check12():
              f"key '{k}' in live _build_context but missing from demo _build_claude_context")
 
 
+# ── CHECK 13 — Undisclosed config changes ────────────────────────────────────
+
+def check13():
+    """
+    For each config file, show what changed in its most recent commit.
+    Fires every audit until a follow-up commit acknowledges the change.
+    A follow-up commit is one whose message contains the key name or 'config:'.
+    This catches config changes buried in feature commits and forces review.
+    """
+    for config_file in ["data/demo_config.json", "data/live_config.json"]:
+        path = REPO / config_file
+        if not path.exists():
+            continue
+
+        # Get the most recent commit that touched this file
+        result = subprocess.run(
+            ["git", "log", "-1", "--format=%H|%as|%s", "--", config_file],
+            cwd=REPO, capture_output=True, text=True
+        )
+        if not result.stdout.strip():
+            continue
+        parts = result.stdout.strip().split("|", 2)
+        if len(parts) < 3:
+            continue
+        last_sha, commit_date, last_msg = parts
+
+        # Only flag if the change is recent (within 3 days)
+        try:
+            age_days = (date.today() - date.fromisoformat(commit_date)).days
+            if age_days > 3:
+                continue
+        except Exception:
+            continue
+
+        # Get the commit before this one for the same file
+        prev_result = subprocess.run(
+            ["git", "log", "-1", "--format=%H", f"{last_sha}^", "--", config_file],
+            cwd=REPO, capture_output=True, text=True
+        )
+        prev_sha = prev_result.stdout.strip()
+        if not prev_sha:
+            # Fall back to parent commit regardless of whether it touched the file
+            prev_sha = f"{last_sha}^"
+
+        try:
+            curr_text = subprocess.run(
+                ["git", "show", f"{last_sha}:{config_file}"],
+                cwd=REPO, capture_output=True, text=True
+            ).stdout
+            prev_text = subprocess.run(
+                ["git", "show", f"{prev_sha}:{config_file}"],
+                cwd=REPO, capture_output=True, text=True
+            ).stdout
+            curr = json.loads(curr_text)
+            prev = json.loads(prev_text)
+        except (json.JSONDecodeError, Exception):
+            continue
+
+        changed_keys = [
+            k for k in set(prev) | set(curr)
+            if prev.get(k, "<absent>") != curr.get(k, "<absent>")
+        ]
+        if not changed_keys:
+            continue
+
+        # Check if a subsequent commit acknowledged these keys
+        ack_result = subprocess.run(
+            ["git", "log", "--format=%s", f"{last_sha}..HEAD"],
+            cwd=REPO, capture_output=True, text=True
+        )
+        ack_messages = ack_result.stdout.lower()
+        acknowledged = "config:" in ack_messages or all(
+            k.lower() in ack_messages for k in changed_keys
+        )
+        if acknowledged:
+            continue
+
+        for k in sorted(changed_keys):
+            old_val = prev.get(k, "<absent>")
+            new_val = curr.get(k, "<absent>")
+            flag(13, "Undisclosed config change", "WARNING",
+                 f"{config_file}:—",
+                 f"{k}: {old_val} → {new_val} (in {last_sha[:8]}: \"{last_msg[:50]}\")")
+
+
 # ── CHECK 11 — NaN/null config pipeline ──────────────────────────────────────
 
 def check11():
@@ -314,13 +399,13 @@ def update_registry():
 def write_report(retirement_candidates):
     REPORT.parent.mkdir(exist_ok=True)
 
-    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12}
+    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12, 13}
     rows = []
     check_names = {
         3: "Fractional qty", 4: "Config parity", 5: "Sector name strings",
         6: "Test DB isolation", 9: "Config value drift",
         10: "Ticker data coverage", 11: "NaN/null pipeline",
-        12: "Lock3 context parity",
+        12: "Lock3 context parity", 13: "Undisclosed config change",
     }
 
     # One clean row per check that had no findings
@@ -367,5 +452,6 @@ if __name__ == "__main__":
     check10()
     check11()
     check12()
+    check13()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])
