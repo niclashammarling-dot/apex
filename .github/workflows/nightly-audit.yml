@@ -45,6 +45,14 @@ jobs:
             git commit -m "audit: nightly report $(date +%Y-%m-%d)"
           git push
 
+      - name: Alert on CRITICAL findings
+        env:
+          ALERT_EMAIL_TO:   ${{ secrets.ALERT_EMAIL_TO }}
+          ALERT_EMAIL_FROM: ${{ secrets.ALERT_EMAIL_FROM }}
+          ALERT_SMTP_USER:  ${{ secrets.ALERT_SMTP_USER }}
+          ALERT_SMTP_PASS:  ${{ secrets.ALERT_SMTP_PASS }}
+        run: python audit/alert_criticals.py
+
       - name: Run Fixer Agent
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
