@@ -31,9 +31,9 @@ def check3():
     if not path.exists():
         return
     text = path.read_text()
-    # Look for qty assignment without int() conversion
+    # Look for qty assignment (start-of-statement) without int() conversion
     for i, line in enumerate(text.splitlines(), 1):
-        if re.search(r"qty\s*=", line) and "int(" not in line and "integer" not in line.lower():
+        if re.search(r"^\s*qty\s*=", line) and "int(" not in line and "integer" not in line.lower():
             if "notional" in line or "price" in line:
                 flag(3, "Fractional qty", "WARNING", f"backend/brokers/alpaca.py:{i}",
                      f"qty assigned without int(): {line.strip()[:60]}")
