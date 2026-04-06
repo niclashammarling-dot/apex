@@ -165,10 +165,53 @@ def _write_cache(
 
 # ── Reddit fetching ───────────────────────────────────────────────────────────
 
+def _parse_reddit_yaml(raw: str) -> tuple[str, int]:
+    """
+    Parse rdt-cli YAML output into clean post summaries.
+    Extracts: subreddit, title, body (selftext), score, upvote_ratio, num_comments.
+    Returns (formatted_text, post_count).
+    """
+    try:
+        import yaml
+        doc      = yaml.safe_load(raw)
+        children = doc["data"]["data"]["children"]
+    except Exception:
+        return "", 0
+
+    lines      = []
+    post_count = 0
+
+    for child in children:
+        d = child.get("data", {})
+        title    = (d.get("title") or "").strip()
+        body     = (d.get("selftext") or "").strip()
+        sub      = d.get("subreddit", "")
+        score    = d.get("score", 0)
+        ratio    = d.get("upvote_ratio", 0)
+        comments = d.get("num_comments", 0)
+
+        if not title:
+            continue
+
+        # Trim long bodies
+        if len(body) > 500:
+            body = body[:500] + "…"
+
+        block = f"[r/{sub} | ↑{score} ({int(ratio*100)}%) | {comments} comments]\n{title}"
+        if body:
+            block += f"\n{body}"
+
+        lines.append(block)
+        post_count += 1
+
+    return "\n\n".join(lines), post_count
+
+
 def _fetch_reddit(ticker: str) -> tuple[str, int]:
     """
     Fetch Reddit posts for a ticker using rdt-cli.
-    Returns (raw_text, post_count).
+    Parses the YAML output into clean post summaries.
+    Returns (formatted_text, post_count).
     Falls back to empty string if rdt-cli is not installed.
     """
     try:
@@ -186,12 +229,12 @@ def _fetch_reddit(ticker: str) -> tuple[str, int]:
         if not raw:
             return "", 0
 
-        post_count = raw.count("\n\n")
+        text, post_count = _parse_reddit_yaml(raw)
 
-        if len(raw) > MAX_REDDIT_CHARS:
-            raw = raw[:MAX_REDDIT_CHARS] + "... [truncated]"
+        if len(text) > MAX_REDDIT_CHARS:
+            text = text[:MAX_REDDIT_CHARS] + "… [truncated]"
 
-        return raw, post_count
+        return text, post_count
 
     except FileNotFoundError:
         logger.warning("SentimentPrefetch: rdt-cli not found — Reddit fetch skipped")
