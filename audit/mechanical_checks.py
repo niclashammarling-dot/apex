@@ -88,9 +88,15 @@ def check5():
 # ── CHECK 6 — Test DB isolation ───────────────────────────────────────────────
 
 def check6():
+    # Match the production DB path only when it's used as a value — assigned,
+    # opened, or connected to. A string that merely mentions the path (e.g. in a
+    # comment explaining what we're redirecting away from) is not a risk.
+    _PATTERN = re.compile(
+        r'(open|connect|Path|DB_PATH\s*=|sqlite3\.connect)\s*[(\s]*["\'].*apex\.db'
+    )
     for fpath in (REPO / "tests").rglob("*.py"):
         for i, line in enumerate(fpath.read_text(errors="ignore").splitlines(), 1):
-            if re.search(r'(data/apex\.db|backend/apex\.db)', line):
+            if _PATTERN.search(line):
                 rel = str(fpath.relative_to(REPO))
                 flag(6, "Test DB isolation", "CRITICAL", f"{rel}:{i}",
                      "hardcoded reference to production DB path")
