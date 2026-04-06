@@ -160,6 +160,90 @@ def check10():
                          f"compute_ticker_signals calls get_ticker_daily_scores(days={m.group(1)}), need 180")
 
 
+# ── CHECK 12 — Lock 3 context key parity (demo vs live) ──────────────────────
+
+def check12():
+    """
+    Parse the ctx keys set in _build_claude_context() (demo) and _build_context() (live)
+    using AST and flag any key present in one but absent in the other.
+    Known intentional differences are whitelisted.
+    """
+    import ast
+
+    demo_file = REPO / "backend/gate/gate_runner.py"
+    live_file = REPO / "backend/gate/gate_runner_live.py"
+    if not demo_file.exists() or not live_file.exists():
+        return
+
+    # Keys that are intentionally present only in one runner
+    LIVE_ONLY = {"mode"}    # "LIVE — real money" label
+    DEMO_ONLY: set = set()  # add any demo-only keys here if needed
+
+    def extract_ctx_keys(source: str, fn_name: str) -> set:
+        """
+        Walk the AST of fn_name and collect all string literals used as:
+          ctx["key"] = ...        (Subscript assignment)
+          ctx.update({"key": ...}) (keyword in Call)
+        """
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return set()
+
+        # Find the function def
+        fn_node = None
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == fn_name:
+                fn_node = node
+                break
+        if fn_node is None:
+            return set()
+
+        keys: set = set()
+        for node in ast.walk(fn_node):
+            # ctx["key"] = value
+            if (isinstance(node, ast.Assign)
+                    and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Subscript)
+                    and isinstance(node.targets[0].value, ast.Name)
+                    and node.targets[0].value.id == "ctx"):
+                slice_node = node.targets[0].slice
+                if isinstance(slice_node, ast.Constant) and isinstance(slice_node.value, str):
+                    keys.add(slice_node.value)
+
+            # ctx.update({...})
+            if (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "update"
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "ctx"):
+                for arg in node.args:
+                    if isinstance(arg, ast.Dict):
+                        for k in arg.keys:
+                            if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                                keys.add(k.value)
+                for kw in node.keywords:
+                    if isinstance(kw.value, ast.Dict):
+                        for k in kw.value.keys:
+                            if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                                keys.add(k.value)
+
+        return keys
+
+    demo_keys = extract_ctx_keys(demo_file.read_text(), "_build_claude_context") - LIVE_ONLY
+    live_keys = extract_ctx_keys(live_file.read_text(), "_build_context") - DEMO_ONLY
+
+    for k in sorted(demo_keys - live_keys):
+        flag(12, "Lock3 context parity", "CRITICAL",
+             "backend/gate/gate_runner_live.py:_build_context",
+             f"key '{k}' in demo _build_claude_context but missing from live _build_context")
+
+    for k in sorted(live_keys - demo_keys):
+        flag(12, "Lock3 context parity", "WARNING",
+             "backend/gate/gate_runner.py:_build_claude_context",
+             f"key '{k}' in live _build_context but missing from demo _build_claude_context")
+
+
 # ── CHECK 11 — NaN/null config pipeline ──────────────────────────────────────
 
 def check11():
@@ -230,12 +314,13 @@ def update_registry():
 def write_report(retirement_candidates):
     REPORT.parent.mkdir(exist_ok=True)
 
-    mechanical_checks = {3, 4, 5, 6, 9, 10, 11}
+    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12}
     rows = []
     check_names = {
         3: "Fractional qty", 4: "Config parity", 5: "Sector name strings",
         6: "Test DB isolation", 9: "Config value drift",
         10: "Ticker data coverage", 11: "NaN/null pipeline",
+        12: "Lock3 context parity",
     }
 
     # One clean row per check that had no findings
@@ -281,5 +366,6 @@ if __name__ == "__main__":
     check9()
     check10()
     check11()
+    check12()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])

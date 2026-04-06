@@ -18,6 +18,7 @@ Columns: `last_triggered` = most recent date the check found an issue. `last_cle
 | 9 | Config value drift | 2026-03-28 | backtest-derived bounds for lock1_threshold/vix_threshold/take_profit_pct ignored after manual edits | data/demo_config.json,data/live_config.json | 2026-04-03 | — |
 | 10 | Ticker signal data coverage | 2026-03-29 | all tickers classified weak due to insufficient days in window; no error raised | backend/db.py,backend/sector_regime.py | 2026-04-03 | — |
 | 11 | NaN/null config pipeline | 2026-04-02 | parseFloat("") = NaN serialized to null; Python .get(key,default) returned None not default; delta<=None threw TypeError | frontend/src/App.jsx,backend/gate/lock_macro.py | 2026-04-03 | — |
+| 12 | Lock3 context parity | 2026-04-06 | regime_bayes_* keys added to demo _build_claude_context but never synced to live _build_context; Lock 3 made live decisions without Bayesian sector data | backend/gate/gate_runner.py,backend/gate/gate_runner_live.py | 2026-04-06 | — |
 
 ---
 
