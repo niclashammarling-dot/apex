@@ -278,8 +278,8 @@ def _build_claude_context(signal: dict, l2: dict, l_leading: dict,
                 "rotation_regime_conditioned": forecast.get("regime_conditioned"),  # True = regime-specific matrix
                 "rotation_regime_sample_size": forecast.get("regime_sample_size"),  # transitions in this regime
             })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Gate [{signal['ticker']}]: rotation forecast unavailable — {e}")
 
     # Rotation score — pre-computed once per gate cycle, passed in from run()
     if rotation_scores is not None:
@@ -303,8 +303,8 @@ def _build_claude_context(signal: dict, l2: dict, l_leading: dict,
         fails = get_ticker_gate_fails(signal["ticker"], limit=5)
         if fails:
             ctx["ticker_gate_history"] = fails
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Gate [{signal['ticker']}]: gate fail history unavailable — {e}")
 
     return ctx
 
