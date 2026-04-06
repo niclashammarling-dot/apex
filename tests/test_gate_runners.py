@@ -131,6 +131,13 @@ def _demo_patches(candidates, open_tickers=None, failed_tickers=None,
         patch("backend.gate.gate_runner.lock3_claude.evaluate",
               return_value=l3 or _lock_pass()),
         patch("backend.gate.gate_runner.wallet.execute_trade", return_value=trade_result),
+        # Lazy imports for rotation + Bayesian — patch at source so tests don't
+        # touch the DB and are not affected by empty-DB edge cases
+        patch("backend.sector_transitions.compute_ticker_rotation_scores", return_value={}),
+        patch("backend.sector_transitions.get_rotation_forecast",
+              return_value={"available": False, "watching": [], "likely_next": []}),
+        patch("backend.scheduler._get_regime_bayes",
+              return_value=MagicMock(last_result=MagicMock(return_value=None))),
     ]
 
 
@@ -258,12 +265,14 @@ class TestDemoGateRunner:
         boom = patch("backend.gate.gate_runner.lock1_quant.evaluate",
                      side_effect=RuntimeError("upstream exploded"))
         with ExitStack() as stack:
-            for p in patches:
-                stack.enter_context(p)
+            mocks = [stack.enter_context(p) for p in patches]
             stack.enter_context(boom)
             from backend.gate import gate_runner
             results = gate_runner.run()
         assert results == []
+        # Exception during evaluation — nothing should be written to DB for that ticker
+        insert_mock = mocks[8]  # insert_demo_gate_result
+        insert_mock.assert_not_called()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -321,6 +330,12 @@ def _live_patches(candidates, open_tickers=None, failed_tickers=None,
         # Alerts
         patch("backend.alerts.alert_daily_loss_cap"),
         patch("backend.alerts.alert_trade_executed"),
+        # Lazy imports for rotation + Bayesian — patch at source
+        patch("backend.sector_transitions.compute_ticker_rotation_scores", return_value={}),
+        patch("backend.sector_transitions.get_rotation_forecast",
+              return_value={"available": False, "watching": [], "likely_next": []}),
+        patch("backend.scheduler._get_regime_bayes",
+              return_value=MagicMock(last_result=MagicMock(return_value=None))),
     ]
 
 
@@ -355,12 +370,14 @@ class TestLiveGateRunner:
         boom = patch("backend.brokers.alpaca.get_account",
                      side_effect=Exception("connection refused"))
         with ExitStack() as stack:
-            for p in patches:
-                stack.enter_context(p)
+            mocks = [stack.enter_context(p) for p in patches]
             stack.enter_context(boom)
             from backend.gate import gate_runner_live
             results = gate_runner_live.run()
         assert results == []
+        # Pre-flight failure — no evaluation happened, nothing written to DB
+        insert_mock = mocks[7]  # insert_live_gate_result
+        insert_mock.assert_not_called()
 
     def test_daily_loss_cap_exceeded_returns_empty(self):
         results, _ = _run_live(candidates=[_signal()],
