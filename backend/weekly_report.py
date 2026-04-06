@@ -17,6 +17,24 @@ from pathlib import Path
 
 from loguru import logger
 
+_SENT_MARKER = Path(__file__).parent.parent / "data" / "weekly_report_sent.txt"
+
+
+def _this_week_label() -> str:
+    """ISO week string for the current week, e.g. '2026-W14'."""
+    now = datetime.now(timezone.utc)
+    return now.strftime("%G-W%V")
+
+
+def _mark_sent() -> None:
+    _SENT_MARKER.write_text(_this_week_label())
+
+
+def was_sent_this_week() -> bool:
+    if not _SENT_MARKER.exists():
+        return False
+    return _SENT_MARKER.read_text().strip() == _this_week_label()
+
 _COMMENTARY_SYSTEM = """You are the analytics engine for APEX, an automated paper-trading signal system.
 Each Friday you receive a week's performance data and write a concise analyst commentary included in the operator report email.
 
@@ -700,5 +718,6 @@ def send_weekly_report() -> None:
             logger.info(f"Weekly report built (no channel configured):\n{plain}")
         else:
             logger.info("Weekly report sent")
+        _mark_sent()
     except Exception as e:
         logger.error(f"Weekly report failed: {e}")

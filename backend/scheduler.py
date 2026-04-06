@@ -303,6 +303,25 @@ def prune_old_signals() -> None:
         logger.info(f"Sector snapshot pruning: removed {snap_deleted} old rows")
 
 
+def _check_missed_weekly_report() -> None:
+    """
+    Fire the weekly report immediately on startup if the server was down
+    when it was scheduled (Friday 16:05 ET) and it hasn't been sent yet
+    this week.
+    """
+    from backend.weekly_report import send_weekly_report, was_sent_this_week
+    now = datetime.now(NY)
+    # Only relevant if it's Friday after 16:05 or the weekend (Sat/Sun)
+    day = now.weekday()  # 0=Mon … 4=Fri, 5=Sat, 6=Sun
+    past_friday_close = (
+        (day == 4 and now.time() >= time(16, 5)) or
+        day in (5, 6)
+    )
+    if past_friday_close and not was_sent_this_week():
+        logger.warning("Weekly report was missed (server was down at scheduled time) — sending now")
+        send_weekly_report()
+
+
 def start_scheduler() -> None:
     scheduler.add_job(
         poll_all_sectors,
@@ -412,6 +431,7 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
     scheduler.start()
+    _check_missed_weekly_report()
     logger.info(
         f"Scheduler started — sectors every {POLL_INTERVAL_SECTORS}m, "
         f"gate every {GATE_INTERVAL}m, "
