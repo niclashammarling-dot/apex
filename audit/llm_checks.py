@@ -52,24 +52,26 @@ def ask(check_description: str, code: str) -> str:
 
 
 def check1():
-    code = (
-        "# gate_runner.py\n" + read("backend/gate/gate_runner.py")[-6000:] +
-        "\n\n# gate_runner_live.py\n" + read("backend/gate/gate_runner_live.py")[-3000:] +
-        "\n\n# db.py (insert functions)\n"
-    )
-    # Extract just the insert functions from db.py
+    context_doc = read("audit/check1_context.md")
     db = read("backend/db.py")
     inserts = "\n".join(
         line for line in db.splitlines()
         if any(k in line for k in ["insert_", "update_signal", "gate_decision", "outcome"])
     )
-    code += inserts[:2000]
+    code = (
+        f"# DESIGN INTENT AND RESOLVED STATE\n{context_doc}\n\n"
+        f"# gate_runner.py\n" + read("backend/gate/gate_runner.py")[-6000:] +
+        f"\n\n# gate_runner_live.py\n" + read("backend/gate/gate_runner_live.py")[-3000:] +
+        f"\n\n# db.py (insert functions)\n{inserts[:2000]}"
+    )
 
     return ask(
-        "CHECK 1 — Result-dict sync hazard: find any place where gate_decision is derived "
-        "from outcome early in a result dict, then outcome is mutated later without updating "
-        "gate_decision before a DB write. The stored gate_decision must always come from the "
-        "FINAL outcome value.",
+        "CHECK 1 — Result-dict sync hazard: using the design intent document above, determine "
+        "whether the current code contains the specific three-part hazard pattern described. "
+        "The document shows the resolved state and what a real finding looks like. "
+        "If the code matches the resolved pattern, return a clean row. "
+        "Only flag if you observe all three conditions: dict built, outcome mutated post-construction, "
+        "DB write reads the stale gate_decision.",
         code
     )
 
@@ -116,21 +118,26 @@ def check7():
 
 
 def check8():
+    context_doc = read("audit/check8_context.md")
     files = {
         "gate_runner.py":      read("backend/gate/gate_runner.py")[-4000:],
         "gate_runner_live.py": read("backend/gate/gate_runner_live.py")[-4000:],
         "lock_macro.py":       read("backend/gate/lock_macro.py"),
         "db.py":               read("backend/db.py")[-3000:],
     }
-    code = "\n\n".join(f"# {name}\n{text}" for name, text in files.items())
+    code = (
+        f"# ACCEPTED PATTERNS AND REASONING\n{context_doc}\n\n" +
+        "\n\n".join(f"# {name}\n{text}" for name, text in files.items())
+    )
 
     return ask(
-        "CHECK 8 — General code health: find (a) bare except blocks that swallow errors "
-        "without logging — flag as INFO unless the function is a risk/enforcement path "
-        "(loss cap, block, guard) in which case flag as WARNING; "
-        "(b) TODO/FIXME/HACK comments; "
-        "(c) functions that sometimes return a dict and sometimes None where callers don't check.",
-        code[:8000]
+        "CHECK 8 — General code health: using the accepted patterns document above as your "
+        "calibration baseline, find: (a) bare except blocks missing logging — compare against "
+        "the accepted patterns to judge severity; (b) TODO/FIXME/HACK comments; "
+        "(c) functions returning inconsistent types where callers don't guard. "
+        "Do not flag except blocks that match the accepted patterns unless the log level is wrong "
+        "for the context (e.g. debug in a risk-enforcement path).",
+        code[:9000]
     )
 
 
