@@ -78,18 +78,13 @@ def live_equity(period: str = "1M"):
     _require_live()
     try:
         from backend.brokers import alpaca as broker
+        from backend.db import get_live_equity_curve
 
-        points = broker.get_portfolio_history(period=period)
-
-        # Annotate the last point as MTM with unrealised P&L — Alpaca's daily series
-        # already reflects current equity, so we annotate in place rather than appending
-        # a second point (which would use a different equity calculation and cause a gap).
-        if points:
-            positions  = broker.get_positions()
-            unrealised = round(sum(p["unrealized_pnl"] or 0 for p in positions), 2)
-            points[-1] = {**points[-1], "mtm": True, "unrealised": unrealised}
-
-        return points
+        # Build curve from live_trades DB (same approach as demo wallet equity),
+        # using Alpaca positions for current prices of open trades.
+        positions      = broker.get_positions()
+        current_prices = {p["ticker"]: p["current_price"] for p in positions if p.get("current_price")}
+        return get_live_equity_curve(current_prices=current_prices)
     except Exception as e:
         logger.error(f"live_equity: {e}")
         raise HTTPException(status_code=502, detail=f"Alpaca error: {e}")

@@ -934,6 +934,55 @@ def get_equity_curve(current_prices: dict[str, float] | None = None) -> list[dic
         conn.close()
 
 
+def get_live_equity_curve(current_prices: dict[str, float] | None = None) -> list[dict]:
+    """
+    Running balance over time from closed live trades, plus a live MTM 'Now' point.
+    Mirrors get_equity_curve() but reads from live_trades instead of trades.
+    current_prices: {ticker: price} for open positions — supplied by caller from Alpaca.
+    """
+    from backend.config import STARTING_BALANCE
+    from datetime import datetime, timezone
+    conn = get_db()
+    try:
+        closed = conn.execute("""
+            SELECT exited_at AS ts, pnl
+            FROM live_trades
+            WHERE outcome IN ('WIN', 'LOSS') AND exited_at IS NOT NULL
+            ORDER BY exited_at ASC
+        """).fetchall()
+
+        points = [{"ts": "Start", "balance": STARTING_BALANCE, "mtm": False}]
+        balance = STARTING_BALANCE
+        for r in closed:
+            balance += r["pnl"] or 0
+            points.append({"ts": r["ts"][:10], "balance": round(balance, 2), "mtm": False})
+
+        # Mark open positions to market
+        open_trades = conn.execute("""
+            SELECT ticker, entry_price, notional
+            FROM live_trades
+            WHERE outcome = 'OPEN'
+        """).fetchall()
+
+        unrealised = 0.0
+        for t in open_trades:
+            price = (current_prices or {}).get(t["ticker"])
+            if price and t["entry_price"] and t["entry_price"] > 0:
+                unrealised += t["notional"] * (price - t["entry_price"]) / t["entry_price"]
+
+        now_ts = datetime.now(timezone.utc).strftime("%m/%d %H:%M")
+        points.append({
+            "ts":         now_ts,
+            "balance":    round(balance + unrealised, 2),
+            "mtm":        True,
+            "unrealised": round(unrealised, 2),
+        })
+
+        return points
+    finally:
+        conn.close()
+
+
 def get_portfolio_summary() -> dict:
     """Lightweight summary for risk checks during trade execution."""
     from backend.config import STARTING_BALANCE
