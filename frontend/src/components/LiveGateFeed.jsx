@@ -83,6 +83,18 @@ export default function LiveGateFeed({ history, funnel }) {
     );
   }
 
+  // Collapse consecutive rows with same ticker + decision into one group
+  const grouped = history.reduce((acc, row) => {
+    const prev = acc[acc.length - 1];
+    if (prev && prev.ticker === row.ticker && prev.gate_decision === row.gate_decision) {
+      prev._count += 1;
+      prev._lastTs = row.timestamp;
+    } else {
+      acc.push({ ...row, _count: 1, _lastTs: row.timestamp });
+    }
+    return acc;
+  }, []);
+
   return (
     <div className="card">
       <div
@@ -111,13 +123,16 @@ export default function LiveGateFeed({ history, funnel }) {
           </tr>
         </thead>
         <tbody>
-          {history.map((row, i) => {
-            const ts = row.timestamp
-              ? new Date(row.timestamp).toLocaleString("en-US", {
+          {grouped.map((row, i) => {
+            const fmt = ts => ts
+              ? new Date(ts).toLocaleString("en-US", {
                   month: "2-digit", day: "2-digit",
                   hour: "2-digit", minute: "2-digit", hour12: false,
                 })
               : "—";
+            const ts = row._count > 1
+              ? `${fmt(row.timestamp)} – ${fmt(row._lastTs)}`
+              : fmt(row.timestamp);
             const { cls, label } = decisionBadge(row.gate_decision);
             const isSkipped      = row.gate_decision === "SKIPPED_OPEN" || row.gate_decision === "SKIPPED_COOLOFF";
             const hasDetail      = !isSkipped && !!(row.lock3_reasoning || row.lock_leading_checks || row.l2_summary || row.macro_reason);
@@ -155,7 +170,7 @@ export default function LiveGateFeed({ history, funnel }) {
                   )}
                 </td>
                 <td>
-                  <span className={`gate-badge ${cls}`}>{label}</span>
+                  <span className={`gate-badge ${cls}`}>{label}{row._count > 1 ? ` ×${row._count}` : ""}</span>
                   {row.alpaca_order_id && (
                     <span style={{ marginLeft: 8, fontSize: 11, color: "var(--text-3)", fontFamily: "'DM Mono', monospace" }}>
                       #{row.alpaca_order_id.slice(0, 8)}
