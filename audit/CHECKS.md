@@ -23,6 +23,7 @@ Columns: `last_triggered` = most recent date the check found an issue. `last_cle
 | 14 | EOD regime freshness | 2026-04-06 | server downtime on April 3-4 meant EOD regime missed multiple days; Bayesian posteriors were stale going into Monday | data/apex.db | — | 2026-04-07 |
 | 15 | Calibration freshness | 2026-04-06 | server not running at Sunday 3 AM meant per-sector thresholds missed two consecutive weekly recalibrations; post-crash distributions unrepresented | data/calibration_done.txt | — | 2026-04-07 |
 | 16 | yfinance scalar extraction | 2026-04-06 | newer yfinance returns multi-column DataFrame for single-ticker downloads; .iloc[-1] yields Series not scalar, silently breaking VIX gate | backend/ | 2026-04-06 | 2026-04-07 |
+| 18 | Audit pipeline completeness | 2026-04-07 | verify_llm_findings.py existed for weeks without being called — dead tool caught nothing | audit/ | — | 2026-04-07 |
 | 17 | Sentiment cache freshness | 2026-04-06 | rdt-cli output was raw YAML noise until parser was added; a prefetch before the fix would have stored garbage silently | backend/sentiment_prefetch.py,data/apex.db | — | 2026-04-07 |
 
 ---

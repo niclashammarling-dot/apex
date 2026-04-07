@@ -101,6 +101,12 @@ None
 
 Status: `✓` = clean, `⚠` = has findings. Sev: CRITICAL / WARNING / INFO / —. Multiple findings = multiple rows. File:line mandatory for every non-clean row.
 
+### CHECK 18 — Audit pipeline completeness
+Every `.py` script in `audit/` must be explicitly called somewhere in these instructions.
+- List all `.py` files in `audit/` (excluding `__pycache__`).
+- Verify each one appears in a `python3 audit/...` command in this file.
+- Flag any script present in `audit/` but not referenced here as WARNING — it is dead code.
+
 ### Update the registry
 
 After writing the report, run this Python script. Set `triggered` to check numbers that had at least one finding.
