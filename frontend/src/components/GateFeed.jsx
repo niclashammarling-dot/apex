@@ -82,6 +82,18 @@ export default function GateFeed({ history, funnel }) {
 
   if (!history) return null;
 
+  // Collapse consecutive rows with same ticker + decision into one group
+  const grouped = history.reduce((acc, row) => {
+    const prev = acc[acc.length - 1];
+    if (prev && prev.ticker === row.ticker && prev.gate_decision === row.gate_decision) {
+      prev._count += 1;
+      prev._lastTs = row.timestamp;
+    } else {
+      acc.push({ ...row, _count: 1, _lastTs: row.timestamp });
+    }
+    return acc;
+  }, []);
+
   return (
     <div className="card">
       <div
@@ -116,12 +128,15 @@ export default function GateFeed({ history, funnel }) {
               </tr>
             </thead>
             <tbody>
-              {history.map((row, i) => {
+              {grouped.map((row, i) => {
                 const meta = OUTCOME_LABELS[row.gate_decision] || { label: row.gate_decision, cls: "gate-fail" };
                 const isSkipped  = row.gate_decision === "SKIPPED_OPEN" || row.gate_decision === "SKIPPED_COOLOFF";
                 const hasDetail  = !isSkipped && !!(row.lock3_reasoning || row.lock_leading_checks || row.l2_summary || row.macro_reason);
                 const isExpanded = expanded[i];
                 const checks     = row.lock_leading_checks;
+                const ts = row._count > 1
+                  ? `${fmtTime(row.timestamp)} – ${fmtTime(row._lastTs)}`
+                  : fmtTime(row.timestamp);
                 return (
                   <>
                     <tr
@@ -129,7 +144,7 @@ export default function GateFeed({ history, funnel }) {
                       style={{ cursor: hasDetail ? "pointer" : "default" }}
                       onClick={() => hasDetail && setExpanded(e => ({ ...e, [i]: !e[i] }))}
                     >
-                      <td className="muted">{fmtTime(row.timestamp)}</td>
+                      <td className="muted">{ts}</td>
                       <td>
                         <strong>{row.ticker}</strong>
                         {hasDetail && (
@@ -154,7 +169,7 @@ export default function GateFeed({ history, funnel }) {
                         )}
                       </td>
                       <td>
-                        <span className={`gate-badge ${meta.cls}`}>{meta.label}</span>
+                        <span className={`gate-badge ${meta.cls}`}>{meta.label}{row._count > 1 ? ` ×${row._count}` : ""}</span>
                       </td>
                     </tr>
                     {isExpanded && hasDetail && (
