@@ -726,10 +726,10 @@ def get_audit_reports():
     reports = []
     for path in sorted(_AUDIT_DIR.glob("nightly-report-*.md"), reverse=True):
         content = path.read_text()
-        # Extract summary line: "X issues found: Y critical, Z warnings, W info"
+        # Extract summary line: "N issues: X critical, Y warnings, Z info"
         summary = None
         for line in content.splitlines():
-            if "issues found" in line or "Clean" in line:
+            if re.search(r'\d+\s+issues?:', line) or "0 issues" in line:
                 summary = line.strip("# ").strip()
                 break
         date = path.stem.replace("nightly-report-", "")

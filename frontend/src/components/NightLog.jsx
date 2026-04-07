@@ -98,27 +98,41 @@ const styles = `
 .audit-markdown .md-clean    { color: #4ade80; }
 `;
 
-function badge(summary) {
-  if (!summary) return { label: "—", cls: "info" };
-  const low = summary.toLowerCase();
-  if (/0 issues|✓ clean/i.test(low)) return { label: "Clean", cls: "clean" };
-  const crit = low.match(/(\d+)\s+critical/);
-  if (crit && parseInt(crit[1]) > 0) return { label: `${crit[1]} critical`, cls: "critical" };
-  const warn = low.match(/(\d+)\s+warn/);
-  if (warn && parseInt(warn[1]) > 0) return { label: `${warn[1]} warnings`, cls: "warning" };
-  return { label: "Info", cls: "info" };
+function parseCounts(summary) {
+  if (!summary) return { crit: 0, warn: 0, info: 0, known: false };
+  const crit = summary.match(/(\d+)\s+critical/i);
+  const warn = summary.match(/(\d+)\s+warn/i);
+  const info = summary.match(/(\d+)\s+info/i);
+  const known = !!(crit || warn || info);
+  return {
+    crit: crit ? parseInt(crit[1]) : 0,
+    warn: warn ? parseInt(warn[1]) : 0,
+    info: info ? parseInt(info[1]) : 0,
+    known,
+  };
 }
 
 function AuditEntry({ report }) {
   const [open, setOpen] = useState(false);
-  const { label, cls } = badge(report.summary);
+  const { crit, warn, info, known } = parseCounts(report.summary);
+  const isClean = known && crit === 0 && warn === 0;
 
   return (
     <div className="audit-entry">
       <div className="audit-entry-header" onClick={() => setOpen(o => !o)}>
         <span className="audit-date">{report.date}</span>
-        <span className={`audit-badge ${cls}`}>{label}</span>
-        <span className="audit-summary">{report.summary || "No summary"}</span>
+        {!known ? (
+          <span className="audit-badge info">—</span>
+        ) : isClean ? (
+          <span className="audit-badge clean">Clean</span>
+        ) : (
+          <>
+            {crit > 0 && <span className="audit-badge critical">{crit} critical</span>}
+            {warn > 0 && <span className="audit-badge warning">{warn} warnings</span>}
+            {info > 0 && <span className="audit-badge info">{info} info</span>}
+          </>
+        )}
+        <span className="audit-summary">{report.summary || ""}</span>
         <span className={`audit-chevron ${open ? "open" : ""}`}>▶</span>
       </div>
       {open && (
