@@ -78,7 +78,23 @@ def live_equity(period: str = "1M"):
     _require_live()
     try:
         from backend.brokers import alpaca as broker
-        return broker.get_portfolio_history(period=period)
+        from datetime import datetime, timezone
+
+        points = broker.get_portfolio_history(period=period)
+
+        # Append a live MTM "Now" point — mirrors demo equity curve format
+        positions  = broker.get_positions()
+        unrealised = round(sum(p["unrealized_pnl"] or 0 for p in positions), 2)
+        acct       = broker.get_account()
+        now_ts     = datetime.now(timezone.utc).strftime("%m/%d %H:%M")
+        points.append({
+            "ts":         now_ts,
+            "balance":    round(float(acct["equity"]), 2),
+            "mtm":        True,
+            "unrealised": unrealised,
+        })
+
+        return points
     except Exception as e:
         logger.error(f"live_equity: {e}")
         raise HTTPException(status_code=502, detail=f"Alpaca error: {e}")
