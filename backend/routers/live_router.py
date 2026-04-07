@@ -80,11 +80,12 @@ def live_equity(period: str = "1M"):
         from backend.brokers import alpaca as broker
         from backend.db import get_live_equity_curve
 
-        # Build curve from live_trades DB (same approach as demo wallet equity),
-        # using Alpaca positions for current prices of open trades.
+        # Build curve from live_trades DB (same approach as demo wallet equity).
+        # Use Alpaca's unrealized_pnl directly — it knows the actual fill price
+        # and integer qty, which differ from our DB signal prices.
         positions      = broker.get_positions()
-        current_prices = {p["ticker"]: p["current_price"] for p in positions if p.get("current_price")}
-        return get_live_equity_curve(current_prices=current_prices)
+        unrealised     = sum(p["unrealized_pnl"] or 0 for p in positions)
+        return get_live_equity_curve(unrealised_total=unrealised)
     except Exception as e:
         logger.error(f"live_equity: {e}")
         raise HTTPException(status_code=502, detail=f"Alpaca error: {e}")

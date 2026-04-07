@@ -57,7 +57,7 @@ BASE_WIN_RATE        = 0.55
 WIN_RATE_MIN_TRADES  = 20  # use rolling win rate only after this many closed trades
 
 # --- Live starting balance (used for drawdown calc in Lock 3 context) ---
-LIVE_STARTING_BALANCE = float(os.getenv("LIVE_STARTING_BALANCE", "2000.0"))
+LIVE_STARTING_BALANCE = float(os.getenv("LIVE_STARTING_BALANCE", "100000.0"))
 
 # --- Live gate thresholds — defaults only. Runtime values live in data/live_config.json
 # (written by the Promote feature). Import get_live_config() to read effective values.
