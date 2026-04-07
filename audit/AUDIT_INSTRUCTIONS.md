@@ -143,6 +143,11 @@ for num, name, days in retirement_candidates:
 PYEOF
 ```
 
+Run the LLM finding verifier — strips template artifacts and tags unverified findings in place:
+```
+python3 audit/verify_llm_findings.py
+```
+
 Commit the report and registry to master:
 ```
 git add audit/nightly-report-YYYY-MM-DD.md audit/CHECKS.md
