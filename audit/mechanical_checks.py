@@ -347,15 +347,15 @@ def check11():
                     flag(11, "NaN/null pipeline", "WARNING", f"frontend/src/App.jsx:{i}",
                          "parseFloat(val) without empty-string guard")
 
-    macro = REPO / "backend/gate/lock_macro.py"
-    if macro.exists():
-        text = macro.read_text()
+    eligibility = REPO / "backend/gate/lock1_eligibility.py"
+    if eligibility.exists():
+        text = eligibility.read_text()
         keys = ["macro_event_blackout_days", "macro_earnings_blackout_days",
                 "vix_threshold", "gate_cooloff_hours"]
         for i, line in enumerate(text.splitlines(), 1):
             for k in keys:
                 if f'cfg.get("{k}",' in line or f"cfg.get('{k}'," in line:
-                    flag(11, "NaN/null pipeline", "WARNING", f"backend/gate/lock_macro.py:{i}",
+                    flag(11, "NaN/null pipeline", "WARNING", f"backend/gate/lock1_eligibility.py:{i}",
                          f"cfg.get({k!r}, default) — default won't fire for stored None")
 
 

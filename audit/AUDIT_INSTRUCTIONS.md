@@ -79,7 +79,7 @@ Flag any value outside these bounds:
 
 ### CHECK 11 — NaN/null config pipeline
 - Frontend `frontend/src/App.jsx`: find any `parseFloat(val)` without empty-string guard. `parseFloat("")` = NaN; `NaN ?? ""` does not fall back. Correct: `val === "" ? null : parseFloat(val)`.
-- Backend `backend/gate/lock_macro.py`: find `cfg.get(key, default)` for numeric fields used in comparisons. Stored None bypasses the default. Check: `macro_event_blackout_days`, `macro_earnings_blackout_days`, `vix_threshold`, `gate_cooloff_hours`.
+- Backend `backend/gate/lock1_eligibility.py`: find `cfg.get(key, default)` for numeric fields used in comparisons. Stored None bypasses the default. Check: `macro_event_blackout_days`, `macro_earnings_blackout_days`, `vix_threshold`, `gate_cooloff_hours`.
 
 ### Output format
 
@@ -100,6 +100,13 @@ None
 ```
 
 Status: `✓` = clean, `⚠` = has findings. Sev: CRITICAL / WARNING / INFO / —. Multiple findings = multiple rows. File:line mandatory for every non-clean row.
+
+### CHECK 19 — Breakout volume floor integrity
+Verify that breakout signal classification enforces minimum volume backing.
+- Confirm `BREAKOUT_MIN_VOLUME` is defined in `backend/sector_regime.py` and set to ≥ 0.40.
+- Confirm `get_latest_ticker_volume_scores()` exists in `backend/db.py` and its query anchors to `DATE(timestamp) < DATE('now')` (EOD, not intraday).
+- Confirm `compute_ticker_signals()` calls `get_latest_ticker_volume_scores()` and applies the floor before assigning `signal = "breakout"`.
+- Flag any breakout classification path that bypasses the volume check as CRITICAL.
 
 ### CHECK 18 — Audit pipeline completeness
 Every `.py` script in `audit/` must be explicitly called somewhere in these instructions.

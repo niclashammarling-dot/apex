@@ -122,7 +122,7 @@ def check8():
     files = {
         "gate_runner.py":      read("backend/gate/gate_runner.py")[-4000:],
         "gate_runner_live.py": read("backend/gate/gate_runner_live.py")[-4000:],
-        "lock_macro.py":       read("backend/gate/lock_macro.py"),
+        "lock1_eligibility.py": read("backend/gate/lock1_eligibility.py"),
         "db.py":               read("backend/db.py")[-3000:],
     }
     code = (

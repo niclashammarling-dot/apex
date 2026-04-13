@@ -1,10 +1,9 @@
 """
-Gate lock tests — covers edge cases for all five locks:
-  - lock1_quant
-  - lock_macro
-  - lock2_sentiment
-  - lock_leading
-  - lock3_claude
+Gate lock tests — covers edge cases for the individual lock modules.
+Legacy lock modules (lock1_quant, lock_macro, lock2_sentiment, lock_leading,
+lock3_claude) are kept for backward reference but are superseded by the
+new chain: lock1_eligibility → lock2_quant → lock3_sentiment → lock4_leading
+→ lock5_claude.
 
 All external I/O (yfinance, httpx, OpenAI, EDGAR, RSS) is mocked so
 tests run offline and deterministically without API keys.
