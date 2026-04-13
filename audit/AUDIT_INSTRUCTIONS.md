@@ -108,6 +108,12 @@ Verify that breakout signal classification enforces minimum volume backing.
 - Confirm `compute_ticker_signals()` calls `get_latest_ticker_volume_scores()` and applies the floor before assigning `signal = "breakout"`.
 - Flag any breakout classification path that bypasses the volume check as CRITICAL.
 
+### CHECK 20 — Import path integrity after restructuring
+Verify all Python files in `backend/gate/` use fully-qualified `backend.*` import paths, not bare package names.
+- Grep `backend/gate/` for `^from gate\.` and `^import gate\.` (bare `gate` without `backend.` prefix).
+- Flag any match as CRITICAL — bare imports fail at runtime with ModuleNotFoundError when the app runs from the project root.
+- Also check `backend/gate/chain.py` specifically: all lock imports must be `from backend.gate.lockN_* import`.
+
 ### CHECK 18 — Audit pipeline completeness
 Every `.py` script in `audit/` must be explicitly called somewhere in these instructions.
 - List all `.py` files in `audit/` (excluding `__pycache__`).
