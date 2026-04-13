@@ -9,6 +9,7 @@ Usage:
 """
 import json
 from pathlib import Path
+
 from loguru import logger
 
 _CONFIG_PATH = Path(__file__).parent.parent / "data" / "tickers.json"

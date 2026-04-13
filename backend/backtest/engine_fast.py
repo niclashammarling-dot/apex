@@ -20,15 +20,20 @@ import yfinance as yf
 from loguru import logger
 
 from backend.config import (
-    SECTORS, SPY_TICKER,
+    DAILY_LOSS_CAP,
     LOCK1_THRESHOLD,
-    TAKE_PROFIT_PCT, STOP_LOSS_PCT, TIME_STOP_DAYS,
-    MAX_POSITIONS, MAX_SECTOR_EXPOSURE, MAX_POSITION_SIZE, DAILY_LOSS_CAP,
-    BASE_WIN_RATE, WIN_RATE_MIN_TRADES,
+    MAX_POSITION_SIZE,
+    MAX_POSITIONS,
+    MAX_SECTOR_EXPOSURE,
+    SECTORS,
+    SPY_TICKER,
+    STOP_LOSS_PCT,
+    TAKE_PROFIT_PCT,
+    TIME_STOP_DAYS,
+    WIN_RATE_MIN_TRADES,
 )
-from backend.signals import momentum, volume, aggregator, trend, relative_strength
+from backend.signals import aggregator, momentum, relative_strength, trend, volume
 from backend.signals.ev_kelly import compute as ev_kelly_compute
-
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -680,8 +685,8 @@ def _mark_to_market_fast(
 # ── Shared helpers (unchanged from original engine) ───────────────────────────
 
 def _download_all(tickers: list[str], start: date, end: date) -> pd.DataFrame:
-    from pathlib import Path
     import hashlib
+    from pathlib import Path
 
     cache_dir = Path(__file__).parent.parent.parent / "data" / "backtest_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)

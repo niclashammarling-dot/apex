@@ -6,7 +6,7 @@ live_gate_history table for gate feed history.
 from fastapi import APIRouter, HTTPException
 from loguru import logger
 
-from backend.config import LIVE_ENABLED, ALPACA_BASE_URL
+from backend.config import ALPACA_BASE_URL, LIVE_ENABLED
 
 router = APIRouter(prefix="/api/live")
 
@@ -99,9 +99,14 @@ def live_trades():
 
 @router.get("/gate/history")
 def live_gate_history(limit: int = 100):
-    from backend.db import get_live_gate_history, get_live_gate_funnel_counts, get_ticker_thresholds
-    from backend.live_config import get_live_config
     import json as _json
+
+    from backend.db import (
+        get_live_gate_funnel_counts,
+        get_live_gate_history,
+        get_ticker_thresholds,
+    )
+    from backend.live_config import get_live_config
     rows = get_live_gate_history(limit)
     thresholds = get_ticker_thresholds()
     flat = get_live_config().get("lock1_threshold", 0.5)
@@ -123,8 +128,8 @@ def compare_performance():
     Live stats come from Alpaca. Demo stats come from local trades table.
     Returns nulls for live side when LIVE_ENABLED=false.
     """
-    from backend.db import get_all_trades
     from backend.config import STARTING_BALANCE
+    from backend.db import get_all_trades
 
     # ── Demo stats ────────────────────────────────────────────────────────────
     trades        = get_all_trades()
@@ -196,7 +201,7 @@ def compare_performance():
 @router.get("/config")
 def get_live_config_endpoint():
     """Return current live config alongside demo thresholds for comparison."""
-    from backend.live_config import get_live_config, demo_thresholds
+    from backend.live_config import demo_thresholds, get_live_config
     return {
         "live":  get_live_config(),
         "demo":  demo_thresholds(),

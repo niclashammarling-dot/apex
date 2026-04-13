@@ -34,7 +34,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
@@ -42,7 +42,6 @@ from typing import Optional
 import requests
 import yfinance as yf
 from loguru import logger
-
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 

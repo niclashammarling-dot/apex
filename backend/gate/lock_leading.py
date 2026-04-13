@@ -11,10 +11,10 @@ Passes when at least `min_pass` (default 2) of the 4 checks pass.
 Each check returns {"pass": bool, ...detail fields...} so callers can log
 and display which checks passed or failed.
 """
-import json
+from datetime import datetime, timedelta, timezone
+
 import requests
 import yfinance as yf
-from datetime import datetime, timedelta, timezone
 from loguru import logger
 
 SECTOR_ETF = {

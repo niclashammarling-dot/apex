@@ -62,8 +62,8 @@ def _week_start_iso() -> str:
 # ── Data queries ──────────────────────────────────────────────────────────────
 
 def _demo_stats(since: str) -> dict:
-    from backend.db import get_db
     from backend.config import STARTING_BALANCE
+    from backend.db import get_db
     conn = get_db()
     try:
         closed = conn.execute("""
@@ -199,8 +199,8 @@ def _threshold_status(since: str) -> dict:
       - pass rate >> 20%: scores expanded upward — threshold too loose
       - pass rate << 20%: scores compressed downward — threshold too tight
     """
+    from backend.db import get_db, get_ticker_thresholds
     from backend.demo_config import get_demo_config
-    from backend.db import get_ticker_thresholds, get_db
     from backend.ticker_config import get_sectors
 
     flat = get_demo_config().get("lock1_threshold", 0.45)
@@ -316,6 +316,7 @@ def _gpt4o_commentary(
 
     try:
         from openai import OpenAI
+
         from backend.demo_config import get_demo_config
         cfg = get_demo_config()
 

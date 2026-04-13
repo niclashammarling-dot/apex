@@ -1,15 +1,23 @@
 import re
-import time
 import threading
+import time
 import uuid
 from collections import defaultdict
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, field_validator
-from backend.db import latest_signals, signals_for_sector, get_yesterday_sector_avg_scores, get_yesterday_ticker_scores, get_sector_history
+
+from backend.db import (
+    get_sector_history,
+    get_yesterday_sector_avg_scores,
+    get_yesterday_ticker_scores,
+    latest_signals,
+    signals_for_sector,
+)
 from backend.gate import gate_runner
-from backend.ticker_config import get_sectors as _get_sectors, add_ticker, remove_ticker
+from backend.ticker_config import add_ticker, remove_ticker
+from backend.ticker_config import get_sectors as _get_sectors
 
 # ── Backfill job tracking ──────────────────────────────────────────────────────
 # Simple in-memory store — only one backfill should run at a time.
@@ -191,8 +199,11 @@ def sectors_rotation_leaderboard(limit: int = 10):
     Returns [{ticker, sector, signal, streak_days, velocity, velocity_5d,
               rotation_score, pre_rotation}] sorted descending.
     """
-    from backend.sector_transitions import compute_ticker_rotation_scores, get_rotation_forecast
     from backend.sector_regime import compute_ticker_signals
+    from backend.sector_transitions import (
+        compute_ticker_rotation_scores,
+        get_rotation_forecast,
+    )
 
     rotation_scores = compute_ticker_rotation_scores()
     tk_signals      = compute_ticker_signals()
@@ -280,7 +291,7 @@ def test_gate(ticker: str, request: Request):
     _rate_check("gate/test")
     ticker = _validate_ticker(ticker)
 
-    from backend.db import latest_signals, get_wallet_context
+    from backend.db import get_wallet_context, latest_signals
     from backend.gate import lock1_quant, lock2_sentiment, lock3_claude
 
     signals = [s for s in latest_signals(limit=200) if s["ticker"] == ticker]
@@ -316,9 +327,14 @@ def get_wallet():
 
 @router.get("/gate/history")
 def gate_history(limit: int = 100):
-    from backend.db import get_demo_gate_history, get_ticker_thresholds, get_demo_gate_funnel_counts
-    from backend.demo_config import get_demo_config
     import json as _json
+
+    from backend.db import (
+        get_demo_gate_funnel_counts,
+        get_demo_gate_history,
+        get_ticker_thresholds,
+    )
+    from backend.demo_config import get_demo_config
     rows = get_demo_gate_history(limit)
     thresholds = get_ticker_thresholds()
     flat = get_demo_config().get("lock1_threshold", 0.5)
@@ -340,7 +356,7 @@ def get_demo_trades():
 
 @router.get("/wallet/equity")
 def wallet_equity():
-    from backend.db import get_equity_curve, get_all_trades
+    from backend.db import get_all_trades, get_equity_curve
     from backend.wallet import _batch_prices
     open_tickers = [t["ticker"] for t in get_all_trades() if t["outcome"] == "OPEN"]
     prices = _batch_prices(open_tickers) if open_tickers else {}
@@ -511,7 +527,8 @@ def run_backtest_ab(req: BacktestABRequest):
     Engine B: Sharpe-optimized (engine_sharpe, vol-targeting + SPY regime sizing).
     Precompute is called once and shared — no duplicate downloads.
     """
-    from backend.backtest.engine_fast import run as run_fast, precompute
+    from backend.backtest.engine_fast import precompute
+    from backend.backtest.engine_fast import run as run_fast
     from backend.backtest.engine_sharpe import run as run_sharpe
     try:
         pc = precompute(req.start_date, req.end_date)
@@ -551,10 +568,12 @@ def run_backtest_ab(req: BacktestABRequest):
 @router.get("/watchlist")
 def get_watchlist():
     """Return watchlist tickers enriched with current signal data."""
-    from backend.db import get_watchlist
+    from backend.db import get_watchlist, latest_signals, prev_signals_by_ticker
     from backend.sector_regime import compute_ticker_signals
-    from backend.sector_transitions import compute_ticker_rotation_scores, get_rotation_forecast
-    from backend.db import prev_signals_by_ticker, latest_signals
+    from backend.sector_transitions import (
+        compute_ticker_rotation_scores,
+        get_rotation_forecast,
+    )
 
     entries         = get_watchlist()
     tk_signals      = compute_ticker_signals()
@@ -605,7 +624,7 @@ def get_watchlist():
 def add_to_watchlist(ticker: str):
     """Manually add a ticker to the watchlist."""
     ticker = _validate_ticker(ticker)
-    from backend.db import upsert_watchlist, latest_signals
+    from backend.db import latest_signals, upsert_watchlist
     signals = [s for s in latest_signals(limit=500) if s["ticker"] == ticker]
     if not signals:
         raise HTTPException(status_code=404, detail=f"No signal found for {ticker}")
@@ -633,9 +652,10 @@ def sectors_regime_bayes():
     allocation percentages, and IPO sentiment.
     Returns {"available": false} if no EOD run has completed yet.
     """
-    from backend.scheduler import _get_regime_bayes
-    from backend.regime.ipo_sentiment import CACHE_PATH
     import json
+
+    from backend.regime.ipo_sentiment import CACHE_PATH
+    from backend.scheduler import _get_regime_bayes
 
     rb     = _get_regime_bayes()
     result = rb.last_result()
@@ -692,7 +712,7 @@ def calibrate_ticker_thresholds():
     Recompute per-sector ticker thresholds from ticker_history.
     Run after backfill completes. Takes ~5s.
     """
-    from backend.ticker_threshold_calibration import calibrate, print_calibration_report
+    from backend.ticker_threshold_calibration import calibrate
     thresholds = calibrate()
     return {"thresholds": thresholds, "sectors": len(thresholds)}
 

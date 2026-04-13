@@ -28,14 +28,12 @@ Usage:
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Optional
 
 import pandas as pd
 from loguru import logger
-
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 

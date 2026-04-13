@@ -14,20 +14,27 @@ Exit flow (scheduler every 5 min during market hours):
   → gets current price via yfinance
   → closes on TP, SL, trailing stop, or time-stop (all configurable via demo_config)
 """
-import yfinance as yf
-import pandas as pd
 from datetime import datetime, timezone
+
+import pandas as pd
+import yfinance as yf
 from loguru import logger
 
 from backend.config import (
-    STARTING_BALANCE, MAX_POSITIONS, MAX_SECTOR_EXPOSURE, MAX_POSITION_SIZE, DAILY_LOSS_CAP,
+    DAILY_LOSS_CAP,
+    MAX_POSITION_SIZE,
+    MAX_POSITIONS,
+    MAX_SECTOR_EXPOSURE,
+    STARTING_BALANCE,
 )
-from backend.demo_config import get_demo_config
 from backend.db import (
-    get_open_trades, insert_trade, close_trade, get_portfolio_summary,
+    close_trade,
+    get_open_trades,
+    get_portfolio_summary,
+    insert_trade,
     update_trade_peak_price,
 )
-
+from backend.demo_config import get_demo_config
 
 # ── Execution ────────────────────────────────────────────────────────────────
 
@@ -269,6 +276,7 @@ def get_portfolio() -> dict:
 def _daily_realized_loss() -> float:
     """Absolute value of today's realized losses (losses only, not gains)."""
     import sqlite3
+
     from backend.db import DB_PATH
     today = datetime.now(timezone.utc).date().isoformat()
     conn  = sqlite3.connect(str(DB_PATH))

@@ -1,4 +1,4 @@
-from backend.config import BASE_WIN_RATE, TAKE_PROFIT_PCT, STOP_LOSS_PCT
+from backend.config import BASE_WIN_RATE, STOP_LOSS_PCT, TAKE_PROFIT_PCT
 
 
 def compute(spy_regime: float, rolling_win_rate: float | None = None, atr_pct: float = 0.0) -> dict:

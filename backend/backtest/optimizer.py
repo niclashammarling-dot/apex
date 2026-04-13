@@ -216,7 +216,8 @@ def run_optimizer(seed: int | None = None) -> None:
     Starts from current best params (or defaults), mutates, evaluates,
     keeps improvements. Saves all results to RESULTS_PATH.
     """
-    from backend.backtest.engine_fast import run as backtest_run, precompute
+    from backend.backtest.engine_fast import precompute
+    from backend.backtest.engine_fast import run as backtest_run
 
     if seed is not None:
         random.seed(seed)

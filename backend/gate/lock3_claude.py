@@ -12,7 +12,7 @@ import json
 import anthropic
 from loguru import logger
 
-from backend.config import ANTHROPIC_API_KEY, OPENAI_API_KEY, LOCK3_CONFIDENCE_MIN
+from backend.config import ANTHROPIC_API_KEY, LOCK3_CONFIDENCE_MIN, OPENAI_API_KEY
 
 _CLAUDE_MODEL = "claude-sonnet-4-6"
 _GPT_MODEL    = "gpt-4o"

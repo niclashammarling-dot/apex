@@ -21,10 +21,10 @@ Public API:
 """
 from __future__ import annotations
 
-import json
+from datetime import datetime, timedelta, timezone
+
 import requests
 import yfinance as yf
-from datetime import datetime, timedelta, timezone
 from loguru import logger
 
 from backend.gate.types import LockResult

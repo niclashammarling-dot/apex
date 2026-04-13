@@ -13,18 +13,20 @@ from datetime import date, timedelta
 
 from loguru import logger
 
-from backend.config import SPY_TICKER
-from backend.ticker_config import get_sectors
-from backend.db import (
-    insert_sector_snapshots, get_existing_snapshot_dates,
-    insert_ticker_history, get_existing_ticker_history_dates,
-)
 from backend.backtest.engine import (
     _download_all,
     _score_all_tickers,
     _spy_data_on,
     _trading_days,
 )
+from backend.config import SPY_TICKER
+from backend.db import (
+    get_existing_snapshot_dates,
+    get_existing_ticker_history_dates,
+    insert_sector_snapshots,
+    insert_ticker_history,
+)
+from backend.ticker_config import get_sectors
 
 
 def backfill_sector_snapshots(start_date: str, end_date: str) -> int:

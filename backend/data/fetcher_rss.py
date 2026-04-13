@@ -2,8 +2,9 @@
 RSS news fetcher — primary fallback when NewsAPI quota is exhausted.
 Uses Yahoo Finance's public RSS feed per ticker.
 """
-import feedparser
 from datetime import datetime, timezone
+
+import feedparser
 from loguru import logger
 
 from backend.config import RSS_URL_TEMPLATE

@@ -10,15 +10,17 @@ Called by the scheduler every EXIT_CHECK_INTERVAL minutes during market hours.
 Only runs when LIVE_ENABLED=true.
 """
 from datetime import datetime, timezone
+
 from loguru import logger
 
 from backend.config import LIVE_ENABLED
-from backend.db import get_open_live_trades, close_live_trade
+from backend.db import close_live_trade, get_open_live_trades
 
 
 def _trading_days_since(iso_timestamp: str) -> int:
     """Return the number of weekdays (trading days) elapsed since iso_timestamp."""
     from datetime import date
+
     import pandas as pd
     start = datetime.fromisoformat(iso_timestamp).date()
     today = date.today()

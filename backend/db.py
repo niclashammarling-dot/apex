@@ -1,5 +1,6 @@
 import sqlite3
 from pathlib import Path
+
 from loguru import logger
 
 BASE_DIR = Path(__file__).parent.parent
@@ -598,7 +599,7 @@ def get_open_tickers() -> set[str]:
 
 def get_recently_failed_tickers(hours: float) -> set[str]:
     """Return tickers that failed L2, L3, or MACRO in the demo gate within the last N hours."""
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta, timezone
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
     conn = get_db()
     try:
@@ -719,7 +720,7 @@ def get_live_ticker_gate_fails(ticker: str, limit: int = 5) -> list[dict]:
 
 def get_recently_failed_live_tickers(hours: float) -> set[str]:
     """Return tickers that failed L2, L3, or MACRO in the live gate within the last N hours."""
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta, timezone
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
     conn = get_db()
     try:
@@ -880,8 +881,9 @@ def get_equity_curve(current_prices: dict[str, float] | None = None) -> list[dic
     Without the MTM point, flat segments are ambiguous — they could mean
     'nothing happened' or 'open positions are moving but not yet closed'.
     """
-    from backend.config import STARTING_BALANCE
     from datetime import datetime, timezone
+
+    from backend.config import STARTING_BALANCE
     conn = get_db()
     try:
         closed = conn.execute("""
@@ -941,8 +943,9 @@ def get_live_equity_curve(unrealised_total: float = 0.0) -> list[dict]:
     unrealised_total: summed unrealized P&L from Alpaca positions — caller supplies this
     so we use Alpaca's actual fill prices rather than our DB signal prices.
     """
-    from backend.config import LIVE_STARTING_BALANCE
     from datetime import datetime, timezone
+
+    from backend.config import LIVE_STARTING_BALANCE
     conn = get_db()
     try:
         closed = conn.execute("""
@@ -1176,7 +1179,7 @@ def get_sector_history(days: int = 30) -> list[dict]:
 
     Frontend pivots the flat rows into per-sector time series.
     """
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta, timezone
     conn = get_db()
     try:
         if days == 0:
@@ -1252,7 +1255,7 @@ def get_latest_sector_scores() -> dict[str, float]:
 
 def prune_sector_snapshots(keep_days: int = 1825) -> int:  # default 5 years
     """Delete sector_snapshots older than keep_days. Returns rows deleted."""
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta, timezone
     cutoff = (datetime.now(timezone.utc) - timedelta(days=keep_days)).isoformat()
     conn = get_db()
     try:

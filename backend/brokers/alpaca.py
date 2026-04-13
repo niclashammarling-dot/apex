@@ -15,7 +15,8 @@ def _client():
     """Return a cached TradingClient. Imported lazily to avoid startup errors
     when alpaca-py is not yet installed."""
     from alpaca.trading.client import TradingClient
-    from backend.config import ALPACA_API_KEY, ALPACA_SECRET_KEY, ALPACA_BASE_URL
+
+    from backend.config import ALPACA_API_KEY, ALPACA_BASE_URL, ALPACA_SECRET_KEY
     paper = "paper-api" in ALPACA_BASE_URL
     return TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=paper)
 
@@ -75,8 +76,8 @@ def get_positions() -> list[dict]:
 def get_orders(limit: int = 50) -> list[dict]:
     """Return recent orders (all statuses)."""
     try:
-        from alpaca.trading.requests import GetOrdersRequest
         from alpaca.trading.enums import QueryOrderStatus
+        from alpaca.trading.requests import GetOrdersRequest
         req = GetOrdersRequest(status=QueryOrderStatus.ALL, limit=limit)
         orders = _client().get_orders(filter=req)
         return [
@@ -116,8 +117,12 @@ def place_bracket_order(
     Alpaca bracket orders do not support fractional shares — qty is floored to
     the nearest whole share. Prices rounded to 2dp (sufficient for US equities).
     """
-    from alpaca.trading.requests import MarketOrderRequest, TakeProfitRequest, StopLossRequest
-    from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
+    from alpaca.trading.enums import OrderClass, OrderSide, TimeInForce
+    from alpaca.trading.requests import (
+        MarketOrderRequest,
+        StopLossRequest,
+        TakeProfitRequest,
+    )
 
     qty = int(notional / current_price)  # floor to whole shares — bracket orders require integer qty
     if qty <= 0:
@@ -177,6 +182,7 @@ def get_portfolio_history(period: str = "1M") -> list[dict]:
     Filters out zero-equity days (pre-activity on a fresh account).
     """
     from datetime import datetime, timezone
+
     from alpaca.trading.requests import GetPortfolioHistoryRequest
     try:
         req  = GetPortfolioHistoryRequest(period=period, timeframe="1D")

@@ -27,12 +27,11 @@ from __future__ import annotations
 import threading
 import time
 from datetime import date, timedelta
-from typing import Optional
 
 from loguru import logger
 
-from backend.regime.regime_bayes import ALLOCATION_THRESHOLD
 from backend.gate.types import LockResult
+from backend.regime.regime_bayes import ALLOCATION_THRESHOLD
 
 LOCK_ID = 1
 

@@ -7,7 +7,6 @@ in tests/test_structural.py without any test framework dependency.
 """
 from loguru import logger
 
-
 # ── Individual checks ─────────────────────────────────────────────────────────
 
 def check_config_parity() -> list[str]:
@@ -55,8 +54,8 @@ def check_context_parity() -> list[str]:
     Lock 3 context. A missing key means Claude gets null for that constraint
     and has to guess.
     """
-    from backend.gate import gate_runner, gate_runner_live
     from backend.demo_config import get_demo_config
+    from backend.gate import gate_runner, gate_runner_live
     from backend.live_config import get_live_config
 
     signal    = {"ticker": "_CHECK", "sector": "Technology"}

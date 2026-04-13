@@ -8,18 +8,27 @@ Live Gate Runner — same 3-lock pipeline as gate_runner.py but:
 Bracket orders set TP + SL at Alpaca order time, so no separate exit
 checker is needed — Alpaca manages the position lifecycle natively.
 """
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from loguru import logger
 
-import json
-from backend.gate import lock1_quant, lock_macro, lock2_sentiment, lock_leading, lock3_claude
-from backend.db import (
-    get_lock1_candidates, insert_live_gate_result, get_live_gate_history, insert_live_trade,
-    get_open_live_tickers, get_recently_failed_live_tickers,
-)
 from backend.config import LIVE_ENABLED
+from backend.db import (
+    get_lock1_candidates,
+    get_open_live_tickers,
+    get_recently_failed_live_tickers,
+    insert_live_gate_result,
+    insert_live_trade,
+)
+from backend.gate import (
+    lock1_quant,
+    lock2_sentiment,
+    lock3_claude,
+    lock_leading,
+    lock_macro,
+)
 
 _MAX_WORKERS = 4
 
@@ -37,8 +46,8 @@ def run() -> list[dict]:
         return []
 
     from backend.brokers import alpaca as broker
-    from backend.live_config import get_live_config
     from backend.db import get_ticker_thresholds
+    from backend.live_config import get_live_config
     cfg = get_live_config()
     sector_thresholds = get_ticker_thresholds()
 
@@ -101,9 +110,12 @@ def run() -> list[dict]:
     }
 
     # Compute sector regime + rotation scores + Bayesian regime once per gate cycle
-    from backend.sector_regime import compute_sector_regime
-    from backend.sector_transitions import compute_ticker_rotation_scores, get_rotation_forecast
     from backend.scheduler import _get_regime_bayes
+    from backend.sector_regime import compute_sector_regime
+    from backend.sector_transitions import (
+        compute_ticker_rotation_scores,
+        get_rotation_forecast,
+    )
     sector_regime      = compute_sector_regime()
     rotation_scores    = compute_ticker_rotation_scores()
     regime_bayes_result = _get_regime_bayes().last_result()

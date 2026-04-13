@@ -1,5 +1,4 @@
 import os
-import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -8,10 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from backend.db import init_db
-from backend.scheduler import start_scheduler, scheduler, poll_all_sectors
-from backend.routers.signals_router import router as signals_router
 from backend.routers.live_router import router as live_router
-
+from backend.routers.signals_router import router as signals_router
+from backend.scheduler import poll_all_sectors, scheduler, start_scheduler
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 # Stdout sink is provided by loguru by default.
@@ -36,7 +34,7 @@ async def lifespan(app: FastAPI):
     logger.info("APEX backend starting…")
     init_db()
     from backend.demo_config import ensure_config_exists as ensure_demo
-    from backend.live_config  import ensure_config_exists as ensure_live
+    from backend.live_config import ensure_config_exists as ensure_live
     ensure_demo()
     ensure_live()
     logger.info("Running initial sector poll…")

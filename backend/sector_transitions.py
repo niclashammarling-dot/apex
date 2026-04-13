@@ -13,8 +13,9 @@ Two matrices are maintained:
 Results are cached for 1 hour (recalculated as more data accumulates).
 """
 from __future__ import annotations
-from collections import defaultdict
+
 import time
+from collections import defaultdict
 
 _cache: dict = {}
 _cache_ts: float = 0
@@ -217,7 +218,12 @@ def compute_ticker_rotation_scores() -> dict[str, float]:
     Returns {ticker: rotation_score} or {} if data unavailable.
     Not cached — callers should compute once per gate cycle.
     """
-    from backend.sector_regime import compute_sector_regime, compute_ticker_signals, CYCLICAL, DEFENSIVE
+    from backend.sector_regime import (
+        CYCLICAL,
+        DEFENSIVE,
+        compute_sector_regime,
+        compute_ticker_signals,
+    )
 
     regime_data    = compute_sector_regime()
     if not regime_data.get("available"):
@@ -498,7 +504,6 @@ def _watching_sectors(likely_next: list[dict], regime: dict) -> list[dict]:
     These are the highest-conviction setups: historically likely + already moving.
     """
     sector_stats  = regime.get("sectors", {})
-    next_set      = {item["sector"] for item in likely_next}
     early_signals = {"recovering", "rising", "breakout"}
 
     watching = []

@@ -24,13 +24,11 @@ from __future__ import annotations
 import subprocess
 import time
 from datetime import date, datetime, timezone
-from typing import Optional
 
 import requests
 from loguru import logger
 
 from backend.db import get_db
-
 
 # ── RSS feed registry ─────────────────────────────────────────────────────────
 # Standard financial RSS feeds for sentiment expansion.

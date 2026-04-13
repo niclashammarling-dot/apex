@@ -49,7 +49,8 @@ def _date_range() -> tuple[str, str]:
 
 def run_sweep() -> None:
     """Run the full parameter sweep and persist results. Called by scheduler."""
-    from backend.backtest.engine_fast import run as engine_run, precompute
+    from backend.backtest.engine_fast import precompute
+    from backend.backtest.engine_fast import run as engine_run
 
     start_date, end_date = _date_range()
     combos = list(itertools.product(

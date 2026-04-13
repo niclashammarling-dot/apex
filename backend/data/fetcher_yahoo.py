@@ -6,14 +6,19 @@ import math
 from datetime import datetime, timezone
 
 import yfinance as yf
-import pandas as pd
 from loguru import logger
 
 from backend.config import SPY_TICKER
-from backend.ticker_config import get_sectors
-from backend.signals import momentum, volume, ev_kelly, aggregator, trend, relative_strength
 from backend.db import get_rolling_win_rate
-
+from backend.signals import (
+    aggregator,
+    ev_kelly,
+    momentum,
+    relative_strength,
+    trend,
+    volume,
+)
+from backend.ticker_config import get_sectors
 
 # --------------------------------------------------------------------------- #
 #  SPY regime — fetched once per poll cycle, shared across all tickers         #

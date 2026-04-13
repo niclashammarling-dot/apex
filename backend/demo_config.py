@@ -11,6 +11,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
+
 from loguru import logger
 
 _CONFIG_PATH = Path(__file__).parent.parent / "data" / "demo_config.json"
@@ -39,11 +40,23 @@ _KEYS = [
 
 def _defaults() -> dict:
     from backend.config import (
-        LOCK1_THRESHOLD, LOCK2_SENTIMENT_MIN, LOCK3_CONFIDENCE_MIN,
-        TAKE_PROFIT_PCT, STOP_LOSS_PCT,
-        MAX_POSITIONS, MAX_POSITION_SIZE, DAILY_LOSS_CAP, TIME_STOP_DAYS,
-        MACRO_VIX_THRESHOLD, MACRO_EVENT_BLACKOUT_DAYS, MACRO_EARNINGS_BLACKOUT_DAYS, GATE_COOLOFF_HOURS,
-        MAX_SECTOR_EXPOSURE, LOCK_LEADING_MIN_PASS, LOCK3_MAX_DRAWDOWN_PCT, STARTING_BALANCE,
+        DAILY_LOSS_CAP,
+        GATE_COOLOFF_HOURS,
+        LOCK1_THRESHOLD,
+        LOCK2_SENTIMENT_MIN,
+        LOCK3_CONFIDENCE_MIN,
+        LOCK3_MAX_DRAWDOWN_PCT,
+        LOCK_LEADING_MIN_PASS,
+        MACRO_EARNINGS_BLACKOUT_DAYS,
+        MACRO_EVENT_BLACKOUT_DAYS,
+        MACRO_VIX_THRESHOLD,
+        MAX_POSITION_SIZE,
+        MAX_POSITIONS,
+        MAX_SECTOR_EXPOSURE,
+        STARTING_BALANCE,
+        STOP_LOSS_PCT,
+        TAKE_PROFIT_PCT,
+        TIME_STOP_DAYS,
     )
     return {
         "lock1_threshold":              LOCK1_THRESHOLD,

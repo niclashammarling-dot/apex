@@ -19,9 +19,11 @@ from datetime import datetime, timezone
 import httpx
 from loguru import logger
 
-from backend.config import XAI_API_KEY, LOCK2_SENTIMENT_MIN, GROK_CACHE_TTL
+from backend.config import GROK_CACHE_TTL, LOCK2_SENTIMENT_MIN, XAI_API_KEY
 from backend.data.fetcher_sentiment import fetch_market_signals
-from backend.sentiment.sentiment_prefetch import get_combined_content as get_prefetch_content
+from backend.sentiment.sentiment_prefetch import (
+    get_combined_content as get_prefetch_content,
+)
 
 GROK_URL   = "https://api.x.ai/v1/chat/completions"
 GROK_MODEL = "grok-3"

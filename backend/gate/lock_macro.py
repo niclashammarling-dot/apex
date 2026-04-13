@@ -12,7 +12,8 @@ All thresholds are read from config at call time (demo_config / live_config).
 VIX is cached for 30 minutes to avoid hammering yfinance on every gate run.
 """
 import threading
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
+
 from loguru import logger
 
 # ── VIX cache ─────────────────────────────────────────────────────────────────
@@ -23,6 +24,7 @@ _VIX_TTL   = 30 * 60          # 30 minutes in seconds
 
 def _get_vix() -> float | None:
     import time
+
     import yfinance as yf
 
     with _vix_lock:
@@ -101,6 +103,7 @@ _EARNINGS_TTL = 6 * 3600                # 6 hours
 
 def _get_earnings_date(ticker: str) -> date | None:
     import time
+
     import yfinance as yf
 
     now = time.time()

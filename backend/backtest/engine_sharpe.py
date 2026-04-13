@@ -40,10 +40,8 @@ from __future__ import annotations
 
 import math
 from datetime import date, timedelta
-from typing import TypedDict
 
 import numpy as np
-import pandas as pd
 from loguru import logger
 
 # Reuse types and helpers from engine_fast — no duplication
@@ -54,10 +52,8 @@ from backend.backtest.engine_fast import (
     _compute_metrics,
     _mark_to_market_fast,
     _sector_exposure,
-    _trading_days_count,
 )
 from backend.config import (
-    BASE_WIN_RATE,
     DAILY_LOSS_CAP,
     LOCK1_THRESHOLD,
     MAX_POSITION_SIZE,
@@ -66,9 +62,7 @@ from backend.config import (
     STOP_LOSS_PCT,
     TAKE_PROFIT_PCT,
     TIME_STOP_DAYS,
-    WIN_RATE_MIN_TRADES,
 )
-
 
 # ── Vol targeting helpers ─────────────────────────────────────────────────────
 
@@ -194,11 +188,9 @@ def run(
     # Unpack precomputed caches (identical structure to engine_fast)
     raw_data      = precomputed["raw_data"]
     ticker_sector = precomputed["ticker_sector"]
-    sector_etf    = precomputed["sector_etf"]
     trading_days  = precomputed["trading_days"]
     price_cache   = precomputed["price_cache"]
     spy_cache     = precomputed["spy_cache"]
-    etf_cache     = precomputed["etf_cache"]
     vix_cache     = precomputed["vix_cache"]
     rs_cache      = precomputed.get("rs_cache", {}) if use_leading_rs else {}
     signal_cache  = precomputed["signal_cache"]
@@ -264,13 +256,6 @@ def run(
         eff_vol_mult = vol_mult * spy_factor
 
         # ── 4. Candidates from cache ───────────────────────────────────────
-        wins_so_far  = sum(1 for t in closed_trades if t["outcome"] == "WIN")
-        closed_so_far = len(closed_trades)
-        rolling_wr = (
-            wins_so_far / closed_so_far
-            if closed_so_far >= WIN_RATE_MIN_TRADES else None
-        )
-
         candidates = _get_candidates_sharpe(
             signal_cache, ticker_sector, today_str, l1
         )

@@ -13,8 +13,8 @@ Supported channels (configure in .env):
 If neither is configured, alerts are logged only (no-op).
 """
 import smtplib
-from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 import httpx
 from loguru import logger

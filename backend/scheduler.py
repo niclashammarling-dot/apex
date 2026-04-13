@@ -4,9 +4,15 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.background import BackgroundScheduler
 from loguru import logger
 
-from backend.config import POLL_INTERVAL_SECTORS, GATE_INTERVAL, EXIT_CHECK_INTERVAL
+from backend.config import EXIT_CHECK_INTERVAL, GATE_INTERVAL, POLL_INTERVAL_SECTORS
 from backend.data.fetcher_yahoo import fetch_all_sectors
-from backend.db import insert_signal, prune_signals, insert_sector_snapshots, prune_sector_snapshots, insert_ticker_history
+from backend.db import (
+    insert_sector_snapshots,
+    insert_signal,
+    insert_ticker_history,
+    prune_sector_snapshots,
+    prune_signals,
+)
 
 NY = ZoneInfo("America/New_York")
 
@@ -21,9 +27,9 @@ def _get_regime_bayes():
     """Return the singleton RegimeBayes instance, creating it on first call."""
     global _regime_bayes
     if _regime_bayes is None:
-        from backend.ticker_config import get_sectors
-        from backend.regime.regime_bayes import RegimeBayes, build_transition_priors
         from backend.db import get_sector_history
+        from backend.regime.regime_bayes import RegimeBayes, build_transition_priors
+        from backend.ticker_config import get_sectors
 
         sectors_cfg    = get_sectors()
         sector_etf_map = {s: cfg["etf"] for s, cfg in sectors_cfg.items()}
@@ -156,8 +162,8 @@ def _sync_watchlist() -> None:
     Auto-add RECOVERING tickers to watchlist; remove auto entries that have faded.
     Manual watchlist entries are never removed automatically.
     """
+    from backend.db import prune_watchlist_auto, upsert_watchlist
     from backend.sector_regime import compute_ticker_signals
-    from backend.db import upsert_watchlist, prune_watchlist_auto
     from backend.ticker_config import get_sectors
 
     ticker_sector = {
@@ -189,10 +195,12 @@ def run_eod_regime() -> None:
       3. RegimeBayes.update() — compute posteriors, allocation, persist to DB
     """
     from datetime import date
+
     import yfinance as yf
-    from backend.ticker_config import get_sectors
+
     from backend.db import get_latest_sector_scores
     from backend.regime.ipo_sentiment import IpoSentiment
+    from backend.ticker_config import get_sectors
 
     logger.info("EOD regime update starting…")
 
@@ -318,7 +326,8 @@ def _check_missed_eod_regime() -> None:
     Determines the most recent trading day for which EOD should have already run,
     then compares against the last updated_at in sector_posteriors.
     """
-    from datetime import date, timedelta
+    from datetime import timedelta
+
     from backend.db import get_db
 
     now     = datetime.now(NY)

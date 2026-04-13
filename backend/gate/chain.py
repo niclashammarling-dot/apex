@@ -29,11 +29,11 @@ from typing import Any
 from loguru import logger
 
 from backend.gate.lock1_eligibility import evaluate as lock1_evaluate
-from backend.gate.lock2_quant       import evaluate as lock2_evaluate
-from backend.gate.lock3_sentiment   import evaluate as lock3_evaluate
-from backend.gate.lock4_leading     import evaluate as lock4_evaluate
-from backend.gate.lock5_claude      import evaluate as lock5_evaluate
-from backend.gate.types             import LockResult
+from backend.gate.lock2_quant import evaluate as lock2_evaluate
+from backend.gate.lock3_sentiment import evaluate as lock3_evaluate
+from backend.gate.lock4_leading import evaluate as lock4_evaluate
+from backend.gate.lock5_claude import evaluate as lock5_evaluate
+from backend.gate.types import LockResult
 
 
 @dataclass

@@ -11,18 +11,28 @@ Candidates are evaluated concurrently (ThreadPoolExecutor) to avoid stacking
 Lock 2 + Lock 3 API latency across multiple tickers.
 All gate results are logged to DB regardless of outcome.
 """
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from loguru import logger
 
-import json
-from backend.gate import lock1_quant, lock_macro, lock2_sentiment, lock_leading, lock3_claude
-from backend.db import (
-    get_lock1_candidates, update_signal_gate, get_wallet_context,
-    get_open_tickers, get_recently_failed_tickers, insert_demo_gate_result,
-)
 from backend import wallet
+from backend.db import (
+    get_lock1_candidates,
+    get_open_tickers,
+    get_recently_failed_tickers,
+    get_wallet_context,
+    insert_demo_gate_result,
+    update_signal_gate,
+)
+from backend.gate import (
+    lock1_quant,
+    lock2_sentiment,
+    lock3_claude,
+    lock_leading,
+    lock_macro,
+)
 
 # Max parallel workers — bounded to avoid hammering rate limits
 _MAX_WORKERS = 4
@@ -39,8 +49,8 @@ def run() -> list[dict]:
     Reads thresholds from demo_config.json at call time so UI changes take effect immediately.
     Returns list of full gate result dicts.
     """
-    from backend.demo_config import get_demo_config
     from backend.db import get_ticker_thresholds
+    from backend.demo_config import get_demo_config
     cfg = get_demo_config()
 
     sector_thresholds = get_ticker_thresholds()
@@ -88,11 +98,14 @@ def run() -> list[dict]:
     results    = []
 
     # Compute dynamic sector caps + regime + rotation scores once per gate cycle
-    from backend.sector_caps import compute_dynamic_caps
-    from backend.sector_regime import compute_sector_regime
-    from backend.sector_transitions import compute_ticker_rotation_scores, get_rotation_forecast
     from backend.config import MAX_SECTOR_EXPOSURE
     from backend.scheduler import _get_regime_bayes
+    from backend.sector_caps import compute_dynamic_caps
+    from backend.sector_regime import compute_sector_regime
+    from backend.sector_transitions import (
+        compute_ticker_rotation_scores,
+        get_rotation_forecast,
+    )
     regime_bayes_result = _get_regime_bayes().last_result()
     dynamic_caps    = compute_dynamic_caps(cfg.get("max_sector_exposure", MAX_SECTOR_EXPOSURE),
                                            regime_result=regime_bayes_result)
@@ -265,7 +278,6 @@ def _build_claude_context(signal: dict, l2: dict, l_leading: dict,
         forecast = get_rotation_forecast()
         if forecast.get("available"):
             # Is this ticker's sector the predicted next rotation target?
-            next_sectors    = {item["sector"] for item in forecast.get("likely_next", [])}
             next_prob       = next((item["probability"] for item in forecast.get("likely_next", [])
                                     if item["sector"] == signal["sector"]), None)
             confirmed       = forecast.get("confirmed_transition")
