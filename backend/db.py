@@ -811,6 +811,7 @@ def get_demo_gate_funnel_counts() -> dict:
                 sum(gate_decision = 'FILTERED_L2')                               AS l2_fail,
                 sum(gate_decision = 'FILTERED_LEADING')                          AS leading_fail,
                 sum(gate_decision = 'FILTERED_L3')                               AS l3_fail,
+                sum(gate_decision = 'FILTERED_OVERFLOW_QUANT')                   AS overflow_fail,
                 sum(gate_decision IN ('TRADE_EXECUTED','TRADE_REJECTED'))         AS executed
             FROM demo_gate_history
         """).fetchone()
@@ -847,6 +848,7 @@ def get_gate_funnel_counts(since: str | None = None) -> dict:
         l2_fail         = counts.get("FILTERED_L2", 0)
         leading_fail    = counts.get("FILTERED_LEADING", 0)
         l3_fail         = counts.get("FILTERED_L3", 0)
+        overflow_fail   = counts.get("FILTERED_OVERFLOW_QUANT", 0)
         executed        = counts.get("TRADE_EXECUTED", 0)
         rejected        = counts.get("TRADE_REJECTED", 0)
 
@@ -863,6 +865,7 @@ def get_gate_funnel_counts(since: str | None = None) -> dict:
             "l2_fail":          l2_fail,
             "leading_fail":     leading_fail,
             "l3_fail":          l3_fail,
+            "overflow_fail":    overflow_fail,
             "executed":         executed,
             "rejected":         rejected,
         }
@@ -1075,6 +1078,7 @@ def get_live_gate_funnel_counts(since: str | None = None) -> dict:
         l2_fail         = counts.get("FILTERED_L2", 0)
         leading_fail    = counts.get("FILTERED_LEADING", 0)
         l3_fail         = counts.get("FILTERED_L3", 0)
+        overflow_fail   = counts.get("FILTERED_OVERFLOW_QUANT", 0)
         executed        = counts.get("TRADE_EXECUTED", 0)
         rejected        = counts.get("TRADE_REJECTED", 0)
 
@@ -1091,6 +1095,7 @@ def get_live_gate_funnel_counts(since: str | None = None) -> dict:
             "l2_fail":          l2_fail,
             "leading_fail":     leading_fail,
             "l3_fail":          l3_fail,
+            "overflow_fail":    overflow_fail,
             "executed":         executed,
             "rejected":         rejected,
         }
