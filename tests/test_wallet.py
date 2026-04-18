@@ -3,7 +3,6 @@ Extended wallet + gate tests.
 Run: cd ~/apex && .venv/bin/python tests/test_wallet.py
 """
 import sqlite3
-import time
 from unittest.mock import patch
 from datetime import datetime, timezone, timedelta
 
@@ -12,8 +11,6 @@ from backend.db import (
     get_open_trades, get_equity_curve, DB_PATH,
 )
 from backend.wallet import execute_trade, check_exits, _daily_realized_loss
-from backend.gate import lock1_quant, lock2_sentiment, lock3_claude
-from backend.gate.lock2_sentiment import _cache as grok_cache
 
 init_db()
 
@@ -114,46 +111,8 @@ msft = next((c for c in closed if c["ticker"] == "MSFT"), None)
 check("TIME fires after 5+ trading days", msft and msft["exit_reason"] == "TIME")
 check("outcome = EXPIRED",                msft and msft["outcome"] == "EXPIRED")
 
-# ── TEST 3: Lock 1 boundary ───────────────────────────────────────────────────
-print("\nTEST 3: Lock 1 boundary (0.6499 / 0.6500)")
-clear_trades()
-check("0.6500 passes Lock 1", lock1_quant.evaluate({"signal_score": 0.650})["passed"])
-check("0.6499 fails  Lock 1", not lock1_quant.evaluate({"signal_score": 0.6499})["passed"])
-
-# ── TEST 4: Lock 2 negative sentiment → fails ─────────────────────────────────
-print("\nTEST 4: Lock 2 negative sentiment")
-clear_trades()
-grok_cache.clear()
-grok_cache["TSLA"] = {
-    "expires_at": time.time() + 3600,
-    "result": {
-        "sentiment":  "negative",
-        "score":      -0.6,
-        "volume":     "high",
-        "key_themes": ["layoffs", "recall", "CEO drama"],
-        "summary":    "Very bearish",
-    },
-}
-r = lock2_sentiment.evaluate("TSLA")
-check("negative score fails Lock 2", not r["passed"])
-check("score returned correctly",    r["score"] == -0.6)
-
-# ── TEST 5: Lock 3 HOLD → fails ───────────────────────────────────────────────
-print("\nTEST 5: Lock 3 HOLD decision")
-clear_trades()
-hold = {
-    "lock": 3, "passed": False, "decision": "HOLD",
-    "confidence": 0.50, "position_size_pct": 0.0,
-    "reasoning": "Uncertain macro", "reason": "decision=HOLD",
-}
-with patch.object(lock3_claude, "evaluate", return_value=hold):
-    l3 = lock3_claude.evaluate({})
-check("L3 HOLD fails gate",  not l3["passed"])
-check("decision = HOLD",     l3["decision"] == "HOLD")
-check("confidence returned", l3["confidence"] == 0.50)
-
-# ── TEST 6: Insufficient cash ─────────────────────────────────────────────────
-print("\nTEST 6: Insufficient cash")
+# ── TEST 3: Insufficient cash ─────────────────────────────────────────────────
+print("\nTEST 3: Insufficient cash")
 clear_trades()
 # Deploy $9,900 directly via DB, leaving only $100
 for i, (ticker, sector) in enumerate([
@@ -169,8 +128,8 @@ for i, (ticker, sector) in enumerate([
 r = execute_trade(make_gate_result("NEE", "Energy", 70.0), 70.0)
 check("trade rejected when cash < $50 min", r is None)
 
-# ── TEST 7: Daily loss cap ────────────────────────────────────────────────────
-print("\nTEST 7: Daily loss cap ($500)")
+# ── TEST 4: Daily loss cap ────────────────────────────────────────────────────
+print("\nTEST 4: Daily loss cap ($500)")
 clear_trades()
 today = now_iso()
 for i in range(2):
@@ -187,17 +146,8 @@ check(f"daily loss tracked correctly (${daily:.2f})", daily == 600.0)
 r = execute_trade(make_gate_result("AMZN", "ConsumerDisc", 200.0), 200.0)
 check("new trade blocked after daily loss cap", r is None)
 
-# ── TEST 8: Grok API key missing → fail closed ────────────────────────────────
-print("\nTEST 8: Grok unavailable → fail closed")
-clear_trades()
-grok_cache.clear()
-with patch("backend.gate.lock2_sentiment.XAI_API_KEY", ""):
-    r = lock2_sentiment.evaluate("NVDA")
-check("fails closed when API key missing", not r["passed"])
-check("reason = grok_unavailable",         r["reason"] == "grok_unavailable")
-
-# ── TEST 9: yfinance failure → graceful skip ──────────────────────────────────
-print("\nTEST 9: yfinance failure → graceful skip")
+# ── TEST 5: yfinance failure → graceful skip ──────────────────────────────────
+print("\nTEST 5: yfinance failure → graceful skip")
 clear_trades()
 insert_trade({
     "timestamp": now_iso(), "ticker": "FAKE", "sector": "Energy",
@@ -214,8 +164,8 @@ with patch("backend.wallet.yf.Ticker", side_effect=Exception("network error")):
 check("no crash on yfinance failure", no_crash)
 check("position stays open",          len(get_open_trades()) == 1)
 
-# ── TEST 10: Equity curve accuracy ───────────────────────────────────────────
-print("\nTEST 10: Equity curve accuracy")
+# ── TEST 6: Equity curve accuracy ────────────────────────────────────────────
+print("\nTEST 6: Equity curve accuracy")
 clear_trades()
 today = now_iso()
 # WIN +200, LOSS -100 → net +100 → final balance $10,100

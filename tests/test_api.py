@@ -157,7 +157,7 @@ _rate_store.clear()
 # ── TEST 4: Lock 2 circuit breaker ────────────────────────────────────────────
 print("\nTEST 4: Lock 2 circuit breaker")
 
-import backend.gate.lock2_sentiment as l2_mod
+import backend.gate.lock3_sentiment as l2_mod
 
 # Reset state
 l2_mod._cb_failures   = 0
