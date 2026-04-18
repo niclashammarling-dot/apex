@@ -30,21 +30,21 @@ def check_config_parity() -> list[str]:
 
 def check_sector_names() -> list[str]:
     """
-    lock_leading.SECTOR_ETF must map every sector defined in config.SECTORS.
-    A missing sector causes Lock Leading to fail all checks for that sector's
+    lock4_leading.SECTOR_ETF must map every sector defined in config.SECTORS.
+    A missing sector causes Lock 4 to fail all checks for that sector's
     tickers with no error — just a silent 'no ETF mapped' log line.
     """
     from backend.config import SECTORS
-    from backend.gate.lock_leading import SECTOR_ETF
+    from backend.gate.lock4_leading import SECTOR_ETF
     config_sectors = set(SECTORS.keys())
     etf_sectors    = set(SECTOR_ETF.keys())
     issues = []
     missing = config_sectors - etf_sectors
     extra   = etf_sectors    - config_sectors
     if missing:
-        issues.append(f"Sectors in config.SECTORS with no ETF in lock_leading: {sorted(missing)}")
+        issues.append(f"Sectors in config.SECTORS with no ETF in lock4_leading: {sorted(missing)}")
     if extra:
-        issues.append(f"Sectors in lock_leading.SECTOR_ETF not in config.SECTORS: {sorted(extra)}")
+        issues.append(f"Sectors in lock4_leading.SECTOR_ETF not in config.SECTORS: {sorted(extra)}")
     return issues
 
 
@@ -58,17 +58,15 @@ def check_context_parity() -> list[str]:
     from backend.gate import gate_runner, gate_runner_live
     from backend.live_config import get_live_config
 
-    signal    = {"ticker": "_CHECK", "sector": "Technology"}
-    l2        = {"score": 0.5, "conviction": "low", "key_themes": [], "summary": "check"}
-    l_leading = {"pass_count": 2, "checks": {}}
+    signal    = {"ticker": "_CHECK", "sector": "Technology", "signal_score": 0.5}
 
     demo_cfg  = get_demo_config()
     live_cfg  = get_live_config()
     demo_wallet = {"balance": 2000, "open_positions": 0, "sector_exposure": {}}
     live_wallet = {**demo_wallet, "starting_balance": live_cfg["starting_balance"]}
 
-    demo_ctx = gate_runner._build_claude_context(signal, l2, l_leading, demo_wallet, demo_cfg)
-    live_ctx = gate_runner_live._build_context(signal, l2, l_leading, live_wallet, live_cfg)
+    demo_ctx = gate_runner._build_base_context(signal, demo_wallet, demo_cfg)
+    live_ctx = gate_runner_live._build_base_context(signal, live_wallet, live_cfg)
 
     demo_keys = set(demo_ctx.get("risk_limits", {}).keys())
     live_keys = set(live_ctx.get("risk_limits", {}).keys())

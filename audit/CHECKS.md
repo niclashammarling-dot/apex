@@ -28,6 +28,8 @@ Columns: `last_triggered` = most recent date the check found an issue. `last_cle
 | 17 | Sentiment cache freshness | 2026-04-06 | rdt-cli output was raw YAML noise until parser was added; a prefetch before the fix would have stored garbage silently | backend/sentiment_prefetch.py,data/apex.db | — | 2026-05-09 |
 | 20 | Import path integrity | 2026-04-13 | gate chain restructuring introduced bare `from gate.*` imports — no root-level gate/ package, entire chain failed at import | backend/gate/ | 2026-04-13 | 2026-05-09 |
 | 21 | Overflow increment range | 2026-04-14 | new portfolio roof overflow filter uses overflow_quant_increment; misconfigured value (too small or too large) silently breaks the escalating threshold logic | data/demo_config.json,data/live_config.json | — | — |
+| 22 | Yahoo data pipeline health | 2026-04-15 | Yahoo Finance 429 rate limit caused all downloads to fail silently; no snapshots written; regime-bayes unavailable after restart because _last_result was in-memory only | data/apex.db,data/regime_result_cache.json | 2026-04-15 | — |
+| 23 | Gate chain wiring | 2026-04-18 | chain.py was written for the 2026-04-13 restructuring but never wired — gate_runner.py and gate_runner_live.py still called old lock modules for a week | backend/gate/gate_runner.py,backend/gate/gate_runner_live.py,backend/gate/chain.py | 2026-04-18 | — |
 
 ---
 

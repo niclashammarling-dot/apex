@@ -157,10 +157,12 @@ def _demo_patches(candidates, open_tickers=None, failed_tickers=None,
       11 compute_ticker_rotation_scores
       12 get_rotation_forecast
       13 _get_regime_bayes
+      14 get_wallet_context
     """
     cfg = _demo_cfg(**(cfg_overrides or {}))
     # Default chain: all pass
     cr = chain_result if chain_result is not None else _chain_pass()
+    wallet_ctx = {"balance": 2000.0, "open_positions": 0, "sector_exposure": {}}
     return [
         # Lazy imports inside run() → patch at source
         patch("backend.demo_config.get_demo_config",           return_value=cfg),        # 0
@@ -185,6 +187,8 @@ def _demo_patches(candidates, open_tickers=None, failed_tickers=None,
               return_value={"available": False, "watching": [], "likely_next": []}),      # 12
         patch("backend.scheduler._get_regime_bayes",
               return_value=MagicMock(last_result=MagicMock(return_value=None))),          # 13
+        patch("backend.gate.gate_runner.get_wallet_context",
+              return_value=wallet_ctx),                                                    # 14
     ]
 
 
@@ -516,7 +520,8 @@ class TestLiveGateRunner:
 
     def test_max_positions_reached_rejects_trade(self):
         positions = [{"ticker": f"T{i}"} for i in range(5)]
-        results, mocks = _run_live(candidates=[_signal()], positions=positions,
+        # score=0.50 < overflow_threshold=0.525 (base 0.50 × 1.05) → rejected
+        results, mocks = _run_live(candidates=[_signal(score=0.50)], positions=positions,
                                    cfg_overrides={"max_positions": 5})
         assert results[0]["outcome"] == "TRADE_REJECTED"
         mocks[12].assert_not_called()
@@ -553,7 +558,8 @@ class TestLiveGateRunner:
 
     def test_max_positions_gate_decision_in_db(self):
         positions = [{"ticker": f"T{i}"} for i in range(5)]
-        results, mocks = _run_live(candidates=[_signal()], positions=positions,
+        # score=0.50 < overflow_threshold → rejected, gate_decision should be TRADE_REJECTED
+        results, mocks = _run_live(candidates=[_signal(score=0.50)], positions=positions,
                                    cfg_overrides={"max_positions": 5})
         saved = mocks[7].call_args[0][0]
         assert saved["gate_decision"] == "TRADE_REJECTED"

@@ -292,7 +292,8 @@ def test_gate(ticker: str, request: Request):
     ticker = _validate_ticker(ticker)
 
     from backend.db import get_wallet_context, latest_signals
-    from backend.gate import lock1_quant, lock2_sentiment, lock3_claude
+    from backend.gate.lock3_sentiment import evaluate as eval_sentiment
+    from backend.gate.lock5_claude import evaluate as eval_claude
 
     signals = [s for s in latest_signals(limit=200) if s["ticker"] == ticker]
     if not signals:
@@ -301,21 +302,21 @@ def test_gate(ticker: str, request: Request):
     signal     = signals[0]
     wallet_ctx = get_wallet_context()
 
-    l1 = lock1_quant.evaluate(signal)
-    l2 = lock2_sentiment.evaluate(signal["ticker"])
+    # Lock 3 (Sentiment) — Lock 1 Eligibility and Lock 2 Quant bypassed for testing
+    l3_result = eval_sentiment(signal["ticker"])
 
-    l3 = None
-    if l2["passed"]:
-        context = gate_runner._build_claude_context(signal, l2, wallet_ctx)
-        l3 = lock3_claude.evaluate(context)
+    l5_result = None
+    if l3_result.passed:
+        context = gate_runner._build_base_context(signal, wallet_ctx, {})
+        l5_result = eval_claude(signal["ticker"], signal["sector"],
+                                {3: l3_result}, context)
 
     return {
         "ticker":  signal["ticker"],
         "sector":  signal["sector"],
-        "lock1":   l1,
-        "lock2":   l2,
-        "lock3":   l3,
-        "note":    "Lock 1 threshold bypassed for testing purposes",
+        "lock2":   l3_result.to_dict(),
+        "lock3":   l5_result.to_dict() if l5_result else None,
+        "note":    "Lock 1 (Eligibility) and Lock 2 (Quant) bypassed for API testing",
     }
 
 

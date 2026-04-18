@@ -1,15 +1,9 @@
 """
-Gate Runner — orchestrates Lock 1 → 2 → 3 for all signal candidates.
+Gate Runner (demo) — orchestrates the 5-lock chain for all signal candidates.
 
-Flow per ticker:
-  Lock 1 (quant)     → always evaluated from DB signal
-  Lock 2 (Grok)      → only if Lock 1 passes
-  Lock 3 (OpenAI)    → only if Lock 2 passes
-  Trade execution    → wallet.py
-
-Candidates are evaluated concurrently (ThreadPoolExecutor) to avoid stacking
-Lock 2 + Lock 3 API latency across multiple tickers.
-All gate results are logged to DB regardless of outcome.
+Delegates lock evaluation to evaluate_chain() in gate/chain.py.
+Locks: Eligibility → Quant → Sentiment → Leading → Claude.
+Trade execution via wallet.py. All results logged to DB.
 """
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -26,13 +20,7 @@ from backend.db import (
     insert_demo_gate_result,
     update_signal_gate,
 )
-from backend.gate import (
-    lock1_quant,
-    lock2_sentiment,
-    lock3_claude,
-    lock_leading,
-    lock_macro,
-)
+from backend.gate.chain import ChainResult, evaluate_chain
 
 # Max parallel workers — bounded to avoid hammering rate limits
 _MAX_WORKERS = 4
@@ -228,59 +216,31 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
               sector_thresholds: dict | None = None,
               rotation_scores: dict | None = None,
               regime_bayes_result=None) -> dict:
-    ticker = signal["ticker"]
+    ticker       = signal["ticker"]
+    sector       = signal.get("sector", "")
+    signal_score = signal["signal_score"]
+    # Pre-rotation tickers use the watchlist 15% discount in Lock 2 — same as PRE_ROTATION_FLOOR
+    on_watchlist = signal.get("pre_rotation", False)
 
-    l1_threshold = (sector_thresholds or {}).get(signal.get("sector", ""), cfg["lock1_threshold"])
-    if signal.get("pre_rotation"):
-        l1_threshold = l1_threshold * PRE_ROTATION_FLOOR
-    l1 = lock1_quant.evaluate(signal, threshold=l1_threshold)
-
-    if not l1["passed"]:
-        return _gate_result(signal, l1, None, None, None, "FILTERED_L1")
-
-    lm = lock_macro.evaluate(ticker, cfg)
-    if not lm["passed"]:
-        return _gate_result(signal, l1, None, None, None, "FILTERED_MACRO", lm=lm)
-
-    l2 = lock2_sentiment.evaluate(ticker, sentiment_min=cfg["lock2_sentiment_min"])
-    if not l2["passed"]:
-        return _gate_result(signal, l1, l2, None, None, "FILTERED_L2")
-
-    l_leading = lock_leading.evaluate(ticker, signal.get("sector", ""),
-                                      min_pass=cfg.get("lock_leading_min_pass", 2))
-    if not l_leading["passed"]:
-        return _gate_result(signal, l1, l2, l_leading, None, "FILTERED_LEADING")
-
-    context = _build_claude_context(signal, l2, l_leading, wallet_ctx, cfg, sector_regime,
-                                    rotation_scores, regime_bayes_result)
-    l3 = lock3_claude.evaluate(context, confidence_min=cfg["lock3_confidence_min"])
-
-    outcome = "TRADE_QUEUED" if l3["passed"] else "FILTERED_L3"
-    return _gate_result(signal, l1, l2, l_leading, l3, outcome)
+    context = _build_base_context(signal, wallet_ctx, cfg, sector_regime,
+                                  rotation_scores, regime_bayes_result)
+    chain   = evaluate_chain(ticker, sector, signal_score, context, cfg,
+                             on_watchlist=on_watchlist)
+    return _chain_to_gate_result(signal, chain)
 
 
-def _build_claude_context(signal: dict, l2: dict, l_leading: dict,
-                          wallet_ctx: dict, cfg: dict,
-                          sector_regime: dict | None = None,
-                          rotation_scores: dict | None = None,
-                          regime_bayes_result=None) -> dict:
+def _build_base_context(signal: dict, wallet_ctx: dict, cfg: dict,
+                        sector_regime: dict | None = None,
+                        rotation_scores: dict | None = None,
+                        regime_bayes_result=None) -> dict:
+    """
+    Build the base context dict passed to evaluate_chain() and ultimately Lock 5 (Claude).
+    Sentiment and leading data come from lock_results inside lock5_claude; not duplicated here.
+    """
     ctx = {
-        # identity
-        "ticker":            signal["ticker"],
-        "sector":            signal["sector"],
-        # L2 sentiment context
-        "sentiment_score":   l2["score"],
-        "sentiment_conviction": l2["conviction"],
-        "sentiment_themes":  l2["key_themes"],
-        "sentiment_summary": l2["summary"],
-        # leading indicators context
-        "leading_pass_count":     l_leading["pass_count"],
-        "leading_checks":         {k: v["pass"] for k, v in l_leading["checks"].items()},
-        # portfolio state
-        "wallet_balance":    wallet_ctx["balance"],
-        "open_positions":    wallet_ctx["open_positions"],
-        "sector_exposure":   wallet_ctx["sector_exposure"],
-        # configured risk limits — model uses these for its checks
+        "wallet_balance":  wallet_ctx["balance"],
+        "open_positions":  wallet_ctx["open_positions"],
+        "sector_exposure": wallet_ctx["sector_exposure"],
         "risk_limits": {
             "starting_balance":    cfg["starting_balance"],
             "max_positions":       cfg["max_positions"],
@@ -291,58 +251,52 @@ def _build_claude_context(signal: dict, l2: dict, l_leading: dict,
         },
     }
 
-    # Sector regime context — gives Lock 3 macro cycle awareness
     if sector_regime and sector_regime.get("available"):
         sector_detail = sector_regime.get("sectors", {}).get(signal["sector"], {})
         ctx.update({
-            "market_regime":       sector_regime["regime"],               # risk_on/off/neutral
-            "regime_confidence":   sector_regime.get("regime_confidence"), # 0–1 conviction score
-            "sector_signal":       sector_detail.get("signal"),            # breakout/trending/extended/weak
-            "sector_streak_days":  sector_detail.get("streak_days"),       # duration of current trend
-            "market_leader":       sector_regime.get("leader"),            # currently strongest sector
-            "sector_velocity":     sector_detail.get("velocity"),          # accelerating/decelerating/flat
-            "sector_velocity_5d":  sector_detail.get("velocity_5d"),       # raw 5d score delta
-            "sector_accel":        sector_detail.get("accel"),             # change in 5d velocity
+            "market_regime":      sector_regime["regime"],
+            "regime_confidence":  sector_regime.get("regime_confidence"),
+            "sector_signal":      sector_detail.get("signal"),
+            "sector_streak_days": sector_detail.get("streak_days"),
+            "market_leader":      sector_regime.get("leader"),
+            "sector_velocity":    sector_detail.get("velocity"),
+            "sector_velocity_5d": sector_detail.get("velocity_5d"),
+            "sector_accel":       sector_detail.get("accel"),
         })
 
-    # Rotation forecast — gives Lock 3 transition probability awareness
     try:
         from backend.sector_transitions import get_rotation_forecast
         forecast = get_rotation_forecast()
         if forecast.get("available"):
-            # Is this ticker's sector the predicted next rotation target?
-            next_prob       = next((item["probability"] for item in forecast.get("likely_next", [])
-                                    if item["sector"] == signal["sector"]), None)
-            confirmed       = forecast.get("confirmed_transition")
+            next_prob = next((item["probability"] for item in forecast.get("likely_next", [])
+                              if item["sector"] == signal["sector"]), None)
+            confirmed = forecast.get("confirmed_transition")
             ctx.update({
-                "rotation_leader":           forecast["leader"],
-                "rotation_predecessor":      forecast.get("predecessor"),
-                "sector_next_probability":   next_prob,                        # None if sector not predicted next
-                "rotation_confirmed":        confirmed is not None,
-                "rotation_transition_prob":  confirmed["probability"] if confirmed else None,
-                "rotation_regime_conditioned": forecast.get("regime_conditioned"),  # True = regime-specific matrix
-                "rotation_regime_sample_size": forecast.get("regime_sample_size"),  # transitions in this regime
+                "rotation_leader":             forecast["leader"],
+                "rotation_predecessor":        forecast.get("predecessor"),
+                "sector_next_probability":     next_prob,
+                "rotation_confirmed":          confirmed is not None,
+                "rotation_transition_prob":    confirmed["probability"] if confirmed else None,
+                "rotation_regime_conditioned": forecast.get("regime_conditioned"),
+                "rotation_regime_sample_size": forecast.get("regime_sample_size"),
             })
     except Exception as e:
         logger.debug(f"Gate [{signal['ticker']}]: rotation forecast unavailable — {e}")
 
-    # Rotation score — pre-computed once per gate cycle, passed in from run()
     if rotation_scores is not None:
         ctx["ticker_rotation_score"] = rotation_scores.get(signal["ticker"])
 
-    # Bayesian regime allocation — sector-level conviction and portfolio weight
     if regime_bayes_result is not None:
         sector = signal.get("sector", "")
         alloc  = regime_bayes_result.allocation.get(sector, 0.0)
         entry  = next((e for e in regime_bayes_result.leaderboard if e.sector == sector), None)
-        ctx["regime_bayes_allocation"]      = alloc                          # portfolio % for this sector
-        ctx["regime_bayes_posterior"]       = entry.posterior       if entry else None
-        ctx["regime_bayes_adjusted_score"]  = entry.adjusted_score  if entry else None
-        ctx["regime_bayes_rank"]            = entry.rank            if entry else None
-        ctx["regime_bayes_qualified"]       = alloc > 0             # in top 5 and above threshold
-        ctx["regime_bayes_leader"]          = regime_bayes_result.leader
+        ctx["regime_bayes_allocation"]     = alloc
+        ctx["regime_bayes_posterior"]      = entry.posterior      if entry else None
+        ctx["regime_bayes_adjusted_score"] = entry.adjusted_score if entry else None
+        ctx["regime_bayes_rank"]           = entry.rank           if entry else None
+        ctx["regime_bayes_qualified"]      = alloc > 0
+        ctx["regime_bayes_leader"]         = regime_bayes_result.leader
 
-    # Recent gate fail history — lets Lock 3 see patterns (repeated L2 fails, etc.)
     try:
         from backend.db import get_ticker_gate_fails
         fails = get_ticker_gate_fails(signal["ticker"], limit=5)
@@ -354,32 +308,86 @@ def _build_claude_context(signal: dict, l2: dict, l_leading: dict,
     return ctx
 
 
-def _gate_result(signal: dict, l1: dict, l2: dict | None,
-                 l_leading: dict | None, l3: dict | None, outcome: str,
-                 lm: dict | None = None) -> dict:
+def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
+    """Translate ChainResult into the flat result dict expected by run() and DB writers.
+
+    DB column mapping (schema preserved, semantics shifted):
+        lock1_pass = Lock 2 Quant result
+        lock2_pass = Lock 3 Sentiment result
+        lock3_pass = Lock 5 Claude result
+    """
+    lr = chain.lock_results
+    l1 = lr.get(1)   # Eligibility
+    l2 = lr.get(2)   # Quant      → DB lock1_pass
+    l3 = lr.get(3)   # Sentiment  → DB lock2_pass
+    l4 = lr.get(4)   # Leading
+    l5 = lr.get(5)   # Claude     → DB lock3_pass
+
+    _OUTCOMES = {
+        1: "FILTERED_ELIGIBILITY",
+        2: "FILTERED_L1",
+        3: "FILTERED_L2",
+        4: "FILTERED_LEADING",
+        5: "FILTERED_L3",
+    }
+    outcome = "TRADE_QUEUED" if chain.approved else _OUTCOMES.get(chain.exit_lock, "FILTERED_UNKNOWN")
+
+    # Lock 5 (Claude) — backward compat with result["lock3"]["position_size_pct"] in wallet.py
+    l5_data = l5.data if l5 else {}
+    lock3_compat = {
+        "passed":            l5.passed if l5 else False,
+        "decision":          l5_data.get("decision"),
+        "confidence":        l5_data.get("confidence", 0.0),
+        "position_size_pct": l5_data.get("position_size_pct", 0.0),
+        "reasoning":         l5_data.get("reasoning"),
+        "model":             l5_data.get("model"),
+    }
+
+    # Lock 4 (Leading) — flatten pass_count/min_pass for _log_summary()
+    l4_data   = l4.data if l4 else {}
+    # lock4_leading uses "checks"; "sub_checks" is a DB-compat alias (same dict)
+    l4_checks = l4_data.get("checks") or l4_data.get("sub_checks", {})
+    lock_leading_compat = None
+    if l4:
+        lock_leading_compat = {
+            "passed":     l4.passed,
+            "score":      l4.score,
+            "reason":     l4.reason,
+            "pass_count": l4_data.get("pass_count", 0),
+            "min_pass":   l4_data.get("min_pass", 2),
+            "checks":     l4_checks,
+        }
+
+    # Lock 3 (Sentiment) data — for DB sentiment_score and l2_summary columns
+    l3_data = l3.data if l3 else {}
+
+    # For _log_summary: show Quant (L2) if it ran, else Eligibility (L1)
+    lock1_compat = l2.to_dict() if l2 else (l1.to_dict() if l1 else {"passed": False, "score": 0.0})
+
     return {
         "ticker":       signal["ticker"],
-        "sector":       signal["sector"],
+        "sector":       signal.get("sector", ""),
         "signal_id":    signal["id"],
         "pre_rotation": signal.get("pre_rotation", False),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "outcome":   outcome,
-        "lock1":     l1,
-        "lock2":     l2,
-        "lock_leading": l_leading,
-        "lock3":     l3,
-        # Flattened for DB update
-        "lock1_pass":          int(l1["passed"]),
-        "lock2_pass":          int(l2["passed"])       if l2        else 0,
-        "lock_leading_pass":   int(l_leading["passed"]) if l_leading else 0,
-        "lock_leading_checks": json.dumps(l_leading["checks"]) if l_leading else None,
-        "lock3_pass":          int(l3["passed"])       if l3        else 0,
+        "timestamp":    datetime.now(timezone.utc).isoformat(),
+        "outcome":      outcome,
+        # Named lock dicts (used by _log_summary and wallet.execute_trade)
+        "lock1":        lock1_compat,
+        "lock2":        l3.to_dict() if l3 else None,
+        "lock_leading": lock_leading_compat,
+        "lock3":        lock3_compat,
+        # Flat DB fields
+        "lock1_pass":          int(l2.passed) if l2 else 0,
+        "lock2_pass":          int(l3.passed) if l3 else 0,
+        "lock_leading_pass":   int(l4.passed) if l4 else 0,
+        "lock_leading_checks": json.dumps(l4_checks) if l4 else None,
+        "lock3_pass":          int(l5.passed) if l5 else 0,
         "gate_decision":       outcome if outcome != "TRADE_QUEUED" else "TRADE_EXECUTED",
-        "claude_confidence":   l3["confidence"] if l3 else None,
-        "claude_reasoning":    l3["reasoning"]  if l3 else None,
-        "sentiment_score":     l2["score"]      if l2 else None,
-        "l2_summary":          l2["summary"]    if l2 else None,
-        "macro_reason":        lm["reason"]     if lm else None,
+        "claude_confidence":   l5_data.get("confidence"),
+        "claude_reasoning":    l5_data.get("reasoning"),
+        "sentiment_score":     l3_data.get("score"),
+        "l2_summary":          l3_data.get("summary"),
+        "macro_reason":        l1.reason if (l1 and not l1.passed) else None,
     }
 
 
