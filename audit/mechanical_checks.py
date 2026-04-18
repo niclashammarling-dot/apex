@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16
+APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24
 Pure grep/parse, no LLM. Writes findings to audit/nightly-report-YYYY-MM-DD.md.
 """
+# CHECK 22 added 2026-04-15: Yahoo data pipeline health
+# CHECK 24 added 2026-04-18: Chain-runner wiring integrity
 
 import json
 import re
@@ -237,18 +239,18 @@ def check12():
 
         return keys
 
-    demo_keys = extract_ctx_keys(demo_file.read_text(), "_build_claude_context") - LIVE_ONLY
-    live_keys = extract_ctx_keys(live_file.read_text(), "_build_context") - DEMO_ONLY
+    demo_keys = extract_ctx_keys(demo_file.read_text(), "_build_base_context") - LIVE_ONLY
+    live_keys = extract_ctx_keys(live_file.read_text(), "_build_base_context") - DEMO_ONLY
 
     for k in sorted(demo_keys - live_keys):
         flag(12, "Lock3 context parity", "CRITICAL",
-             "backend/gate/gate_runner_live.py:_build_context",
-             f"key '{k}' in demo _build_claude_context but missing from live _build_context")
+             "backend/gate/gate_runner_live.py:_build_base_context",
+             f"key '{k}' in demo _build_base_context but missing from live _build_base_context")
 
     for k in sorted(live_keys - demo_keys):
         flag(12, "Lock3 context parity", "WARNING",
-             "backend/gate/gate_runner.py:_build_claude_context",
-             f"key '{k}' in live _build_context but missing from demo _build_claude_context")
+             "backend/gate/gate_runner.py:_build_base_context",
+             f"key '{k}' in live _build_base_context but missing from demo _build_base_context")
 
 
 # ── CHECK 13 — Undisclosed config changes ────────────────────────────────────
@@ -524,6 +526,137 @@ def check21():
                  f"overflow_quant_increment={val} outside expected range 0.01–0.25")
 
 
+# ── CHECK 22 — Yahoo data pipeline health ────────────────────────────────────
+
+def check22():
+    """
+    On trading days, verify that sector_snapshots received data today and that
+    regime_result_cache.json exists and is fresh (written today or yesterday).
+
+    Canary for Yahoo Finance rate-limiting or API outage: the first symptom is
+    partial download failures before a full 429 block. Stale snapshots on a
+    trading day means the polling pipeline silently failed.
+    """
+    today = date.today()
+    weekday = today.weekday()
+    is_trading_day = weekday < 5   # Mon–Fri only
+
+    # ── Sub-check A: sector_snapshots written today ───────────────────────────
+    if is_trading_day:
+        db_path = REPO / "data/apex.db"
+        if db_path.exists():
+            try:
+                conn = sqlite3.connect(str(db_path))
+                cutoff = today.isoformat()
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM sector_snapshots WHERE timestamp >= ?",
+                    (cutoff,),
+                ).fetchone()
+                conn.close()
+                count = row[0] if row else 0
+                if count == 0:
+                    flag(22, "Yahoo data pipeline health", "WARNING",
+                         "data/apex.db:sector_snapshots",
+                         f"No sector snapshots written today ({today}) — "
+                         "polling may have failed due to Yahoo rate limit or API outage")
+                elif count < 10:
+                    flag(22, "Yahoo data pipeline health", "WARNING",
+                         "data/apex.db:sector_snapshots",
+                         f"Only {count} sector snapshot rows today ({today}); "
+                         "expected multiple poll cycles — check for partial Yahoo failures")
+            except Exception as e:
+                flag(22, "Yahoo data pipeline health", "WARNING",
+                     "data/apex.db:sector_snapshots",
+                     f"Could not query sector_snapshots: {e}")
+
+    # ── Sub-check B: regime_result_cache.json exists and is recent ────────────
+    cache = REPO / "data/regime_result_cache.json"
+    if not cache.exists():
+        flag(22, "Yahoo data pipeline health", "WARNING",
+             "data/regime_result_cache.json",
+             "regime_result_cache.json missing — regime-bayes will show unavailable after any restart "
+             "until next EOD run")
+    else:
+        try:
+            import json as _json
+            cached = _json.loads(cache.read_text())
+            cached_date = cached.get("date", "")
+            age_days = (today - date.fromisoformat(cached_date)).days if cached_date else 999
+            if age_days > 5:
+                flag(22, "Yahoo data pipeline health", "WARNING",
+                     "data/regime_result_cache.json",
+                     f"regime_result_cache.json is {age_days} days old (last: {cached_date}) — "
+                     "EOD regime may not have run successfully this week")
+        except Exception as e:
+            flag(22, "Yahoo data pipeline health", "WARNING",
+                 "data/regime_result_cache.json",
+                 f"Could not parse regime_result_cache.json: {e}")
+
+
+# ── CHECK 24 — Chain-runner wiring integrity ──────────────────────────────────
+
+def check24():
+    """
+    Verify that:
+    1. chain.py defines evaluate_chain
+    2. gate_runner.py imports evaluate_chain from backend.gate.chain
+    3. gate_runner_live.py imports evaluate_chain (directly or via gate_runner)
+    4. chain.py calls all five lock evaluate functions
+
+    Prevents recurrence of the 2026-04-18 incident: chain.py existed for a week
+    with zero callers — the old lock modules were silently still live.
+    """
+    chain    = REPO / "backend/gate/chain.py"
+    runner   = REPO / "backend/gate/gate_runner.py"
+    runner_l = REPO / "backend/gate/gate_runner_live.py"
+
+    for path in [chain, runner, runner_l]:
+        if not path.exists():
+            flag(24, "Chain-runner wiring", "CRITICAL",
+                 str(path.relative_to(REPO)), "file missing")
+            return
+
+    chain_text    = chain.read_text()
+    runner_text   = runner.read_text()
+    runner_l_text = runner_l.read_text()
+
+    # chain.py must define evaluate_chain
+    if "def evaluate_chain(" not in chain_text:
+        flag(24, "Chain-runner wiring", "CRITICAL",
+             "backend/gate/chain.py", "evaluate_chain not defined in chain.py")
+
+    # gate_runner.py must import evaluate_chain from chain
+    if "evaluate_chain" not in runner_text:
+        flag(24, "Chain-runner wiring", "CRITICAL",
+             "backend/gate/gate_runner.py",
+             "evaluate_chain not imported/called — runner is not wired to chain.py")
+
+    # gate_runner_live.py must reference evaluate_chain
+    if "evaluate_chain" not in runner_l_text:
+        flag(24, "Chain-runner wiring", "CRITICAL",
+             "backend/gate/gate_runner_live.py",
+             "evaluate_chain not imported/called — live runner is not wired to chain.py")
+
+    # chain.py must call all 5 lock evaluate functions
+    for lock_fn in ["lock1_evaluate", "lock2_evaluate", "lock3_evaluate",
+                    "lock4_evaluate", "lock5_evaluate"]:
+        if lock_fn not in chain_text:
+            flag(24, "Chain-runner wiring", "CRITICAL",
+                 "backend/gate/chain.py",
+                 f"{lock_fn} not called in chain.py — lock dropped from chain")
+
+    # Neither runner should directly import old retired lock modules
+    old_modules = ["lock1_quant", "lock_macro", "lock2_sentiment",
+                   "lock_leading", "lock3_claude"]
+    for mod in old_modules:
+        for label, text in [("gate_runner.py", runner_text),
+                             ("gate_runner_live.py", runner_l_text)]:
+            if f"import {mod}" in text or f"from backend.gate.{mod}" in text:
+                flag(24, "Chain-runner wiring", "CRITICAL",
+                     f"backend/gate/{label}",
+                     f"retired module '{mod}' still imported — runner bypasses chain.py")
+
+
 # ── Update check registry ─────────────────────────────────────────────────────
 
 def update_registry():
@@ -571,7 +704,7 @@ def update_registry():
 def write_report(retirement_candidates):
     REPORT.parent.mkdir(exist_ok=True)
 
-    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21}
+    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24}
     rows = []
     check_names = {
         3: "Fractional qty", 4: "Config parity", 5: "Sector name strings",
@@ -580,7 +713,8 @@ def write_report(retirement_candidates):
         12: "Lock3 context parity", 13: "Undisclosed config change",
         14: "EOD regime freshness", 15: "Calibration freshness",
         16: "yfinance scalar extraction", 17: "Sentiment cache freshness",
-        21: "Overflow increment range",
+        21: "Overflow increment range", 22: "Yahoo data pipeline health",
+        24: "Chain-runner wiring",
     }
 
     # One clean row per check that had no findings
@@ -633,5 +767,7 @@ if __name__ == "__main__":
     check16()
     check17()
     check21()
+    check22()
+    check24()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])
