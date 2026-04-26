@@ -119,14 +119,14 @@ def _send_slack(webhook_url: str, title: str, body: str) -> bool:
         return False
 
 
-def _send_email(cfg: dict, title: str, body: str) -> bool:
+def _send_email(cfg: dict, title: str, body: str, html_body: str | None = None) -> bool:
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = title
         msg["From"]    = cfg["email_from"]
         msg["To"]      = cfg["email_to"]
-        msg.attach(MIMEText(body.replace("\n", "<br>"), "html"))
         msg.attach(MIMEText(body, "plain"))
+        msg.attach(MIMEText(html_body if html_body else body.replace("\n", "<br>"), "html"))
 
         with smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"]) as server:
             server.ehlo()

@@ -712,7 +712,7 @@ def send_weekly_report() -> None:
         cfg = _cfg()
         sent = False
         if cfg["email_to"] and cfg["smtp_user"] and cfg["smtp_pass"]:
-            sent |= _send_email(cfg, subject, html)
+            sent |= _send_email(cfg, subject, plain, html_body=html)
         if cfg["slack_url"]:
             sent |= _send_slack(cfg["slack_url"], subject, plain)
         if not sent:

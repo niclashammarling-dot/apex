@@ -89,14 +89,13 @@ def evaluate(
 
 def _sector_threshold(sector: str) -> float:
     """
-    Return the sector-specific Lock 2 threshold.
-
-    Looks up SECTORS config for a per-sector lock1_threshold override.
-    Falls back to the global LOCK1_THRESHOLD if none is defined.
+    Return the sector-specific Lock 2 threshold from the calibrated
+    ticker_thresholds table — the same source used by get_lock1_candidates.
+    Falls back to LOCK1_THRESHOLD if the sector has no calibrated entry.
     """
     try:
-        from backend.config import SECTORS
-        sector_cfg = SECTORS.get(sector, {})
-        return float(sector_cfg.get("lock1_threshold", LOCK1_THRESHOLD))
+        from backend.db import get_ticker_thresholds
+        thresholds = get_ticker_thresholds()
+        return float(thresholds.get(sector, LOCK1_THRESHOLD))
     except Exception:
         return float(LOCK1_THRESHOLD)
