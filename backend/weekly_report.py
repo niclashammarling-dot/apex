@@ -95,7 +95,9 @@ def _demo_stats(since: str) -> dict:
                 COUNT(*) AS total,
                 SUM(CASE WHEN outcome='WIN'  THEN 1 ELSE 0 END) AS wins,
                 SUM(CASE WHEN outcome IN ('LOSS','EXPIRED') THEN 1 ELSE 0 END) AS losses,
-                COALESCE(SUM(pnl), 0) AS realized_pnl
+                COALESCE(SUM(pnl), 0) AS realized_pnl,
+                SUM(CASE WHEN exit_reason='REGIME' THEN 1 ELSE 0 END) AS regime_exits,
+                COALESCE(SUM(CASE WHEN exit_reason='REGIME' THEN pnl ELSE 0 END), 0) AS regime_pnl
             FROM trades
             WHERE exited_at >= ? AND outcome IN ('WIN','LOSS','EXPIRED')
         """, (since,)).fetchone()
@@ -134,6 +136,8 @@ def _demo_stats(since: str) -> dict:
             "wins":             closed["wins"]   or 0,
             "losses":           closed["losses"] or 0,
             "realized_pnl":     round(closed["realized_pnl"] or 0, 2),
+            "regime_exits":     closed["regime_exits"] or 0,
+            "regime_pnl":       round(closed["regime_pnl"] or 0, 2),
             "open_positions":   len(open_rows),
             "open_cost":        round(open_cost, 2),
             "open_market_value": round(open_market_value, 2),
@@ -154,7 +158,9 @@ def _live_stats(since: str) -> dict:
                 COUNT(*) AS total,
                 SUM(CASE WHEN outcome='WIN'  THEN 1 ELSE 0 END) AS wins,
                 SUM(CASE WHEN outcome IN ('LOSS','EXPIRED') THEN 1 ELSE 0 END) AS losses,
-                COALESCE(SUM(pnl), 0) AS realized_pnl
+                COALESCE(SUM(pnl), 0) AS realized_pnl,
+                SUM(CASE WHEN exit_reason='REGIME' THEN 1 ELSE 0 END) AS regime_exits,
+                COALESCE(SUM(CASE WHEN exit_reason='REGIME' THEN pnl ELSE 0 END), 0) AS regime_pnl
             FROM live_trades
             WHERE exited_at >= ? AND outcome IN ('WIN','LOSS','EXPIRED')
         """, (since,)).fetchone()
@@ -168,6 +174,8 @@ def _live_stats(since: str) -> dict:
             "wins":           closed["wins"]   or 0,
             "losses":         closed["losses"] or 0,
             "realized_pnl":   round(closed["realized_pnl"] or 0, 2),
+            "regime_exits":   closed["regime_exits"] or 0,
+            "regime_pnl":     round(closed["regime_pnl"] or 0, 2),
             "open_positions": open_row["cnt"],
         }
     finally:
@@ -390,6 +398,8 @@ def _gpt4o_commentary(
                 "losses":         demo["losses"],
                 "win_rate":       round(demo_wr, 3) if demo_wr is not None else None,
                 "realized_pnl":   demo["realized_pnl"],
+                "regime_exits":   demo["regime_exits"],
+                "regime_pnl":     demo["regime_pnl"],
                 "balance":        demo["balance"],
                 "return_pct":     round(demo_return * 100, 2),
                 "open_positions": demo["open_positions"],
@@ -400,6 +410,8 @@ def _gpt4o_commentary(
                 "losses":        live["losses"],
                 "win_rate":      round(live_wr, 3) if live_wr is not None else None,
                 "realized_pnl":  live["realized_pnl"],
+                "regime_exits":  live["regime_exits"],
+                "regime_pnl":    live["regime_pnl"],
             },
             "gate_funnel_demo": {
                 "evaluated":      de,
@@ -489,6 +501,9 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
       </tr></thead>
       <tbody>
         {_row(_td('Closed trades (week)'), _td(str(demo['closed_total'])), _td(str(live['closed_total'])))}
+        {_row(_td('of which: regime exits'),
+              _td(f"{demo['regime_exits']} (${demo['regime_pnl']:+,.2f})" if demo['regime_exits'] else '—', color='#9ca3af'),
+              _td(f"{live['regime_exits']} (${live['regime_pnl']:+,.2f})" if live['regime_exits'] else '—', color='#9ca3af'))}
         {_row(_td('Wins / Losses'), _td(f"{demo['wins']}W / {demo['losses']}L"), _td(f"{live['wins']}W / {live['losses']}L"))}
         {_row(_td('Win rate (week)'), _td(_pct(demo_wr)), _td(_pct(live_wr)))}
         {_row(_td('Realized P&amp;L (week)', bold=True),
@@ -681,8 +696,8 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
 
     plain += f"""
 PERFORMANCE
-  Demo: {demo['closed_total']} closed ({demo['wins']}W/{demo['losses']}L) | Win rate: {_pct(demo_wr)} | Realized P&L: {plain_pnl(demo['realized_pnl'])} | Unrealized: {plain_pnl(demo['unrealized_pnl'])} | Total equity: ${demo['balance']:,.2f} ({_pct(demo_return)})
-  Live: {live['closed_total']} closed ({live['wins']}W/{live['losses']}L) | Win rate: {_pct(live_wr)} | P&L: {plain_pnl(live['realized_pnl'])}
+  Demo: {demo['closed_total']} closed ({demo['wins']}W/{demo['losses']}L) | Regime exits: {demo['regime_exits']} ({plain_pnl(demo['regime_pnl'])}) | Win rate: {_pct(demo_wr)} | Realized P&L: {plain_pnl(demo['realized_pnl'])} | Unrealized: {plain_pnl(demo['unrealized_pnl'])} | Total equity: ${demo['balance']:,.2f} ({_pct(demo_return)})
+  Live: {live['closed_total']} closed ({live['wins']}W/{live['losses']}L) | Regime exits: {live['regime_exits']} ({plain_pnl(live['regime_pnl'])}) | Win rate: {_pct(live_wr)} | P&L: {plain_pnl(live['realized_pnl'])}
 
 GATE FUNNEL (Demo)
   Evaluated: {de} | L1 pass: {_funnel_rate(dfunnel.get('l1_pass'), de)} | Traded: {dfunnel.get('traded', 0)}

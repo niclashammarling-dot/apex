@@ -150,9 +150,9 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
         )
 
     # ── B. Macro filter ───────────────────────────────────────────────────────
-    vix_threshold     = cfg.get("vix_threshold", 25.0)
-    event_blackout    = cfg.get("macro_event_blackout_days", 1)
-    earnings_blackout = cfg.get("macro_earnings_blackout_days", 3)
+    _vt = cfg.get("vix_threshold");          vix_threshold     = 25.0 if _vt is None else _vt
+    _eb = cfg.get("macro_event_blackout_days");    event_blackout    = 1    if _eb is None else _eb
+    _ea = cfg.get("macro_earnings_blackout_days"); earnings_blackout = 3    if _ea is None else _ea
     today             = date.today()
 
     vix = _get_vix()

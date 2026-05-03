@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24
+APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26
 Pure grep/parse, no LLM. Writes findings to audit/nightly-report-YYYY-MM-DD.md.
 """
 # CHECK 22 added 2026-04-15: Yahoo data pipeline health
 # CHECK 24 added 2026-04-18: Chain-runner wiring integrity
+# CHECK 25 added 2026-04-20: gate_decision string parity (backend _OUTCOMES vs frontend + db consumers)
+# CHECK 26 added 2026-05-03: L1/L2 threshold-source parity (both must use get_ticker_thresholds())
 
 import json
 import re
@@ -657,6 +659,130 @@ def check24():
                      f"retired module '{mod}' still imported — runner bypasses chain.py")
 
 
+# ── CHECK 25 — gate_decision string parity ───────────────────────────────────
+
+def check25():
+    """
+    Verify that every gate_decision string emitted by _OUTCOMES in gate_runner.py
+    is handled by all consumers:
+      - getLockStates in GateFeed.jsx and LiveGateFeed.jsx
+      - OUTCOME_LABELS/decisionBadge in GateFeed.jsx and LiveGateFeed.jsx
+      - funnel SQL and dict lookups in db.py
+
+    Prevented by: FILTERED_ELIGIBILITY introduced in _OUTCOMES but all consumers
+    still checked for old FILTERED_MACRO string — tickers showed all-green despite
+    L1 failure; funnel macro_fail count silently zeroed out.
+    """
+    runner = REPO / "backend/gate/gate_runner.py"
+    gate_feed     = REPO / "frontend/src/components/GateFeed.jsx"
+    live_gate_feed = REPO / "frontend/src/components/LiveGateFeed.jsx"
+    db_file = REPO / "backend/db.py"
+
+    if not runner.exists():
+        return
+
+    runner_text = runner.read_text()
+
+    # Extract string values from _OUTCOMES dict: 1: "FILTERED_ELIGIBILITY", etc.
+    outcomes = re.findall(r'\d+:\s*"(FILTERED_[A-Z_]+)"', runner_text)
+    if not outcomes:
+        flag(25, "gate_decision string parity", "WARNING",
+             "backend/gate/gate_runner.py:_OUTCOMES",
+             "_OUTCOMES dict not found or no FILTERED_* strings — pattern changed")
+        return
+
+    for outcome in outcomes:
+        for label, path in [("GateFeed.jsx", gate_feed), ("LiveGateFeed.jsx", live_gate_feed)]:
+            if not path.exists():
+                continue
+            text = path.read_text()
+            if outcome not in text:
+                flag(25, "gate_decision string parity", "CRITICAL",
+                     str(path.relative_to(REPO)),
+                     f'"{outcome}" emitted by _OUTCOMES but not handled in {label} '
+                     f'(getLockStates or badge label) — unrecognized decision shows all-green locks')
+
+        if db_file.exists():
+            db_text = db_file.read_text()
+            # Only check FILTERED_* strings that appear in funnel SQL/dicts
+            # (SKIPPED_* and TRADE_* are handled separately — only check FILTERED_*)
+            if outcome not in db_text:
+                flag(25, "gate_decision string parity", "WARNING",
+                     "backend/db.py",
+                     f'"{outcome}" emitted by _OUTCOMES but not referenced in db.py '
+                     f'— funnel counts for this outcome will silently be 0')
+
+    # ── Sub-check B: ticker signal strings ────────────────────────────────────
+    # Extract signal = "..." values from sector_regime.py (exclude vel_signal= lines)
+    regime_py = REPO / "backend/sector_regime.py"
+    if not regime_py.exists():
+        return
+    regime_text = regime_py.read_text()
+    # Match `signal = "value"` but not `vel_signal = "value"`
+    ticker_signals = set(re.findall(r'(?<!vel_)signal\s*=\s*"([a-z]+)"', regime_text))
+
+    # Frontend components that display per-ticker signal labels
+    signal_consumers = [
+        REPO / "frontend/src/components/SectorGrid.jsx",
+        REPO / "frontend/src/components/SectorRegime.jsx",
+        REPO / "frontend/src/components/Watchlist.jsx",
+        REPO / "frontend/src/components/RotationForecast.jsx",
+    ]
+    for sig in sorted(ticker_signals):
+        for comp_path in signal_consumers:
+            if not comp_path.exists():
+                continue
+            comp_text = comp_path.read_text()
+            # Only check components that have a signal map (contain at least one known key)
+            if "breakout:" not in comp_text and "rising:" not in comp_text:
+                continue
+            if f'{sig}:' not in comp_text:
+                flag(25, "gate_decision string parity", "WARNING",
+                     str(comp_path.relative_to(REPO)),
+                     f'ticker signal "{sig}" emitted by sector_regime.py but missing from '
+                     f'{comp_path.name} signal map — renders as fallback/blank')
+
+
+# ── CHECK 26 — L1/L2 threshold-source parity ─────────────────────────────────
+
+def check26():
+    """
+    Verify that both L1 (gate runners) and L2 (lock2_quant) read sector thresholds
+    from the ticker_thresholds table via get_ticker_thresholds(), not from a static
+    config value.
+
+    Prevented by: April 2026 incident where L2 used config.SECTORS['lock1_threshold']
+    (static 0.70) while L1 already used calibrated per-sector values (0.54–0.62),
+    causing 100% FILTERED_L1 rate across all sectors for an entire week.
+    """
+    runner       = REPO / "backend/gate/gate_runner.py"
+    runner_live  = REPO / "backend/gate/gate_runner_live.py"
+    lock2        = REPO / "backend/gate/lock2_quant.py"
+
+    for label, path in [("gate_runner.py", runner), ("gate_runner_live.py", runner_live)]:
+        if not path.exists():
+            continue
+        text = path.read_text()
+        if "get_ticker_thresholds" not in text:
+            flag(26, "L1/L2 threshold-source parity", "CRITICAL",
+                 f"backend/gate/{label}",
+                 f"{label} does not call get_ticker_thresholds() — L1 candidates will be "
+                 f"filtered against the static config fallback, not calibrated per-sector values")
+        if "sector_thresholds" not in text:
+            flag(26, "L1/L2 threshold-source parity", "CRITICAL",
+                 f"backend/gate/{label}",
+                 f"{label} does not pass sector_thresholds to get_lock1_candidates() — "
+                 f"per-sector calibration is fetched but silently unused")
+
+    if lock2.exists():
+        lock2_text = lock2.read_text()
+        if "get_ticker_thresholds" not in lock2_text:
+            flag(26, "L1/L2 threshold-source parity", "CRITICAL",
+                 "backend/gate/lock2_quant.py:_sector_threshold",
+                 "_sector_threshold() does not call get_ticker_thresholds() — L2 threshold "
+                 "source has diverged from L1; likely reverted to static config value")
+
+
 # ── Update check registry ─────────────────────────────────────────────────────
 
 def update_registry():
@@ -704,7 +830,7 @@ def update_registry():
 def write_report(retirement_candidates):
     REPORT.parent.mkdir(exist_ok=True)
 
-    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24}
+    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26}
     rows = []
     check_names = {
         3: "Fractional qty", 4: "Config parity", 5: "Sector name strings",
@@ -714,7 +840,8 @@ def write_report(retirement_candidates):
         14: "EOD regime freshness", 15: "Calibration freshness",
         16: "yfinance scalar extraction", 17: "Sentiment cache freshness",
         21: "Overflow increment range", 22: "Yahoo data pipeline health",
-        24: "Chain-runner wiring",
+        24: "Chain-runner wiring", 25: "gate_decision string parity",
+        26: "L1/L2 threshold-source parity",
     }
 
     # One clean row per check that had no findings
@@ -769,5 +896,7 @@ if __name__ == "__main__":
     check21()
     check22()
     check24()
+    check25()
+    check26()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])

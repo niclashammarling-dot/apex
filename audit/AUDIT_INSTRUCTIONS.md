@@ -108,6 +108,21 @@ Verify that breakout signal classification enforces minimum volume backing.
 - Confirm `compute_ticker_signals()` calls `get_latest_ticker_volume_scores()` and applies the floor before assigning `signal = "breakout"`.
 - Flag any breakout classification path that bypasses the volume check as CRITICAL.
 
+### CHECK 25 — gate_decision string parity
+Every string in `_OUTCOMES` in `gate_runner.py` must be recognized by all consumers.
+- Extract string values from `_OUTCOMES` dict (`FILTERED_*` strings).
+- Verify each string appears in `getLockStates` (or equivalent) in both `GateFeed.jsx` and `LiveGateFeed.jsx`.
+- Verify each string appears in the badge/label map in both frontend components.
+- Verify each string appears in the funnel SQL queries and dict lookups in `db.py`.
+- Flag any mismatch as CRITICAL — an unrecognized decision string falls through to the all-green default, showing passing lock icons for a failed ticker.
+- Also extract ticker `signal = "..."` values from `sector_regime.py` (excluding `vel_signal` lines) and verify each appears in all frontend signal maps (`SectorGrid.jsx`, `SectorRegime.jsx`, `Watchlist.jsx`, `RotationForecast.jsx`). Flag any missing entry as WARNING — renders as fallback label/color.
+
+### CHECK 26 — L1/L2 threshold-source parity
+Both L1 candidate selection and L2 quant gate must read sector thresholds from `ticker_thresholds` table, not static config.
+- Verify `gate_runner.py` and `gate_runner_live.py` both call `get_ticker_thresholds()` and pass the result as `sector_thresholds` to `get_lock1_candidates()`.
+- Verify `lock2_quant._sector_threshold()` calls `get_ticker_thresholds()`.
+- Flag any file that omits the call as CRITICAL — reversion to static config silently applies a single global threshold (0.70) instead of calibrated per-sector values (0.54–0.62), blocking all valid candidates.
+
 ### CHECK 20 — Import path integrity after restructuring
 Verify all Python files in `backend/gate/` use fully-qualified `backend.*` import paths, not bare package names.
 - Grep `backend/gate/` for `^from gate\.` and `^import gate\.` (bare `gate` without `backend.` prefix).
