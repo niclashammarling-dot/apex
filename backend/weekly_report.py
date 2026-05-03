@@ -183,7 +183,10 @@ def _gate_funnel(since: str) -> dict:
             SELECT
                 COUNT(*) AS evaluated,
                 SUM(lock1_pass) AS l1_pass,
-                SUM(CASE WHEN lock1_pass=1 AND lock2_pass=0 THEN 1 ELSE 0 END) AS l2_fail,
+                SUM(CASE WHEN gate_decision='SKIPPED_OPEN'    THEN 1 ELSE 0 END) AS skipped_open,
+                SUM(CASE WHEN gate_decision='SKIPPED_COOLOFF' THEN 1 ELSE 0 END) AS skipped_cooloff,
+                SUM(CASE WHEN gate_decision='FILTERED_MACRO'  AND lock1_pass=1 THEN 1 ELSE 0 END) AS filtered_macro,
+                SUM(CASE WHEN gate_decision='FILTERED_L2'     THEN 1 ELSE 0 END) AS l2_fail,
                 SUM(CASE WHEN lock2_pass=1 AND lock3_pass=0 THEN 1 ELSE 0 END) AS l3_fail,
                 SUM(CASE WHEN lock3_pass=1 THEN 1 ELSE 0 END) AS traded
             FROM signals
@@ -202,7 +205,10 @@ def _live_gate_funnel(since: str) -> dict:
             SELECT
                 COUNT(*) AS evaluated,
                 SUM(lock1_pass) AS l1_pass,
-                SUM(CASE WHEN lock1_pass=1 AND lock2_pass=0 THEN 1 ELSE 0 END) AS l2_fail,
+                SUM(CASE WHEN gate_decision='SKIPPED_OPEN'    THEN 1 ELSE 0 END) AS skipped_open,
+                SUM(CASE WHEN gate_decision='SKIPPED_COOLOFF' THEN 1 ELSE 0 END) AS skipped_cooloff,
+                SUM(CASE WHEN gate_decision='FILTERED_MACRO'  AND lock1_pass=1 THEN 1 ELSE 0 END) AS filtered_macro,
+                SUM(CASE WHEN gate_decision='FILTERED_L2'     THEN 1 ELSE 0 END) AS l2_fail,
                 SUM(CASE WHEN lock2_pass=1 AND lock3_pass=0 THEN 1 ELSE 0 END) AS l3_fail,
                 SUM(CASE WHEN lock3_pass=1 THEN 1 ELSE 0 END) AS traded
             FROM live_gate_history
@@ -322,6 +328,10 @@ def _funnel_rate(numer: int | None, denom: int | None) -> str:
     if not denom:
         return "—"
     return f"{(numer or 0) / denom * 100:.0f}%"
+
+
+def _funnel_count(n: int | None) -> str:
+    return str(n or 0) if n else "—"
 
 
 def _td(content: str, bold: bool = False, color: str = "") -> str:
@@ -504,7 +514,10 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
       <tbody>
         {_row(_td('Evaluated'), _td(str(de)), _td(str(le)))}
         {_row(_td('L1 pass rate'), _td(_funnel_rate(dfunnel.get('l1_pass'), de)), _td(_funnel_rate(lfunnel.get('l1_pass'), le)))}
-        {_row(_td('L2 fail (of L1 pass)'), _td(_funnel_rate(dfunnel.get('l2_fail'), dfunnel.get('l1_pass'))), _td(_funnel_rate(lfunnel.get('l2_fail'), lfunnel.get('l1_pass'))))}
+        {_row(_td('Skipped — open position'), _td(_funnel_count(dfunnel.get('skipped_open'))), _td(_funnel_count(lfunnel.get('skipped_open'))))}
+        {_row(_td('Skipped — cooloff'), _td(_funnel_count(dfunnel.get('skipped_cooloff'))), _td(_funnel_count(lfunnel.get('skipped_cooloff'))))}
+        {_row(_td('Filtered — macro'), _td(_funnel_count(dfunnel.get('filtered_macro'))), _td(_funnel_count(lfunnel.get('filtered_macro'))))}
+        {_row(_td('L2 fail — threshold (of L1 pass)'), _td(_funnel_rate(dfunnel.get('l2_fail'), dfunnel.get('l1_pass'))), _td(_funnel_rate(lfunnel.get('l2_fail'), lfunnel.get('l1_pass'))))}
         {_row(_td('L3 fail (of L2 pass)'), _td(_funnel_rate(dfunnel.get('l3_fail'), (dfunnel.get('l1_pass') or 0) - (dfunnel.get('l2_fail') or 0))), _td(_funnel_rate(lfunnel.get('l3_fail'), (lfunnel.get('l1_pass') or 0) - (lfunnel.get('l2_fail') or 0))))}
         {_row(_td('Trades entered', bold=True), _td(str(dfunnel.get('traded', 0)), bold=True), _td(str(lfunnel.get('traded', 0)), bold=True))}
       </tbody>
