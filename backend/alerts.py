@@ -83,6 +83,28 @@ def alert_config_corrupted(config_name: str, error: str) -> None:
     _dispatch(title, body)
 
 
+def alert_regime_exits(closed: list[dict], mode: str = "DEMO") -> None:
+    """Fire once per regime-exit batch with a summary of all positions closed."""
+    if not closed:
+        return
+    total_pnl = sum(c["pnl"] for c in closed)
+    lines = [
+        f"[APEX {mode}] Regime Exit — {len(closed)} position(s) closed",
+        "Sector floor breach (adjusted_score < allocation threshold)\n",
+    ]
+    for c in closed:
+        sign = "+" if c["pnl"] >= 0 else ""
+        lines.append(
+            f"  {c['ticker']:<8} {c['sector']:<16} "
+            f"adj={c['adj_score']:.3f}  "
+            f"pnl={sign}{c['pnl']:.2f} ({sign}{c['pnl_pct']*100:.1f}%)  {c['outcome']}"
+        )
+    lines.append(f"\nNet P&L: {'+' if total_pnl >= 0 else ''}{total_pnl:.2f}")
+    title = f"[APEX {mode}] Regime Exit — {len(closed)} position(s)"
+    body  = "\n".join(lines)
+    _dispatch(title, body)
+
+
 def alert_gate_blocked(reason: str) -> None:
     mode  = _mode_label()
     title = f"[APEX {mode}] Gate Blocked"

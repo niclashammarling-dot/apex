@@ -215,6 +215,109 @@ def check_exits() -> list[dict]:
     return closed
 
 
+# ── Regime-driven exits ───────────────────────────────────────────────────────
+
+def check_regime_exits() -> list[dict]:
+    """
+    Exit open demo positions whose sector has fallen below the regime allocation
+    floor (adjusted_score < ALLOCATION_THRESHOLD), or is no longer in the leaderboard.
+
+    Rationale: if the regime gate would block a new entry in this sector, holding
+    an existing position in the same sector is inconsistent — the same signal that
+    stops entries should trigger exits.
+
+    Guards:
+      - Regime result must be from today or yesterday (stale result = no action).
+      - Only fires during market hours (caller's responsibility).
+    """
+    from datetime import date
+    from backend.regime.regime_bayes import ALLOCATION_THRESHOLD
+    from backend.scheduler import _get_regime_bayes
+
+    rb = _get_regime_bayes()
+    if rb is None:
+        return []
+
+    result = rb.last_result()
+    if result is None:
+        return []
+
+    # Staleness guard — don't act on a result more than 1 trading day old
+    try:
+        result_date = date.fromisoformat(result.date)
+        if (date.today() - result_date).days > 1:
+            logger.debug(f"Regime exit check: result is stale ({result.date}) — skipping")
+            return []
+    except ValueError:
+        return []
+
+    # Build sector → adjusted_score map from leaderboard
+    sector_scores: dict[str, float] = {
+        e.sector: e.adjusted_score for e in result.leaderboard
+    }
+
+    open_trades = get_open_trades()
+    if not open_trades:
+        return []
+
+    # Identify which open positions are in sectors below the floor
+    flagged = [
+        t for t in open_trades
+        if sector_scores.get(t["sector"], 0.0) < ALLOCATION_THRESHOLD
+    ]
+    if not flagged:
+        return []
+
+    tickers        = list({t["ticker"] for t in flagged})
+    current_prices = _batch_prices(tickers)
+    closed         = []
+
+    for trade in flagged:
+        ticker      = trade["ticker"]
+        sector      = trade["sector"]
+        entry_price = trade["price"]
+        current     = current_prices.get(ticker)
+
+        if current is None:
+            logger.warning(f"Regime exit [{ticker}]: could not fetch price — skipping")
+            continue
+
+        adj_score = sector_scores.get(sector, 0.0)
+        pnl_pct   = (current - entry_price) / entry_price
+        pnl       = trade["amount"] * pnl_pct
+        outcome   = "WIN" if pnl_pct >= 0 else "LOSS"
+
+        close_trade(
+            trade_id    = trade["id"],
+            price_exit  = current,
+            pnl         = pnl,
+            outcome     = outcome,
+            exit_reason = "REGIME",
+            exited_at   = datetime.now(timezone.utc).isoformat(),
+        )
+
+        logger.info(
+            f"Regime exit [{ticker}] sector={sector} "
+            f"adj_score={adj_score:.3f} < floor={ALLOCATION_THRESHOLD} | "
+            f"entry=${entry_price:.2f} exit=${current:.2f} pnl={pnl:+.2f} ({pnl_pct:+.1%})"
+        )
+        closed.append({
+            "ticker":      ticker,
+            "sector":      sector,
+            "outcome":     outcome,
+            "exit_reason": "REGIME",
+            "adj_score":   adj_score,
+            "pnl":         pnl,
+            "pnl_pct":     pnl_pct,
+        })
+
+    if closed:
+        from backend.alerts import alert_regime_exits
+        alert_regime_exits(closed, mode="DEMO")
+
+    return closed
+
+
 # ── Portfolio snapshot ────────────────────────────────────────────────────────
 
 def get_portfolio() -> dict:

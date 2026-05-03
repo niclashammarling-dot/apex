@@ -61,6 +61,30 @@ def _week_start_iso() -> str:
 
 # ── Data queries ──────────────────────────────────────────────────────────────
 
+def _fetch_prices(tickers: list[str]) -> dict[str, float]:
+    """Return {ticker: last_close} for a batch of tickers. Missing tickers are omitted."""
+    if not tickers:
+        return {}
+    try:
+        import yfinance as yf
+        data = yf.download(tickers, period="2d", progress=False, auto_adjust=True)
+        if data.empty:
+            return {}
+        close = data["Close"] if "Close" in data.columns else data
+        result = {}
+        for ticker in tickers:
+            try:
+                col = close[ticker] if len(tickers) > 1 else close
+                price = float(col.dropna().values.flatten()[-1])
+                result[ticker] = price
+            except Exception:
+                pass
+        return result
+    except Exception as e:
+        logger.warning(f"Weekly report: price fetch failed — {e}")
+        return {}
+
+
 def _demo_stats(since: str) -> dict:
     from backend.config import STARTING_BALANCE
     from backend.db import get_db
@@ -76,28 +100,46 @@ def _demo_stats(since: str) -> dict:
             WHERE exited_at >= ? AND outcome IN ('WIN','LOSS','EXPIRED')
         """, (since,)).fetchone()
 
-        open_row = conn.execute("""
-            SELECT COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS invested
-            FROM trades WHERE outcome = 'OPEN'
-        """).fetchone()
+        open_rows = conn.execute("""
+            SELECT ticker, shares, amount FROM trades WHERE outcome = 'OPEN'
+        """).fetchall()
 
         all_closed = conn.execute("""
             SELECT COALESCE(SUM(pnl), 0) AS total
             FROM trades WHERE outcome IN ('WIN','LOSS','EXPIRED')
         """).fetchone()
 
-        invested     = open_row["invested"]
         realized_all = all_closed["total"]
-        balance      = STARTING_BALANCE - invested + realized_all
+
+        # Fetch current prices to value open positions at market
+        open_tickers = [r["ticker"] for r in open_rows]
+        prices = _fetch_prices(open_tickers)
+        open_cost = sum(r["amount"] for r in open_rows)
+        open_market_value = sum(
+            prices[r["ticker"]] * r["shares"]
+            for r in open_rows
+            if r["ticker"] in prices
+        )
+        # Fall back to cost basis for any ticker where price fetch failed
+        open_market_value += sum(
+            r["amount"] for r in open_rows if r["ticker"] not in prices
+        )
+        unrealized_pnl = open_market_value - open_cost
+
+        # Total equity = starting capital + all realised gains/losses + unrealised on open positions
+        total_equity = STARTING_BALANCE + realized_all + unrealized_pnl
 
         return {
-            "closed_total":   closed["total"]  or 0,
-            "wins":           closed["wins"]   or 0,
-            "losses":         closed["losses"] or 0,
-            "realized_pnl":   round(closed["realized_pnl"] or 0, 2),
-            "open_positions": open_row["cnt"],
-            "balance":        round(balance, 2),
-            "starting":       STARTING_BALANCE,
+            "closed_total":     closed["total"]  or 0,
+            "wins":             closed["wins"]   or 0,
+            "losses":           closed["losses"] or 0,
+            "realized_pnl":     round(closed["realized_pnl"] or 0, 2),
+            "open_positions":   len(open_rows),
+            "open_cost":        round(open_cost, 2),
+            "open_market_value": round(open_market_value, 2),
+            "unrealized_pnl":   round(unrealized_pnl, 2),
+            "balance":          round(total_equity, 2),
+            "starting":         STARTING_BALANCE,
         }
     finally:
         conn.close()
@@ -443,7 +485,10 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
               _td(f"${demo['realized_pnl']:+,.2f}", bold=True, color=_pnl_color(demo['realized_pnl'])),
               _td(f"${live['realized_pnl']:+,.2f}", bold=True, color=_pnl_color(live['realized_pnl'])))}
         {_row(_td('Open positions'), _td(str(demo['open_positions'])), _td(str(live['open_positions'])))}
-        {_row(_td('Demo account total'), _td(f"${demo['balance']:,.2f} ({_pct(demo_return)})", color=_pnl_color(demo_return)), _td('—'))}
+        {_row(_td('Unrealized P&amp;L (open)'),
+              _td(f"${demo['unrealized_pnl']:+,.2f}", color=_pnl_color(demo['unrealized_pnl'])),
+              _td('—'))}
+        {_row(_td('Total equity', bold=True), _td(f"${demo['balance']:,.2f} ({_pct(demo_return)})", bold=True, color=_pnl_color(demo_return)), _td('—'))}
       </tbody>
     </table>"""
 
@@ -623,7 +668,7 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
 
     plain += f"""
 PERFORMANCE
-  Demo: {demo['closed_total']} closed ({demo['wins']}W/{demo['losses']}L) | Win rate: {_pct(demo_wr)} | P&L: {plain_pnl(demo['realized_pnl'])} | Balance: ${demo['balance']:,.2f} ({_pct(demo_return)})
+  Demo: {demo['closed_total']} closed ({demo['wins']}W/{demo['losses']}L) | Win rate: {_pct(demo_wr)} | Realized P&L: {plain_pnl(demo['realized_pnl'])} | Unrealized: {plain_pnl(demo['unrealized_pnl'])} | Total equity: ${demo['balance']:,.2f} ({_pct(demo_return)})
   Live: {live['closed_total']} closed ({live['wins']}W/{live['losses']}L) | Win rate: {_pct(live_wr)} | P&L: {plain_pnl(live['realized_pnl'])}
 
 GATE FUNNEL (Demo)

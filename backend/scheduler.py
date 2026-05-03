@@ -95,15 +95,21 @@ def check_exit_conditions() -> None:
     closed = wallet.check_exits()
     if closed:
         logger.info(f"Exit check: closed {len(closed)} position(s)")
+    regime_closed = wallet.check_regime_exits()
+    if regime_closed:
+        logger.info(f"Regime exit check: closed {len(regime_closed)} position(s)")
 
 
 def check_live_exit_conditions() -> None:
     if not is_market_open():
         return
-    from backend.live_trades_tracker import check_live_exits
+    from backend.live_trades_tracker import check_live_exits, check_live_regime_exits
     closed = check_live_exits()
     if closed:
         logger.info(f"Live exit check: closed {len(closed)} position(s)")
+    regime_closed = check_live_regime_exits()
+    if regime_closed:
+        logger.info(f"Live regime exit check: closed {len(regime_closed)} position(s)")
 
 
 def run_live_gate_candidates() -> None:

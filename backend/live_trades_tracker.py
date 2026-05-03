@@ -106,6 +106,102 @@ def check_live_exits() -> list[dict]:
     return closed
 
 
+def check_live_regime_exits() -> list[dict]:
+    """
+    Exit open live positions whose sector has fallen below the regime allocation
+    floor (adjusted_score < ALLOCATION_THRESHOLD), or is no longer in the leaderboard.
+
+    Mirrors wallet.check_regime_exits() for live trades.
+    Cancels the Alpaca bracket order and closes at market before recording the exit.
+    """
+    if not LIVE_ENABLED:
+        return []
+
+    from datetime import date
+    from backend.regime.regime_bayes import ALLOCATION_THRESHOLD
+    from backend.scheduler import _get_regime_bayes
+
+    rb = _get_regime_bayes()
+    if rb is None:
+        return []
+
+    result = rb.last_result()
+    if result is None:
+        return []
+
+    try:
+        result_date = date.fromisoformat(result.date)
+        if (date.today() - result_date).days > 1:
+            logger.debug(f"Live regime exit check: result is stale ({result.date}) — skipping")
+            return []
+    except ValueError:
+        return []
+
+    sector_scores: dict[str, float] = {
+        e.sector: e.adjusted_score for e in result.leaderboard
+    }
+
+    open_trades = get_open_live_trades()
+    if not open_trades:
+        return []
+
+    flagged = [
+        t for t in open_trades
+        if sector_scores.get(t["sector"], 0.0) < ALLOCATION_THRESHOLD
+    ]
+    if not flagged:
+        return []
+
+    from backend.brokers import alpaca as broker
+    closed = []
+
+    for trade in flagged:
+        ticker    = trade["ticker"]
+        sector    = trade["sector"]
+        adj_score = sector_scores.get(sector, 0.0)
+
+        try:
+            result_close = broker.close_position(ticker)
+            exit_price   = float(result_close.get("filled_avg_price") or trade["entry_price"])
+        except Exception as e:
+            logger.warning(f"Live regime exit [{ticker}]: close_position failed — {e}")
+            continue
+
+        pnl     = round((exit_price - trade["entry_price"]) * trade["qty"], 2)
+        outcome = "WIN" if pnl >= 0 else "LOSS"
+        pnl_pct = (exit_price - trade["entry_price"]) / trade["entry_price"]
+
+        close_live_trade(
+            trade_id    = trade["id"],
+            exit_price  = exit_price,
+            pnl         = pnl,
+            outcome     = outcome,
+            exit_reason = "REGIME",
+            exited_at   = datetime.now(timezone.utc).isoformat(),
+        )
+
+        logger.info(
+            f"Live regime exit [{ticker}] sector={sector} "
+            f"adj_score={adj_score:.3f} < floor={ALLOCATION_THRESHOLD} | "
+            f"entry=${trade['entry_price']:.2f} exit=${exit_price:.2f} pnl={pnl:+.2f} ({pnl_pct:+.1%})"
+        )
+        closed.append({
+            "ticker":      ticker,
+            "sector":      sector,
+            "outcome":     outcome,
+            "exit_reason": "REGIME",
+            "adj_score":   adj_score,
+            "pnl":         pnl,
+            "pnl_pct":     pnl_pct,
+        })
+
+    if closed:
+        from backend.alerts import alert_regime_exits
+        alert_regime_exits(closed, mode="LIVE")
+
+    return closed
+
+
 def _find_filled_sell_leg(order: dict) -> dict | None:
     """Return the first filled sell leg from a bracket order, or None."""
     for leg in order.get("legs") or []:

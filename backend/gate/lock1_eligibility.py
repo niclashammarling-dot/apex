@@ -31,7 +31,7 @@ from datetime import date, timedelta
 from loguru import logger
 
 from backend.gate.types import LockResult
-from backend.regime.regime_bayes import ALLOCATION_THRESHOLD
+from backend.regime.regime_bayes import ALLOCATION_THRESHOLD, LEADERBOARD_SIZE
 
 LOCK_ID = 1
 
@@ -110,14 +110,20 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
     sector_entry = _find_sector(regime_result, sector)
 
     if sector_entry is None:
+        leaders = [e.sector for e in regime_result.leaderboard]
         return LockResult.fail(
             lock_id=LOCK_ID,
-            reason=f"Sector '{sector}' not found in regime leaderboard",
+            reason=(
+                f"Sector '{sector}' below leaderboard cutoff — "
+                f"only top {LEADERBOARD_SIZE} sectors by adjusted score qualify "
+                f"(leaders: {', '.join(leaders)})"
+            ),
             data={
-                "regime_available": True,
-                "fail_type":        "sector_not_ranked",
-                "sector":           sector,
-                "leaderboard":      [e.sector for e in regime_result.leaderboard],
+                "regime_available":  True,
+                "fail_type":         "below_leaderboard_cutoff",
+                "sector":            sector,
+                "leaderboard_size":  LEADERBOARD_SIZE,
+                "leaderboard":       leaders,
             },
         )
 

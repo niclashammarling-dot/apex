@@ -28,12 +28,16 @@ Usage:
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 from loguru import logger
+
+RESULT_CACHE_PATH = Path(__file__).parent.parent.parent / "data" / "regime_result_cache.json"
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -41,29 +45,40 @@ LEADERBOARD_SIZE      = 5      # number of sectors tracked
 ALLOCATION_THRESHOLD  = 0.5    # adjusted score floor for allocation eligibility
 TICKER_RECOVERY_DAYS  = 5      # consecutive days for ticker recovery signal
 RS_WINDOW_DAYS        = 5      # lookback window for RS divergence
+POSTERIOR_DECAY       = 0.90   # daily pull-back toward base prior; prevents saturation at 1.0
 
 
 # ── Likelihood ratio functions ────────────────────────────────────────────────
 
-def _lr_ticker_count(recovering: int, total: int) -> float:
+def _lr_ticker_balance(recovering: int, deteriorating: int, total: int) -> float:
     """
-    Exponential doubling per recovering ticker.
-    First ticker: +0.2, second: +0.4, third: +0.8 etc.
-    Zero recovering = neutral (1.0). No cap.
+    Net ticker balance: bullish arm (recovering) divided by bearish arm (deteriorating).
+    Each arm uses exponential doubling — first ticker: +0.2, second: +0.4, etc.
+    Pure bull (all recovering, none deteriorating): LR > 1.0.
+    Pure bear (all deteriorating, none recovering): LR < 1.0.
+    Mixed: ratio of both arms. Zero total = neutral (1.0).
     """
-    if total == 0 or recovering == 0:
+    if total == 0:
         return 1.0
-    lr = sum(0.2 * (2 ** i) for i in range(recovering))
-    return round(1.0 + lr, 3)
+    lr_bull = sum(0.2 * (2 ** i) for i in range(recovering))
+    lr_bear = sum(0.2 * (2 ** i) for i in range(deteriorating))
+    return round((1.0 + lr_bull) / (1.0 + lr_bear), 3)
 
 
-def _lr_etf_consecutive_days(consecutive_positive_days: int) -> float:
+def _lr_etf_streak(signed_streak: int) -> float:
     """
-    +0.1 per consecutive positive ETF day.
-    Reaches 2.0 at day 10, 3.0 at day 20 (true MA20 confirmation).
-    Zero days = neutral (1.0). No cap.
+    Symmetric ETF momentum signal.
+    Positive streak (N consecutive up days):   LR = 1.0 + N × 0.1  (> 1.0)
+    Negative streak (N consecutive down days): LR = 1.0 / (1.0 + N × 0.1)  (< 1.0)
+    Zero (flat or mixed):                      LR = 1.0
+    Reaches LR=2.0 / LR=0.5 at ±10 days — symmetric around neutrality.
     """
-    return round(1.0 + (consecutive_positive_days * 0.1), 3)
+    if signed_streak == 0:
+        return 1.0
+    magnitude = abs(signed_streak) * 0.1
+    if signed_streak > 0:
+        return round(1.0 + magnitude, 3)
+    return round(1.0 / (1.0 + magnitude), 3)
 
 
 def _lr_rs_divergence(start_score: float, end_score: float, decline_days: int) -> float:
@@ -97,7 +112,7 @@ def _lr_ipo_cluster(sector_ipo_share: float) -> float:
     """
     if sector_ipo_share == 0:
         return 0.8   # sector absent from active IPO market — mild negative
-    steps = round(sector_ipo_share * 10)   # 10% share = 1 step, 30% = 3 steps
+    steps = int(sector_ipo_share * 10)   # 10% share = 1 step, 30% = 3 steps; int() keeps 1/n_sectors neutral
     lr = sum(0.2 * (2 ** i) for i in range(steps))
     return round(1.0 + lr, 3)
 
@@ -125,6 +140,7 @@ def _apply_signals(
 ) -> dict:
     """
     Apply all four likelihood ratios sequentially.
+    lr_ticker and lr_etf are now symmetric — both arms (bull/bear) encoded in a single LR.
     Returns intermediate and final posteriors for full transparency.
     """
     p0 = prior
@@ -194,7 +210,8 @@ class RegimeBayes:
 
         # Load persisted posteriors from DB — conviction never resets between restarts
         self._posteriors: dict[str, float] = self._load_posteriors()
-        self._last_result: Optional[RegimeResult] = None
+        # Reload last result from disk so regime-bayes is available immediately after restart
+        self._last_result: Optional[RegimeResult] = self._load_result()
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -235,13 +252,13 @@ class RegimeBayes:
             # Prior: historical transition probability from current leader to this sector
             prior = self._get_prior(sector, current_leader, len(all_sectors))
 
-            # Signal 1: ticker recovery count
-            recovering, total = self._ticker_recovery_count(sector, raw_data, today)
-            lr_ticker = _lr_ticker_count(recovering, total)
+            # Signal 1: ticker balance (recovering vs deteriorating)
+            recovering, deteriorating, total = self._ticker_counts(sector, raw_data, today)
+            lr_ticker = _lr_ticker_balance(recovering, deteriorating, total)
 
-            # Signal 2: ETF consecutive positive days
-            etf_days = self._etf_consecutive_positive_days(sector, raw_data, today)
-            lr_etf   = _lr_etf_consecutive_days(etf_days)
+            # Signal 2: ETF signed streak (positive = up days, negative = down days)
+            etf_streak = self._etf_signed_streak(sector, raw_data, today)
+            lr_etf     = _lr_etf_streak(etf_streak)
 
             # Signal 3: RS divergence
             # Leader's decline feeds all candidates equally — a weakening leader
@@ -256,9 +273,14 @@ class RegimeBayes:
             ipo_share = ipo_shares.get(sector, 0.0)
             lr_ipo    = _lr_ipo_cluster(ipo_share)
 
-            # Bayesian update using persistent prior from yesterday (or DB)
+            # Decay yesterday's posterior toward the base prior before applying today's signals.
+            # Without decay all LRs are ≥ 1.0 in neutral/bullish conditions and posteriors
+            # saturate at 1.0, collapsing the model's discriminatory power.
+            base_prior       = 1.0 / max(len(all_sectors), 1)
             persistent_prior = self._posteriors.get(sector, prior)
-            trace    = _apply_signals(persistent_prior, lr_ticker, lr_etf, lr_rs, lr_ipo)
+            decayed_prior    = POSTERIOR_DECAY * persistent_prior + (1.0 - POSTERIOR_DECAY) * base_prior
+
+            trace    = _apply_signals(decayed_prior, lr_ticker, lr_etf, lr_rs, lr_ipo)
             posterior = trace["posterior"]
 
             # Stage for DB persist below
@@ -274,13 +296,15 @@ class RegimeBayes:
                 allocation=0.0,
                 rank=0,
                 signal_trace={
-                    "date":                 today_str,
-                    "recovering_tickers":   f"{recovering}/{total}",
-                    "etf_consecutive_days": etf_days,
-                    "leader_start_score":   leader_rs["start_score"],
-                    "leader_end_score":     leader_rs["end_score"],
-                    "leader_decline_days":  leader_rs["decline_days"],
-                    "ipo_share":            round(ipo_share, 4),
+                    "date":                   today_str,
+                    "recovering_tickers":     f"{recovering}/{total}",
+                    "deteriorating_tickers":  f"{deteriorating}/{total}",
+                    "etf_signed_streak":      etf_streak,
+                    "leader_start_score":     leader_rs["start_score"],
+                    "leader_end_score":       leader_rs["end_score"],
+                    "leader_decline_days":    leader_rs["decline_days"],
+                    "ipo_share":              round(ipo_share, 4),
+                    "decayed_prior":          round(decayed_prior, 4),
                     **trace,
                 },
             ))
@@ -319,8 +343,9 @@ class RegimeBayes:
         )
         self._last_result = result
 
-        # Persist posteriors — conviction survives restarts
+        # Persist posteriors and full result — both survive restarts
         self._save_posteriors()
+        self._save_result(result)
 
         logger.info(
             f"Regime [{today_str}] leader={leader} | "
@@ -389,6 +414,63 @@ class RegimeBayes:
         except Exception as e:
             logger.warning(f"Regime: failed to persist posteriors: {e}")
 
+    def _save_result(self, result: RegimeResult) -> None:
+        """Persist last RegimeResult to disk so it survives restarts."""
+        try:
+            RESULT_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "date":       result.date,
+                "leader":     result.leader,
+                "qualifiers": result.qualifiers,
+                "allocation": result.allocation,
+                "leaderboard": [
+                    {
+                        "sector":          e.sector,
+                        "rank":            e.rank,
+                        "aggregate_score": e.aggregate_score,
+                        "posterior":       e.posterior,
+                        "adjusted_score":  e.adjusted_score,
+                        "allocation":      e.allocation,
+                        "signal_trace":    e.signal_trace,
+                    }
+                    for e in result.leaderboard
+                ],
+            }
+            with open(RESULT_CACHE_PATH, "w") as f:
+                json.dump(payload, f)
+        except Exception as e:
+            logger.warning(f"Regime: failed to persist last result: {e}")
+
+    def _load_result(self) -> Optional[RegimeResult]:
+        """Reload last RegimeResult from disk on startup."""
+        try:
+            if not RESULT_CACHE_PATH.exists():
+                return None
+            with open(RESULT_CACHE_PATH) as f:
+                p = json.load(f)
+            leaderboard = [
+                SectorEntry(
+                    sector=e["sector"],
+                    rank=e["rank"],
+                    aggregate_score=e["aggregate_score"],
+                    posterior=e["posterior"],
+                    adjusted_score=e["adjusted_score"],
+                    allocation=e["allocation"],
+                    signal_trace=e.get("signal_trace", {}),
+                )
+                for e in p["leaderboard"]
+            ]
+            return RegimeResult(
+                date=p["date"],
+                leaderboard=leaderboard,
+                allocation=p["allocation"],
+                leader=p["leader"],
+                qualifiers=p["qualifiers"],
+            )
+        except Exception as e:
+            logger.warning(f"Regime: could not reload cached result ({e}) — waiting for next EOD run")
+            return None
+
     def _current_leader(self, sector_snapshots: dict[str, float]) -> str:
         """Current leader from last result, or highest aggregate score on first run."""
         if self._last_result:
@@ -401,17 +483,22 @@ class RegimeBayes:
         prior   = self.transition_priors.get(current_leader, {}).get(sector, uniform)
         return max(0.05, min(0.95, prior))
 
-    def _ticker_recovery_count(
+    def _ticker_counts(
         self,
         sector: str,
         raw_data: pd.DataFrame,
         today: date,
-    ) -> tuple[int, int]:
-        """Count tickers with TICKER_RECOVERY_DAYS consecutive positive days."""
+    ) -> tuple[int, int, int]:
+        """
+        Return (recovering, deteriorating, total) ticker counts.
+        recovering:    tickers with TICKER_RECOVERY_DAYS consecutive positive days
+        deteriorating: tickers with TICKER_RECOVERY_DAYS consecutive negative days
+        """
         tickers = self.sectors_cfg.get(sector, {}).get("tickers", [])
         if not tickers:
-            return 0, 0
-        recovering = 0
+            return 0, 0, 0
+        recovering    = 0
+        deteriorating = 0
         for ticker in tickers:
             try:
                 if ticker not in raw_data.columns.get_level_values(0):
@@ -421,19 +508,25 @@ class RegimeBayes:
                 recent = closes[mask].tail(TICKER_RECOVERY_DAYS + 1)
                 if len(recent) < TICKER_RECOVERY_DAYS + 1:
                     continue
-                if (recent.pct_change().dropna() > 0).all():
+                returns = recent.pct_change().dropna()
+                if (returns > 0).all():
                     recovering += 1
+                elif (returns < 0).all():
+                    deteriorating += 1
             except Exception:
                 continue
-        return recovering, len(tickers)
+        return recovering, deteriorating, len(tickers)
 
-    def _etf_consecutive_positive_days(
+    def _etf_signed_streak(
         self,
         sector: str,
         raw_data: pd.DataFrame,
         today: date,
     ) -> int:
-        """Count consecutive days the sector ETF has had a positive daily return."""
+        """
+        Return the current ETF momentum streak as a signed integer.
+        Positive: N consecutive up days. Negative: N consecutive down days. Zero: mixed.
+        """
         etf = self.sector_etf_map.get(sector, "")
         if not etf:
             return 0
@@ -445,13 +538,20 @@ class RegimeBayes:
             recent = closes[mask].tail(60)
             if len(recent) < 2:
                 return 0
+            returns = recent.pct_change().dropna().values
+            if len(returns) == 0:
+                return 0
+            # Determine direction from the most recent day
+            direction = 1 if returns[-1] > 0 else (-1 if returns[-1] < 0 else 0)
+            if direction == 0:
+                return 0
             count = 0
-            for ret in reversed(recent.pct_change().dropna().values):
-                if ret > 0:
+            for ret in reversed(returns):
+                if (direction > 0 and ret > 0) or (direction < 0 and ret < 0):
                     count += 1
                 else:
                     break
-            return count
+            return direction * count
         except Exception:
             return 0
 
@@ -548,7 +648,8 @@ def regime_context_for_claude(result: RegimeResult) -> str:
             f"adj={entry.adjusted_score:.3f} "
             f"(agg={entry.aggregate_score:.3f} × post={entry.posterior:.2f}) "
             f"| tickers={entry.signal_trace.get('recovering_tickers','?')} "
-            f"ETF_days={entry.signal_trace.get('etf_consecutive_days', 0)}"
+            f"det={entry.signal_trace.get('deteriorating_tickers','?')} "
+            f"ETF_streak={entry.signal_trace.get('etf_signed_streak', 0)}"
             f"{drop_str} "
             f"IPO_share={entry.signal_trace.get('ipo_share', 0):.0%}"
         )
