@@ -7,26 +7,26 @@ Columns: `last_triggered` = most recent date the check found an issue. `last_cle
 <!-- REGISTRY — column order and header format are parsed by the audit agent. Do not reorder. -->
 | # | Name | Added | Prompted by | Files covered | last_triggered | last_clean |
 |---|------|-------|-------------|---------------|----------------|------------|
-| 1 | Result-dict sync hazard | 2026-03-25 | gate_decision stored from early snapshot; stale field persisted to DB | backend/gate/gate_runner.py,backend/gate/gate_runner_live.py,backend/db.py | 2026-03-25 | 2026-05-04 |
-| 2 | Exception-catch coverage in tests | 2026-03-25 | mock tests asserted return value but not DB write args; bug hid in persistence path | tests/ | 2026-03-25 | 2026-05-04 |
-| 3 | Fractional qty in broker | 2026-03-25 | Alpaca rejected bracket orders with fractional shares (error 42210000) | backend/brokers/alpaca.py | 2026-04-07 | 2026-05-04 |
-| 4 | Config parity | 2026-03-25 | new keys added to config.py but not to demo_config/live_config | backend/config.py,data/demo_config.json,data/live_config.json | 2026-03-25 | 2026-05-04 |
-| 5 | Sector name strings | 2026-03-28 | hardcoded sector name typo caused silent sector mismatch | backend/,frontend/src/ | 2026-03-28 | 2026-05-04 |
-| 6 | Test DB isolation | 2026-03-25 | test accidentally opened production DB | tests/conftest.py,tests/ | 2026-04-06 | 2026-05-04 |
-| 7 | Demo/live gate runner parity | 2026-03-25 | logic fix applied to demo runner but not live runner | backend/gate/gate_runner.py,backend/gate/gate_runner_live.py | 2026-03-25 | 2026-05-04 |
-| 8 | General code health | 2026-03-25 | bare except swallowed errors silently | backend/ | 2026-04-13 | 2026-05-04 |
-| 9 | Config value drift | 2026-03-28 | backtest-derived bounds for lock1_threshold/vix_threshold/take_profit_pct ignored after manual edits | data/demo_config.json,data/live_config.json | 2026-04-13 | 2026-05-04 |
-| 10 | Ticker signal data coverage | 2026-03-29 | all tickers classified weak due to insufficient days in window; no error raised | backend/db.py,backend/sector_regime.py | 2026-04-06 | 2026-05-04 |
-| 11 | NaN/null config pipeline | 2026-04-02 | parseFloat("") = NaN serialized to null; Python .get(key,default) returned None not default; delta<=None threw TypeError | frontend/src/App.jsx,backend/gate/lock1_eligibility.py | 2026-05-04 | 2026-04-07 |
-| 12 | Lock3 context parity | 2026-04-06 | regime_bayes_* keys added to demo _build_claude_context but never synced to live _build_context; Lock 3 made live decisions without Bayesian sector data | backend/gate/gate_runner.py,backend/gate/gate_runner_live.py | 2026-04-06 | 2026-05-04 |
-| 13 | Undisclosed config change | 2026-04-06 | lock1_threshold and macro_event_blackout_days changed silently inside feature commits; user unaware until audit caught stale value | data/demo_config.json,data/live_config.json | 2026-04-07 | 2026-05-04 |
-| 14 | EOD regime freshness | 2026-04-06 | server downtime on April 3-4 meant EOD regime missed multiple days; Bayesian posteriors were stale going into Monday | data/apex.db | — | 2026-05-04 |
-| 15 | Calibration freshness | 2026-04-06 | server not running at Sunday 3 AM meant per-sector thresholds missed two consecutive weekly recalibrations; post-crash distributions unrepresented | data/calibration_done.txt | 2026-05-04 | 2026-04-12 |
-| 16 | yfinance scalar extraction | 2026-04-06 | newer yfinance returns multi-column DataFrame for single-ticker downloads; .iloc[-1] yields Series not scalar, silently breaking VIX gate | backend/ | 2026-04-06 | 2026-05-04 |
-| 19 | Breakout volume floor integrity | 2026-04-07 | BREAKOUT assigned on streak logic alone; EQIX classified as breakout at 0.188 EOD volume (38% of 30d avg) | backend/sector_regime.py,backend/db.py | — | 2026-05-04 |
-| 18 | Audit pipeline completeness | 2026-04-07 | verify_llm_findings.py existed for weeks without being called — dead tool caught nothing | audit/ | — | 2026-05-04 |
-| 17 | Sentiment cache freshness | 2026-04-06 | rdt-cli output was raw YAML noise until parser was added; a prefetch before the fix would have stored garbage silently | backend/sentiment_prefetch.py,data/apex.db | — | 2026-05-04 |
-| 20 | Import path integrity | 2026-04-13 | gate chain restructuring introduced bare `from gate.*` imports — no root-level gate/ package, entire chain failed at import | backend/gate/ | 2026-04-13 | 2026-05-04 |
+| 1 | Result-dict sync hazard | 2026-03-25 | gate_decision stored from early snapshot; stale field persisted to DB | backend/gate/gate_runner.py,backend/gate/gate_runner_live.py,backend/db.py | 2026-03-25 | 2026-05-05 |
+| 2 | Exception-catch coverage in tests | 2026-03-25 | mock tests asserted return value but not DB write args; bug hid in persistence path | tests/ | 2026-03-25 | 2026-05-05 |
+| 3 | Fractional qty in broker | 2026-03-25 | Alpaca rejected bracket orders with fractional shares (error 42210000) | backend/brokers/alpaca.py | 2026-04-07 | 2026-05-05 |
+| 4 | Config parity | 2026-03-25 | new keys added to config.py but not to demo_config/live_config | backend/config.py,data/demo_config.json,data/live_config.json | 2026-03-25 | 2026-05-05 |
+| 5 | Sector name strings | 2026-03-28 | hardcoded sector name typo caused silent sector mismatch | backend/,frontend/src/ | 2026-03-28 | 2026-05-05 |
+| 6 | Test DB isolation | 2026-03-25 | test accidentally opened production DB | tests/conftest.py,tests/ | 2026-04-06 | 2026-05-05 |
+| 7 | Demo/live gate runner parity | 2026-03-25 | logic fix applied to demo runner but not live runner | backend/gate/gate_runner.py,backend/gate/gate_runner_live.py | 2026-03-25 | 2026-05-05 |
+| 8 | General code health | 2026-03-25 | bare except swallowed errors silently | backend/ | 2026-04-13 | 2026-05-05 |
+| 9 | Config value drift | 2026-03-28 | backtest-derived bounds for lock1_threshold/vix_threshold/take_profit_pct ignored after manual edits | data/demo_config.json,data/live_config.json | 2026-04-13 | 2026-05-05 |
+| 10 | Ticker signal data coverage | 2026-03-29 | all tickers classified weak due to insufficient days in window; no error raised | backend/db.py,backend/sector_regime.py | 2026-04-06 | 2026-05-05 |
+| 11 | NaN/null config pipeline | 2026-04-02 | parseFloat("") = NaN serialized to null; Python .get(key,default) returned None not default; delta<=None threw TypeError | frontend/src/App.jsx,backend/gate/lock1_eligibility.py | 2026-05-05 | 2026-04-07 |
+| 12 | Lock3 context parity | 2026-04-06 | regime_bayes_* keys added to demo _build_claude_context but never synced to live _build_context; Lock 3 made live decisions without Bayesian sector data | backend/gate/gate_runner.py,backend/gate/gate_runner_live.py | 2026-04-06 | 2026-05-05 |
+| 13 | Undisclosed config change | 2026-04-06 | lock1_threshold and macro_event_blackout_days changed silently inside feature commits; user unaware until audit caught stale value | data/demo_config.json,data/live_config.json | 2026-04-07 | 2026-05-05 |
+| 14 | EOD regime freshness | 2026-04-06 | server downtime on April 3-4 meant EOD regime missed multiple days; Bayesian posteriors were stale going into Monday | data/apex.db | — | 2026-05-05 |
+| 15 | Calibration freshness | 2026-04-06 | server not running at Sunday 3 AM meant per-sector thresholds missed two consecutive weekly recalibrations; post-crash distributions unrepresented | data/calibration_done.txt | 2026-05-05 | 2026-04-12 |
+| 16 | yfinance scalar extraction | 2026-04-06 | newer yfinance returns multi-column DataFrame for single-ticker downloads; .iloc[-1] yields Series not scalar, silently breaking VIX gate | backend/ | 2026-04-06 | 2026-05-05 |
+| 19 | Breakout volume floor integrity | 2026-04-07 | BREAKOUT assigned on streak logic alone; EQIX classified as breakout at 0.188 EOD volume (38% of 30d avg) | backend/sector_regime.py,backend/db.py | — | 2026-05-05 |
+| 18 | Audit pipeline completeness | 2026-04-07 | verify_llm_findings.py existed for weeks without being called — dead tool caught nothing | audit/ | — | 2026-05-05 |
+| 17 | Sentiment cache freshness | 2026-04-06 | rdt-cli output was raw YAML noise until parser was added; a prefetch before the fix would have stored garbage silently | backend/sentiment_prefetch.py,data/apex.db | — | 2026-05-05 |
+| 20 | Import path integrity | 2026-04-13 | gate chain restructuring introduced bare `from gate.*` imports — no root-level gate/ package, entire chain failed at import | backend/gate/ | 2026-04-13 | 2026-05-05 |
 
 ---
 
