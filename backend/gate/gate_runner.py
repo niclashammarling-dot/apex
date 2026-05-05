@@ -23,7 +23,7 @@ from backend.db import (
 from backend.gate.chain import ChainResult, evaluate_chain
 
 # Max parallel workers — bounded to avoid hammering rate limits
-_MAX_WORKERS = 4
+_MAX_WORKERS = 5
 
 # Pre-rotation promotion: tickers in "watching" sectors are eligible for gate
 # evaluation at this fraction of their normal L1 threshold, catching setups that

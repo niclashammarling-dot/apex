@@ -8,7 +8,6 @@ Live Gate Runner — same 5-lock chain as gate_runner.py but:
 Bracket orders set TP + SL at Alpaca order time, so no separate exit
 checker is needed — Alpaca manages the position lifecycle natively.
 """
-import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
@@ -22,10 +21,10 @@ from backend.db import (
     insert_live_gate_result,
     insert_live_trade,
 )
-from backend.gate.chain import ChainResult, evaluate_chain
+from backend.gate.chain import evaluate_chain
 from backend.gate.gate_runner import PRE_ROTATION_FLOOR, _chain_to_gate_result
 
-_MAX_WORKERS = 4
+_MAX_WORKERS = 5
 
 
 def run() -> list[dict]:

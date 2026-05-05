@@ -265,7 +265,9 @@ def compute_ticker_rotation_scores() -> dict[str, float]:
 def compute_sector_rotation_scores() -> dict[str, float]:
     """
     Aggregate per-ticker rotation scores bottom-up to sector level.
-    Uses the average of the top-3 ticker scores within each sector.
+    Uses the mean of ALL tickers in the sector — sectors are judged as a unit,
+    consistent with leaderboard allocation. Full-sector averaging also defends
+    against single-ticker boosts or short squeezes distorting the sector signal.
 
     This is the momentum evidence that blends with the historical transition
     matrix inside get_rotation_forecast() to produce the final sector probability.
@@ -288,8 +290,7 @@ def compute_sector_rotation_scores() -> dict[str, float]:
 
     result: dict[str, float] = {}
     for sector, scores in by_sector.items():
-        top3 = sorted(scores, reverse=True)[:3]
-        result[sector] = round(sum(top3) / len(top3), 4)
+        result[sector] = round(sum(scores) / len(scores), 4)
     return result
 
 

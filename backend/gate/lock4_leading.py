@@ -32,19 +32,28 @@ from backend.gate.types import LockResult
 LOCK_ID  = 4
 MIN_PASS = 2
 
-SECTOR_ETF = {
-    "Technology":      "XLK",
-    "Energy":          "XLE",
-    "ConsumerDisc":    "XLY",
-    "ConsumerStaples": "XLP",
-    "Healthcare":      "XLV",
-    "Financials":      "XLF",
-    "Industrials":     "XLI",
-    "Materials":       "XLB",
-    "Utilities":       "XLU",
-    "RealEstate":      "XLRE",
-    "Communication":   "XLC",
-}
+
+def _build_sector_etf() -> dict[str, str]:
+    try:
+        from backend.ticker_config import get_sectors
+        return {s: cfg["etf"] for s, cfg in get_sectors().items()}
+    except Exception:
+        return {
+            "Technology":      "XLK",
+            "Energy":          "XLE",
+            "ConsumerDisc":    "XLY",
+            "ConsumerStaples": "XLP",
+            "Healthcare":      "XLV",
+            "Financials":      "XLF",
+            "Industrials":     "XLI",
+            "Materials":       "XLB",
+            "Utilities":       "XLU",
+            "RealEstate":      "XLRE",
+            "Communication":   "XLC",
+        }
+
+
+SECTOR_ETF = _build_sector_etf()
 
 _EDGAR_SEARCH = (
     "https://efts.sec.gov/LATEST/search-index"

@@ -5,7 +5,8 @@
       "AAPL",
       "MSFT",
       "NVDA",
-      "META"
+      "META",
+      "AMD"
     ]
   },
   "Healthcare": {
@@ -14,7 +15,8 @@
       "JNJ",
       "PFE",
       "UNH",
-      "MRNA"
+      "MRNA",
+      "LLY"
     ]
   },
   "Energy": {
@@ -22,7 +24,9 @@
     "tickers": [
       "XOM",
       "CVX",
-      "HAL"
+      "HAL",
+      "COP",
+      "OXY"
     ]
   },
   "Industrials": {
@@ -31,7 +35,8 @@
       "CAT",
       "BA",
       "GE",
-      "HON"
+      "HON",
+      "DE"
     ]
   },
   "Financials": {
@@ -40,7 +45,8 @@
       "JPM",
       "BAC",
       "GS",
-      "V"
+      "V",
+      "MA"
     ]
   },
   "ConsumerDisc": {
@@ -49,7 +55,8 @@
       "AMZN",
       "TSLA",
       "NKE",
-      "MCD"
+      "MCD",
+      "HD"
     ]
   },
   "ConsumerStaples": {
@@ -58,7 +65,8 @@
       "PG",
       "KO",
       "PEP",
-      "WMT"
+      "WMT",
+      "COST"
     ]
   },
   "Communication": {
@@ -67,7 +75,8 @@
       "GOOGL",
       "NFLX",
       "DIS",
-      "T"
+      "T",
+      "SPOT"
     ]
   },
   "Utilities": {
@@ -86,7 +95,8 @@
       "LIN",
       "APD",
       "NEM",
-      "FCX"
+      "FCX",
+      "SHW"
     ]
   },
   "RealEstate": {
@@ -95,7 +105,8 @@
       "PLD",
       "AMT",
       "EQIX",
-      "SPG"
+      "SPG",
+      "WELL"
     ]
   }
 }

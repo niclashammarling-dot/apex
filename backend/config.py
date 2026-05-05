@@ -85,47 +85,47 @@ LIVE_STOP_LOSS_PCT       = float(os.getenv("LIVE_STOP_LOSS_PCT", "0.04"))
 SECTORS = {
     "Technology": {
         "etf": "XLK",
-        "tickers": ["AAPL", "MSFT", "NVDA", "META"],
+        "tickers": ["AAPL", "MSFT", "NVDA", "META", "AMD"],
     },
     "Healthcare": {
         "etf": "XLV",
-        "tickers": ["JNJ", "PFE", "UNH", "MRNA"],
+        "tickers": ["JNJ", "PFE", "UNH", "MRNA", "LLY"],
     },
     "Energy": {
         "etf": "XLE",
-        "tickers": ["XOM", "CVX", "SLB", "NEE"],
+        "tickers": ["XOM", "CVX", "HAL", "COP", "OXY"],
     },
     "Industrials": {
         "etf": "XLI",
-        "tickers": ["CAT", "BA", "GE", "HON"],
+        "tickers": ["CAT", "BA", "GE", "HON", "DE"],
     },
     "Financials": {
         "etf": "XLF",
-        "tickers": ["JPM", "BAC", "GS", "V"],
+        "tickers": ["JPM", "BAC", "GS", "V", "MA"],
     },
     "ConsumerDisc": {
         "etf": "XLY",
-        "tickers": ["AMZN", "TSLA", "NKE", "MCD"],
+        "tickers": ["AMZN", "TSLA", "NKE", "MCD", "HD"],
     },
     "ConsumerStaples": {
         "etf": "XLP",
-        "tickers": ["PG", "KO", "PEP", "WMT"],
+        "tickers": ["PG", "KO", "PEP", "WMT", "COST"],
     },
     "Communication": {
         "etf": "XLC",
-        "tickers": ["GOOGL", "NFLX", "DIS", "T"],
+        "tickers": ["GOOGL", "NFLX", "DIS", "T", "SPOT"],
     },
     "Utilities": {
         "etf": "XLU",
-        "tickers": ["DUK", "SO", "AEP", "EXC"],
+        "tickers": ["DUK", "SO", "AEP", "EXC", "NEE"],
     },
     "Materials": {
         "etf": "XLB",
-        "tickers": ["LIN", "APD", "NEM", "FCX"],
+        "tickers": ["LIN", "APD", "NEM", "FCX", "SHW"],
     },
     "RealEstate": {
         "etf": "XLRE",
-        "tickers": ["PLD", "AMT", "EQIX", "SPG"],
+        "tickers": ["PLD", "AMT", "EQIX", "SPG", "WELL"],
     },
 }
 
