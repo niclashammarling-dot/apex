@@ -85,7 +85,7 @@ LIVE_STOP_LOSS_PCT       = float(os.getenv("LIVE_STOP_LOSS_PCT", "0.04"))
 SECTORS = {
     "Technology": {
         "etf": "XLK",
-        "tickers": ["AAPL", "MSFT", "NVDA", "META", "AMD"],
+        "tickers": ["AAPL", "MSFT", "NVDA", "AMD", "V"],
     },
     "Healthcare": {
         "etf": "XLV",
@@ -101,7 +101,7 @@ SECTORS = {
     },
     "Financials": {
         "etf": "XLF",
-        "tickers": ["JPM", "BAC", "GS", "V", "MA"],
+        "tickers": ["JPM", "BAC", "GS", "BLK", "MS"],
     },
     "ConsumerDisc": {
         "etf": "XLY",
@@ -113,7 +113,7 @@ SECTORS = {
     },
     "Communication": {
         "etf": "XLC",
-        "tickers": ["GOOGL", "NFLX", "DIS", "T", "SPOT"],
+        "tickers": ["GOOGL", "META", "NFLX", "DIS", "SPOT"],
     },
     "Utilities": {
         "etf": "XLU",

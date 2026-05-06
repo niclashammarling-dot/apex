@@ -5,8 +5,8 @@
       "AAPL",
       "MSFT",
       "NVDA",
-      "META",
-      "AMD"
+      "AMD",
+      "V"
     ]
   },
   "Healthcare": {
@@ -45,8 +45,8 @@
       "JPM",
       "BAC",
       "GS",
-      "V",
-      "MA"
+      "BLK",
+      "MS"
     ]
   },
   "ConsumerDisc": {
@@ -73,9 +73,9 @@
     "etf": "XLC",
     "tickers": [
       "GOOGL",
+      "META",
       "NFLX",
       "DIS",
-      "T",
       "SPOT"
     ]
   },

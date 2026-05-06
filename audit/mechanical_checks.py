@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26
+APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27
 Pure grep/parse, no LLM. Writes findings to audit/nightly-report-YYYY-MM-DD.md.
 """
 # CHECK 22 added 2026-04-15: Yahoo data pipeline health
 # CHECK 24 added 2026-04-18: Chain-runner wiring integrity
 # CHECK 25 added 2026-04-20: gate_decision string parity (backend _OUTCOMES vs frontend + db consumers)
 # CHECK 26 added 2026-05-03: L1/L2 threshold-source parity (both must use get_ticker_thresholds())
+# CHECK 27 added 2026-05-06: GICS sector classification parity (tickers.json vs authoritative GICS map)
 
 import json
 import re
@@ -783,6 +784,81 @@ def check26():
                  "source has diverged from L1; likely reverted to static config value")
 
 
+def check27():
+    """
+    Verify each ticker in tickers.json is placed in its correct GICS sector.
+
+    Uses a hardcoded authoritative map — the source of truth is GICS/S&P, not
+    yfinance (which can lag reclassifications). Map must be updated manually when
+    GICS restructurings occur (last major restructuring: September 2018).
+
+    Prevented by: May 2026 incident where META, V, and MA were left in pre-2018
+    sector assignments (Technology and Financials respectively) after the 2018 GICS
+    restructuring created Communication Services and moved payment networks to IT.
+    The misclassification meant Lock 4 benchmarked V and MA against XLF (wrong ETF)
+    and META added advertising-cycle noise to the Technology sector score.
+    """
+    # Authoritative GICS sector for each ticker in the APEX universe.
+    # Update this map whenever a ticker is added or GICS publishes a reclassification.
+    GICS_MAP = {
+        # Technology (XLK)
+        "AAPL": "Technology", "MSFT": "Technology", "NVDA": "Technology",
+        "AMD": "Technology", "V": "Technology",
+        # Healthcare (XLV)
+        "JNJ": "Healthcare", "PFE": "Healthcare", "UNH": "Healthcare",
+        "MRNA": "Healthcare", "LLY": "Healthcare",
+        # Energy (XLE)
+        "XOM": "Energy", "CVX": "Energy", "HAL": "Energy",
+        "COP": "Energy", "OXY": "Energy",
+        # Industrials (XLI)
+        "CAT": "Industrials", "BA": "Industrials", "GE": "Industrials",
+        "HON": "Industrials", "DE": "Industrials",
+        # Financials (XLF) — excludes V and MA (moved to IT in 2018)
+        "JPM": "Financials", "BAC": "Financials", "GS": "Financials",
+        "BLK": "Financials", "MS": "Financials",
+        # ConsumerDisc (XLY)
+        "AMZN": "ConsumerDisc", "TSLA": "ConsumerDisc", "NKE": "ConsumerDisc",
+        "MCD": "ConsumerDisc", "HD": "ConsumerDisc",
+        # ConsumerStaples (XLP)
+        "PG": "ConsumerStaples", "KO": "ConsumerStaples", "PEP": "ConsumerStaples",
+        "WMT": "ConsumerStaples", "COST": "ConsumerStaples",
+        # Communication (XLC) — includes META and GOOGL post-2018 restructuring
+        "GOOGL": "Communication", "META": "Communication", "NFLX": "Communication",
+        "DIS": "Communication", "SPOT": "Communication",
+        # Utilities (XLU)
+        "DUK": "Utilities", "SO": "Utilities", "AEP": "Utilities",
+        "EXC": "Utilities", "NEE": "Utilities",
+        # Materials (XLB)
+        "LIN": "Materials", "APD": "Materials", "NEM": "Materials",
+        "FCX": "Materials", "SHW": "Materials",
+        # RealEstate (XLRE)
+        "PLD": "RealEstate", "AMT": "RealEstate", "EQIX": "RealEstate",
+        "SPG": "RealEstate", "WELL": "RealEstate",
+    }
+
+    tickers_path = REPO / "data/tickers.json"
+    if not tickers_path.exists():
+        flag(27, "GICS sector classification parity", "CRITICAL",
+             "data/tickers.json", "tickers.json not found")
+        return
+
+    import json as _json
+    universe = _json.loads(tickers_path.read_text())
+
+    for apex_sector, meta in universe.items():
+        for ticker in meta.get("tickers", []):
+            expected = GICS_MAP.get(ticker)
+            if expected is None:
+                flag(27, "GICS sector classification parity", "WARN",
+                     "data/tickers.json",
+                     f"{ticker} has no GICS entry in the audit map — add it when onboarding new tickers")
+            elif expected != apex_sector:
+                flag(27, "GICS sector classification parity", "CRITICAL",
+                     "data/tickers.json",
+                     f"{ticker} is in APEX sector '{apex_sector}' but GICS assigns it to '{expected}'; "
+                     f"Lock 4 ETF benchmark and sector score will be wrong")
+
+
 # ── Update check registry ─────────────────────────────────────────────────────
 
 def update_registry():
@@ -898,5 +974,6 @@ if __name__ == "__main__":
     check24()
     check25()
     check26()
+    check27()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])
