@@ -7,139 +7,103 @@ const REASON_COLOR = {
   TSL: "#e8a020",
 };
 
-const COLS = [
-  { col: "timestamp",    label: "Entry Date" },
-  { col: "ticker",       label: "Ticker"     },
-  { col: "sector",       label: "Sector"     },
-  { col: "price",        label: "Entry $"    },
-  { col: "price_exit",   label: "Exit $"     },
-  { col: "pnl",          label: "P&L $"      },
-  { col: "pnl_pct",      label: "P&L %"      },
-  { col: "exit_reason",  label: "Reason"     },
-  { col: "outcome",      label: "Outcome"    },
-];
-
 function fmtDate(iso) {
   if (!iso) return "—";
   return iso.slice(0, 10);
 }
 
 export default function DemoTradeLog({ trades = [] }) {
-  const [sort, setSort] = useState({ col: "timestamp", dir: -1 });
+  const [open, setOpen] = useState(false);
 
   const sorted = useMemo(() => {
     const open   = trades.filter(t => !t.outcome || t.outcome === "OPEN");
-    const closed = trades.filter(t =>  t.outcome && t.outcome !== "OPEN").sort((a, b) => {
-      const av = a[sort.col] ?? "";
-      const bv = b[sort.col] ?? "";
-      return av < bv ? -sort.dir : av > bv ? sort.dir : 0;
-    });
+    const closed = trades.filter(t =>  t.outcome && t.outcome !== "OPEN")
+                         .sort((a, b) => (b.timestamp ?? "") < (a.timestamp ?? "") ? -1 : 1);
     return [...open, ...closed];
-  }, [trades, sort]);
-
-  function toggleSort(col) {
-    setSort(s => s.col === col ? { col, dir: -s.dir } : { col, dir: 1 });
-  }
+  }, [trades]);
 
   const wins   = trades.filter(t => t.outcome === "WIN").length;
   const losses = trades.filter(t => t.outcome === "LOSS").length;
-  const open   = trades.filter(t => !t.outcome || t.outcome === "OPEN").length;
+  const openN  = trades.filter(t => !t.outcome || t.outcome === "OPEN").length;
 
   return (
     <div className="card" style={{ marginTop: 16 }}>
-      <div className="card-header">
+      <div className="card-header" onClick={() => setOpen(v => !v)} style={{ cursor: "pointer", userSelect: "none" }}>
         <div className="card-title">Demo Trade Log</div>
-        <div className="card-meta" style={{ display: "flex", gap: 16 }}>
+        <div className="card-meta" style={{ display: "flex", gap: 14, alignItems: "center" }}>
           {trades.length === 0 ? (
             <span style={{ color: "var(--text-3)" }}>no trades yet</span>
           ) : (
             <>
-              <span style={{ color: "var(--green)" }}>{wins} wins</span>
-              <span style={{ color: "var(--red)" }}>{losses} losses</span>
-              {open > 0 && <span style={{ color: "var(--text-3)" }}>{open} open</span>}
+              <span style={{ color: "var(--green)" }}>{wins}W</span>
+              <span style={{ color: "var(--red)" }}>{losses}L</span>
+              {openN > 0 && <span style={{ color: "var(--text-3)" }}>{openN} open</span>}
             </>
           )}
+          <span style={{ fontSize: 11, color: "var(--text-3)" }}>{open ? "▲" : "▼"}</span>
         </div>
       </div>
 
-      {trades.length === 0 ? (
-        <div className="card-body" style={{ color: "var(--text-3)", fontSize: 13, textAlign: "center", padding: "28px 0" }}>
-          Trades will appear here once the demo gate queues its first position.
-        </div>
-      ) : (
-        <div className="card-body" style={{ padding: 0, overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'DM Mono', monospace", fontSize: 12 }}>
-            <thead>
-              <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                {COLS.map(({ col, label }) => (
-                  <th
-                    key={col}
-                    onClick={() => toggleSort(col)}
-                    style={{
-                      textAlign: "left", padding: "8px 14px", cursor: "pointer",
-                      color: sort.col === col ? "var(--text-2)" : "var(--text-3)",
-                      fontWeight: 500, whiteSpace: "nowrap", userSelect: "none",
-                      letterSpacing: "0.04em",
-                    }}
-                  >
-                    {label}{sort.col === col ? (sort.dir === 1 ? " ↑" : " ↓") : ""}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((t, i) => {
-                const win  = t.outcome === "WIN";
-                const loss = t.outcome === "LOSS";
-                const pnlColor = win ? "var(--green)" : loss ? "var(--red)" : "var(--text-3)";
-                const pnlPct = t.price_exit && t.price
-                  ? (t.price_exit - t.price) / t.price
-                  : null;
-
-                return (
-                  <tr key={i} style={{ borderBottom: "1px solid #1a2030" }}>
-                    <td style={{ padding: "7px 14px", color: "var(--text-3)" }}>{fmtDate(t.timestamp)}</td>
-                    <td style={{ padding: "7px 14px" }}>
-                      <div style={{ color: "var(--text-1)", fontWeight: 500 }}>{t.ticker}</div>
-                      {COMPANY_NAMES[t.ticker] && (
-                        <div style={{ color: "var(--text-3)", fontSize: 10, marginTop: 1 }}>{COMPANY_NAMES[t.ticker]}</div>
-                      )}
-                    </td>
-                    <td style={{ padding: "7px 14px", color: "var(--text-3)" }}>{t.sector ?? "—"}</td>
-                    <td style={{ padding: "7px 14px", color: "var(--text-3)" }}>
-                      {t.price != null ? `$${t.price.toFixed(2)}` : "—"}
-                    </td>
-                    <td style={{ padding: "7px 14px", color: "var(--text-3)" }}>
-                      {t.price_exit != null ? `$${t.price_exit.toFixed(2)}` : "—"}
-                    </td>
-                    <td style={{ padding: "7px 14px", color: pnlColor }}>
-                      {t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}$${Math.abs(t.pnl).toFixed(2)}` : "—"}
-                    </td>
-                    <td style={{ padding: "7px 14px", color: pnlColor }}>
-                      {pnlPct != null ? `${pnlPct >= 0 ? "+" : ""}${(pnlPct * 100).toFixed(2)}%` : "—"}
-                    </td>
-                    <td style={{ padding: "7px 14px", color: REASON_COLOR[t.exit_reason] ?? "var(--text-3)" }}>
-                      {t.exit_reason ?? "open"}
-                    </td>
-                    <td style={{ padding: "7px 14px" }}>
-                      {t.outcome && t.outcome !== "OPEN" ? (
-                        <span style={{
-                          color: win ? "var(--green)" : "var(--red)",
-                          fontWeight: 600, letterSpacing: "0.06em",
-                        }}>
-                          {t.outcome}
-                        </span>
-                      ) : (
-                        <span style={{ color: "var(--text-3)" }}>OPEN</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {open && trades.length === 0 && (
+        <div className="card-body">
+          <p className="muted">Trades will appear here once the demo gate queues its first position.</p>
         </div>
       )}
+
+      {open && trades.length > 0 && sorted.map((t, i) => {
+          const win      = t.outcome === "WIN";
+          const loss     = t.outcome === "LOSS";
+          const isOpen   = !t.outcome || t.outcome === "OPEN";
+          const pnlColor = win ? "var(--green)" : loss ? "var(--red)" : "var(--text-3)";
+          const pnlPct   = t.price_exit && t.price
+            ? (t.price_exit - t.price) / t.price
+            : null;
+
+          return (
+            <div key={i} style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "10px 16px", borderTop: "1px solid var(--border)",
+            }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 15, color: "var(--text-1)", fontWeight: 700 }}>
+                    {t.ticker}
+                  </span>
+                  {COMPANY_NAMES[t.ticker] && (
+                    <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)" }}>
+                      {COMPANY_NAMES[t.ticker]}
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)", marginTop: 3 }}>
+                  {fmtDate(t.timestamp)}
+                  {t.sector && <span style={{ marginLeft: 8 }}>{t.sector}</span>}
+                  {t.exit_reason && (
+                    <span style={{ marginLeft: 8, color: REASON_COLOR[t.exit_reason] ?? "var(--text-3)" }}>
+                      {t.exit_reason}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ textAlign: "right" }}>
+                {isOpen ? (
+                  <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 13, color: "var(--text-3)", fontWeight: 600 }}>
+                    OPEN
+                  </div>
+                ) : (
+                  <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 16, color: pnlColor, fontWeight: 700 }}>
+                    {pnlPct != null ? `${pnlPct >= 0 ? "+" : ""}${(pnlPct * 100).toFixed(2)}%` : "—"}
+                  </div>
+                )}
+                <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)", marginTop: 3 }}>
+                  {t.price != null ? `$${t.price.toFixed(2)}` : "—"}
+                  {t.price_exit != null && <span> → ${t.price_exit.toFixed(2)}</span>}
+                </div>
+              </div>
+            </div>
+          );
+        })}
     </div>
   );
 }

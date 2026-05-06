@@ -18,11 +18,11 @@ function nColor(n) {
 }
 
 function Cell({ value, fmt, color, n }) {
-  if (value == null) return <td style={{ color: "var(--text-3)", fontFamily: "'DM Mono', monospace" }}>—</td>;
+  if (value == null) return <td style={{ color: "var(--text-3)", fontFamily: "'Inconsolata', monospace" }}>—</td>;
   const display = fmt(value);
   const valueColor = color ? (value >= 0 ? "var(--green)" : "var(--red)") : "var(--text-2)";
   return (
-    <td style={{ fontFamily: "'DM Mono', monospace" }}>
+    <td style={{ fontFamily: "'Inconsolata', monospace" }}>
       <span style={{ color: valueColor }}>{display}</span>
       {n != null && (
         <span style={{ fontSize: 10, color: nColor(n), marginLeft: 5 }}>n={n}</span>
@@ -40,7 +40,7 @@ export default function ComparePanel({ data }) {
       <div className="card-header">
         <div className="card-title">Demo vs Live</div>
         {live && (
-          <div className="card-meta" style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>
+          <div className="card-meta" style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11 }}>
             Day P&L:{" "}
             <span style={{ color: live.day_pnl >= 0 ? "var(--green)" : "var(--red)" }}>
               {live.day_pnl >= 0 ? "+" : ""}${Math.abs(live.day_pnl).toFixed(2)}

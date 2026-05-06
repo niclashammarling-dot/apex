@@ -3,7 +3,7 @@ import { useState } from "react";
 // Derive 5-lock pass states from gate_decision string.
 // Returns [l1, l2, l3, l4, l5] where true=pass, false=fail, null=not evaluated.
 function getLockStates(decision) {
-  if (decision === "FILTERED_MACRO")          return [false, null,  null,  null,  null ];
+  if (decision === "FILTERED_ELIGIBILITY")    return [false, null,  null,  null,  null ];
   if (decision === "FILTERED_L1")             return [true,  false, null,  null,  null ];
   if (decision === "FILTERED_L2")             return [true,  true,  false, null,  null ];
   if (decision === "FILTERED_LEADING")        return [true,  true,  true,  false, null ];
@@ -50,7 +50,7 @@ function FunnelSummary({ funnel }) {
   return (
     <div style={{
       display: "flex", gap: 10, alignItems: "center",
-      fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)",
+      fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)",
       flexWrap: "wrap",
     }}>
       <span>{total_candidates} candidates</span>
@@ -78,7 +78,7 @@ function decisionBadge(decision) {
   if (decision === "TRADE_EXECUTED")          return { cls: "gate-executed", label: "EXECUTED"  };
   if (decision === "TRADE_REJECTED")          return { cls: "gate-fail",     label: "REJECTED"  };
   if (decision === "TRADE_FAILED")            return { cls: "gate-rejected", label: "FAILED"    };
-  if (decision === "FILTERED_MACRO")          return { cls: "gate-macro",    label: "L1 FAIL"   };
+  if (decision === "FILTERED_ELIGIBILITY")    return { cls: "gate-macro",    label: "L1 FAIL"   };
   if (decision === "FILTERED_L1")             return { cls: "gate-fail",     label: "L2 FAIL"   };
   if (decision === "FILTERED_L2")             return { cls: "gate-fail",     label: "L3 FAIL"   };
   if (decision === "FILTERED_LEADING")        return { cls: "gate-fail",     label: "L4 FAIL"   };
@@ -89,9 +89,8 @@ function decisionBadge(decision) {
   return { cls: "gate-fail", label: decision ?? "—" };
 }
 
-export default function LiveGateFeed({ history, funnel }) {
-  const [expanded,  setExpanded]  = useState(null);
-  const [collapsed, setCollapsed] = useState(false);
+export default function LiveGateFeed({ history, funnel, collapsed, onCollapse }) {
+  const [expanded, setExpanded] = useState(null);
 
   if (!history || history.length === 0) {
     return (
@@ -118,7 +117,7 @@ export default function LiveGateFeed({ history, funnel }) {
     <div className="card">
       <div
         className="card-header"
-        onClick={() => setCollapsed(c => !c)}
+        onClick={() => onCollapse(c => !c)}
         style={{ cursor: "pointer", userSelect: "none" }}
       >
         <div className="card-title">Live Gate Activity</div>
@@ -165,7 +164,7 @@ export default function LiveGateFeed({ history, funnel }) {
                 onClick={() => hasDetail && setExpanded(isOpen ? null : i)}
                 style={{ cursor: hasDetail ? "pointer" : "default" }}
               >
-                <td style={{ fontFamily: "'DM Mono', monospace", fontSize: 12 }}>{ts}</td>
+                <td style={{ fontFamily: "'Inconsolata', monospace", fontSize: 12 }}>{ts}</td>
                 <td>
                   <strong>{row.ticker}</strong>
                   {hasDetail && (
@@ -174,7 +173,7 @@ export default function LiveGateFeed({ history, funnel }) {
                     </span>
                   )}
                 </td>
-                <td style={{ fontFamily: "'DM Mono', monospace" }}>
+                <td style={{ fontFamily: "'Inconsolata', monospace" }}>
                   <ScoreVsThreshold score={row.signal_score} threshold={row.l1_threshold} />
                 </td>
                 <td>
@@ -193,7 +192,7 @@ export default function LiveGateFeed({ history, funnel }) {
                 <td>
                   <span className={`gate-badge ${cls}`}>{label}{row._count > 1 ? ` ×${row._count}` : ""}</span>
                   {row.alpaca_order_id && (
-                    <span style={{ marginLeft: 8, fontSize: 11, color: "var(--text-3)", fontFamily: "'DM Mono', monospace" }}>
+                    <span style={{ marginLeft: 8, fontSize: 11, color: "var(--text-3)", fontFamily: "'Inconsolata', monospace" }}>
                       #{row.alpaca_order_id.slice(0, 8)}
                     </span>
                   )}
@@ -202,7 +201,7 @@ export default function LiveGateFeed({ history, funnel }) {
               isOpen && hasDetail && (
                 <tr key={`${i}-detail`}>
                   <td colSpan={5} style={{
-                    background: "#111827",
+                    background: "#181816",
                     padding: "10px 16px 14px",
                     borderTop: "1px solid var(--border)",
                     fontSize: 12,

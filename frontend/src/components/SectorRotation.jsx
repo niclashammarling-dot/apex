@@ -55,9 +55,9 @@ function CustomTooltip({ active, payload, label }) {
   const sorted = [...payload].sort((a, b) => b.value - a.value);
   return (
     <div style={{
-      background: "#141926", border: "1px solid #2a3450",
+      background: "#1f1f1c", border: "1px solid #343434",
       borderRadius: 6, padding: "10px 14px", fontSize: 12,
-      fontFamily: "'DM Mono', monospace",
+      fontFamily: "'Inconsolata', monospace",
     }}>
       <div style={{ color: "var(--text-3)", marginBottom: 6 }}>{time}</div>
       {sorted.map(p => (
@@ -181,18 +181,18 @@ export default function SectorRotation() {
   return (
     <div style={{
       background: "var(--bg-card)", border: "1px solid var(--border)",
-      borderRadius: 8, padding: "20px 22px", marginTop: 16,
+      borderRadius: 8, padding: "20px 22px",
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 500 }}>
+          <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 500 }}>
             Sector Rotation
           </div>
           <button
             onClick={() => setShowBackfill(v => !v)}
             title="Backfill historical data"
             style={{
-              fontFamily: "'DM Mono', monospace", fontSize: 10,
+              fontFamily: "'Inconsolata', monospace", fontSize: 10,
               padding: "2px 8px", borderRadius: 4, cursor: "pointer",
               border: "1px solid var(--border)",
               background: showBackfill ? "var(--accent)" : "transparent",
@@ -205,7 +205,7 @@ export default function SectorRotation() {
             onClick={() => setNormalized(v => !v)}
             title={normalized ? "Show raw scores" : "Normalize by L1 threshold — makes sectors comparable"}
             style={{
-              fontFamily: "'DM Mono', monospace", fontSize: 10,
+              fontFamily: "'Inconsolata', monospace", fontSize: 10,
               padding: "3px 10px", borderRadius: 4, cursor: "pointer",
               border: `1px solid ${normalized ? "var(--accent)" : "var(--border)"}`,
               background: normalized ? "var(--accent)" : "transparent",
@@ -218,7 +218,7 @@ export default function SectorRotation() {
               key={r.days}
               onClick={() => setDays(r.days)}
               style={{
-                fontFamily: "'DM Mono', monospace", fontSize: 11,
+                fontFamily: "'Inconsolata', monospace", fontSize: 11,
                 padding: "3px 10px", borderRadius: 4, cursor: "pointer",
                 border: "1px solid var(--border)",
                 background: days === r.days ? "var(--accent)" : "transparent",
@@ -231,33 +231,33 @@ export default function SectorRotation() {
 
       {showBackfill && (
         <div style={{
-          background: "#1a2035", border: "1px solid var(--border)", borderRadius: 6,
+          background: "#282826", border: "1px solid var(--border)", borderRadius: 6,
           padding: "12px 16px", marginBottom: 16,
           display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
         }}>
-          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)" }}>
+          <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)" }}>
             Backfill from
           </span>
           <input
             type="date" value={bfStart} onChange={e => setBfStart(e.target.value)}
             disabled={bfStatus === "running"}
-            style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, padding: "3px 6px",
-              background: "#0e1525", border: "1px solid var(--border)", borderRadius: 3,
+            style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, padding: "3px 6px",
+              background: "#1e1e1c", border: "1px solid var(--border)", borderRadius: 3,
               color: "var(--text-1)", colorScheme: "dark" }}
           />
-          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)" }}>to</span>
+          <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)" }}>to</span>
           <input
             type="date" value={bfEnd} onChange={e => setBfEnd(e.target.value)}
             disabled={bfStatus === "running"}
-            style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, padding: "3px 6px",
-              background: "#0e1525", border: "1px solid var(--border)", borderRadius: 3,
+            style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, padding: "3px 6px",
+              background: "#1e1e1c", border: "1px solid var(--border)", borderRadius: 3,
               color: "var(--text-1)", colorScheme: "dark" }}
           />
           <button
             onClick={startBackfill}
             disabled={bfStatus === "running"}
             style={{
-              fontFamily: "'DM Mono', monospace", fontSize: 11,
+              fontFamily: "'Inconsolata', monospace", fontSize: 11,
               padding: "3px 12px", borderRadius: 4, cursor: bfStatus === "running" ? "default" : "pointer",
               border: "1px solid var(--accent)", background: "var(--accent)", color: "#fff",
               opacity: bfStatus === "running" ? 0.6 : 1,
@@ -265,17 +265,17 @@ export default function SectorRotation() {
           >{bfStatus === "running" ? "running…" : "Run"}</button>
 
           {bfStatus === "running" && (
-            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)" }}>
+            <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)" }}>
               Computing signal scores — this may take a few minutes for long ranges…
             </span>
           )}
           {bfStatus === "done" && (
-            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--green)" }}>
+            <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--green)" }}>
               ✓ {bfInserted} rows inserted
             </span>
           )}
           {bfStatus === "error" && (
-            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--red)" }}>
+            <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--red)" }}>
               Error: {bfError}
             </span>
           )}
@@ -293,7 +293,7 @@ export default function SectorRotation() {
               key={s}
               onClick={() => toggleSector(s)}
               style={{
-                fontFamily: "'DM Mono', monospace", fontSize: 10,
+                fontFamily: "'Inconsolata', monospace", fontSize: 10,
                 padding: "2px 8px", borderRadius: 3, cursor: "pointer",
                 border: `1px ${dashed ? "dashed" : "solid"} ${color}`,
                 background: hidden ? "transparent" : color + "22",
@@ -306,19 +306,19 @@ export default function SectorRotation() {
       </div>
 
       {loading && (
-        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "var(--text-3)", padding: "32px 0", textAlign: "center" }}>
+        <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 12, color: "var(--text-3)", padding: "32px 0", textAlign: "center" }}>
           Loading…
         </div>
       )}
 
       {error && (
-        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "var(--red)", padding: "16px 0" }}>
+        <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 12, color: "var(--red)", padding: "16px 0" }}>
           {error}
         </div>
       )}
 
       {!loading && !error && thinned.length === 0 && (
-        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "var(--text-3)", padding: "32px 0", textAlign: "center" }}>
+        <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 12, color: "var(--text-3)", padding: "32px 0", textAlign: "center" }}>
           No rotation data yet — snapshots build up after the first poll cycle.
         </div>
       )}
@@ -329,20 +329,20 @@ export default function SectorRotation() {
             <XAxis
               dataKey="timestamp"
               tickFormatter={ts => formatTick(ts, days)}
-              tick={{ fontFamily: "'DM Mono', monospace", fontSize: 10, fill: "var(--text-3)" }}
+              tick={{ fontFamily: "'Inconsolata', monospace", fontSize: 10, fill: "var(--text-3)" }}
               axisLine={false} tickLine={false}
               interval="preserveStartEnd"
             />
             <YAxis
               domain={normalized ? [0.5, 1.5] : [0, 1]}
-              tick={{ fontFamily: "'DM Mono', monospace", fontSize: 10, fill: "var(--text-3)" }}
+              tick={{ fontFamily: "'Inconsolata', monospace", fontSize: 10, fill: "var(--text-3)" }}
               axisLine={false} tickLine={false}
               tickFormatter={v => normalized ? `${v.toFixed(1)}×` : v.toFixed(1)}
             />
             <Tooltip content={<CustomTooltip />} />
             <ReferenceLine
               y={normalized ? 1.0 : 0.55}
-              stroke="#2a3450" strokeDasharray="3 3"
+              stroke="#343434" strokeDasharray="3 3"
             />
             {sectors
               .filter(s => !hiddenSectors.has(s))
@@ -363,7 +363,7 @@ export default function SectorRotation() {
         </ResponsiveContainer>
       )}
 
-      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "var(--text-3)", marginTop: 8 }}>
+      <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 10, color: "var(--text-3)", marginTop: 8 }}>
         {normalized
           ? "Normalized: score ÷ per-sector L1 threshold. 1.0× = exactly at threshold. Sectors are directly comparable."
           : "Raw scores. Dashed line = 0.55 (approximate). Use Normalized view for cross-sector comparison."

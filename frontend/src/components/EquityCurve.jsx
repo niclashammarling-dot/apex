@@ -14,7 +14,7 @@ function CustomTooltip({ active, payload, starting }) {
     <div style={{
       background: "var(--bg-header)", border: "1px solid var(--border)",
       padding: "10px 14px", borderRadius: 6,
-      fontFamily: "'DM Mono', monospace", fontSize: 13,
+      fontFamily: "'Inconsolata', monospace", fontSize: 13,
     }}>
       <div style={{ color: "var(--text-3)", marginBottom: 4 }}>
         {pt.ts}{pt.mtm ? " — live" : ""}
@@ -49,7 +49,7 @@ export default function EquityCurve({ equity }) {
   const diff    = last - starting;
   const sign    = diff >= 0 ? "+" : "";
   const color   = diff >= 0 ? "var(--green)" : "var(--red)";
-  const stroke  = diff >= 0 ? "#34c77a" : "#f06060";
+  const stroke  = diff >= 0 ? "#faff69" : "#ff7575";
   const minVal  = Math.min(...equity.map(d => d.balance));
   const maxVal  = Math.max(...equity.map(d => d.balance));
   const padding = (maxVal - minVal) * 0.1 || 100;
@@ -65,20 +65,20 @@ export default function EquityCurve({ equity }) {
       <div className="card-body" style={{ padding: "16px 16px 10px" }}>
         <ResponsiveContainer width="100%" height={150}>
           <LineChart data={equity} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#2a3350" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#343434" vertical={false} />
             <XAxis
               dataKey="ts"
-              tick={{ fontFamily: "'DM Mono', monospace", fontSize: 11, fill: "#5c6b8a" }}
+              tick={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, fill: "#a0a0a0" }}
               axisLine={false} tickLine={false}
             />
             <YAxis
               domain={[minVal - padding, maxVal + padding]}
-              tick={{ fontFamily: "'DM Mono', monospace", fontSize: 11, fill: "#5c6b8a" }}
+              tick={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, fill: "#a0a0a0" }}
               axisLine={false} tickLine={false} width={62}
               tickFormatter={v => `$${(v / 1000).toFixed(1)}k`}
             />
             <Tooltip content={<CustomTooltip starting={starting} />} />
-            <ReferenceLine y={starting} stroke="#2a3350" strokeDasharray="4 4" />
+            <ReferenceLine y={starting} stroke="#343434" strokeDasharray="4 4" />
             <Line
               type="monotone" dataKey="balance"
               stroke={stroke} strokeWidth={2}

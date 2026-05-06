@@ -42,14 +42,14 @@ export default function LiveAccount({ account, status }) {
         <div className="card-title">Live Account</div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{
-            fontFamily: "'DM Mono', monospace",
+            fontFamily: "'Inconsolata', monospace",
             fontSize: 11,
             fontWeight: 700,
             letterSpacing: "0.08em",
             padding: "2px 8px",
             borderRadius: 4,
             ...(status?.paper
-              ? { background: "#1a2800", color: "#a0c040", border: "1px solid #3a5000" }
+              ? { background: "#202000", color: "#faff69", border: "1px solid #3a3a00" }
               : { background: "#2a0e0e", color: "var(--red)",   border: "1px solid #5a2020" }
             ),
           }}>
@@ -59,7 +59,7 @@ export default function LiveAccount({ account, status }) {
             <div style={{
               width: 7, height: 7, borderRadius: "50%",
               background: account.trading_blocked ? "var(--red)" : "var(--green)",
-              boxShadow: account.trading_blocked ? undefined : "0 0 6px #34c77a88",
+              boxShadow: account.trading_blocked ? undefined : "0 0 6px rgba(250,255,105,0.5)",
             }} />
             {account.trading_blocked ? "Blocked" : "Active"}
           </div>

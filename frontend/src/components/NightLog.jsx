@@ -35,7 +35,7 @@ const styles = `
   background: var(--card);
   user-select: none;
 }
-.audit-entry-header:hover { background: #1a2035; }
+.audit-entry-header:hover { background: #282826; }
 
 .audit-date {
   font-size: 13px;
@@ -75,11 +75,11 @@ const styles = `
 .audit-body {
   padding: 14px 16px;
   border-top: 1px solid var(--border);
-  background: #0d1117;
+  background: #151515;
 }
 
 .audit-markdown {
-  font-family: 'Courier New', monospace;
+  font-family: 'Inconsolata', monospace;
   font-size: 12px;
   line-height: 1.65;
   color: var(--text-2);

@@ -24,21 +24,24 @@ const CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --green: #34c77a;
-    --red:   #f06060;
-    --bg:        #0e1118;
-    --bg-card:   #161c2a;
-    --bg-header: #1a2138;
-    --border:    #2a3350;
-    --text-1:    #edf0ff;
-    --text-2:    #9aa5c4;
-    --text-3:    #5c6b8a;
+    --green:     #faff69;
+    --red:       #ff7575;
+    --bg:        #151515;
+    --bg-card:   #1f1f1c;
+    --bg-header: #282828;
+    --border:    #343434;
+    --text-1:    #ffffff;
+    --text-2:    #bcbcbb;
+    --text-3:    #a0a0a0;
   }
+
+  @keyframes ping  { 0%{opacity:0.6;transform:scale(1)} 100%{opacity:0;transform:scale(2.4)} }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.15} }
 
   body {
     background: var(--bg);
     color: var(--text-1);
-    font-family: 'DM Sans', sans-serif;
+    font-family: 'Inter', system-ui, sans-serif;
     font-size: 14px;
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
@@ -48,8 +51,8 @@ const CSS = `
   .header {
     background: var(--bg-header);
     border-bottom: 1px solid var(--border);
-    padding: 0 28px;
-    height: 56px;
+    padding: 0 32px;
+    height: 52px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -62,30 +65,30 @@ const CSS = `
   .header-right { display: flex; align-items: center; gap: 20px; }
 
   .logo {
-    font-family: 'DM Mono', monospace;
-    font-size: 16px;
+    font-family: 'Inconsolata', monospace;
+    font-size: 17px;
     font-weight: 600;
-    letter-spacing: 0.18em;
-    color: var(--text-1);
+    letter-spacing: 0.05em;
+    color: var(--green);
   }
 
   .market-badge {
     display: flex;
     align-items: center;
     gap: 7px;
-    font-family: 'DM Mono', monospace;
-    font-size: 12px;
+    font-family: 'Inconsolata', monospace;
+    font-size: 11px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--text-2);
+    color: var(--text-3);
   }
 
   .market-dot { width: 8px; height: 8px; border-radius: 50%; }
-  .market-dot.open   { background: var(--green); box-shadow: 0 0 8px #34c77a66; }
+  .market-dot.open   { background: var(--green); box-shadow: 0 0 8px rgba(250,255,105,0.5); }
   .market-dot.closed { background: var(--text-3); }
 
   .header-balance {
-    font-family: 'DM Mono', monospace;
+    font-family: 'Inconsolata', monospace;
     font-size: 14px;
     color: var(--text-2);
   }
@@ -97,35 +100,35 @@ const CSS = `
     background: transparent;
     border: 1px solid var(--border);
     border-radius: 5px;
-    color: var(--text-2);
-    font-family: 'DM Mono', monospace;
-    font-size: 12px;
+    color: var(--text-3);
+    font-family: 'Inconsolata', monospace;
+    font-size: 11px;
     letter-spacing: 0.06em;
     padding: 6px 14px;
     cursor: pointer;
     text-transform: uppercase;
     transition: all 0.15s;
   }
-  .refresh-btn:hover { background: #232d44; color: var(--text-1); border-color: #3a4a68; }
+  .refresh-btn:hover { background: #282826; color: var(--text-1); border-color: #3a3a38; }
 
   /* ── Layout ──────────────────────────────────── */
   .main {
-    padding: 28px;
+    padding: 24px 32px;
     max-width: 1440px;
     margin: 0 auto;
     display: grid;
     grid-template-columns: 1fr 380px;
-    gap: 24px;
+    gap: 20px;
     align-items: start;
   }
 
-  .main-left  { display: flex; flex-direction: column; gap: 24px; }
-  .main-right { display: flex; flex-direction: column; gap: 24px; position: sticky; top: 108px; }
+  .main-left  { display: flex; flex-direction: column; gap: 20px; }
+  .main-right { display: flex; flex-direction: column; gap: 20px; position: sticky; top: 96px; }
 
   /* ── Shared ──────────────────────────────────── */
   .section-label {
-    font-family: 'DM Mono', monospace;
-    font-size: 12px;
+    font-family: 'Inconsolata', monospace;
+    font-size: 11px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--text-3);
@@ -136,10 +139,10 @@ const CSS = `
 
   .error-banner {
     background: #1f0e0e;
-    border: 1px solid #5a2020;
+    border: 1px solid #4a1a1a;
     border-radius: 5px;
-    color: #f08080;
-    font-family: 'DM Mono', monospace;
+    color: var(--red);
+    font-family: 'Inconsolata', monospace;
     font-size: 12px;
     padding: 12px 16px;
   }
@@ -150,29 +153,43 @@ const CSS = `
     border: 1px solid var(--border);
     border-radius: 8px;
     overflow: hidden;
+    box-shadow: rgba(0,0,0,0.06) 0 4px 4px 0, rgba(0,0,0,0.18) 0 4px 25px 0 inset;
   }
 
   .card-header {
     background: var(--bg-header);
     border-bottom: 1px solid var(--border);
-    padding: 12px 16px;
+    padding: 11px 16px;
     display: flex;
     align-items: center;
     justify-content: space-between;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .card-header::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 15%;
+    right: 15%;
+    height: 1px;
+    background: linear-gradient(to right, transparent, rgba(250,255,105,0.4), transparent);
+    pointer-events: none;
   }
 
   .card-title {
-    font-family: 'DM Mono', monospace;
+    font-family: 'Inconsolata', monospace;
     font-size: 12px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--text-2);
-    font-weight: 500;
+    font-weight: 600;
   }
 
   .card-meta {
-    font-family: 'DM Mono', monospace;
-    font-size: 12px;
+    font-family: 'Inconsolata', monospace;
+    font-size: 11px;
     color: var(--text-3);
   }
 
@@ -187,20 +204,20 @@ const CSS = `
   }
 
   .wallet-balance-main {
-    font-family: 'DM Mono', monospace;
+    font-family: 'Inconsolata', monospace;
     font-size: 26px;
-    font-weight: 500;
+    font-weight: 600;
     color: var(--text-1);
   }
 
-  .wallet-pnl { font-family: 'DM Mono', monospace; font-size: 15px; font-weight: 500; }
+  .wallet-pnl { font-family: 'Inconsolata', monospace; font-size: 15px; font-weight: 600; }
   .wallet-pnl-pct { font-size: 13px; margin-left: 5px; opacity: 0.85; }
 
   .wallet-sub-row {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-family: 'DM Mono', monospace;
+    font-family: 'Inconsolata', monospace;
     font-size: 13px;
     color: var(--text-3);
     margin-bottom: 4px;
@@ -210,7 +227,7 @@ const CSS = `
   .wallet-table {
     width: 100%;
     border-collapse: collapse;
-    font-family: 'DM Mono', monospace;
+    font-family: 'Inconsolata', monospace;
     font-size: 13px;
     margin-top: 10px;
   }
@@ -221,12 +238,12 @@ const CSS = `
     font-weight: 400;
     letter-spacing: 0.04em;
     border-bottom: 1px solid var(--border);
-    font-size: 12px;
+    font-size: 11px;
     text-transform: uppercase;
   }
   .wallet-table td {
     padding: 7px 8px;
-    border-bottom: 1px solid #1e2538;
+    border-bottom: 1px solid #2a2a28;
     color: var(--text-2);
   }
   .wallet-table td strong { color: var(--text-1); }
@@ -237,18 +254,18 @@ const CSS = `
     border-radius: 4px;
     font-size: 11px;
     letter-spacing: 0.04em;
-    font-weight: 500;
+    font-weight: 600;
   }
-  .outcome-win     { background: #0e2a1a; color: var(--green); }
-  .outcome-loss    { background: #2a0e0e; color: var(--red); }
-  .outcome-expired { background: #1e2030; color: var(--text-3); }
-  .outcome-open    { background: #0e1e38; color: #6aa0f0; }
+  .outcome-win     { background: #1e1e00; color: var(--green); }
+  .outcome-loss    { background: #2a0a0a; color: var(--red); }
+  .outcome-expired { background: #1e1e1c; color: var(--text-3); }
+  .outcome-open    { background: #141424; color: #6aa0f0; }
 
   /* ── Gate feed ───────────────────────────────── */
   .feed-table {
     width: 100%;
     border-collapse: collapse;
-    font-family: 'DM Mono', monospace;
+    font-family: 'Inconsolata', monospace;
     font-size: 13px;
   }
   .feed-table th {
@@ -256,19 +273,19 @@ const CSS = `
     text-align: left;
     padding: 10px 16px;
     font-weight: 400;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
     border-bottom: 1px solid var(--border);
-    font-size: 12px;
+    font-size: 11px;
     text-transform: uppercase;
   }
   .feed-table td {
     padding: 9px 16px;
-    border-bottom: 1px solid #1e2538;
+    border-bottom: 1px solid #2a2a28;
     color: var(--text-2);
   }
-  .feed-table td strong { color: var(--text-1); font-weight: 500; }
+  .feed-table td strong { color: var(--text-1); font-weight: 600; }
   .feed-table tr:last-child td { border-bottom: none; }
-  .feed-table tr:hover td { background: #1a2035; }
+  .feed-table tr:hover td { background: #282826; }
 
   .gate-badge {
     display: inline-block;
@@ -278,11 +295,11 @@ const CSS = `
     letter-spacing: 0.04em;
     font-weight: 600;
   }
-  .gate-executed { background: #0e2a1a; color: var(--green); }
+  .gate-executed { background: #1e1e00; color: var(--green); }
   .gate-rejected { background: #2a1e00; color: #d4a020; }
-  .gate-fail     { background: #1e2030; color: var(--text-3); }
+  .gate-fail     { background: #1e1e1c; color: var(--text-3); }
   .gate-macro    { background: #1e1a00; color: #c8a020; }
-  .gate-skipped  { background: #111318; color: var(--text-3); }
+  .gate-skipped  { background: #181816; color: var(--text-3); }
 
   /* ── Tab bar ─────────────────────────────────── */
   .tab-bar {
@@ -291,9 +308,9 @@ const CSS = `
     gap: 4px;
     background: var(--bg-header);
     border-bottom: 1px solid var(--border);
-    padding: 0 28px;
+    padding: 0 32px;
     position: sticky;
-    top: 56px;
+    top: 52px;
     z-index: 9;
   }
 
@@ -303,7 +320,7 @@ const CSS = `
     border-bottom: 2px solid transparent;
     color: var(--text-3);
     cursor: pointer;
-    font-family: 'DM Mono', monospace;
+    font-family: 'Inconsolata', monospace;
     font-size: 12px;
     letter-spacing: 0.08em;
     padding: 12px 16px;
@@ -312,7 +329,7 @@ const CSS = `
   }
   .tab-btn:hover { color: var(--text-2); }
   .tab-btn.active {
-    color: var(--text-1);
+    color: var(--green);
     border-bottom-color: var(--green);
   }
 
@@ -322,7 +339,7 @@ const CSS = `
     height: 6px;
     border-radius: 50%;
     background: var(--green);
-    box-shadow: 0 0 6px #34c77a88;
+    box-shadow: 0 0 6px rgba(250,255,105,0.6);
     margin-right: 6px;
     vertical-align: middle;
   }
@@ -330,7 +347,7 @@ const CSS = `
   /* ── Promote modal ───────────────────────────────── */
   .modal-overlay {
     position: fixed; inset: 0;
-    background: rgba(0,0,0,0.65);
+    background: rgba(0,0,0,0.72);
     z-index: 100;
     display: flex; align-items: center; justify-content: center;
   }
@@ -343,9 +360,10 @@ const CSS = `
     max-width: 95vw;
     max-height: 80vh;
     overflow-y: auto;
+    box-shadow: rgba(0,0,0,0.06) 0 4px 4px 0, rgba(0,0,0,0.18) 0 4px 25px 0 inset;
   }
   .modal-title {
-    font-family: 'DM Mono', monospace;
+    font-family: 'Inconsolata', monospace;
     font-size: 14px;
     font-weight: 600;
     color: var(--text-1);
@@ -360,7 +378,7 @@ const CSS = `
   .modal-table {
     width: 100%;
     border-collapse: collapse;
-    font-family: 'DM Mono', monospace;
+    font-family: 'Inconsolata', monospace;
     font-size: 12px;
     margin-bottom: 20px;
   }
@@ -370,42 +388,42 @@ const CSS = `
     border-bottom: 1px solid var(--border);
     text-transform: uppercase; letter-spacing: 0.04em;
   }
-  .modal-table td { padding: 7px 8px; color: var(--text-2); border-bottom: 1px solid #1e2538; }
+  .modal-table td { padding: 7px 8px; color: var(--text-2); border-bottom: 1px solid #2a2a28; }
   .modal-table td.changed { color: var(--green); font-weight: 600; }
   .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
   .btn-confirm {
-    background: #0e2a1a; border: 1px solid var(--green);
+    background: #1e1e00; border: 1px solid var(--green);
     color: var(--green); border-radius: 5px;
-    font-family: 'DM Mono', monospace; font-size: 12px;
+    font-family: 'Inconsolata', monospace; font-size: 12px;
     letter-spacing: 0.06em; padding: 8px 18px; cursor: pointer;
     text-transform: uppercase; transition: background 0.15s;
   }
-  .btn-confirm:hover { background: #153d26; }
+  .btn-confirm:hover { background: #2a2a00; }
   .btn-cancel {
     background: transparent; border: 1px solid var(--border);
     color: var(--text-3); border-radius: 5px;
-    font-family: 'DM Mono', monospace; font-size: 12px;
+    font-family: 'Inconsolata', monospace; font-size: 12px;
     letter-spacing: 0.06em; padding: 8px 18px; cursor: pointer;
     text-transform: uppercase; transition: all 0.15s;
   }
   .btn-cancel:hover { color: var(--text-1); border-color: var(--text-2); }
   .promote-btn {
-    background: transparent; border: 1px solid #2a4020;
-    color: #a0c040; border-radius: 5px;
-    font-family: 'DM Mono', monospace; font-size: 11px;
+    background: transparent; border: 1px solid #2a2a00;
+    color: var(--green); border-radius: 5px;
+    font-family: 'Inconsolata', monospace; font-size: 11px;
     letter-spacing: 0.06em; padding: 5px 12px; cursor: pointer;
     text-transform: uppercase; transition: all 0.15s;
   }
-  .promote-btn:hover { background: #1a2800; border-color: #4a6030; }
+  .promote-btn:hover { background: #1e1e00; border-color: #3a3a00; }
 
   .settings-btn {
     background: transparent; border: 1px solid var(--border);
     color: var(--text-3); border-radius: 5px;
-    font-family: 'DM Mono', monospace; font-size: 12px;
+    font-family: 'Inconsolata', monospace; font-size: 11px;
     letter-spacing: 0.06em; padding: 6px 12px; cursor: pointer;
     transition: all 0.15s;
   }
-  .settings-btn:hover { background: #232d44; color: var(--text-1); border-color: #3a4a68; }
+  .settings-btn:hover { background: #282826; color: var(--text-1); border-color: #3a3a38; }
 
   /* ── Settings modal ──────────────────────────────── */
   .settings-grid {
@@ -415,7 +433,7 @@ const CSS = `
     margin-bottom: 20px;
   }
   .settings-col-title {
-    font-family: 'DM Mono', monospace;
+    font-family: 'Inconsolata', monospace;
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -425,7 +443,7 @@ const CSS = `
   }
   .settings-field { margin-bottom: 12px; }
   .settings-label {
-    font-family: 'DM Mono', monospace;
+    font-family: 'Inconsolata', monospace;
     font-size: 11px;
     color: var(--text-3);
     margin-bottom: 4px;
@@ -438,82 +456,82 @@ const CSS = `
     border: 1px solid var(--border);
     border-radius: 4px;
     color: var(--text-1);
-    font-family: 'DM Mono', monospace;
+    font-family: 'Inconsolata', monospace;
     font-size: 13px;
     padding: 6px 10px;
     outline: none;
     transition: border-color 0.15s;
   }
-  .settings-input:focus { border-color: #3a5a8a; }
+  .settings-input:focus { border-color: #4a4a38; }
   .settings-save-btn {
     width: 100%;
-    background: #0e1e38; border: 1px solid #2a4a6a;
-    color: #6aa0f0; border-radius: 4px;
-    font-family: 'DM Mono', monospace; font-size: 11px;
+    background: #1a1a00; border: 1px solid #3a3a00;
+    color: var(--text-2); border-radius: 4px;
+    font-family: 'Inconsolata', monospace; font-size: 11px;
     letter-spacing: 0.06em; padding: 7px; cursor: pointer;
     text-transform: uppercase; transition: all 0.15s; margin-top: 4px;
   }
-  .settings-save-btn:hover { background: #132a4a; border-color: #4a6a9a; }
-  .settings-save-btn.saved { background: #0e2a1a; border-color: var(--green); color: var(--green); }
+  .settings-save-btn:hover { background: #252500; border-color: #4a4a00; }
+  .settings-save-btn.saved { background: #1a1a00; border-color: var(--green); color: var(--green); }
 
   .sector-thresholds-toggle {
     width: 100%; background: transparent; border: 1px solid var(--border);
     border-radius: 5px; color: var(--text-3); cursor: pointer;
-    font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 0.07em;
+    font-family: 'Inconsolata', monospace; font-size: 11px; letter-spacing: 0.07em;
     padding: 8px 12px; text-align: left; margin-top: 20px;
     display: flex; justify-content: space-between; align-items: center;
     transition: border-color 0.15s, color 0.15s;
   }
-  .sector-thresholds-toggle:hover { border-color: #3a4a68; color: var(--text-2); }
+  .sector-thresholds-toggle:hover { border-color: #3a3a38; color: var(--text-2); }
   .sector-thresholds-body {
     margin-top: 8px; border: 1px solid var(--border); border-radius: 5px;
     padding: 12px 14px;
   }
   .sector-thresh-row {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 4px 0; border-bottom: 1px solid #1a2a3a; font-size: 11px;
+    padding: 4px 0; border-bottom: 1px solid #2a2a28; font-size: 11px;
   }
   .sector-thresh-row:last-child { border-bottom: none; }
-  .sector-thresh-name { color: var(--text-2); }
-  .sector-thresh-val  { color: var(--text-1); font-weight: 600; }
+  .sector-thresh-name { color: var(--text-2); font-family: 'Inconsolata', monospace; }
+  .sector-thresh-val  { color: var(--text-1); font-weight: 600; font-family: 'Inconsolata', monospace; }
   .sector-thresh-bar  {
-    height: 3px; background: #1e3a5a; border-radius: 2px;
+    height: 3px; background: #2a2a28; border-radius: 2px;
     flex: 1; margin: 0 10px; overflow: hidden;
   }
-  .sector-thresh-fill { height: 100%; background: #4a8ac4; border-radius: 2px; }
-  .sector-thresh-fallback { color: var(--text-3); font-size: 10px; margin-top: 10px; }
+  .sector-thresh-fill { height: 100%; background: var(--green); border-radius: 2px; opacity: 0.55; }
+  .sector-thresh-fallback { color: var(--text-3); font-size: 10px; margin-top: 10px; font-family: 'Inconsolata', monospace; }
   .sector-thresh-recal {
-    background: transparent; border: 1px solid #2a4a6a; color: #4a8ac4;
-    border-radius: 4px; font-family: 'DM Mono', monospace; font-size: 10px;
+    background: transparent; border: 1px solid #2a2a28; color: var(--text-3);
+    border-radius: 4px; font-family: 'Inconsolata', monospace; font-size: 10px;
     letter-spacing: 0.06em; padding: 4px 10px; cursor: pointer; margin-top: 10px;
     transition: all 0.15s;
   }
-  .sector-thresh-recal:hover { background: #0e1e38; border-color: #4a6a9a; }
+  .sector-thresh-recal:hover { background: #1a1a00; border-color: #3a3a00; color: var(--green); }
   .sector-thresh-recal:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .settings-tabs { display: flex; gap: 2px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
   .settings-tab {
     background: transparent; border: none; border-bottom: 2px solid transparent;
     color: var(--text-3); cursor: pointer;
-    font-family: 'DM Mono', monospace; font-size: 11px;
+    font-family: 'Inconsolata', monospace; font-size: 11px;
     letter-spacing: 0.08em; padding: 8px 16px;
     text-transform: uppercase; transition: all 0.15s;
   }
   .settings-tab:hover { color: var(--text-2); }
-  .settings-tab.active { color: var(--text-1); border-bottom-color: var(--green); }
+  .settings-tab.active { color: var(--green); border-bottom-color: var(--green); }
 
   .ticker-sector { margin-bottom: 16px; }
   .ticker-sector-name {
-    font-family: 'DM Mono', monospace; font-size: 11px;
+    font-family: 'Inconsolata', monospace; font-size: 11px;
     color: var(--text-3); text-transform: uppercase;
     letter-spacing: 0.06em; margin-bottom: 6px;
   }
   .ticker-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
   .ticker-chip {
     display: flex; align-items: center; gap: 5px;
-    background: #0e1e38; border: 1px solid #2a3a58;
+    background: #141414; border: 1px solid #2a2a28;
     border-radius: 4px; padding: 3px 8px;
-    font-family: 'DM Mono', monospace; font-size: 12px; color: var(--text-2);
+    font-family: 'Inconsolata', monospace; font-size: 12px; color: var(--text-2);
   }
   .ticker-chip-remove {
     background: none; border: none; color: var(--text-3);
@@ -525,17 +543,22 @@ const CSS = `
   .ticker-add-input {
     background: var(--bg); border: 1px solid var(--border);
     border-radius: 4px; color: var(--text-1);
-    font-family: 'DM Mono', monospace; font-size: 12px;
+    font-family: 'Inconsolata', monospace; font-size: 12px;
     padding: 4px 8px; width: 80px; outline: none; text-transform: uppercase;
   }
-  .ticker-add-input:focus { border-color: #3a5a8a; }
+  .ticker-add-input:focus { border-color: #4a4a38; }
   .ticker-add-btn {
-    background: #0e1e38; border: 1px solid #2a4a6a; border-radius: 4px;
-    color: #6aa0f0; font-family: 'DM Mono', monospace; font-size: 11px;
+    background: #1a1a00; border: 1px solid #3a3a00; border-radius: 4px;
+    color: var(--green); font-family: 'Inconsolata', monospace; font-size: 11px;
     letter-spacing: 0.06em; padding: 4px 10px; cursor: pointer;
     text-transform: uppercase; transition: all 0.15s;
   }
-  .ticker-add-btn:hover { background: #132a4a; }
+  .ticker-add-btn:hover { background: #252500; }
+
+  /* ── Scrollbar ───────────────────────────────── */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg-card); }
+  ::-webkit-scrollbar-thumb { background: #3a3a38; border-radius: 2px; }
 `;
 
 function isMarketOpen() {
@@ -856,7 +879,7 @@ function SettingsModal({ settings, tickers, onSave, onTickerAdd, onTickerRemove,
             </div>
             <div className="settings-grid">
               <SettingsCol title="Demo" config={settings?.demo} accentColor="var(--text-2)" onSave={vals => onSave("demo", vals)} />
-              <SettingsCol title="Live" config={settings?.live} accentColor="#a0c040"        onSave={vals => onSave("live", vals)} />
+              <SettingsCol title="Live" config={settings?.live} accentColor="var(--green)"        onSave={vals => onSave("live", vals)} />
               <SectorThresholds fallback={settings?.demo?.lock1_threshold} />
             </div>
           </>
@@ -977,9 +1000,11 @@ export default function App() {
   const [liveTrades,    setLiveTrades]    = useState([]);
   const [liveGateHist,  setLiveGateHist]  = useState({ rows: [], funnel: null });
   const [liveEquity,    setLiveEquity]    = useState([]);
-  const [compareData,   setCompareData]   = useState(null);
-  const [liveConfig,    setLiveConfig]    = useState(null);
-  const [auditReports,  setAuditReports]  = useState([]);
+  const [compareData,        setCompareData]        = useState(null);
+  const [liveConfig,         setLiveConfig]         = useState(null);
+  const [auditReports,       setAuditReports]       = useState([]);
+  const [gateCollapsed,      setGateCollapsed]      = useState(false);
+  const [liveGateCollapsed,  setLiveGateCollapsed]  = useState(false);
   const [showPromote,   setShowPromote]   = useState(false);
   const [settings,      setSettings]      = useState(null);
   const [showSettings,  setShowSettings]  = useState(false);
@@ -1091,13 +1116,17 @@ export default function App() {
   return (
     <>
       <style>{CSS}</style>
+      <div style={{
+        position: "fixed", inset: 0, pointerEvents: "none", zIndex: 9999,
+        backgroundImage: "repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.025) 2px,rgba(0,0,0,0.025) 4px)",
+      }} />
 
       <header className="header">
         <div className="header-left">
           <div className="logo">APEX</div>
           <div className="market-badge">
             <div className={`market-dot ${marketOpen ? "open" : "closed"}`} />
-            <span style={{ color: marketOpen ? "#2a9d5c" : "#555" }}>
+            <span style={{ color: marketOpen ? "var(--green)" : "var(--text-3)" }}>
               {marketOpen ? "Market Open" : "Market Closed"}
             </span>
           </div>
@@ -1118,7 +1147,7 @@ export default function App() {
               </span>
             </div>
           )}
-          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "#3a4060" }}>
+          <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 10, color: "#3a3a38" }}>
             {updatedStr}
           </div>
           <button className="settings-btn" onClick={() => setShowSettings(true)}>⚙ Settings</button>
@@ -1145,15 +1174,15 @@ export default function App() {
           {liveStatus?.enabled && liveStatus?.connected && (
             <span style={{
               marginLeft: 8,
-              fontFamily: "'DM Mono', monospace",
+              fontFamily: "'Inconsolata', monospace",
               fontSize: 10,
               fontWeight: 700,
               letterSpacing: "0.06em",
               padding: "1px 6px",
               borderRadius: 3,
               ...(liveStatus?.paper
-                ? { background: "#1a2800", color: "#a0c040" }
-                : { background: "#2a0e0e", color: "var(--red)" }
+                ? { background: "#202000", color: "var(--green)" }
+                : { background: "#2a0808", color: "var(--red)" }
               ),
             }}>
               {liveStatus?.paper ? "PAPER" : "LIVE"}
@@ -1167,45 +1196,58 @@ export default function App() {
         >
           Test
         </button>
+        {liveStatus?.enabled && (
+          <button className="promote-btn" onClick={() => setShowPromote(true)}>
+            ↑ Promote Demo → Live
+          </button>
+        )}
       </nav>
 
       {/* ── Demo tab ──────────────────────────────────────────────────────── */}
       <div style={{ display: activeTab === "demo" ? "" : "none" }}>
         <main className="main">
           <div className="main-left">
-            <div>
-              <div className="section-label">Sector Signals</div>
-              {sectorError
-                ? <div className="error-banner">{sectorError}</div>
-                : (
-                  <ErrorBoundary label="Sector Signals">
-                    <SectorGrid sectors={sectors} />
-                  </ErrorBoundary>
-                )
+
+            {/* Gate feed — most actionable, top of column */}
+            <ErrorBoundary label="Gate Activity">
+              {gateError
+                ? <div className="error-banner">{gateError}</div>
+                : <GateFeed history={gateHist.rows} funnel={gateHist.funnel} collapsed={gateCollapsed} onCollapse={setGateCollapsed} />
               }
-              <ErrorBoundary label="Sector Rotation">
-                <SectorRotation />
-              </ErrorBoundary>
+            </ErrorBoundary>
+
+            {/* Sector signals — full width */}
+            {sectorError
+              ? <div className="error-banner">{sectorError}</div>
+              : (
+                <ErrorBoundary label="Sector Signals">
+                  <SectorGrid sectors={sectors} />
+                </ErrorBoundary>
+              )
+            }
+
+            {/* Regime pair — side by side */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, alignItems: "start" }}>
               <ErrorBoundary label="Sector Regime">
                 <SectorRegime />
               </ErrorBoundary>
               <ErrorBoundary label="Regime Allocation">
                 <RegimeBayes />
               </ErrorBoundary>
-              <ErrorBoundary label="Rotation Forecast">
-                <RotationForecast />
-              </ErrorBoundary>
-              <ErrorBoundary label="Watchlist">
-                <Watchlist />
-              </ErrorBoundary>
             </div>
 
-            <ErrorBoundary label="Gate Activity">
-              {gateError
-                ? <div className="error-banner">{gateError}</div>
-                : <GateFeed history={gateHist.rows} funnel={gateHist.funnel} />
-              }
+            <ErrorBoundary label="Rotation Forecast">
+              <RotationForecast />
             </ErrorBoundary>
+
+            <ErrorBoundary label="Sector Rotation">
+              <SectorRotation />
+            </ErrorBoundary>
+
+            <ErrorBoundary label="Watchlist">
+              <Watchlist />
+            </ErrorBoundary>
+
           </div>
 
           <div className="main-right">
@@ -1241,34 +1283,33 @@ export default function App() {
       <div style={{ display: activeTab === "live" ? "" : "none" }}>
         <main className="main">
           <div className="main-left">
-            <div>
+
+            {/* Gate feed — most actionable, top of column */}
+            <ErrorBoundary label="Live Gate Feed">
+              <LiveGateFeed history={liveGateHist.rows} funnel={liveGateHist.funnel} collapsed={liveGateCollapsed} onCollapse={setLiveGateCollapsed} />
+            </ErrorBoundary>
+
+            {/* Regime pair — side by side */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, alignItems: "start" }}>
               <ErrorBoundary label="Sector Regime">
                 <SectorRegime />
               </ErrorBoundary>
               <ErrorBoundary label="Regime Allocation">
                 <RegimeBayes />
               </ErrorBoundary>
-              <ErrorBoundary label="Rotation Forecast">
-                <RotationForecast />
-              </ErrorBoundary>
-              <ErrorBoundary label="Watchlist">
-                <Watchlist />
-              </ErrorBoundary>
             </div>
 
-            <ErrorBoundary label="Live Gate Feed">
-              <LiveGateFeed history={liveGateHist.rows} funnel={liveGateHist.funnel} />
+            <ErrorBoundary label="Rotation Forecast">
+              <RotationForecast />
             </ErrorBoundary>
+
+            <ErrorBoundary label="Watchlist">
+              <Watchlist />
+            </ErrorBoundary>
+
           </div>
 
           <div className="main-right">
-            {liveStatus?.enabled && (
-              <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                <button className="promote-btn" onClick={() => setShowPromote(true)}>
-                  ↑ Promote Demo → Live
-                </button>
-              </div>
-            )}
 
             <ErrorBoundary label="Live Account">
               <LiveAccount account={liveAccount} status={liveStatus} />

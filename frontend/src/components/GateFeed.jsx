@@ -3,7 +3,7 @@ import { useState } from "react";
 // Derive 5-lock pass states from gate_decision string.
 // Returns [l1, l2, l3, l4, l5] where true=pass, false=fail, null=not evaluated.
 function getLockStates(decision) {
-  if (decision === "FILTERED_MACRO")          return [false, null,  null,  null,  null ];
+  if (decision === "FILTERED_ELIGIBILITY")    return [false, null,  null,  null,  null ];
   if (decision === "FILTERED_L1")             return [true,  false, null,  null,  null ];
   if (decision === "FILTERED_L2")             return [true,  true,  false, null,  null ];
   if (decision === "FILTERED_LEADING")        return [true,  true,  true,  false, null ];
@@ -26,7 +26,7 @@ function Lock({ label, pass }) {
 const OUTCOME_LABELS = {
   TRADE_EXECUTED:          { label: "EXECUTED", cls: "gate-executed" },
   TRADE_REJECTED:          { label: "REJECTED", cls: "gate-rejected" },
-  FILTERED_MACRO:          { label: "L1 FAIL",  cls: "gate-macro"    },
+  FILTERED_ELIGIBILITY:    { label: "L1 FAIL",  cls: "gate-macro"    },
   FILTERED_L1:             { label: "L2 FAIL",  cls: "gate-fail"     },
   FILTERED_L2:             { label: "L3 FAIL",  cls: "gate-fail"     },
   FILTERED_LEADING:        { label: "L4 FAIL",  cls: "gate-fail"     },
@@ -78,7 +78,7 @@ function FunnelSummary({ funnel }) {
   return (
     <div style={{
       display: "flex", gap: 10, alignItems: "center",
-      fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)",
+      fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)",
       flexWrap: "wrap",
     }}>
       <span>{total_candidates} candidates</span>
@@ -95,9 +95,8 @@ function FunnelSummary({ funnel }) {
   );
 }
 
-export default function GateFeed({ history, funnel }) {
-  const [expanded,  setExpanded]  = useState({});
-  const [collapsed, setCollapsed] = useState(false);
+export default function GateFeed({ history, funnel, collapsed, onCollapse }) {
+  const [expanded, setExpanded] = useState({});
 
   if (!history) return null;
 
@@ -117,7 +116,7 @@ export default function GateFeed({ history, funnel }) {
     <div className="card">
       <div
         className="card-header"
-        onClick={() => setCollapsed(c => !c)}
+        onClick={() => onCollapse(c => !c)}
         style={{ cursor: "pointer", userSelect: "none" }}
       >
         <div className="card-title">Gate Activity</div>
@@ -173,7 +172,7 @@ export default function GateFeed({ history, funnel }) {
                           </span>
                         )}
                       </td>
-                      <td style={{ fontFamily: "'DM Mono', monospace" }}>
+                      <td style={{ fontFamily: "'Inconsolata', monospace" }}>
                         <ScoreVsThreshold score={row.signal_score} threshold={row.l1_threshold} />
                       </td>
                       <td>
@@ -197,7 +196,7 @@ export default function GateFeed({ history, funnel }) {
                       <tr key={`${i}-detail`}>
                         <td colSpan={5} style={{
                           padding: "10px 16px 14px",
-                          background: "#111828",
+                          background: "#181816",
                           borderTop: "1px solid var(--border)",
                           fontSize: 12,
                           lineHeight: 1.7,

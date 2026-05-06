@@ -53,7 +53,7 @@ export default function TradeLog({ result }) {
         </div>
       </div>
       <div className="card-body" style={{ padding: 0, overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'DM Mono', monospace", fontSize: 12 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'Inconsolata', monospace", fontSize: 12 }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--border)" }}>
               {COLS.map(({ col, label }) => (
@@ -78,7 +78,7 @@ export default function TradeLog({ result }) {
               const loss = t.outcome === "LOSS";
               const pnlColor = win ? "var(--green)" : loss ? "var(--red)" : "var(--text-3)";
               return (
-                <tr key={i} style={{ borderBottom: "1px solid #1a2030" }}>
+                <tr key={i} style={{ borderBottom: "1px solid #242422" }}>
                   <td style={{ padding: "7px 14px" }}>
                     <div style={{ color: "var(--text-1)", fontWeight: 500 }}>{t.ticker}</div>
                     {COMPANY_NAMES[t.ticker] && (

@@ -4,18 +4,18 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceL
 function StatRow({ label, valueA, valueB, colorA, colorB, ab }) {
   if (!ab) {
     return (
-      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #1e2538" }}>
-        <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "var(--text-3)" }}>{label}</span>
-        <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, color: colorA || "var(--text-1)", fontWeight: 500 }}>{valueA}</span>
+      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #2a2a28" }}>
+        <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 12, color: "var(--text-3)" }}>{label}</span>
+        <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 13, color: colorA || "var(--text-1)", fontWeight: 500 }}>{valueA}</span>
       </div>
     );
   }
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid #1e2538" }}>
-      <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)", minWidth: 90 }}>{label}</span>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid #2a2a28" }}>
+      <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)", minWidth: 90 }}>{label}</span>
       <div style={{ display: "flex", gap: 16 }}>
-        <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: colorA || "var(--text-1)", fontWeight: 500, minWidth: 72, textAlign: "right" }}>{valueA}</span>
-        <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: colorB || "var(--text-1)", fontWeight: 500, minWidth: 72, textAlign: "right" }}>{valueB}</span>
+        <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 12, color: colorA || "var(--text-1)", fontWeight: 500, minWidth: 72, textAlign: "right" }}>{valueA}</span>
+        <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 12, color: colorB || "var(--text-1)", fontWeight: 500, minWidth: 72, textAlign: "right" }}>{valueB}</span>
       </div>
     </div>
   );
@@ -32,7 +32,7 @@ function fmtPct(v) {
   return `${sign}${(v * 100).toFixed(2)}%`;
 }
 
-const COLOR_A = "#4488ff";
+const COLOR_A = "#6aa0f0";
 const COLOR_B = "#00d48c";
 
 export default function BacktestPanel({ onResult }) {
@@ -66,15 +66,17 @@ export default function BacktestPanel({ onResult }) {
     setForm(f => ({ ...f, [e.target.name]: e.target.value }));
   }
 
+  const normPct = v => { const n = parseFloat(v); return n > 1 ? n / 100 : n; };
+
   function buildSharedBody() {
     const body = {
       start_date: form.start_date,
       end_date: form.end_date,
       initial_balance: parseFloat(form.initial_balance) || 10000,
     };
-    if (form.take_profit_pct)   body.take_profit_pct   = parseFloat(form.take_profit_pct);
-    if (form.stop_loss_pct)     body.stop_loss_pct     = parseFloat(form.stop_loss_pct);
-    if (form.trailing_stop_pct) body.trailing_stop_pct = parseFloat(form.trailing_stop_pct);
+    if (form.take_profit_pct)   body.take_profit_pct   = normPct(form.take_profit_pct);
+    if (form.stop_loss_pct)     body.stop_loss_pct     = normPct(form.stop_loss_pct);
+    if (form.trailing_stop_pct) body.trailing_stop_pct = normPct(form.trailing_stop_pct);
     if (form.time_stop_days)    body.time_stop_days    = parseInt(form.time_stop_days);
     if (form.lock1_threshold)   body.lock1_threshold   = parseFloat(form.lock1_threshold);
     if (form.atr_exits)         body.atr_exits         = true;
@@ -89,6 +91,12 @@ export default function BacktestPanel({ onResult }) {
     setResult(null);
     setAbResult(null);
 
+    function extractError(body, status) {
+      const d = body.detail;
+      if (Array.isArray(d)) return d.map(e => e.msg || JSON.stringify(e)).join("; ");
+      return d || `HTTP ${status}`;
+    }
+
     try {
       if (mode === "standard") {
         const res = await fetch("/api/backtest/run", {
@@ -96,14 +104,14 @@ export default function BacktestPanel({ onResult }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(buildSharedBody()),
         });
-        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`);
+        if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(extractError(b, res.status)); }
         const data = await res.json();
         setResult(data);
         onResult?.(data);
       } else {
         const body = {
           ...buildSharedBody(),
-          vol_target:   parseFloat(form.vol_target)   || 0.15,
+          vol_target:   normPct(form.vol_target || "0.15") || 0.15,
           vol_lookback: parseInt(form.vol_lookback)   || 20,
           max_leverage: parseFloat(form.max_leverage) || 2.0,
         };
@@ -112,7 +120,7 @@ export default function BacktestPanel({ onResult }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`);
+        if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(extractError(b, res.status)); }
         const data = await res.json();
         setAbResult(data);
         onResult?.(data.a);
@@ -139,15 +147,15 @@ export default function BacktestPanel({ onResult }) {
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div className="card-title">Backtest</div>
           {/* Mode toggle */}
-          <div style={{ display: "flex", background: "#111828", border: "1px solid var(--border)", borderRadius: 5, overflow: "hidden" }}>
+          <div style={{ display: "flex", background: "#181816", border: "1px solid var(--border)", borderRadius: 5, overflow: "hidden" }}>
             {["standard", "ab"].map(m => (
               <button
                 key={m}
                 onClick={() => { setMode(m); setResult(null); setAbResult(null); setError(null); }}
                 style={{
-                  fontFamily: "'DM Mono', monospace", fontSize: 11, fontWeight: 600,
+                  fontFamily: "'Inconsolata', monospace", fontSize: 11, fontWeight: 600,
                   padding: "4px 12px", border: "none", cursor: "pointer",
-                  background: mode === m ? "#1e3a5f" : "transparent",
+                  background: mode === m ? "#1e1e00" : "transparent",
                   color: mode === m ? "#7ab8f5" : "var(--text-3)",
                   letterSpacing: "0.06em",
                 }}
@@ -165,7 +173,7 @@ export default function BacktestPanel({ onResult }) {
           </div>
         )}
         {abResult && mode === "ab" && (
-          <div style={{ display: "flex", gap: 12, fontSize: 12, fontFamily: "'DM Mono', monospace" }}>
+          <div style={{ display: "flex", gap: 12, fontSize: 12, fontFamily: "'Inconsolata', monospace" }}>
             <span style={{ color: COLOR_A }}>WR {fmtPct(abResult.a.total_return_pct)} · {fmt(abResult.a.sharpe)}</span>
             <span style={{ color: "var(--text-3)" }}>vs</span>
             <span style={{ color: COLOR_B }}>SR {fmtPct(abResult.b.total_return_pct)} · {fmt(abResult.b.sharpe)}</span>
@@ -186,7 +194,7 @@ export default function BacktestPanel({ onResult }) {
             { name: "lock1_threshold",   label: "L1 threshold",      type: "number", placeholder: "default", title: "Minimum quantitative signal score to enter a trade. Uses per-sector calibrated thresholds by default. Dead zone below 0.65 — the filter has no effect under that value." },
           ].map(({ name, label, type, placeholder, title }) => (
             <div key={name} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-              <label title={title} style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)", letterSpacing: "0.06em", cursor: title ? "help" : "default", borderBottom: title ? "1px dotted #4a5568" : "none" }}>
+              <label title={title} style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)", letterSpacing: "0.06em", cursor: title ? "help" : "default", borderBottom: title ? "1px dotted #404040" : "none" }}>
                 {label.toUpperCase()}
               </label>
               <input
@@ -198,8 +206,8 @@ export default function BacktestPanel({ onResult }) {
                 step={type === "number" ? "any" : undefined}
                 title={title}
                 style={{
-                  background: "#111828", border: "1px solid var(--border)", borderRadius: 5,
-                  color: "var(--text-1)", fontFamily: "'DM Mono', monospace", fontSize: 13,
+                  background: "#181816", border: "1px solid var(--border)", borderRadius: 5,
+                  color: "var(--text-1)", fontFamily: "'Inconsolata', monospace", fontSize: 13,
                   padding: "6px 10px", width: name.includes("date") ? 140 : 116, outline: "none",
                 }}
               />
@@ -215,7 +223,7 @@ export default function BacktestPanel({ onResult }) {
                 { name: "max_leverage", label: "Max lev",      placeholder: "2.0",  title: "Cap on the vol-targeting multiplier. Prevents over-sizing when realized vol is very low. 2.0 = max 2× normal position size." },
               ].map(({ name, label, placeholder, title }) => (
                 <div key={name} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                  <label title={title} style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: COLOR_B, letterSpacing: "0.06em", opacity: 0.8, cursor: "help", borderBottom: `1px dotted ${COLOR_B}66` }}>
+                  <label title={title} style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: COLOR_B, letterSpacing: "0.06em", opacity: 0.8, cursor: "help", borderBottom: `1px dotted ${COLOR_B}66` }}>
                     {label.toUpperCase()}
                   </label>
                   <input
@@ -227,8 +235,8 @@ export default function BacktestPanel({ onResult }) {
                     step="any"
                     title={title}
                     style={{
-                      background: "#111828", border: `1px solid ${COLOR_B}44`, borderRadius: 5,
-                      color: "var(--text-1)", fontFamily: "'DM Mono', monospace", fontSize: 13,
+                      background: "#181816", border: `1px solid ${COLOR_B}44`, borderRadius: 5,
+                      color: "var(--text-1)", fontFamily: "'Inconsolata', monospace", fontSize: 13,
                       padding: "6px 10px", width: 90, outline: "none",
                     }}
                   />
@@ -245,7 +253,7 @@ export default function BacktestPanel({ onResult }) {
                 onChange={e => setForm(f => ({ ...f, atr_exits: e.target.checked }))}
                 style={{ accentColor: "#7ab8f5", width: 14, height: 14 }}
               />
-              <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "var(--text-2)" }}>ATR exits</span>
+              <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 12, color: "var(--text-2)" }}>ATR exits</span>
             </label>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <input
@@ -254,7 +262,7 @@ export default function BacktestPanel({ onResult }) {
                 onChange={e => setForm(f => ({ ...f, earnings_filter: e.target.checked }))}
                 style={{ accentColor: "#7ab8f5", width: 14, height: 14, cursor: "pointer" }}
               />
-              <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "var(--text-2)" }}>Skip earnings</span>
+              <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 12, color: "var(--text-2)" }}>Skip earnings</span>
               <input
                 type="number"
                 value={form.earnings_filter_days}
@@ -262,13 +270,13 @@ export default function BacktestPanel({ onResult }) {
                 disabled={!form.earnings_filter}
                 min="1" max="30"
                 style={{
-                  background: "#111828", border: "1px solid var(--border)", borderRadius: 4,
+                  background: "#181816", border: "1px solid var(--border)", borderRadius: 4,
                   color: form.earnings_filter ? "var(--text-1)" : "var(--text-3)",
-                  fontFamily: "'DM Mono', monospace", fontSize: 12,
+                  fontFamily: "'Inconsolata', monospace", fontSize: 12,
                   padding: "3px 6px", width: 40, outline: "none",
                 }}
               />
-              <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "var(--text-3)" }}>days</span>
+              <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)" }}>days</span>
             </div>
           </div>
 
@@ -276,9 +284,9 @@ export default function BacktestPanel({ onResult }) {
             type="submit"
             disabled={loading}
             style={{
-              background: loading ? "#1a2035" : "#1e3a5f", border: "1px solid #2a5080",
+              background: loading ? "#282826" : "#1e1e00", border: "1px solid #3a3a00",
               borderRadius: 5, color: loading ? "var(--text-3)" : "#7ab8f5",
-              fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 500,
+              fontFamily: "'Inconsolata', monospace", fontSize: 13, fontWeight: 500,
               padding: "7px 18px", cursor: loading ? "not-allowed" : "pointer",
             }}
           >
@@ -287,7 +295,7 @@ export default function BacktestPanel({ onResult }) {
         </form>
 
         {error && (
-          <div style={{ color: "var(--red)", fontFamily: "'DM Mono', monospace", fontSize: 13, marginBottom: 12 }}>
+          <div style={{ color: "var(--red)", fontFamily: "'Inconsolata', monospace", fontSize: 13, marginBottom: 12 }}>
             {error}
           </div>
         )}
@@ -295,24 +303,24 @@ export default function BacktestPanel({ onResult }) {
         {/* ── Standard result ── */}
         {result && mode === "standard" && (() => {
           const returnPositive = result.total_return_pct >= 0;
-          const stroke = returnPositive ? "#2a9d5c" : "#e05555";
+          const stroke = returnPositive ? "#faff69" : "#e05555";
           return (
             <>
               <ResponsiveContainer width="100%" height={150}>
                 <LineChart data={result.equity_curve} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a3350" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontFamily: "'DM Mono', monospace", fontSize: 11, fill: "#5c6b8a" }}
+                  <CartesianGrid strokeDasharray="3 3" stroke="#343434" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, fill: "#a0a0a0" }}
                     axisLine={false} tickLine={false} interval="preserveStartEnd" />
                   <YAxis domain={["auto", "auto"]}
-                    tick={{ fontFamily: "'DM Mono', monospace", fontSize: 11, fill: "#5c6b8a" }}
+                    tick={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, fill: "#a0a0a0" }}
                     axisLine={false} tickLine={false} width={60}
                     tickFormatter={v => `$${(v / 1000).toFixed(1)}k`} />
                   <Tooltip
-                    contentStyle={{ background: "var(--bg-header)", border: "1px solid var(--border)", fontFamily: "'DM Mono', monospace", fontSize: 13 }}
+                    contentStyle={{ background: "var(--bg-header)", border: "1px solid var(--border)", fontFamily: "'Inconsolata', monospace", fontSize: 13 }}
                     labelStyle={{ color: "var(--text-3)" }}
                     formatter={v => [`$${v.toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Balance"]}
                   />
-                  <ReferenceLine y={starting} stroke="#2a3350" strokeDashboard="4 4" />
+                  <ReferenceLine y={starting} stroke="#343434" strokeDashboard="4 4" />
                   <Line type="monotone" dataKey="balance" stroke={stroke} strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
@@ -346,29 +354,29 @@ export default function BacktestPanel({ onResult }) {
             <>
               {/* Legend */}
               <div style={{ display: "flex", gap: 16, marginBottom: 8 }}>
-                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: COLOR_A, fontWeight: 600 }}>
+                <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: COLOR_A, fontWeight: 600 }}>
                   — WR: Return-optimized
                 </span>
-                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: COLOR_B, fontWeight: 600 }}>
+                <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: COLOR_B, fontWeight: 600 }}>
                   — SHARPE: Vol-targeted
                 </span>
               </div>
 
               <ResponsiveContainer width="100%" height={160}>
                 <LineChart data={merged} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a3350" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontFamily: "'DM Mono', monospace", fontSize: 11, fill: "#5c6b8a" }}
+                  <CartesianGrid strokeDasharray="3 3" stroke="#343434" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, fill: "#a0a0a0" }}
                     axisLine={false} tickLine={false} interval="preserveStartEnd" />
                   <YAxis domain={["auto", "auto"]}
-                    tick={{ fontFamily: "'DM Mono', monospace", fontSize: 11, fill: "#5c6b8a" }}
+                    tick={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, fill: "#a0a0a0" }}
                     axisLine={false} tickLine={false} width={60}
                     tickFormatter={v => `$${(v / 1000).toFixed(1)}k`} />
                   <Tooltip
-                    contentStyle={{ background: "var(--bg-header)", border: "1px solid var(--border)", fontFamily: "'DM Mono', monospace", fontSize: 12 }}
+                    contentStyle={{ background: "var(--bg-header)", border: "1px solid var(--border)", fontFamily: "'Inconsolata', monospace", fontSize: 12 }}
                     labelStyle={{ color: "var(--text-3)" }}
                     formatter={(v, name) => [`$${v?.toLocaleString("en-US", { minimumFractionDigits: 2 })}`, name === "a" ? "WR" : "SHARPE"]}
                   />
-                  <ReferenceLine y={starting} stroke="#2a3350" strokeDasharray="4 4" />
+                  <ReferenceLine y={starting} stroke="#343434" strokeDasharray="4 4" />
                   <Line type="monotone" dataKey="a" stroke={COLOR_A} strokeWidth={2} dot={false} connectNulls />
                   <Line type="monotone" dataKey="b" stroke={COLOR_B} strokeWidth={2} dot={false} connectNulls />
                 </LineChart>
@@ -378,8 +386,8 @@ export default function BacktestPanel({ onResult }) {
               <div style={{ marginTop: 12 }}>
                 {/* Column headers */}
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 16, marginBottom: 4, paddingRight: 0 }}>
-                  <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: COLOR_A, minWidth: 72, textAlign: "right", fontWeight: 600 }}>WR</span>
-                  <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: COLOR_B, minWidth: 72, textAlign: "right", fontWeight: 600 }}>SHARPE</span>
+                  <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: COLOR_A, minWidth: 72, textAlign: "right", fontWeight: 600 }}>WR</span>
+                  <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: COLOR_B, minWidth: 72, textAlign: "right", fontWeight: 600 }}>SHARPE</span>
                 </div>
                 <StatRow ab label="Total Return"   valueA={fmtPct(a.total_return_pct)}   colorA={retColor(a.total_return_pct)}    valueB={fmtPct(b.total_return_pct)}   colorB={retColor(b.total_return_pct)} />
                 <StatRow ab label="CAGR"           valueA={fmtPct(a.cagr)}               colorA={retColor(a.cagr)}                valueB={fmtPct(b.cagr)}               colorB={retColor(b.cagr)} />
