@@ -8,7 +8,8 @@ export default function LivePositions({ positions }) {
       {positions.length === 0 ? (
         <div className="card-body"><p className="muted">No open positions.</p></div>
       ) : (
-        <table className="wallet-table">
+        <div style={{ overflowX: "auto" }}>
+        <table className="wallet-table" style={{ minWidth: 480 }}>
           <thead>
             <tr>
               <th>Ticker</th>
@@ -37,6 +38,7 @@ export default function LivePositions({ positions }) {
             })}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );
