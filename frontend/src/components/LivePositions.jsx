@@ -17,6 +17,7 @@ export default function LivePositions({ positions }) {
               <th>Current</th>
               <th>Value</th>
               <th>P&amp;L</th>
+              <th>Days</th>
             </tr>
           </thead>
           <tbody>
@@ -24,7 +25,7 @@ export default function LivePositions({ positions }) {
               const pnl    = p.unrealized_pnl ?? 0;
               const pnlPct = p.unrealized_pct ?? 0;
               const sign   = pnl >= 0 ? "+" : "";
-              const cls    = pnl >= 0 ? "pnl-pos" : "pnl-neg";
+              const color  = pnl >= 0 ? "var(--green)" : "var(--red)";
               return (
                 <tr key={p.ticker}>
                   <td><strong>{p.ticker}</strong></td>
@@ -32,12 +33,13 @@ export default function LivePositions({ positions }) {
                   <td>${p.avg_entry_price.toFixed(2)}</td>
                   <td>{p.current_price ? `$${p.current_price.toFixed(2)}` : "—"}</td>
                   <td>{p.market_value ? `$${p.market_value.toFixed(2)}` : "—"}</td>
-                  <td className={cls} style={{ color: pnl >= 0 ? "var(--green)" : "var(--red)" }}>
+                  <td style={{ color }}>
                     {sign}${Math.abs(pnl).toFixed(2)}
                     <span style={{ opacity: 0.7, fontSize: 11, marginLeft: 4 }}>
                       ({sign}{(pnlPct * 100).toFixed(2)}%)
                     </span>
                   </td>
+                  <td>{p.days_held ?? "—"}</td>
                 </tr>
               );
             })}

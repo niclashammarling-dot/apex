@@ -56,7 +56,15 @@ def live_positions():
     _require_live()
     try:
         from backend.brokers import alpaca as broker
-        return broker.get_positions()
+        from backend.db import get_open_live_trades
+        from backend.live_trades_tracker import _trading_days_since
+
+        positions  = broker.get_positions()
+        open_trades = get_open_live_trades()
+        days_map   = {t["ticker"]: _trading_days_since(t["timestamp"]) for t in open_trades}
+        for p in positions:
+            p["days_held"] = days_map.get(p["ticker"])
+        return positions
     except Exception as e:
         logger.error(f"live_positions: {e}")
         raise HTTPException(status_code=502, detail=f"Alpaca error: {e}")
