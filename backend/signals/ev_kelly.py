@@ -1,4 +1,4 @@
-from backend.config import BASE_WIN_RATE, STOP_LOSS_PCT, TAKE_PROFIT_PCT
+from backend.config import AVG_LOSS_PCT, AVG_WIN_PCT, BASE_WIN_RATE, STOP_LOSS_PCT, TAKE_PROFIT_PCT
 
 
 def compute(spy_regime: float, rolling_win_rate: float | None = None, atr_pct: float = 0.0) -> dict:
@@ -19,7 +19,7 @@ def compute(spy_regime: float, rolling_win_rate: float | None = None, atr_pct: f
 
     EV  = p * effective_tp - (1-p) * effective_sl
     f*  = (p*b - (1-p)) / b          ← full Kelly fraction
-    pos = f* * 0.25                  ← quarter-Kelly (conservative sizing)
+    pos = f* * 0.50                  ← half-Kelly (validated edge, clean sector mix)
     ev_norm = EV / effective_tp      → [0, 1] for aggregation
 
     Returns keys: p_win, ev, ev_norm, kelly_size, effective_sl, atr_pct
@@ -29,14 +29,16 @@ def compute(spy_regime: float, rolling_win_rate: float | None = None, atr_pct: f
         p += rolling_win_rate - BASE_WIN_RATE
     p = max(0.35, min(0.75, p))
 
-    # Dynamic stop loss floor: don't size as if the stop is tight when ATR is wide
-    effective_sl = max(STOP_LOSS_PCT, 1.5 * atr_pct) if atr_pct > 0 else STOP_LOSS_PCT
-    effective_tp = TAKE_PROFIT_PCT
+    # Dynamic stop loss floor: don't size as if the stop is tight when ATR is wide.
+    # Use realized payoffs (AVG_WIN/LOSS_PCT) for B so Kelly reflects actual exit
+    # quality rather than nominal config thresholds.
+    effective_sl = max(AVG_LOSS_PCT, 1.5 * atr_pct) if atr_pct > 0 else AVG_LOSS_PCT
+    effective_tp = AVG_WIN_PCT
     B            = effective_tp / effective_sl
 
     ev     = p * effective_tp - (1 - p) * effective_sl
     f_star = (p * B - (1 - p)) / B
-    kelly  = max(0.0, f_star * 0.25)
+    kelly  = max(0.0, f_star * 0.50)
     ev_norm = max(0.0, min(1.0, ev / effective_tp))
 
     return {

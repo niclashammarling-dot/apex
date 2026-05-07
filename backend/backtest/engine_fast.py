@@ -10,8 +10,11 @@ The public API (run()) is identical to the original engine — drop-in replaceme
 """
 from __future__ import annotations
 
+import hashlib
 import math
+import pickle
 from datetime import date, timedelta
+from pathlib import Path
 from typing import TypedDict
 
 import numpy as np
@@ -21,10 +24,12 @@ from loguru import logger
 
 from backend.config import (
     DAILY_LOSS_CAP,
+    EXCLUDED_SECTORS,
     LOCK1_THRESHOLD,
     MAX_POSITION_SIZE,
     MAX_POSITIONS,
     MAX_SECTOR_EXPOSURE,
+    SECTOR_THRESHOLD_FLOORS,
     SECTORS,
     SPY_TICKER,
     STOP_LOSS_PCT,
@@ -198,7 +203,7 @@ def run(
 
         # 3. Attempt entries
         open_tickers     = {t["ticker"] for t in open_trades}
-        sector_exposure  = _sector_exposure(open_trades, initial_balance)
+        sector_exposure  = _sector_exposure(open_trades, balance)
         daily_loss_today = daily_losses.get(today_str, 0.0)
         entries_today    = 0
 
@@ -230,7 +235,7 @@ def run(
             sector    = sig["sector"]
             alloc_pct = min(sig["kelly_size"] if sig["kelly_size"] > 0 else 0.10, MAX_POSITION_SIZE)
             amount    = balance * alloc_pct
-            projected = sector_exposure.get(sector, 0.0) + (amount / initial_balance)
+            projected = sector_exposure.get(sector, 0.0) + (amount / balance)
             if projected > MAX_SECTOR_EXPOSURE:
                 continue
 
@@ -265,7 +270,7 @@ def run(
             }
             open_trades.append(trade)
             open_tickers.add(sig["ticker"])
-            sector_exposure[sector] = sector_exposure.get(sector, 0.0) + (amount / initial_balance)
+            sector_exposure[sector] = sector_exposure.get(sector, 0.0) + (amount / balance)
             entries_today += 1
 
         # Equity snapshot
@@ -301,6 +306,48 @@ def run(
     )
 
 
+# ── Signal cache persistence ──────────────────────────────────────────────────
+
+_SIGNAL_CACHE_DIR = Path(__file__).parent.parent.parent / "data" / "backtest_cache"
+
+
+def _signal_cache_key(all_tickers: list[str], start: date, end: date) -> str:
+    """
+    Hash key for the persisted signal cache.
+    Includes tickers, date range, and EXCLUDED_SECTORS so any exclusion change
+    invalidates the cache rather than loading stale data for excluded sectors.
+    """
+    excl = ",".join(sorted(EXCLUDED_SECTORS.keys()))
+    key_str = ",".join(sorted(all_tickers)) + f"|{start}|{end}|excl:{excl}"
+    return hashlib.md5(key_str.encode()).hexdigest()[:12]
+
+
+def _load_signal_cache(key: str) -> dict | None:
+    path = _SIGNAL_CACHE_DIR / f"sig_{key}.pkl"
+    if not path.exists():
+        return None
+    try:
+        with open(path, "rb") as f:
+            cache = pickle.load(f)
+        logger.info(f"Signal cache loaded from disk ({len(cache)} entries, {path.name})")
+        return cache
+    except Exception as e:
+        logger.warning(f"Signal cache load failed, rebuilding: {e}")
+        path.unlink(missing_ok=True)
+        return None
+
+
+def _save_signal_cache(cache: dict, key: str) -> None:
+    _SIGNAL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _SIGNAL_CACHE_DIR / f"sig_{key}.pkl"
+    try:
+        with open(path, "wb") as f:
+            pickle.dump(cache, f, protocol=pickle.HIGHEST_PROTOCOL)
+        logger.info(f"Signal cache saved to {path.name}")
+    except Exception as e:
+        logger.warning(f"Signal cache save failed (continuing without persistence): {e}")
+
+
 # ── Precompute (optimizer helper) ────────────────────────────────────────────
 
 def precompute(start_date: str, end_date: str) -> dict:
@@ -333,15 +380,21 @@ def precompute(start_date: str, end_date: str) -> dict:
 
     logger.info(f"precompute: {len(trading_days)} trading days — building caches…")
 
-    price_cache  = _build_price_cache(raw_data, all_tickers, trading_days)
-    spy_cache    = _build_spy_cache(raw_data, trading_days)
-    etf_cache    = _build_etf_cache(raw_data, etf_tickers, trading_days)
-    vix_cache    = _build_vix_cache(raw_data, trading_days)
-    rs_cache     = _build_rs_cache(raw_data, ticker_sector, sector_etf, trading_days)
-    signal_cache = _build_signal_cache(
-        raw_data, ticker_sector, sector_etf,
-        spy_cache, etf_cache, trading_days,
-    )
+    price_cache = _build_price_cache(raw_data, all_tickers, trading_days)
+    spy_cache   = _build_spy_cache(raw_data, trading_days)
+    etf_cache   = _build_etf_cache(raw_data, etf_tickers, trading_days)
+    vix_cache   = _build_vix_cache(raw_data, trading_days)
+    rs_cache    = _build_rs_cache(raw_data, ticker_sector, sector_etf, trading_days)
+
+    sig_key      = _signal_cache_key(all_tickers, start, end)
+    signal_cache = _load_signal_cache(sig_key)
+    if signal_cache is None:
+        logger.info("precompute: building signal cache (not cached)…")
+        signal_cache = _build_signal_cache(
+            raw_data, ticker_sector, sector_etf,
+            spy_cache, etf_cache, trading_days,
+        )
+        _save_signal_cache(signal_cache, sig_key)
 
     logger.info(f"precompute: complete — {len(signal_cache)} signal cache entries")
     return {
@@ -525,6 +578,8 @@ def _build_signal_cache(
     for i, (ticker, sector) in enumerate(ticker_sector.items(), 1):
         if i % 10 == 0:
             logger.debug(f"Signal cache: {i}/{total} tickers")
+        if sector in EXCLUDED_SECTORS:
+            continue
         etf = sector_etf.get(sector, "")
         try:
             if ticker not in raw_data.columns.get_level_values(0):
@@ -593,21 +648,33 @@ def _get_candidates_from_cache(
     spy_regime: float,
     rolling_win_rate: float | None,
 ) -> list[dict]:
-    """Return scored candidates above threshold using precomputed cache."""
+    """Return scored candidates above threshold using precomputed cache.
+
+    signal_score and atr_pct come from the cache (expensive, stateless).
+    kelly_size is recomputed live from spy_regime and rolling_win_rate so the
+    sizer sees the actual realized win rate rather than the None baked into the
+    cache at build time.
+    """
     candidates = []
     for ticker, sector in ticker_sector.items():
+        if sector in EXCLUDED_SECTORS:
+            continue
         sig = signal_cache.get((ticker, today_str))
         if sig is None:
             continue
         score = sig["signal_score"]
-        if score < lock1_threshold:
+        effective_threshold = max(lock1_threshold, SECTOR_THRESHOLD_FLOORS.get(sector, 0.0))
+        if score < effective_threshold:
             continue
+        atr_pct = sig["atr_pct"]
+        evk = ev_kelly_compute(spy_regime, rolling_win_rate=rolling_win_rate, atr_pct=atr_pct)
+        kelly_size = round(evk["kelly_size"] * min(1.0, max(0.5, score)), 4)
         candidates.append({
             "ticker":       ticker,
             "sector":       sector,
             "signal_score": score,
-            "kelly_size":   sig["kelly_size"],
-            "atr_pct":      sig["atr_pct"],
+            "kelly_size":   kelly_size,
+            "atr_pct":      atr_pct,
         })
     return candidates
 
@@ -677,8 +744,7 @@ def _mark_to_market_fast(
     total = 0.0
     for t in open_trades:
         current = price_cache.get((t["ticker"], today_str))
-        if current:
-            total += t["amount"] * ((current - t["entry_price"]) / t["entry_price"])
+        total += t["amount"] * (current / t["entry_price"]) if current else t["amount"]
     return total
 
 
@@ -756,10 +822,10 @@ def _trading_days(start: date, end: date, raw_data: pd.DataFrame) -> list[date]:
     return [d.date() for d in idx if start <= d.date() <= end]
 
 
-def _sector_exposure(open_trades: list[dict], initial_balance: float) -> dict[str, float]:
+def _sector_exposure(open_trades: list[dict], balance: float) -> dict[str, float]:
     exp: dict[str, float] = {}
     for t in open_trades:
-        exp[t["sector"]] = exp.get(t["sector"], 0.0) + (t["amount"] / initial_balance)
+        exp[t["sector"]] = exp.get(t["sector"], 0.0) + (t["amount"] / balance)
     return exp
 
 

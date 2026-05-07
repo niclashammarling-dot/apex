@@ -26,10 +26,12 @@ from loguru import logger
 
 from backend.config import (
     DAILY_LOSS_CAP,
+    EXCLUDED_SECTORS,
     LOCK1_THRESHOLD,
     MAX_POSITION_SIZE,
     MAX_POSITIONS,
     MAX_SECTOR_EXPOSURE,
+    SECTOR_THRESHOLD_FLOORS,
     SECTORS,
     SPY_TICKER,
     STOP_LOSS_PCT,
@@ -209,7 +211,7 @@ def run(
 
         # 3. Attempt entries
         open_tickers     = {t["ticker"] for t in open_trades}
-        sector_exposure  = _sector_exposure(open_trades, initial_balance)
+        sector_exposure  = _sector_exposure(open_trades, balance)
         daily_loss_today = daily_losses.get(today_str, 0.0)
         entries_today    = 0
 
@@ -242,7 +244,7 @@ def run(
             sector    = sig["sector"]
             alloc_pct = min(sig["kelly_size"] if sig["kelly_size"] > 0 else 0.10, MAX_POSITION_SIZE)
             amount    = balance * alloc_pct
-            projected = sector_exposure.get(sector, 0.0) + (amount / initial_balance)
+            projected = sector_exposure.get(sector, 0.0) + (amount / balance)
             if projected > MAX_SECTOR_EXPOSURE:
                 continue
 
@@ -278,7 +280,7 @@ def run(
             }
             open_trades.append(trade)
             open_tickers.add(sig["ticker"])
-            sector_exposure[sector] = sector_exposure.get(sector, 0.0) + (amount / initial_balance)
+            sector_exposure[sector] = sector_exposure.get(sector, 0.0) + (amount / balance)
             entries_today += 1
 
         # Equity snapshot (open positions marked to market)
@@ -332,12 +334,15 @@ def _score_all_tickers(
 
     candidates = []
     for ticker, sector in ticker_sector.items():
+        if sector in EXCLUDED_SECTORS:
+            continue
         sig = _score_ticker(
             raw_data, ticker, sector, today,
             spy_regime, spy_return_20d,
             etf_mults.get(sector, 1.0), rolling_win_rate,
         )
-        if sig and sig["signal_score"] >= lock1_threshold:
+        effective_threshold = max(lock1_threshold, SECTOR_THRESHOLD_FLOORS.get(sector, 0.0))
+        if sig and sig["signal_score"] >= effective_threshold:
             candidates.append(sig)
     return candidates
 
@@ -416,9 +421,8 @@ def _check_exits(
 
         if pnl_pct >= eff_tp:
             reason, outcome = "TP", "WIN"
-        elif pnl_pct <= -eff_sl:
-            reason, outcome = "SL", "LOSS"
         elif trailing_stop_pct is not None:
+            # Trailing stop replaces fixed SL — matches wallet.py / engine_fast behaviour
             peak = trade.get("peak_price", trade["entry_price"])
             trail_pct = (peak - current) / peak
             if trail_pct >= trailing_stop_pct:
@@ -427,6 +431,8 @@ def _check_exits(
                 reason, outcome = "TIME", "EXPIRED"
             else:
                 continue
+        elif pnl_pct <= -eff_sl:
+            reason, outcome = "SL", "LOSS"
         elif days_held >= time_stop_days:
             reason, outcome = "TIME", "EXPIRED"
         else:
@@ -598,8 +604,8 @@ def _leading_rs_pass(raw_data: pd.DataFrame, ticker: str, etf: str, today: date)
     """Return True if ticker's 5-day return > sector ETF's 5-day return."""
     if not etf:
         return True  # no ETF mapped → don't filter
-    t_df   = _slice_history(raw_data, ticker, today, lookback_days=8)
-    etf_df = _slice_history(raw_data, etf,    today, lookback_days=8)
+    t_df   = _slice_history(raw_data, ticker, today, lookback_days=6)
+    etf_df = _slice_history(raw_data, etf,    today, lookback_days=6)
     if t_df is None or etf_df is None or len(t_df) < 2 or len(etf_df) < 2:
         return True  # data unavailable → don't filter
     try:
@@ -610,10 +616,10 @@ def _leading_rs_pass(raw_data: pd.DataFrame, ticker: str, etf: str, today: date)
         return True
 
 
-def _sector_exposure(open_trades: list[dict], initial_balance: float) -> dict[str, float]:
+def _sector_exposure(open_trades: list[dict], balance: float) -> dict[str, float]:
     exp: dict[str, float] = {}
     for t in open_trades:
-        exp[t["sector"]] = exp.get(t["sector"], 0.0) + (t["amount"] / initial_balance)
+        exp[t["sector"]] = exp.get(t["sector"], 0.0) + (t["amount"] / balance)
     return exp
 
 
@@ -621,8 +627,7 @@ def _mark_to_market(open_trades: list[dict], raw_data: pd.DataFrame, today: date
     total = 0.0
     for t in open_trades:
         current = _price_on(raw_data, t["ticker"], today)
-        if current:
-            total += t["amount"] * ((current - t["entry_price"]) / t["entry_price"])
+        total += t["amount"] * (current / t["entry_price"]) if current else t["amount"]
     return total
 
 

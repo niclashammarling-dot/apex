@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from loguru import logger
 
-from backend.config import LOCK1_THRESHOLD
+from backend.config import LOCK1_THRESHOLD, SECTOR_THRESHOLD_FLOORS
 from backend.gate.types import LockResult
 
 LOCK_ID            = 2
@@ -89,13 +89,16 @@ def evaluate(
 
 def _sector_threshold(sector: str) -> float:
     """
-    Return the sector-specific Lock 2 threshold from the calibrated
-    ticker_thresholds table — the same source used by get_lock1_candidates.
+    Return the sector-specific Lock 2 threshold. Uses the calibrated
+    ticker_thresholds table as the base, then applies SECTOR_THRESHOLD_FLOORS
+    as a floor so sweep-validated minimums survive recalibration runs.
     Falls back to LOCK1_THRESHOLD if the sector has no calibrated entry.
     """
     try:
         from backend.db import get_ticker_thresholds
         thresholds = get_ticker_thresholds()
-        return float(thresholds.get(sector, LOCK1_THRESHOLD))
+        base = float(thresholds.get(sector, LOCK1_THRESHOLD))
     except Exception:
-        return float(LOCK1_THRESHOLD)
+        base = float(LOCK1_THRESHOLD)
+    floor = SECTOR_THRESHOLD_FLOORS.get(sector)
+    return max(base, floor) if floor is not None else base

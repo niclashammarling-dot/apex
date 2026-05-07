@@ -859,6 +859,68 @@ def check27():
                      f"Lock 4 ETF benchmark and sector score will be wrong")
 
 
+# ── CHECK 28 — EXCLUDED_SECTORS gate wiring ──────────────────────────────────
+
+def check28():
+    """
+    Verify EXCLUDED_SECTORS is defined in config.py and correctly wired at L1.
+
+    Three structural assertions:
+      1. config.py defines EXCLUDED_SECTORS with the three sweep-validated sectors
+         (Financials, Utilities, ConsumerStaples).
+      2. lock1_eligibility.py imports EXCLUDED_SECTORS and checks it before the
+         regime call — excluded sectors must fail L1 before any market-state logic.
+      3. lock2_quant.py imports SECTOR_THRESHOLD_FLOORS and applies it in
+         _sector_threshold — sweep-validated floors survive recalibration.
+
+    Prevented by: 2026-05-07 sector exclusion implementation. Excluded sectors
+    destroy capital (PF 0.46–0.89 across 2021-2026); a silent unwiring would
+    resume entering them without any visible signal.
+    """
+    REQUIRED_EXCLUDED = {"Financials", "Utilities", "ConsumerStaples"}
+
+    config_path = REPO / "backend/config.py"
+    l1_path     = REPO / "backend/gate/lock1_eligibility.py"
+    l2_path     = REPO / "backend/gate/lock2_quant.py"
+
+    # 1. config.py defines EXCLUDED_SECTORS with all required sectors
+    config_text = config_path.read_text()
+    if "EXCLUDED_SECTORS" not in config_text:
+        flag(28, "EXCLUDED_SECTORS gate wiring", "CRITICAL",
+             "backend/config.py", "EXCLUDED_SECTORS not defined in config.py")
+        return
+    for sector in REQUIRED_EXCLUDED:
+        if f'"{sector}"' not in config_text:
+            flag(28, "EXCLUDED_SECTORS gate wiring", "CRITICAL",
+                 "backend/config.py",
+                 f'"{sector}" missing from EXCLUDED_SECTORS — sweep-validated exclusion dropped')
+
+    # 2. lock1_eligibility.py: imports EXCLUDED_SECTORS and checks it before regime
+    l1_text = l1_path.read_text()
+    if "EXCLUDED_SECTORS" not in l1_text:
+        flag(28, "EXCLUDED_SECTORS gate wiring", "CRITICAL",
+             "backend/gate/lock1_eligibility.py",
+             "EXCLUDED_SECTORS not imported — excluded sectors bypass L1 entirely")
+        return
+    excl_pos  = l1_text.find("EXCLUDED_SECTORS")
+    regime_pos = l1_text.find("_get_regime_result()")
+    if excl_pos > regime_pos:
+        flag(28, "EXCLUDED_SECTORS gate wiring", "CRITICAL",
+             "backend/gate/lock1_eligibility.py",
+             "EXCLUDED_SECTORS check appears after _get_regime_result() — must fire first")
+
+    # 3. lock2_quant.py: imports SECTOR_THRESHOLD_FLOORS and applies it in _sector_threshold
+    l2_text = l2_path.read_text()
+    if "SECTOR_THRESHOLD_FLOORS" not in l2_text:
+        flag(28, "EXCLUDED_SECTORS gate wiring", "CRITICAL",
+             "backend/gate/lock2_quant.py",
+             "SECTOR_THRESHOLD_FLOORS not imported — ConsumerDisc floor at 0.75 not enforced")
+    elif "max(base, floor)" not in l2_text:
+        flag(28, "EXCLUDED_SECTORS gate wiring", "CRITICAL",
+             "backend/gate/lock2_quant.py",
+             "SECTOR_THRESHOLD_FLOORS imported but floor not applied in _sector_threshold")
+
+
 # ── Update check registry ─────────────────────────────────────────────────────
 
 def update_registry():
@@ -906,7 +968,7 @@ def update_registry():
 def write_report(retirement_candidates):
     REPORT.parent.mkdir(exist_ok=True)
 
-    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26}
+    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28}
     rows = []
     check_names = {
         3: "Fractional qty", 4: "Config parity", 5: "Sector name strings",
@@ -917,7 +979,8 @@ def write_report(retirement_candidates):
         16: "yfinance scalar extraction", 17: "Sentiment cache freshness",
         21: "Overflow increment range", 22: "Yahoo data pipeline health",
         24: "Chain-runner wiring", 25: "gate_decision string parity",
-        26: "L1/L2 threshold-source parity",
+        26: "L1/L2 threshold-source parity", 27: "GICS classification parity",
+        28: "EXCLUDED_SECTORS gate wiring",
     }
 
     # One clean row per check that had no findings
@@ -975,5 +1038,6 @@ if __name__ == "__main__":
     check25()
     check26()
     check27()
+    check28()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])

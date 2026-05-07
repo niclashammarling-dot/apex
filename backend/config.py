@@ -23,6 +23,22 @@ LOCK1_THRESHOLD       = 0.70
 LOCK2_SENTIMENT_MIN   = 0.1
 LOCK3_CONFIDENCE_MIN  = 0.60
 
+# Sectors excluded from entry evaluation — no validated momentum edge.
+# Determined by 2021-2026 threshold sweep (2026-05-07): PF < 1.0 across all
+# viable threshold levels; structurally incompatible with momentum-based signals.
+# Lock 1 (Eligibility) blocks these before any further evaluation.
+EXCLUDED_SECTORS: dict[str, str] = {
+    "Financials":      "Rate-driven sector; momentum signal has no structural validity; PF 0.46 at baseline, no crossover at any threshold",
+    "Utilities":       "Rate-driven sector; PF never crosses 1.0 across 0.55–0.80 sweep; incompatible with momentum model",
+    "ConsumerStaples": "Edge only at low thresholds (0.55–0.60), inverted vs gate direction; no viable operating-range threshold",
+}
+
+# Minimum Lock 2 signal score floors per sector, applied above the calibrated
+# threshold when calibration landed below a sweep-validated edge threshold.
+SECTOR_THRESHOLD_FLOORS: dict[str, float] = {
+    "ConsumerDisc": 0.75,  # Calibration at 0.70 local minimum; PF 1.64 at 0.75 (2026-05-07 sweep)
+}
+
 # --- Polling intervals (minutes) ---
 POLL_INTERVAL_SECTORS = 15
 GATE_INTERVAL         = 20
@@ -39,6 +55,12 @@ DAILY_LOSS_CAP        = 100.0
 # --- Exit conditions ---
 TAKE_PROFIT_PCT         = 0.06
 STOP_LOSS_PCT           = 0.05
+
+# Realized payoffs from 2021-2026 backtest (clean sector mix, 2026-05-07).
+# Used as Kelly B inputs in place of nominal TP/SL — actual exit quality
+# exceeds config thresholds because daily close prices overshoot TP/undershoot SL.
+AVG_WIN_PCT   = 0.077   # realized avg win  (nominal TP = 0.06)
+AVG_LOSS_PCT  = 0.057   # realized avg loss (nominal SL = 0.05)
 TIME_STOP_DAYS          = 40
 PROFIT_LOCK_TRIGGER_PCT = 0.02   # peak gain that activates tighter TSL
 PROFIT_LOCK_TRAIL_PCT   = 0.015  # drawdown from peak once profit-lock activates

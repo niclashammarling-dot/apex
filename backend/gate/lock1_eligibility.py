@@ -30,6 +30,7 @@ from datetime import date, timedelta
 
 from loguru import logger
 
+from backend.config import EXCLUDED_SECTORS
 from backend.gate.types import LockResult
 from backend.regime.regime_bayes import ALLOCATION_THRESHOLD, LEADERBOARD_SIZE
 
@@ -97,6 +98,19 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
     Returns:
         LockResult with lock_id=1
     """
+    # ── 0. Structural exclusion — before any market-state check ──────────────
+    if sector in EXCLUDED_SECTORS:
+        return LockResult.fail(
+            lock_id=LOCK_ID,
+            reason=f"Sector '{sector}' excluded from entry: {EXCLUDED_SECTORS[sector]}",
+            data={
+                "regime_available": True,
+                "fail_type":        "excluded_sector",
+                "sector":           sector,
+                "exclusion_reason": EXCLUDED_SECTORS[sector],
+            },
+        )
+
     # ── A. Regime eligibility ─────────────────────────────────────────────────
     regime_result = _get_regime_result()
 
