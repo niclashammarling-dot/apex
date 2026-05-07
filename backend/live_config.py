@@ -38,6 +38,8 @@ _KEYS = [
     "lock_leading_min_pass",
     "starting_balance",
     "max_drawdown_pct",
+    "profit_lock_trigger_pct",
+    "profit_lock_trail_pct",
 ]
 
 
@@ -60,6 +62,8 @@ def _defaults() -> dict:
         MACRO_EVENT_BLACKOUT_DAYS,
         MACRO_VIX_THRESHOLD,
         OVERFLOW_QUANT_INCREMENT,
+        PROFIT_LOCK_TRAIL_PCT,
+        PROFIT_LOCK_TRIGGER_PCT,
         TIME_STOP_DAYS,
     )
     return {
@@ -69,6 +73,8 @@ def _defaults() -> dict:
         "take_profit_pct":              LIVE_TAKE_PROFIT_PCT,
         "stop_loss_pct":                LIVE_STOP_LOSS_PCT,
         "trailing_stop_pct":            None,
+        "profit_lock_trigger_pct":      PROFIT_LOCK_TRIGGER_PCT,
+        "profit_lock_trail_pct":        PROFIT_LOCK_TRAIL_PCT,
         "max_positions":                LIVE_MAX_POSITIONS,
         "overflow_quant_increment":     OVERFLOW_QUANT_INCREMENT,
         "max_position_size":            LIVE_MAX_POSITION_SIZE,

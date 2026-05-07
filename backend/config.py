@@ -37,9 +37,11 @@ MAX_POSITION_SIZE     = 0.15  # max 15% of balance per trade (~$300 on $2k)
 DAILY_LOSS_CAP        = 100.0
 
 # --- Exit conditions ---
-TAKE_PROFIT_PCT = 0.06
-STOP_LOSS_PCT   = 0.05
-TIME_STOP_DAYS  = 40
+TAKE_PROFIT_PCT         = 0.06
+STOP_LOSS_PCT           = 0.05
+TIME_STOP_DAYS          = 40
+PROFIT_LOCK_TRIGGER_PCT = 0.02   # peak gain that activates tighter TSL
+PROFIT_LOCK_TRAIL_PCT   = 0.015  # drawdown from peak once profit-lock activates
 
 # --- Macro filter (Lock 1.5) ---
 MACRO_VIX_THRESHOLD           = 30.0

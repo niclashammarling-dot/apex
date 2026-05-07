@@ -36,6 +36,8 @@ _KEYS = [
     "lock_leading_min_pass",
     "starting_balance",
     "max_drawdown_pct",
+    "profit_lock_trigger_pct",
+    "profit_lock_trail_pct",
 ]
 
 
@@ -55,6 +57,8 @@ def _defaults() -> dict:
         MAX_POSITIONS,
         MAX_SECTOR_EXPOSURE,
         OVERFLOW_QUANT_INCREMENT,
+        PROFIT_LOCK_TRAIL_PCT,
+        PROFIT_LOCK_TRIGGER_PCT,
         STARTING_BALANCE,
         STOP_LOSS_PCT,
         TAKE_PROFIT_PCT,
@@ -67,6 +71,8 @@ def _defaults() -> dict:
         "take_profit_pct":              TAKE_PROFIT_PCT,
         "stop_loss_pct":                STOP_LOSS_PCT,
         "trailing_stop_pct":            None,
+        "profit_lock_trigger_pct":      PROFIT_LOCK_TRIGGER_PCT,
+        "profit_lock_trail_pct":        PROFIT_LOCK_TRAIL_PCT,
         "max_positions":                MAX_POSITIONS,
         "overflow_quant_increment":     OVERFLOW_QUANT_INCREMENT,
         "max_position_size":            MAX_POSITION_SIZE,

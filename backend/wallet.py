@@ -124,6 +124,25 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
 
 # ── Exit checks ──────────────────────────────────────────────────────────────
 
+def _effective_trailing_pct(peak: float, entry_price: float, cfg: dict) -> float | None:
+    """
+    Return the active trailing stop distance.
+    If peak gain has cleared profit_lock_trigger_pct, tighten to profit_lock_trail_pct.
+    Falls back to standard trailing_stop_pct when profit-lock hasn't activated.
+    Returns None when TSL is disabled.
+    """
+    trail_pct   = cfg.get("trailing_stop_pct")
+    trigger_pct = cfg.get("profit_lock_trigger_pct")
+    lock_trail  = cfg.get("profit_lock_trail_pct")
+
+    if trail_pct is not None and trigger_pct and lock_trail:
+        peak_gain = (peak - entry_price) / entry_price
+        if peak_gain >= trigger_pct:
+            return lock_trail
+
+    return trail_pct
+
+
 def check_exits() -> list[dict]:
     """
     Check all open positions against TP, trailing stop, fixed SL, and time-stop.
@@ -133,7 +152,8 @@ def check_exits() -> list[dict]:
     Trailing stop logic (when trailing_stop_pct is set):
       - Replaces the fixed SL.
       - Tracks the highest price seen since entry (peak_price in DB).
-      - Fires when (peak - current) / peak >= trailing_stop_pct.
+      - Fires when (peak - current) / peak >= effective trail distance.
+      - Trail tightens to profit_lock_trail_pct once peak gain >= profit_lock_trigger_pct.
       - Outcome is WIN if still above entry, LOSS if below.
     """
     open_trades = get_open_trades()
@@ -171,9 +191,10 @@ def check_exits() -> list[dict]:
             reason  = "TP"
             outcome = "WIN"
         elif trail_pct is not None:
-            # Trailing stop replaces fixed SL
+            # Trailing stop replaces fixed SL; trail tightens once profit-lock activates
+            effective_trail    = _effective_trailing_pct(peak, entry_price, cfg)
             drawdown_from_peak = (peak - current) / peak
-            if drawdown_from_peak >= trail_pct:
+            if drawdown_from_peak >= effective_trail:
                 reason  = "TSL"
                 outcome = "WIN" if pnl_pct >= 0 else "LOSS"
             elif _trading_days_since(trade["timestamp"]) >= max_hold_days:
@@ -219,19 +240,23 @@ def check_exits() -> list[dict]:
 
 def check_regime_exits() -> list[dict]:
     """
-    Exit open demo positions whose sector has fallen below the regime allocation
-    floor (adjusted_score < ALLOCATION_THRESHOLD), or is no longer in the leaderboard.
+    Exit open demo positions whose sector has dropped out of the leaderboard
+    AND the ticker has closed down for TICKER_RECOVERY_DAYS consecutive trading days.
 
-    Rationale: if the regime gate would block a new entry in this sector, holding
-    an existing position in the same sector is inconsistent — the same signal that
-    stops entries should trigger exits.
+    Rationale: sector displacement alone can be relative noise (another sector
+    improved); ticker deterioration alone may be idiosyncratic. Together they are
+    high-conviction — macro and micro both confirming weakness.
+
+    The fixed SL / trailing stop handle sharp moves. This catches slow grinding
+    deterioration that neither fires on early enough.
 
     Guards:
-      - Regime result must be from today or yesterday (stale result = no action).
+      - Regime result must be ≤ 1 trading day old (calendar-day guard fails over
+        weekends — uses bdate_range). Stale result = no action.
       - Only fires during market hours (caller's responsibility).
     """
     from datetime import date
-    from backend.regime.regime_bayes import ALLOCATION_THRESHOLD
+    from backend.regime.regime_bayes import TICKER_RECOVERY_DAYS
     from backend.scheduler import _get_regime_bayes
 
     rb = _get_regime_bayes()
@@ -242,28 +267,24 @@ def check_regime_exits() -> list[dict]:
     if result is None:
         return []
 
-    # Staleness guard — don't act on a result more than 1 trading day old
     try:
         result_date = date.fromisoformat(result.date)
-        if (date.today() - result_date).days > 1:
+        if len(pd.bdate_range(result_date, date.today())) - 1 > 1:
             logger.debug(f"Regime exit check: result is stale ({result.date}) — skipping")
             return []
     except ValueError:
         return []
 
-    # Build sector → adjusted_score map from leaderboard
-    sector_scores: dict[str, float] = {
-        e.sector: e.adjusted_score for e in result.leaderboard
-    }
+    leaderboard_sectors: set[str] = {e.sector for e in result.leaderboard}
 
     open_trades = get_open_trades()
     if not open_trades:
         return []
 
-    # Identify which open positions are in sectors below the floor
     flagged = [
         t for t in open_trades
-        if sector_scores.get(t["sector"], 0.0) < ALLOCATION_THRESHOLD
+        if t["sector"] not in leaderboard_sectors
+        and _ticker_consecutive_down_days(t["ticker"], TICKER_RECOVERY_DAYS)
     ]
     if not flagged:
         return []
@@ -282,10 +303,9 @@ def check_regime_exits() -> list[dict]:
             logger.warning(f"Regime exit [{ticker}]: could not fetch price — skipping")
             continue
 
-        adj_score = sector_scores.get(sector, 0.0)
-        pnl_pct   = (current - entry_price) / entry_price
-        pnl       = trade["amount"] * pnl_pct
-        outcome   = "WIN" if pnl_pct >= 0 else "LOSS"
+        pnl_pct = (current - entry_price) / entry_price
+        pnl     = trade["amount"] * pnl_pct
+        outcome = "WIN" if pnl_pct >= 0 else "LOSS"
 
         close_trade(
             trade_id    = trade["id"],
@@ -298,7 +318,7 @@ def check_regime_exits() -> list[dict]:
 
         logger.info(
             f"Regime exit [{ticker}] sector={sector} "
-            f"adj_score={adj_score:.3f} < floor={ALLOCATION_THRESHOLD} | "
+            f"off leaderboard + {TICKER_RECOVERY_DAYS}d down | "
             f"entry=${entry_price:.2f} exit=${current:.2f} pnl={pnl:+.2f} ({pnl_pct:+.1%})"
         )
         closed.append({
@@ -306,7 +326,7 @@ def check_regime_exits() -> list[dict]:
             "sector":      sector,
             "outcome":     outcome,
             "exit_reason": "REGIME",
-            "adj_score":   adj_score,
+            "adj_score":   0.0,
             "pnl":         pnl,
             "pnl_pct":     pnl_pct,
         })
@@ -399,6 +419,18 @@ def _daily_realized_loss() -> float:
         return abs(row["total"])
     finally:
         conn.close()
+
+
+def _ticker_consecutive_down_days(ticker: str, n: int) -> bool:
+    """Return True if ticker has closed down for n consecutive trading days."""
+    try:
+        hist = yf.Ticker(ticker).history(period=f"{n + 5}d")
+        if hist.empty or len(hist) < n + 1:
+            return False
+        returns = hist["Close"].pct_change().dropna().values
+        return len(returns) >= n and all(r < 0 for r in returns[-n:])
+    except Exception:
+        return False
 
 
 def _batch_prices(tickers: list[str]) -> dict[str, float]:
