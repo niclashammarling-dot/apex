@@ -135,7 +135,7 @@ def place_bracket_order(
         symbol=ticker,
         qty=qty,
         side=OrderSide.BUY,
-        time_in_force=TimeInForce.DAY,
+        time_in_force=TimeInForce.GTC,
         order_class=OrderClass.BRACKET,
         take_profit=TakeProfitRequest(limit_price=tp_price),
         stop_loss=StopLossRequest(stop_price=sl_price),
@@ -207,7 +207,11 @@ def close_position(ticker: str) -> dict:
     try:
         order = _client().close_position(ticker)
         logger.info(f"Alpaca close_position [{ticker}]: order_id={order.id}")
-        return {"order_id": str(order.id), "ticker": ticker}
+        return {
+            "order_id":         str(order.id),
+            "ticker":           ticker,
+            "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
+        }
     except Exception as e:
         logger.error(f"Alpaca close_position [{ticker}] failed: {e}")
         raise

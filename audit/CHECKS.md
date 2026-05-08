@@ -35,8 +35,12 @@ Columns: `last_triggered` = most recent date the check found an issue. `last_cle
 | 26 | L1/L2 threshold-source parity | 2026-05-03 | L2 used static config 0.70 while L1 used calibrated ticker_thresholds; caused 100% FILTERED_L1 for a full week | backend/gate/gate_runner.py,backend/gate/gate_runner_live.py,backend/gate/lock2_quant.py | — | 2026-05-03 |
 | 27 | GICS sector classification parity | 2026-05-06 | META/V/MA left in pre-2018 GICS assignments; V/MA benchmarked against wrong ETF in Lock 4; META added ad-cycle noise to Technology sector score | data/tickers.json | — | 2026-05-06 |
 | 28 | EXCLUDED_SECTORS gate wiring | 2026-05-07 | 2021-2026 threshold sweep found Financials/Utilities/ConsumerStaples destroy capital (PF 0.46–0.89); exclusion wired at L1 and L2 floor; silent unwiring would resume entries with no visible signal | backend/config.py,backend/gate/lock1_eligibility.py,backend/gate/lock2_quant.py | — | 2026-05-07 |
+| 29 | Live sector exposure cap wiring | 2026-05-07 | live runner had no sector concentration check while demo enforced dynamic_caps at every execute_trade; two same-sector tickers qualifying simultaneously would both execute on live; sector_exposure_live now computed from Alpaca positions and enforced in both normal and overflow execution branches | backend/gate/gate_runner_live.py | — | 2026-05-07 |
+| 30 | Startup live regime exit reconciliation | 2026-05-07 | live regime exit is an interval job — not fired at scheduler.start(); positions could go unprotected for EXIT_CHECK_INTERVAL minutes after restart; _check_missed_live_exits() must be called after _check_missed_eod_regime() so regime result is fresh | backend/scheduler.py | — | 2026-05-07 |
 
 ---
+
+| 31 | Live bracket TIF and exit reconciliation | 2026-05-08 | CAT at +14% after 4 weeks — DAY TIF expired bracket legs at market close; no position-level fallback in check_live_exits | backend/brokers/alpaca.py,backend/live_trades_tracker.py | 2026-05-08 | — |
 
 ## Retired Checks
 

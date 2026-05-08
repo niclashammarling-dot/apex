@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27
+APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28, 29
 Pure grep/parse, no LLM. Writes findings to audit/nightly-report-YYYY-MM-DD.md.
 """
 # CHECK 22 added 2026-04-15: Yahoo data pipeline health
@@ -8,6 +8,7 @@ Pure grep/parse, no LLM. Writes findings to audit/nightly-report-YYYY-MM-DD.md.
 # CHECK 25 added 2026-04-20: gate_decision string parity (backend _OUTCOMES vs frontend + db consumers)
 # CHECK 26 added 2026-05-03: L1/L2 threshold-source parity (both must use get_ticker_thresholds())
 # CHECK 27 added 2026-05-06: GICS sector classification parity (tickers.json vs authoritative GICS map)
+# CHECK 29 added 2026-05-07: Live sector exposure cap wiring (sector_exposure_live computed and enforced in both execution branches)
 
 import json
 import re
@@ -921,6 +922,146 @@ def check28():
              "SECTOR_THRESHOLD_FLOORS imported but floor not applied in _sector_threshold")
 
 
+def check29():
+    """
+    Verify live sector exposure cap is computed and enforced in gate_runner_live.py.
+
+    Four structural assertions:
+      1. SECTORS is imported from backend.config.
+      2. sector_exposure_live is computed from open Alpaca positions (not the old {} stub).
+      3. dynamic_caps_live is computed via compute_dynamic_caps.
+      4. sector_exposure_live[sector] = projected appears in BOTH the normal and overflow
+         execution branches — cap enforcement must be symmetric across all entry paths.
+
+    Prevented by: 2026-05-07 incident analysis. Live runner had no sector concentration
+    check while demo enforced dynamic_caps at every execute_trade call. Two same-sector
+    tickers qualifying simultaneously would both execute on live with no exposure guard.
+    """
+    path = REPO / "backend/gate/gate_runner_live.py"
+    text = path.read_text()
+
+    # 1. SECTORS imported
+    if "from backend.config import" not in text or "SECTORS" not in text:
+        flag(29, "Live sector exposure cap wiring", "CRITICAL",
+             "backend/gate/gate_runner_live.py",
+             "SECTORS not imported — ticker→sector map cannot be built")
+        return
+
+    # 2. sector_exposure_live computed (not the old {} stub)
+    if "sector_exposure_live" not in text:
+        flag(29, "Live sector exposure cap wiring", "CRITICAL",
+             "backend/gate/gate_runner_live.py",
+             "sector_exposure_live not present — sector cap check is missing entirely")
+        return
+    if '"sector_exposure":  {}' in text or '"sector_exposure": {}' in text:
+        flag(29, "Live sector exposure cap wiring", "CRITICAL",
+             "backend/gate/gate_runner_live.py",
+             "sector_exposure still set to {} stub — real computation not wired")
+
+    # 3. dynamic_caps_live computed
+    if "dynamic_caps_live" not in text:
+        flag(29, "Live sector exposure cap wiring", "CRITICAL",
+             "backend/gate/gate_runner_live.py",
+             "dynamic_caps_live not computed — cap values will fall back to flat config only")
+
+    # 4. sector_exposure_live[sector] = projected in BOTH branches (must appear at least twice)
+    update_count = text.count("sector_exposure_live[sector] = projected")
+    if update_count < 2:
+        flag(29, "Live sector exposure cap wiring", "CRITICAL",
+             "backend/gate/gate_runner_live.py",
+             f"sector_exposure_live update appears {update_count}x — must be in both normal and overflow branches")
+
+
+def check30():
+    """
+    Verify startup live regime exit reconciliation is wired in scheduler.py.
+
+    Two structural assertions:
+      1. _check_missed_live_exits is defined in scheduler.py.
+      2. It is called in start_scheduler() AFTER _check_missed_eod_regime() — ordering
+         is load-bearing: regime must be fresh before the exit check fires.
+
+    Prevented by: 2026-05-07 gap analysis. Live regime exit check is an interval job;
+    APScheduler does not fire it at scheduler.start(). Open positions could go unprotected
+    for EXIT_CHECK_INTERVAL minutes after restart. The startup reconciliation function closes
+    this window by calling check_live_regime_exits() immediately after the EOD catch-up.
+    """
+    path = REPO / "backend/scheduler.py"
+    text = path.read_text()
+
+    if "_check_missed_live_exits" not in text:
+        flag(30, "Startup live regime exit reconciliation", "CRITICAL",
+             "backend/scheduler.py",
+             "_check_missed_live_exits not defined — live positions unprotected at startup")
+        return
+
+    if "_check_missed_live_exits()" not in text:
+        flag(30, "Startup live regime exit reconciliation", "CRITICAL",
+             "backend/scheduler.py",
+             "_check_missed_live_exits never called in start_scheduler")
+        return
+
+    eod_pos = text.find("_check_missed_eod_regime()")
+    live_pos = text.find("_check_missed_live_exits()")
+    if eod_pos == -1 or live_pos <= eod_pos:
+        flag(30, "Startup live regime exit reconciliation", "CRITICAL",
+             "backend/scheduler.py",
+             "_check_missed_live_exits must be called after _check_missed_eod_regime — "
+             "regime result must be fresh before exit check fires")
+
+
+def check31():
+    """
+    Verify live bracket orders use GTC TIF and check_live_exits has position-level
+    reconciliation fallback.
+
+    Two structural assertions:
+      1. place_bracket_order in brokers/alpaca.py uses TimeInForce.GTC, not TimeInForce.DAY.
+         DAY TIF expires bracket legs at market close — position sits unprotected from the
+         next morning with no exit ever firing.
+      2. check_live_exits in live_trades_tracker.py contains the position-reconciliation
+         fallback (_find_exit_from_orders). Covers manual closes, expired bracket legs,
+         OCA triggers, corporate actions — any close that doesn't appear as a filled leg.
+
+    Prevented by: 2026-05-08. CAT entered April 10, bracket legs expired same day (DAY TIF),
+    position sat at +14% for 4 weeks with no exit. All 5 live positions opened April 10
+    were affected.
+    """
+    broker_path  = REPO / "backend/brokers/alpaca.py"
+    tracker_path = REPO / "backend/live_trades_tracker.py"
+
+    broker_text  = broker_path.read_text()
+    tracker_text = tracker_path.read_text()
+
+    if "TimeInForce.GTC" not in broker_text:
+        flag(31, "Live bracket TIF and exit reconciliation", "CRITICAL",
+             "backend/brokers/alpaca.py",
+             "TimeInForce.GTC not found in place_bracket_order — bracket legs will expire at market close")
+        return
+
+    if "TimeInForce.DAY" in broker_text and "place_bracket_order" in broker_text:
+        # DAY still present in the function — check it's not in the bracket call
+        fn_start = broker_text.find("def place_bracket_order")
+        fn_end   = broker_text.find("\ndef ", fn_start + 1)
+        fn_body  = broker_text[fn_start:fn_end]
+        if "TimeInForce.DAY" in fn_body:
+            flag(31, "Live bracket TIF and exit reconciliation", "CRITICAL",
+                 "backend/brokers/alpaca.py",
+                 "TimeInForce.DAY used in place_bracket_order — must be GTC for bracket legs to persist")
+            return
+
+    if "_find_exit_from_orders" not in tracker_text:
+        flag(31, "Live bracket TIF and exit reconciliation", "CRITICAL",
+             "backend/live_trades_tracker.py",
+             "_find_exit_from_orders missing — no fallback for positions closed outside bracket mechanism")
+        return
+
+    if "alpaca_positions" not in tracker_text:
+        flag(31, "Live bracket TIF and exit reconciliation", "CRITICAL",
+             "backend/live_trades_tracker.py",
+             "position-reconciliation snapshot (alpaca_positions) missing from check_live_exits")
+
+
 # ── Update check registry ─────────────────────────────────────────────────────
 
 def update_registry():
@@ -1039,5 +1180,8 @@ if __name__ == "__main__":
     check26()
     check27()
     check28()
+    check29()
+    check30()
+    check31()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])
