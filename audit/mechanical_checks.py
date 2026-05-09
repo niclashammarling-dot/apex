@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28, 29
+APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28, 29, 32
 Pure grep/parse, no LLM. Writes findings to audit/nightly-report-YYYY-MM-DD.md.
 """
 # CHECK 22 added 2026-04-15: Yahoo data pipeline health
@@ -1159,6 +1159,47 @@ def write_report(retirement_candidates):
     print(f"Mechanical checks done. {len(findings)} finding(s). Report: {REPORT.name}")
 
 
+# ── CHECK 32 — Git sync divergence ───────────────────────────────────────────
+
+def check32():
+    """
+    Verify local master is not behind origin/master.
+
+    The nightly audit runner commits to origin/master. Local dev commits
+    accumulate without being pushed. When they diverge, the local audit/
+    directory is stale and the frontend shows an outdated last-test date
+    with no error raised anywhere.
+
+    CRITICAL if local master is >3 commits behind origin (more than one
+    missed nightly cycle). WARNING if 1–3 behind (caught within same day).
+
+    Prevented by: 2026-05-09. 26 nightly commits accumulated on origin
+    over 25 days while 19 dev commits sat unpushed — frontend showed
+    2026-05-03 as last test when origin had run through 2026-05-09.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-list", "--count", "HEAD..origin/master"],
+            cwd=REPO, capture_output=True, text=True, timeout=15,
+        )
+        behind = int(result.stdout.strip()) if result.returncode == 0 else None
+    except Exception:
+        behind = None
+
+    if behind is None:
+        flag(32, "Git sync divergence", "WARNING", ".git/",
+             "Could not determine commits behind origin/master — fetch may have failed")
+        return
+
+    if behind > 3:
+        flag(32, "Git sync divergence", "CRITICAL", ".git/",
+             f"Local master is {behind} commits behind origin/master — dev commits were not pushed; "
+             f"audit/ is stale, frontend will show outdated last-test date")
+    elif behind > 0:
+        flag(32, "Git sync divergence", "WARNING", ".git/",
+             f"Local master is {behind} commit(s) behind origin/master — push dev commits after session close")
+
+
 if __name__ == "__main__":
     check3()
     check4()
@@ -1183,5 +1224,6 @@ if __name__ == "__main__":
     check29()
     check30()
     check31()
+    check32()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])
