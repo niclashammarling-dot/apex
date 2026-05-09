@@ -496,6 +496,34 @@ def check17():
              f"sentiment_cache last populated {age_hours:.1f}h ago — pre-fetch may have failed")
 
 
+# ── CHECK 21 — Overflow quant increment range ─────────────────────────────────
+
+def check21():
+    """
+    overflow_quant_increment must be present in both demo and live config JSON
+    files and within a sensible range (0.01–0.25). Outside this band the
+    escalating threshold either becomes meaningless (too small) or immediately
+    unreachable (too large).
+    """
+    demo = REPO / "data/demo_config.json"
+    live = REPO / "data/live_config.json"
+    for label, path in [("demo_config", demo), ("live_config", live)]:
+        if not path.exists():
+            continue
+        try:
+            val = json.loads(path.read_text()).get("overflow_quant_increment")
+        except Exception as e:
+            flag(21, "Overflow increment range", "WARNING", f"data/{path.name}:overflow_quant_increment",
+                 f"could not parse config: {e}")
+            continue
+        if val is None:
+            flag(21, "Overflow increment range", "CRITICAL", f"data/{path.name}:overflow_quant_increment",
+                 "overflow_quant_increment missing — overflow logic falls back to hardcoded 0.05")
+        elif not (0.01 <= float(val) <= 0.25):
+            flag(21, "Overflow increment range", "WARNING", f"data/{path.name}:overflow_quant_increment",
+                 f"overflow_quant_increment={val} outside expected range 0.01–0.25")
+
+
 # ── Update check registry ─────────────────────────────────────────────────────
 
 def update_registry():
@@ -543,7 +571,7 @@ def update_registry():
 def write_report(retirement_candidates):
     REPORT.parent.mkdir(exist_ok=True)
 
-    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17}
+    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21}
     rows = []
     check_names = {
         3: "Fractional qty", 4: "Config parity", 5: "Sector name strings",
@@ -552,6 +580,7 @@ def write_report(retirement_candidates):
         12: "Lock3 context parity", 13: "Undisclosed config change",
         14: "EOD regime freshness", 15: "Calibration freshness",
         16: "yfinance scalar extraction", 17: "Sentiment cache freshness",
+        21: "Overflow increment range",
     }
 
     # One clean row per check that had no findings
@@ -603,5 +632,6 @@ if __name__ == "__main__":
     check15()
     check16()
     check17()
+    check21()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])

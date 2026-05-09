@@ -169,17 +169,58 @@ def run() -> list[dict]:
     open_tickers   = {p["ticker"] for p in open_positions}
 
     evaluated.sort(key=lambda x: (0 if x[0].get("pre_rotation") else 1, x[0].get("signal_score", 0)), reverse=True)
+    max_positions      = cfg["max_positions"]
+    overflow_increment = cfg.get("overflow_quant_increment", 0.05)
+    open_count         = len(open_positions)  # snapshot; incremented on each executed trade
+
     for signal, result in evaluated:
         ticker     = signal["ticker"]
         order_id   = None
 
         if result["outcome"] == "TRADE_QUEUED":
-            if len(open_positions) >= cfg["max_positions"]:
-                logger.warning(f"Live trade rejected [{ticker}]: max positions ({cfg['max_positions']}) reached")
-                result["outcome"] = "TRADE_REJECTED"
-            elif ticker in open_tickers:
+            if ticker in open_tickers:
                 logger.info(f"Live trade skipped [{ticker}]: position already open")
                 result["outcome"] = "TRADE_REJECTED"
+            elif open_count >= max_positions:
+                # Overflow slot — check escalating quant threshold
+                sector             = signal.get("sector", "")
+                base_threshold     = (sector_thresholds or {}).get(sector, cfg["lock1_threshold"])
+                overflow_level     = open_count - max_positions + 1
+                overflow_threshold = round(base_threshold * (1 + overflow_level * overflow_increment), 4)
+                if signal["signal_score"] < overflow_threshold:
+                    logger.warning(
+                        f"Live gate [{ticker}]: overflow slot {overflow_level} rejected — "
+                        f"score {signal['signal_score']:.4f} below {overflow_threshold:.4f} "
+                        f"(base {base_threshold:.4f} ×{1 + overflow_level * overflow_increment:.2f})"
+                    )
+                    result["outcome"] = "TRADE_REJECTED"
+                else:
+                    position_pct = result["lock3"]["position_size_pct"] if result.get("lock3") else cfg["max_position_size"]
+                    notional     = acct["buying_power"] * min(position_pct, cfg["max_position_size"])
+                    if notional < 10:
+                        logger.warning(f"Live trade rejected [{ticker}]: notional too small (${notional:.2f})")
+                        result["outcome"] = "TRADE_REJECTED"
+                    else:
+                        try:
+                            order_id = broker.place_bracket_order(
+                                ticker          = ticker,
+                                notional        = notional,
+                                current_price   = signal["price"],
+                                take_profit_pct = cfg["take_profit_pct"],
+                                stop_loss_pct   = cfg["stop_loss_pct"],
+                            )
+                            result["outcome"] = "TRADE_EXECUTED"
+                            open_tickers.add(ticker)
+                            open_count += 1
+                            _record_live_trade(signal, notional, order_id, cfg)
+                            _fire_trade_alert(ticker, signal, notional, order_id, cfg)
+                            logger.info(
+                                f"Live gate [{ticker}]: overflow slot {overflow_level} executed — "
+                                f"score {signal['signal_score']:.4f} >= {overflow_threshold:.4f}"
+                            )
+                        except Exception as e:
+                            logger.error(f"Live trade failed [{ticker}]: {e}")
+                            result["outcome"] = "TRADE_FAILED"
             else:
                 position_pct = result["lock3"]["position_size_pct"] if result.get("lock3") else cfg["max_position_size"]
                 notional     = acct["buying_power"] * min(position_pct, cfg["max_position_size"])
@@ -197,6 +238,7 @@ def run() -> list[dict]:
                         )
                         result["outcome"] = "TRADE_EXECUTED"
                         open_tickers.add(ticker)
+                        open_count += 1
                         _record_live_trade(signal, notional, order_id, cfg)
                         _fire_trade_alert(ticker, signal, notional, order_id, cfg)
                     except Exception as e:

@@ -50,6 +50,13 @@ GATE_COOLOFF_HOURS            = 4     # hours before re-evaluating a ticker that
 # --- Lock Leading ---
 LOCK_LEADING_MIN_PASS = 2      # checks that must pass (out of 4) to advance
 
+# --- Portfolio roof overflow ---
+# For each position slot beyond max_positions, the quant threshold multiplies by
+# (1 + overflow_level * OVERFLOW_QUANT_INCREMENT).
+# Position 6 = ×1.05, position 7 = ×1.10, etc. No hard cap — the escalating bar
+# is self-limiting.
+OVERFLOW_QUANT_INCREMENT = 0.05
+
 # --- Lock 3 risk limits ---
 LOCK3_MAX_DRAWDOWN_PCT = 0.20  # drawdown threshold passed to Claude in context
 

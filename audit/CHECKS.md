@@ -27,6 +27,7 @@ Columns: `last_triggered` = most recent date the check found an issue. `last_cle
 | 18 | Audit pipeline completeness | 2026-04-07 | verify_llm_findings.py existed for weeks without being called — dead tool caught nothing | audit/ | — | 2026-05-09 |
 | 17 | Sentiment cache freshness | 2026-04-06 | rdt-cli output was raw YAML noise until parser was added; a prefetch before the fix would have stored garbage silently | backend/sentiment_prefetch.py,data/apex.db | — | 2026-05-09 |
 | 20 | Import path integrity | 2026-04-13 | gate chain restructuring introduced bare `from gate.*` imports — no root-level gate/ package, entire chain failed at import | backend/gate/ | 2026-04-13 | 2026-05-09 |
+| 21 | Overflow increment range | 2026-04-14 | new portfolio roof overflow filter uses overflow_quant_increment; misconfigured value (too small or too large) silently breaks the escalating threshold logic | data/demo_config.json,data/live_config.json | — | — |
 
 ---
 

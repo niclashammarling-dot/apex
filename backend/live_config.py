@@ -25,6 +25,7 @@ _KEYS = [
     "take_profit_pct",
     "stop_loss_pct",
     "max_positions",
+    "overflow_quant_increment",
     "max_position_size",
     "daily_loss_cap",
     "max_hold_days",
@@ -58,6 +59,7 @@ def _defaults() -> dict:
         MACRO_EARNINGS_BLACKOUT_DAYS,
         MACRO_EVENT_BLACKOUT_DAYS,
         MACRO_VIX_THRESHOLD,
+        OVERFLOW_QUANT_INCREMENT,
         TIME_STOP_DAYS,
     )
     return {
@@ -68,6 +70,7 @@ def _defaults() -> dict:
         "stop_loss_pct":                LIVE_STOP_LOSS_PCT,
         "trailing_stop_pct":            None,
         "max_positions":                LIVE_MAX_POSITIONS,
+        "overflow_quant_increment":     OVERFLOW_QUANT_INCREMENT,
         "max_position_size":            LIVE_MAX_POSITION_SIZE,
         "daily_loss_cap":               LIVE_DAILY_LOSS_CAP,
         "max_hold_days":                TIME_STOP_DAYS,

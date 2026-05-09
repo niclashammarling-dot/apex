@@ -160,13 +160,46 @@ def run() -> list[dict]:
             evaluated.append((signal, result))
 
     evaluated.sort(key=lambda x: (0 if x[0].get("pre_rotation") else 1, x[0].get("signal_score", 0)), reverse=True)
+    max_positions      = cfg["max_positions"]
+    overflow_increment = cfg.get("overflow_quant_increment", 0.05)
+    open_count         = len(open_tickers)  # snapshot; incremented on each executed trade
+
     for signal, result in evaluated:
         ticker = signal["ticker"]
         if result["outcome"] == "TRADE_QUEUED":
-            trade = wallet.execute_trade(result, signal["price"], dynamic_caps=dynamic_caps)
-            result["outcome"] = "TRADE_EXECUTED" if trade else "TRADE_REJECTED"
-            if result["outcome"] == "TRADE_REJECTED":
-                result["gate_decision"] = "TRADE_REJECTED"
+            if open_count >= max_positions:
+                # Overflow slot — check escalating quant threshold
+                sector           = signal.get("sector", "")
+                base_threshold   = (sector_thresholds or {}).get(sector, cfg["lock1_threshold"])
+                overflow_level   = open_count - max_positions + 1
+                overflow_threshold = round(base_threshold * (1 + overflow_level * overflow_increment), 4)
+                if signal["signal_score"] < overflow_threshold:
+                    result["outcome"]       = "TRADE_REJECTED"
+                    result["gate_decision"] = "FILTERED_OVERFLOW_QUANT"
+                    logger.info(
+                        f"Gate runner [{ticker}]: overflow slot {overflow_level} rejected — "
+                        f"score {signal['signal_score']:.4f} below {overflow_threshold:.4f} "
+                        f"(base {base_threshold:.4f} ×{1 + overflow_level * overflow_increment:.2f})"
+                    )
+                else:
+                    trade = wallet.execute_trade(result, signal["price"], dynamic_caps=dynamic_caps,
+                                                 overflow=True)
+                    result["outcome"] = "TRADE_EXECUTED" if trade else "TRADE_REJECTED"
+                    if result["outcome"] == "TRADE_REJECTED":
+                        result["gate_decision"] = "TRADE_REJECTED"
+                    else:
+                        open_count += 1
+                        logger.info(
+                            f"Gate runner [{ticker}]: overflow slot {overflow_level} executed — "
+                            f"score {signal['signal_score']:.4f} >= {overflow_threshold:.4f}"
+                        )
+            else:
+                trade = wallet.execute_trade(result, signal["price"], dynamic_caps=dynamic_caps)
+                result["outcome"] = "TRADE_EXECUTED" if trade else "TRADE_REJECTED"
+                if result["outcome"] == "TRADE_REJECTED":
+                    result["gate_decision"] = "TRADE_REJECTED"
+                else:
+                    open_count += 1
 
         results.append(result)
         update_signal_gate(signal["id"], result)

@@ -38,13 +38,17 @@ from backend.demo_config import get_demo_config
 
 # ── Execution ────────────────────────────────────────────────────────────────
 
-def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = None) -> dict | None:
+def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = None,
+                  overflow: bool = False) -> dict | None:
     """
     Open a BUY position for a gate-approved ticker.
     Returns the trade record dict, or None if rejected by risk checks.
 
     dynamic_caps: optional {sector: cap_fraction} from sector_caps.compute_dynamic_caps().
     If provided, the per-sector cap is used instead of the flat max_sector_exposure.
+
+    overflow: if True, skip the max_positions check. The gate runner has already
+    verified that the ticker cleared the escalating overflow quant threshold.
     """
     ticker   = gate_result["ticker"]
     sector   = gate_result["sector"]
@@ -57,7 +61,7 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
     max_positions  = cfg.get("max_positions", MAX_POSITIONS)
 
     # Risk checks
-    if portfolio["open_position_count"] >= max_positions:
+    if not overflow and portfolio["open_position_count"] >= max_positions:
         logger.warning(f"Trade rejected [{ticker}]: max positions ({max_positions}) reached")
         return None
 
