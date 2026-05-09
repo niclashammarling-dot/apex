@@ -42,7 +42,8 @@ Rules:
 - 3–5 sentences maximum
 - Synthesise — do not restate numbers verbatim (they appear in the tables below)
 - Lead with the most notable finding, positive or negative
-- Flag anything actionable: high L3 filter rate, threshold drift, config/sweep divergence, significant drawdown, sector concentration risk
+- Flag anything actionable: high L3 filter rate, threshold upward drift (scores expanded above expected range), config/sweep divergence, significant drawdown, sector concentration risk
+- If broad_market_compressed is true: low/zero L1 pass rate and no trades entered are the regime floor working correctly during a market selloff — do NOT flag this as a filtering concern, do NOT suggest recalibration. Threshold drift with low_flagged sectors is compression, not miscalibration. Only threshold.high_flagged sectors warrant recalibration comment
 - If live trading had 0 trades this week, skip it entirely
 - Tone: direct, data-driven, no filler phrases like "Overall" or "In summary"
 """
@@ -389,7 +390,11 @@ def _gpt4o_commentary(
         l2f = dfunnel.get("l2_fail") or 0
         l3f = dfunnel.get("l3_fail") or 0
 
-        flagged = [s["sector"] for s in thresh_status.get("sectors", []) if s.get("flag") in ("high", "low")]
+        sectors_data = thresh_status.get("sectors", [])
+        high_flagged = [s["sector"] for s in sectors_data if s.get("flag") == "high"]
+        low_flagged  = [s["sector"] for s in sectors_data if s.get("flag") == "low"]
+        # ≥5 sectors simultaneously low = broad market compression, not threshold drift
+        broad_compressed = len(low_flagged) >= 5
 
         payload = {
             "demo": {
@@ -421,9 +426,11 @@ def _gpt4o_commentary(
                 "trades_entered": dfunnel.get("traded", 0),
             },
             "top_sector":    {"name": top_sector[0], "avg_score": top_sector[1]} if top_sector else None,
+            "broad_market_compressed": broad_compressed,
             "threshold_drift": {
-                "flagged_sectors": flagged,
-                "recalibrated":    list(recal_changes.keys()) if recal_changes else [],
+                "high_flagged":  high_flagged,
+                "low_flagged":   low_flagged,
+                "recalibrated":  list(recal_changes.keys()) if recal_changes else [],
             },
             "current_config": {
                 "lock1_threshold":    cfg.get("lock1_threshold"),
@@ -553,12 +560,13 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
     sectors_info = thresh_status["sectors"]
     n_cal = sum(1 for s in sectors_info if not s["fallback"])
 
-    flagged = [s["sector"] for s in sectors_info if s["flag"] in ("high", "low")]
+    high_flagged = [s["sector"] for s in sectors_info if s["flag"] == "high"]
+    low_flagged  = [s["sector"] for s in sectors_info if s["flag"] == "low"]
 
-    FLAG_COLOR  = {"high": "#f59e0b", "low": "#f59e0b", "ok": "#22c55e", None: "#6b7280"}
+    FLAG_COLOR  = {"high": "#f59e0b", "low": "#6366f1", "ok": "#22c55e", None: "#6b7280"}
     FLAG_LABEL  = {
         "high": "recalibrate — scores drifted up",
-        "low":  "recalibrate — scores compressed",
+        "low":  "compressed — market selloff",
         "ok":   "ok",
         None:   "no data",
     }
@@ -581,33 +589,51 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
         _row(_td(s["sector"]), _td(str(s["threshold"]) if s["threshold"] else "—"), _pass_rate_cell(s), _flag_cell(s))
         for s in sectors_info
     )
-    if flagged:
-        if recal_changes:
+
+    notes = []
+    if high_flagged:
+        if recal_changes is not None and recal_changes:
+            # Calibration ran and produced meaningful threshold changes
             change_parts = ", ".join(
                 f"{s}: {recal_changes[s][0]} → {recal_changes[s][1]}"
-                for s in flagged if s in recal_changes
+                for s in high_flagged if s in recal_changes
             )
-            unchanged = [s for s in flagged if s not in recal_changes]
+            unchanged = [s for s in high_flagged if s not in recal_changes]
             detail = change_parts
             if unchanged:
                 detail += f"; unchanged (insufficient data): {', '.join(unchanged)}"
-            recal_note = (
-                f"<p style='color:#f59e0b;font-size:13px;font-weight:600;margin:0 0 8px 0;'>"
-                f"⚠ {len(flagged)} sector(s) recalibrated: {detail}"
+            notes.append(
+                f"<p style='color:#f59e0b;font-size:13px;font-weight:600;margin:0 0 4px 0;'>"
+                f"⚠ {len(high_flagged)} sector(s) recalibrated (upward drift): {detail}"
+                f"</p>"
+            )
+        elif recal_changes is not None and not recal_changes:
+            # Calibration ran but all changes were below minimum meaningful delta
+            notes.append(
+                f"<p style='color:#f59e0b;font-size:13px;margin:0 0 4px 0;'>"
+                f"⚠ {len(high_flagged)} sector(s) upward drift detected — recalibration ran, no meaningful threshold change (&lt;0.5%): {', '.join(high_flagged)}"
                 f"</p>"
             )
         else:
-            recal_note = (
-                f"<p style='color:#f59e0b;font-size:13px;font-weight:600;margin:0 0 8px 0;'>"
-                f"⚠ {len(flagged)} sector(s) flagged — recalibration triggered: {', '.join(flagged)}"
+            # recal_changes is None — shouldn't happen for high_flagged, safety fallback
+            notes.append(
+                f"<p style='color:#f59e0b;font-size:13px;font-weight:600;margin:0 0 4px 0;'>"
+                f"⚠ {len(high_flagged)} sector(s) showing upward score drift: {', '.join(high_flagged)}"
                 f"</p>"
             )
-    else:
-        recal_note = (
-            "<p style='color:#22c55e;font-size:13px;margin:0 0 8px 0;'>"
+    if low_flagged:
+        notes.append(
+            f"<p style='color:#6366f1;font-size:13px;margin:0 0 4px 0;'>"
+            f"ℹ {len(low_flagged)} sector(s) compressed (broad market selloff) — regime floor working correctly, no recalibration: {', '.join(low_flagged)}"
+            f"</p>"
+        )
+    if not high_flagged and not low_flagged:
+        notes.append(
+            "<p style='color:#22c55e;font-size:13px;margin:0 0 4px 0;'>"
             "All sectors within expected range — no recalibration needed."
             "</p>"
         )
+    recal_note = "".join(notes)
 
     thresh_html = f"""
     {recal_note}
@@ -710,20 +736,24 @@ TOP SECTOR
 
 LOCK 1 THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
 """
-    if flagged:
-        if recal_changes:
+    if high_flagged:
+        if recal_changes is not None and recal_changes:
             change_parts = ", ".join(
                 f"{s}: {recal_changes[s][0]}→{recal_changes[s][1]}"
-                for s in flagged if s in recal_changes
+                for s in high_flagged if s in recal_changes
             )
-            unchanged = [s for s in flagged if s not in recal_changes]
+            unchanged = [s for s in high_flagged if s not in recal_changes]
             detail = change_parts
             if unchanged:
-                detail += f" | unchanged (no data): {', '.join(unchanged)}"
-            plain += f"  ⚠ Recalibrated: {detail}\n"
+                detail += f" | unchanged (insufficient data): {', '.join(unchanged)}"
+            plain += f"  ⚠ Recalibrated (upward drift): {detail}\n"
+        elif recal_changes is not None and not recal_changes:
+            plain += f"  ⚠ {len(high_flagged)} sector(s) upward drift — recalibration ran, no meaningful change (<0.5%): {', '.join(high_flagged)}\n"
         else:
-            plain += f"  ⚠ {len(flagged)} sector(s) flagged — recalibration triggered: {', '.join(flagged)}\n"
-    else:
+            plain += f"  ⚠ {len(high_flagged)} sector(s) upward drift: {', '.join(high_flagged)}\n"
+    if low_flagged:
+        plain += f"  ℹ {len(low_flagged)} sector(s) compressed (market selloff — regime floor correct, no recalibration): {', '.join(low_flagged)}\n"
+    if not high_flagged and not low_flagged:
         plain += "  All sectors within range — no recalibration needed.\n"
     for s in sectors_info:
         if s["fallback"]:
@@ -731,7 +761,7 @@ LOCK 1 THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
         elif s["pass_rate"] is None:
             plain += f"  {s['sector']:20s}  {s['threshold']}  no data\n"
         else:
-            flag_str = {"high": " ← recalibrate (scores up)", "low": " ← recalibrate (scores down)", "ok": ""}.get(s["flag"], "")
+            flag_str = {"high": " ← recalibrate (scores up)", "low": " ← compressed (market selloff)", "ok": ""}.get(s["flag"], "")
             plain += f"  {s['sector']:20s}  {s['threshold']}  pass={s['pass_rate']*100:.0f}% (n={s['n']}){flag_str}\n"
 
     if sweep_top:
@@ -760,27 +790,32 @@ def send_weekly_report() -> None:
     try:
         since = _week_start_iso()
         status = _threshold_status(since)
-        flagged = [s["sector"] for s in status["sectors"] if s["flag"] in ("high", "low")]
+        # Only recalibrate upward drift (scores expanded — threshold too loose).
+        # Low pass rates during a broad selloff are the regime floor working correctly;
+        # recalibrating down would make the system most permissive right after a crash.
+        flagged = [s["sector"] for s in status["sectors"] if s["flag"] == "high"]
         if flagged:
-            logger.info(f"Threshold drift in {len(flagged)} sector(s) — recalibrating: {flagged}")
+            logger.info(f"Threshold upward drift in {len(flagged)} sector(s) — recalibrating: {flagged}")
             from backend.db import get_ticker_thresholds
             from backend.ticker_threshold_calibration import calibrate
             before = get_ticker_thresholds()
             calibrate()
             after = get_ticker_thresholds()
+            _MIN_DELTA = 0.005
             recal_changes = {
                 s: (before[s], after[s])
                 for s in flagged
-                if s in before and s in after and before[s] != after[s]
+                if s in before and s in after and abs(after[s] - before[s]) >= _MIN_DELTA
             }
-            logger.info(f"Recalibration complete — {len(recal_changes)} threshold(s) changed")
+            logger.info(f"Recalibration complete — {len(recal_changes)} threshold(s) changed by >={_MIN_DELTA}")
         else:
             logger.info("Threshold pass rates within range — no recalibration needed")
     except Exception as e:
         logger.error(f"Pre-report recalibration failed: {e}")
 
     try:
-        subject, html, plain = build_report(recal_changes=recal_changes or None)
+        # Pass dict as-is: None = calibration didn't run; {} = ran but no meaningful change; filled = real changes
+        subject, html, plain = build_report(recal_changes=recal_changes if flagged else None)
         from backend.alerts import _cfg, _send_email, _send_slack
         cfg = _cfg()
         sent = False

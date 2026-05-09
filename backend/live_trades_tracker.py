@@ -28,6 +28,20 @@ def _trading_days_since(iso_timestamp: str) -> int:
     return len(pd.bdate_range(start, today)) - 1
 
 
+def _sector_avg_score(sector: str) -> float | None:
+    """Most recent avg_score for the sector from sector_snapshots."""
+    from backend.db import get_db
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT avg_score FROM sector_snapshots WHERE sector=? ORDER BY timestamp DESC LIMIT 1",
+            (sector,),
+        ).fetchone()
+        return row["avg_score"] if row else None
+    finally:
+        conn.close()
+
+
 def _ticker_consecutive_down_days(ticker: str, n: int) -> bool:
     """Return True if ticker has closed down for n consecutive trading days."""
     try:
@@ -115,7 +129,7 @@ def check_live_exits() -> list[dict]:
                 logger.warning(f"Live exit reconciliation [{ticker}]: position gone but no filled order found — skipping")
                 continue
             pnl     = round((exit_price - trade["entry_price"]) * trade["qty"], 2)
-            outcome = "WIN" if pnl >= 0 else "LOSS"
+            outcome = "WIN" if pnl > 0 else "LOSS"
             logger.info(f"Live exit reconciliation [{ticker}]: position closed externally, exit=${exit_price:.2f}")
 
         else:
@@ -207,7 +221,7 @@ def check_live_regime_exits() -> list[dict]:
             continue
 
         pnl     = round((exit_price - trade["entry_price"]) * trade["qty"], 2)
-        outcome = "WIN" if pnl >= 0 else "LOSS"
+        outcome = "WIN" if pnl > 0 else "LOSS"
         pnl_pct = (exit_price - trade["entry_price"]) / trade["entry_price"]
 
         close_live_trade(
@@ -225,13 +239,17 @@ def check_live_regime_exits() -> list[dict]:
             f"entry=${trade['entry_price']:.2f} exit=${exit_price:.2f} pnl={pnl:+.2f} ({pnl_pct:+.1%})"
         )
         closed.append({
-            "ticker":      ticker,
-            "sector":      sector,
-            "outcome":     outcome,
-            "exit_reason": "REGIME",
-            "adj_score":   0.0,
-            "pnl":         pnl,
-            "pnl_pct":     pnl_pct,
+            "ticker":           ticker,
+            "sector":           sector,
+            "outcome":          outcome,
+            "exit_reason":      "REGIME",
+            "entry_price":      trade["entry_price"],
+            "exit_price":       exit_price,
+            "notional":         trade["notional"],
+            "held_days":        _trading_days_since(trade["timestamp"]),
+            "sector_avg_score": _sector_avg_score(sector),
+            "pnl":              pnl,
+            "pnl_pct":          pnl_pct,
         })
 
     if closed:

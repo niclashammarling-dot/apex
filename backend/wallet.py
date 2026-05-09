@@ -29,6 +29,7 @@ from backend.config import (
 )
 from backend.db import (
     close_trade,
+    get_db,
     get_open_trades,
     get_portfolio_summary,
     insert_trade,
@@ -305,7 +306,7 @@ def check_regime_exits() -> list[dict]:
 
         pnl_pct = (current - entry_price) / entry_price
         pnl     = trade["amount"] * pnl_pct
-        outcome = "WIN" if pnl_pct >= 0 else "LOSS"
+        outcome = "WIN" if pnl_pct > 0 else "LOSS"
 
         close_trade(
             trade_id    = trade["id"],
@@ -322,13 +323,17 @@ def check_regime_exits() -> list[dict]:
             f"entry=${entry_price:.2f} exit=${current:.2f} pnl={pnl:+.2f} ({pnl_pct:+.1%})"
         )
         closed.append({
-            "ticker":      ticker,
-            "sector":      sector,
-            "outcome":     outcome,
-            "exit_reason": "REGIME",
-            "adj_score":   0.0,
-            "pnl":         pnl,
-            "pnl_pct":     pnl_pct,
+            "ticker":           ticker,
+            "sector":           sector,
+            "outcome":          outcome,
+            "exit_reason":      "REGIME",
+            "entry_price":      entry_price,
+            "exit_price":       current,
+            "notional":         trade["amount"],
+            "held_days":        _trading_days_since(trade["timestamp"]),
+            "sector_avg_score": _sector_avg_score(sector),
+            "pnl":              pnl,
+            "pnl_pct":          pnl_pct,
         })
 
     if closed:
@@ -460,3 +465,16 @@ def _trading_days_since(timestamp_iso: str) -> int:
     entry = datetime.fromisoformat(timestamp_iso).date()
     today = datetime.now(timezone.utc).date()
     return max(0, len(pd.bdate_range(start=entry, end=today)) - 1)
+
+
+def _sector_avg_score(sector: str) -> float | None:
+    """Most recent avg_score for the sector from sector_snapshots."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT avg_score FROM sector_snapshots WHERE sector=? ORDER BY timestamp DESC LIMIT 1",
+            (sector,),
+        ).fetchone()
+        return row["avg_score"] if row else None
+    finally:
+        conn.close()

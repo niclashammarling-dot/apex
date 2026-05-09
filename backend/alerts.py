@@ -88,20 +88,40 @@ def alert_regime_exits(closed: list[dict], mode: str = "DEMO") -> None:
     if not closed:
         return
     total_pnl = sum(c["pnl"] for c in closed)
+    title = f"[APEX {mode}] Regime Exit — {len(closed)} position(s) closed"
     lines = [
-        f"[APEX {mode}] Regime Exit — {len(closed)} position(s) closed",
-        "Sector floor breach (adjusted_score < allocation threshold)\n",
+        title,
+        "Trigger: sector dropped below leaderboard cutoff\n",
     ]
     for c in closed:
-        sign = "+" if c["pnl"] >= 0 else ""
-        lines.append(
-            f"  {c['ticker']:<8} {c['sector']:<16} "
-            f"adj={c['adj_score']:.3f}  "
-            f"pnl={sign}{c['pnl']:.2f} ({sign}{c['pnl_pct']*100:.1f}%)  {c['outcome']}"
+        pnl_sign  = "+" if c["pnl"] > 0 else ""
+        avg_score = c.get("sector_avg_score")
+        score_str = f"  sector avg_score={avg_score:.3f}" if avg_score is not None else ""
+        held      = c.get("held_days")
+        held_str  = f"{held}d" if held is not None else "?"
+        notional  = c.get("notional")
+        notional_str = f"${notional:,.0f}" if notional is not None else "?"
+        entry     = c.get("entry_price")
+        exit_p    = c.get("exit_price")
+        price_str = (
+            f"  entry ${entry:.2f} → exit ${exit_p:.2f}"
+            if entry is not None and exit_p is not None else ""
         )
-    lines.append(f"\nNet P&L: {'+' if total_pnl >= 0 else ''}{total_pnl:.2f}")
-    title = f"[APEX {mode}] Regime Exit — {len(closed)} position(s)"
-    body  = "\n".join(lines)
+        lines.append(
+            f"  {c['ticker']:<6} {c['sector']:<16} "
+            f"held {held_str:<5} notional {notional_str}"
+        )
+        lines.append(
+            f"         {price_str}"
+        )
+        lines.append(
+            f"         P&L: {pnl_sign}${c['pnl']:.2f} ({pnl_sign}{c['pnl_pct']*100:.1f}%)  "
+            f"{c['outcome']}{score_str}"
+        )
+        lines.append("")
+    total_sign = "+" if total_pnl > 0 else ""
+    lines.append(f"Net P&L: {total_sign}${total_pnl:.2f}")
+    body = "\n".join(lines)
     _dispatch(title, body)
 
 
