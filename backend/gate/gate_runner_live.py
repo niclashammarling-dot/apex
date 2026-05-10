@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 from loguru import logger
 
-from backend.config import LIVE_ENABLED
+from backend.config import LIVE_ENABLED, SECTORS
 from backend.db import (
     get_lock1_candidates,
     get_open_live_tickers,
@@ -22,7 +22,7 @@ from backend.db import (
     insert_live_trade,
 )
 from backend.gate.chain import evaluate_chain
-from backend.gate.gate_runner import PRE_ROTATION_FLOOR, _chain_to_gate_result
+from backend.gate.gate_runner import PRE_ROTATION_FLOOR, _chain_to_gate_result, _compute_bayesian_multipliers
 
 _MAX_WORKERS = 5
 
@@ -94,11 +94,22 @@ def run() -> list[dict]:
 
     logger.info(f"Live gate runner: {len(candidates)} candidate(s) — {[c['ticker'] for c in candidates]}")
 
+    _ticker_sector = {t: s for s, data in SECTORS.items() for t in data["tickers"]}
+    _positions = broker.get_positions()
+    _starting_balance = cfg["starting_balance"]
+    _sector_exposure: dict[str, float] = {}
+    for _p in _positions:
+        _sec = _ticker_sector.get(_p["ticker"], "")
+        if _sec:
+            _sector_exposure[_sec] = round(
+                _sector_exposure.get(_sec, 0.0) + _p["cost_basis"] / _starting_balance, 3
+            )
+
     wallet_ctx = {
         "balance":          acct["equity"],
-        "open_positions":   len(broker.get_positions()),
-        "sector_exposure":  {},  # not computed for live — Lock 3 prompt uses open_positions count
-        "starting_balance": cfg["starting_balance"],
+        "open_positions":   len(_positions),
+        "sector_exposure":  _sector_exposure,
+        "starting_balance": _starting_balance,
     }
 
     # Compute sector regime + rotation scores + Bayesian regime once per gate cycle
@@ -161,13 +172,28 @@ def run() -> list[dict]:
     open_tickers   = {p["ticker"] for p in open_positions}
 
     evaluated.sort(key=lambda x: (0 if x[0].get("pre_rotation") else 1, x[0].get("signal_score", 0)), reverse=True)
-    max_positions      = cfg["max_positions"]
-    overflow_increment = cfg.get("overflow_quant_increment", 0.05)
-    open_count         = len(open_positions)  # snapshot; incremented on each executed trade
+    max_positions        = cfg["max_positions"]
+    overflow_increment   = cfg.get("overflow_quant_increment", 0.05)
+    open_count           = len(open_positions)  # snapshot; incremented on each executed trade
+    bayesian_multipliers = _compute_bayesian_multipliers(evaluated, regime_bayes_result)
 
     for signal, result in evaluated:
-        ticker     = signal["ticker"]
-        order_id   = None
+        ticker   = signal["ticker"]
+        order_id = None
+
+        # Apply Bayesian sector sizing before notional is computed.
+        if result["outcome"] == "TRADE_QUEUED" and result.get("lock3"):
+            _scale = bayesian_multipliers.get(ticker, 1.0)
+            if _scale != 1.0:
+                _raw  = result["lock3"]["position_size_pct"]
+                result["lock3"]["position_size_pct"] = min(
+                    round(_raw * _scale, 4),
+                    cfg.get("max_position_size", 0.10),
+                )
+                logger.info(
+                    f"Live gate [{ticker}]: Bayesian size scale={_scale:.3f} "
+                    f"({_raw:.4f} → {result['lock3']['position_size_pct']:.4f})"
+                )
 
         if result["outcome"] == "TRADE_QUEUED":
             if ticker in open_tickers:

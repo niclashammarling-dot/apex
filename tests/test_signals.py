@@ -29,7 +29,7 @@ def _make_df(prices: list[float], volumes: list[int] | None = None) -> pd.DataFr
     n = len(prices)
     if volumes is None:
         volumes = [1_000_000] * n
-    dates = pd.date_range(end=datetime.today(), periods=n, freq="B")
+    dates = pd.date_range(end="2024-01-01", periods=n, freq="B")
     df = pd.DataFrame({
         "Open":   prices,
         "High":   [p * 1.01 for p in prices],

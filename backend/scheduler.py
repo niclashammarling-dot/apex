@@ -384,6 +384,18 @@ def _check_missed_calibration() -> None:
             logger.warning(f"Catch-up calibration failed: {e}")
 
 
+def _check_missed_live_exits() -> None:
+    """
+    Run live exit checks immediately on startup if the market is open.
+    Interval jobs self-heal after the first fire; this closes the startup gap
+    where live positions are unprotected until the first scheduled interval.
+    """
+    if not is_market_open():
+        return
+    logger.warning("Startup: market is open — running live exit check immediately")
+    check_live_exit_conditions()
+
+
 def _check_missed_weekly_report() -> None:
     """
     Fire the weekly report immediately on startup if the server was down
@@ -524,6 +536,7 @@ def start_scheduler() -> None:
     _check_missed_eod_regime()
     _check_missed_calibration()
     _check_missed_weekly_report()
+    _check_missed_live_exits()
     logger.info(
         f"Scheduler started — sectors every {POLL_INTERVAL_SECTORS}m, "
         f"gate every {GATE_INTERVAL}m, "

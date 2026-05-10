@@ -529,7 +529,7 @@ class TestLiveGateRunner:
     def test_ticker_already_open_at_execution_rejected(self):
         # Race condition: position opened between evaluation and execution
         results, mocks = _run_live(candidates=[_signal("NVDA")],
-                                   positions=[{"ticker": "NVDA"}])
+                                   positions=[{"ticker": "NVDA", "cost_basis": 200.0}])
         assert results[0]["outcome"] == "TRADE_REJECTED"
         mocks[12].assert_not_called()
 
