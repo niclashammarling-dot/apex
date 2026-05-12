@@ -124,6 +124,7 @@ def compute_ticker_signals() -> dict[str, dict]:
     """
     try:
         from backend.db import get_ticker_daily_scores
+        from backend.ticker_config import get_sectors
         rows = get_ticker_daily_scores(days=180)
     except Exception:
         return {}
@@ -131,9 +132,14 @@ def compute_ticker_signals() -> dict[str, dict]:
     if not rows:
         return {}
 
+    active_tickers: set[str] = {
+        t for cfg in get_sectors().values() for t in cfg["tickers"]
+    }
+
     by_ticker: dict[str, list] = defaultdict(list)
     for row in rows:
-        by_ticker[row["ticker"]].append(row)
+        if row["ticker"] in active_tickers:
+            by_ticker[row["ticker"]].append(row)
 
     per_sector_thresholds = _get_ticker_thresholds()
 

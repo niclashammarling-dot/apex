@@ -90,7 +90,8 @@ def sectors_summary():
 
     result = []
     for sector_name, cfg in _get_sectors().items():
-        rows = sector_map.get(sector_name, [])
+        active = set(cfg["tickers"])
+        rows = [r for r in sector_map.get(sector_name, []) if r["ticker"] in active]
         if not rows:
             result.append({
                 "sector":       sector_name,
