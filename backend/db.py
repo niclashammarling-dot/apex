@@ -605,7 +605,7 @@ def get_recently_failed_tickers(hours: float) -> set[str]:
     try:
         rows = conn.execute("""
             SELECT DISTINCT ticker FROM signals
-            WHERE gate_decision IN ('FILTERED_L2', 'FILTERED_L3', 'FILTERED_MACRO')
+            WHERE gate_decision IN ('FILTERED_L2', 'FILTERED_L3')
             AND timestamp > ?
         """, (cutoff,)).fetchall()
         return {r[0] for r in rows}
@@ -726,7 +726,7 @@ def get_recently_failed_live_tickers(hours: float) -> set[str]:
     try:
         rows = conn.execute("""
             SELECT DISTINCT ticker FROM live_gate_history
-            WHERE gate_decision IN ('FILTERED_L2', 'FILTERED_L3', 'FILTERED_MACRO')
+            WHERE gate_decision IN ('FILTERED_L2', 'FILTERED_L3')
             AND timestamp > ?
         """, (cutoff,)).fetchall()
         return {r[0] for r in rows}
@@ -807,7 +807,7 @@ def get_demo_gate_funnel_counts() -> dict:
                 sum(gate_decision = 'SKIPPED_OPEN')                              AS skipped_open,
                 sum(gate_decision = 'SKIPPED_COOLOFF')                           AS skipped_cooloff,
                 sum(gate_decision NOT IN ('SKIPPED_OPEN','SKIPPED_COOLOFF'))     AS evaluated,
-                sum(gate_decision = 'FILTERED_MACRO')                            AS macro_fail,
+                sum(gate_decision = 'FILTERED_ELIGIBILITY')                      AS eligibility_fail,
                 sum(gate_decision = 'FILTERED_L2')                               AS l2_fail,
                 sum(gate_decision = 'FILTERED_LEADING')                          AS leading_fail,
                 sum(gate_decision = 'FILTERED_L3')                               AS l3_fail,
@@ -844,7 +844,7 @@ def get_gate_funnel_counts(since: str | None = None) -> dict:
         skipped_open    = counts.get("SKIPPED_OPEN", 0)
         skipped_cooloff = counts.get("SKIPPED_COOLOFF", 0)
         l1_fail         = counts.get("FILTERED_L1", 0)
-        macro_fail      = counts.get("FILTERED_MACRO", 0)
+        eligibility_fail = counts.get("FILTERED_ELIGIBILITY", 0)
         l2_fail         = counts.get("FILTERED_L2", 0)
         leading_fail    = counts.get("FILTERED_LEADING", 0)
         l3_fail         = counts.get("FILTERED_L3", 0)
@@ -861,7 +861,7 @@ def get_gate_funnel_counts(since: str | None = None) -> dict:
             "skipped_cooloff":  skipped_cooloff,
             "evaluated":        evaluated,
             "l1_fail":          l1_fail,
-            "macro_fail":       macro_fail,
+            "eligibility_fail":  eligibility_fail,
             "l2_fail":          l2_fail,
             "leading_fail":     leading_fail,
             "l3_fail":          l3_fail,
@@ -1074,7 +1074,7 @@ def get_live_gate_funnel_counts(since: str | None = None) -> dict:
         skipped_open    = counts.get("SKIPPED_OPEN", 0)
         skipped_cooloff = counts.get("SKIPPED_COOLOFF", 0)
         l1_fail         = counts.get("FILTERED_L1", 0)
-        macro_fail      = counts.get("FILTERED_MACRO", 0)
+        eligibility_fail = counts.get("FILTERED_ELIGIBILITY", 0)
         l2_fail         = counts.get("FILTERED_L2", 0)
         leading_fail    = counts.get("FILTERED_LEADING", 0)
         l3_fail         = counts.get("FILTERED_L3", 0)
@@ -1091,7 +1091,7 @@ def get_live_gate_funnel_counts(since: str | None = None) -> dict:
             "skipped_cooloff":  skipped_cooloff,
             "evaluated":        evaluated,
             "l1_fail":          l1_fail,
-            "macro_fail":       macro_fail,
+            "eligibility_fail":  eligibility_fail,
             "l2_fail":          l2_fail,
             "leading_fail":     leading_fail,
             "l3_fail":          l3_fail,

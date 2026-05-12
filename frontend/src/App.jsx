@@ -320,24 +320,24 @@ function adaptFunnel(funnel) {
   const skippedO   = funnel.skipped_open ?? 0;
   const skippedC   = funnel.skipped_cooloff ?? 0;
   const evaluated  = funnel.evaluated ?? 0;
-  const macroFail  = funnel.macro_fail ?? 0;
+  const eligibilityFail = funnel.eligibility_fail ?? 0;
+  const l1Fail     = funnel.l1_fail ?? 0;
   const l2Fail     = funnel.l2_fail ?? 0;
   const leadFail   = funnel.leading_fail ?? 0;
   const l3Fail     = funnel.l3_fail ?? 0;
   const overFail   = funnel.overflow_fail ?? 0;
   const executed   = funnel.executed ?? 0;
-  const l1Fail     = Math.max(0, evaluated - macroFail - l2Fail - leadFail - l3Fail - overFail - executed);
   return [
-    { stage: "POLLED",            label: "Tickers polled",   count: total     },
-    { stage: "SKIPPED_OPEN",      label: "Position open",    count: skippedO  },
-    { stage: "SKIPPED_COOLOFF",   label: "Cooloff",          count: skippedC  },
-    { stage: "FILTERED_L1",       label: "L1 · Eligibility", count: l1Fail    },
-    { stage: "FILTERED_MACRO",    label: "Macro blackout",   count: macroFail },
-    { stage: "FILTERED_L2",       label: "L2 · Quant",       count: l2Fail    },
-    { stage: "FILTERED_LEADING",  label: "L4 · Leading",     count: leadFail  },
-    { stage: "FILTERED_L3",       label: "L5 · Claude",      count: l3Fail    },
-    { stage: "FILTERED_OVERFLOW", label: "Overflow quant",   count: overFail  },
-    { stage: "TRADE_EXECUTED",    label: "Trade executed",   count: executed  },
+    { stage: "POLLED",                label: "Tickers polled",    count: total          },
+    { stage: "SKIPPED_OPEN",          label: "Position open",     count: skippedO       },
+    { stage: "SKIPPED_COOLOFF",       label: "Cooloff",           count: skippedC       },
+    { stage: "FILTERED_ELIGIBILITY",  label: "L0 · Eligibility",  count: eligibilityFail },
+    { stage: "FILTERED_L1",           label: "L1 · Score",        count: l1Fail         },
+    { stage: "FILTERED_L2",           label: "L2 · Quant",        count: l2Fail         },
+    { stage: "FILTERED_LEADING",      label: "L4 · Leading",      count: leadFail       },
+    { stage: "FILTERED_L3",           label: "L5 · Claude",       count: l3Fail         },
+    { stage: "FILTERED_OVERFLOW",     label: "Overflow quant",    count: overFail       },
+    { stage: "TRADE_EXECUTED",        label: "Trade executed",    count: executed       },
   ];
 }
 

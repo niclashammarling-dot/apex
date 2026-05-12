@@ -73,7 +73,7 @@ function ScoreVsThreshold({ score, threshold }) {
 function FunnelSummary({ funnel }) {
   if (!funnel) return null;
   const { total_candidates, skipped_open, skipped_cooloff, evaluated,
-          macro_fail, l1_fail, l2_fail, leading_fail, l3_fail,
+          eligibility_fail, l1_fail, l2_fail, leading_fail, l3_fail,
           overflow_fail, executed } = funnel;
   const skipped = (skipped_open || 0) + (skipped_cooloff || 0);
   return (
@@ -85,8 +85,8 @@ function FunnelSummary({ funnel }) {
       <span>{total_candidates} candidates</span>
       {skipped > 0 && <span>→ {skipped} skipped ({skipped_open} held, {skipped_cooloff} cooloff)</span>}
       <span>→ {evaluated} evaluated</span>
-      {macro_fail    > 0 && <span>→ {macro_fail} L1 fail</span>}
-      {l1_fail       > 0 && <span>→ {l1_fail} L2 fail</span>}
+      {eligibility_fail > 0 && <span>→ {eligibility_fail} eligibility fail</span>}
+      {l1_fail          > 0 && <span>→ {l1_fail} L1 fail</span>}
       {l2_fail       > 0 && <span>→ {l2_fail} L3 fail</span>}
       {leading_fail  > 0 && <span>→ {leading_fail} L4 fail</span>}
       {l3_fail       > 0 && <span>→ {l3_fail} L5 fail</span>}
