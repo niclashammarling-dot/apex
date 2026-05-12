@@ -384,6 +384,39 @@ def _check_missed_calibration() -> None:
             logger.warning(f"Catch-up calibration failed: {e}")
 
 
+def _check_missed_sentiment_prefetch() -> None:
+    """
+    Run sentiment prefetch on startup if it was missed (server down at 9:35 AM ET).
+    Only fires on weekdays; uses the same 26-hour staleness threshold as CHECK 17.
+    """
+    from backend.db import get_db
+
+    now = datetime.now(NY)
+    if now.weekday() >= 5:
+        return
+
+    try:
+        with get_db() as conn:
+            row = conn.execute("SELECT MAX(fetched_at) FROM sentiment_cache").fetchone()
+        last_str = row[0] if row and row[0] else None
+    except Exception:
+        last_str = None
+
+    if last_str:
+        last_dt = datetime.fromisoformat(last_str)
+        if last_dt.tzinfo is None:
+            last_dt = last_dt.replace(tzinfo=NY)
+        age_hours = (datetime.now(NY) - last_dt).total_seconds() / 3600
+        if age_hours <= 26:
+            return
+
+    logger.warning("Sentiment pre-fetch missed or stale — running catch-up now")
+    try:
+        run_sentiment_prefetch()
+    except Exception as e:
+        logger.warning(f"Sentiment catch-up failed: {e}")
+
+
 def _check_missed_live_exits() -> None:
     """
     Run live exit checks immediately on startup if the market is open.
@@ -536,6 +569,7 @@ def start_scheduler() -> None:
     _check_missed_eod_regime()
     _check_missed_calibration()
     _check_missed_weekly_report()
+    _check_missed_sentiment_prefetch()
     _check_missed_live_exits()
     logger.info(
         f"Scheduler started — sectors every {POLL_INTERVAL_SECTORS}m, "
