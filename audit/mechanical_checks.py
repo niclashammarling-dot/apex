@@ -122,9 +122,8 @@ def check9():
     live = json.loads(live_path.read_text())
 
     checks = [
-        ("lock1_threshold",  demo, "data/demo_config.json", lambda v: v < 0.60, "CRITICAL", "lock1_threshold < 0.60 — in dead zone"),
-        ("lock1_threshold",  demo, "data/demo_config.json", lambda v: 0.60 <= v < 0.65, "WARNING", "lock1_threshold < 0.65 — below effective floor"),
-        ("lock1_threshold",  live, "data/live_config.json", lambda v: v < 0.65, "WARNING", "lock1_threshold < 0.65 on live"),
+        ("lock1_threshold",  demo, "data/demo_config.json", lambda v: v < 0.60, "CRITICAL", "lock1_threshold < 0.60 — in dead zone (demo floor is 0.60, intentional)"),
+        ("lock1_threshold",  live, "data/live_config.json", lambda v: v < 0.65, "WARNING",  "lock1_threshold < 0.65 on live"),
         ("vix_threshold",    demo, "data/demo_config.json", lambda v: v < 30,  "WARNING", "vix_threshold < 30 — blocks recovery rallies"),
         ("vix_threshold",    live, "data/live_config.json", lambda v: v < 30,  "WARNING", "vix_threshold < 30 on live"),
         ("take_profit_pct",  demo, "data/demo_config.json", lambda v: v > 0.08, "WARNING", "take_profit_pct > 0.08 — most trades won't hit target"),

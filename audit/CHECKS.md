@@ -15,7 +15,7 @@ Columns: `last_triggered` = most recent date the check found an issue. `last_cle
 | 6 | Test DB isolation | 2026-03-25 | test accidentally opened production DB | tests/conftest.py,tests/ | 2026-04-06 | 2026-05-12 |
 | 7 | Demo/live gate runner parity | 2026-03-25 | logic fix applied to demo runner but not live runner | backend/gate/gate_runner.py,backend/gate/gate_runner_live.py | 2026-03-25 | 2026-05-12 |
 | 8 | General code health | 2026-03-25 | bare except swallowed errors silently | backend/ | 2026-04-13 | 2026-05-12 |
-| 9 | Config value drift | 2026-03-28 | backtest-derived bounds for lock1_threshold/vix_threshold/take_profit_pct ignored after manual edits | data/demo_config.json,data/live_config.json | 2026-05-12 | — |
+| 9 | Config value drift | 2026-03-28 | backtest-derived bounds for lock1_threshold/vix_threshold/take_profit_pct ignored after manual edits; demo floor is 0.60 (intentional, looser for signal coverage), live floor is 0.65 | data/demo_config.json,data/live_config.json | 2026-05-12 | — |
 | 10 | Ticker signal data coverage | 2026-03-29 | all tickers classified weak due to insufficient days in window; no error raised | backend/db.py,backend/sector_regime.py | 2026-04-06 | 2026-05-12 |
 | 11 | NaN/null config pipeline | 2026-04-02 | parseFloat("") = NaN serialized to null; Python .get(key,default) returned None not default; delta<=None threw TypeError | frontend/src/App.jsx,backend/gate/lock1_eligibility.py | 2026-05-09 | 2026-05-12 |
 | 12 | Lock3 context parity | 2026-04-06 | regime_bayes_* keys added to demo _build_claude_context but never synced to live _build_context; Lock 3 made live decisions without Bayesian sector data | backend/gate/gate_runner.py,backend/gate/gate_runner_live.py | 2026-04-06 | 2026-05-12 |
