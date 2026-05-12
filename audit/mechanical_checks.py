@@ -534,40 +534,45 @@ def check21():
 
 def check22():
     """
-    On trading days, verify that sector_snapshots received data today and that
-    regime_result_cache.json exists and is fresh (written today or yesterday).
+    On trading days, verify that sector_snapshots are not stale (>26h since last
+    write) and that regime_result_cache.json exists and is recent.
 
-    Canary for Yahoo Finance rate-limiting or API outage: the first symptom is
-    partial download failures before a full 429 block. Stale snapshots on a
-    trading day means the polling pipeline silently failed.
+    Uses a staleness window rather than checking for today's date — the nightly
+    audit runs at ~4 AM before market open, so a today-only check always fires.
+    Canary for Yahoo Finance rate-limiting or API outage: stale snapshots on a
+    trading day mean the polling pipeline silently failed.
     """
     today = date.today()
     weekday = today.weekday()
     is_trading_day = weekday < 5   # Mon–Fri only
 
-    # ── Sub-check A: sector_snapshots written today ───────────────────────────
+    # ── Sub-check A: sector_snapshots not stale (>26h since last write) ─────────
+    # Uses a staleness window rather than checking for today's date — the audit
+    # runs at ~4 AM before market open, so "today" always has zero snapshots.
     if is_trading_day:
         db_path = REPO / "data/apex.db"
         if db_path.exists():
             try:
                 conn = sqlite3.connect(str(db_path))
-                cutoff = today.isoformat()
                 row = conn.execute(
-                    "SELECT COUNT(*) FROM sector_snapshots WHERE timestamp >= ?",
-                    (cutoff,),
+                    "SELECT MAX(timestamp) FROM sector_snapshots"
                 ).fetchone()
                 conn.close()
-                count = row[0] if row else 0
-                if count == 0:
+                last_ts = row[0] if row else None
+                if not last_ts:
                     flag(22, "Yahoo data pipeline health", "WARNING",
                          "data/apex.db:sector_snapshots",
-                         f"No sector snapshots written today ({today}) — "
-                         "polling may have failed due to Yahoo rate limit or API outage")
-                elif count < 10:
-                    flag(22, "Yahoo data pipeline health", "WARNING",
-                         "data/apex.db:sector_snapshots",
-                         f"Only {count} sector snapshot rows today ({today}); "
-                         "expected multiple poll cycles — check for partial Yahoo failures")
+                         "sector_snapshots is empty — polling has never run")
+                else:
+                    last_dt = datetime.fromisoformat(last_ts)
+                    if last_dt.tzinfo is None:
+                        last_dt = last_dt.replace(tzinfo=timezone.utc)
+                    age_hours = (datetime.now(timezone.utc) - last_dt).total_seconds() / 3600
+                    if age_hours > 26:
+                        flag(22, "Yahoo data pipeline health", "WARNING",
+                             "data/apex.db:sector_snapshots",
+                             f"Last sector snapshot {age_hours:.1f}h ago — "
+                             "polling may have failed due to Yahoo rate limit or API outage")
             except Exception as e:
                 flag(22, "Yahoo data pipeline health", "WARNING",
                      "data/apex.db:sector_snapshots",

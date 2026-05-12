@@ -66,6 +66,14 @@ def poll_all_sectors(force: bool = False) -> None:
 
     logger.info("Polling all sectors…")
     signals = fetch_all_sectors()
+    if not signals:
+        logger.error("Sector poll returned 0 signals — Yahoo rate-limit or API outage")
+        try:
+            from backend.alerts import alert_gate_blocked
+            alert_gate_blocked("Sector poll returned 0 signals — Yahoo rate-limit or API outage")
+        except Exception:
+            pass
+        return
     for row in signals:
         insert_signal(row)
     logger.info(f"Stored {len(signals)} signals")
