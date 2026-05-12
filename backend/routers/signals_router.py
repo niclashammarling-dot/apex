@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, field_validator
 
 from backend.db import (
+    get_prev_ticker_prices,
     get_sector_history,
     get_yesterday_sector_avg_scores,
     get_yesterday_ticker_scores,
@@ -79,6 +80,7 @@ def sectors_summary():
     signals = latest_signals(limit=200)
     prev_avgs = get_yesterday_sector_avg_scores()
     prev_ticker = get_yesterday_ticker_scores()
+    prev_prices = get_prev_ticker_prices()
     from backend.sector_regime import compute_ticker_signals
     ticker_signals = compute_ticker_signals()
 
@@ -117,6 +119,12 @@ def sectors_summary():
                 return "down"
             return "flat"
 
+        def _chg(ticker: str, price: float | None) -> float:
+            prev = prev_prices.get(ticker)
+            if prev and price and prev > 0:
+                return round((price - prev) / prev * 100, 2)
+            return 0.0
+
         tickers = sorted(
             [
                 {
@@ -124,8 +132,12 @@ def sectors_summary():
                     "signal_score":   r["signal_score"],
                     "momentum_score": r.get("momentum_score"),
                     "volume_score":   r.get("volume_score"),
+                    "ev":             r.get("ev"),
+                    "rs_score":       r.get("rs_score"),
+                    "trend_score":    r.get("trend_score"),
                     "rsi":            r.get("rsi"),
                     "price":          r.get("price"),
+                    "chg":            _chg(r["ticker"], r.get("price")),
                     "trend":          _ticker_trend(r["ticker"], r["signal_score"]),
                     "signal":         ticker_signals.get(r["ticker"], {}).get("signal", "weak"),
                     "streak_days":    ticker_signals.get(r["ticker"], {}).get("streak_days", 0),

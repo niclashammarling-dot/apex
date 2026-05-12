@@ -1330,6 +1330,29 @@ def get_yesterday_ticker_scores() -> dict[str, float]:
         conn.close()
 
 
+def get_prev_ticker_prices() -> dict[str, float]:
+    """
+    Returns the price from the second-most-recent signal poll per ticker.
+    Used to compute intraday price-change % (chg) in the sector summary endpoint.
+    """
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT ticker, price
+            FROM signals s1
+            WHERE price IS NOT NULL
+              AND timestamp = (
+                  SELECT timestamp FROM signals s2
+                  WHERE s2.ticker = s1.ticker AND s2.price IS NOT NULL
+                  ORDER BY timestamp DESC
+                  LIMIT 1 OFFSET 1
+              )
+        """).fetchall()
+        return {r["ticker"]: r["price"] for r in rows}
+    finally:
+        conn.close()
+
+
 def get_existing_ticker_history_dates(start_date: str, end_date: str) -> set[str]:
     """Return set of days that already have ticker_history rows in the date range."""
     conn = get_db()

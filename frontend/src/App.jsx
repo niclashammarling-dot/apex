@@ -7,6 +7,7 @@ import DemoTradeLog      from "./components/DemoTradeLog.jsx";
 import LiveTradeLog      from "./components/LiveTradeLog.jsx";
 import RotationForecast  from "./components/RotationForecast.jsx";
 import Watchlist         from "./components/Watchlist.jsx";
+import SectorGrid        from "./components/SectorGrid.jsx";
 import SectorRotation    from "./components/SectorRotation.jsx";
 import SectorRegime      from "./components/SectorRegime.jsx";
 import RegimeBayes       from "./components/RegimeBayes.jsx";
@@ -205,10 +206,10 @@ function adaptTickers(sectors) {
         score,
         momentum,
         volume,
-        ev:         score,
-        trend:      momentum,
-        rs:         volume,
-        chg:        0,
+        ev:         t.ev ?? score,
+        trend:      t.trend_score ?? momentum,
+        rs:         t.rs_score ?? volume,
+        chg:        t.chg ?? 0,
         price:      t.price ?? 0,
         watchlist:  false,
       });
@@ -783,6 +784,9 @@ export default function App() {
       <ErrorBoundary label="Watchlist"><Watchlist /></ErrorBoundary>
       <ErrorBoundary label="Sector Rotation"><SectorRotation /></ErrorBoundary>
       <ErrorBoundary label="Sector Regime"><SectorRegime /></ErrorBoundary>
+      <div className="supp-full">
+        <ErrorBoundary label="Sector Grid"><SectorGrid sectors={sectors} /></ErrorBoundary>
+      </div>
       <div className="supp-full">
         <ErrorBoundary label="Regime Bayes"><RegimeBayes /></ErrorBoundary>
       </div>
