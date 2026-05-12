@@ -48,6 +48,7 @@ def run() -> list[dict]:
 
     if not candidates:
         logger.info("Gate runner: no Lock 1 candidates this cycle")
+        _persist_multiplier_stats({}, None, [])
         return []
 
     # Skip tickers already held or in cooloff — mark them in DB so funnel is complete
@@ -79,6 +80,7 @@ def run() -> list[dict]:
 
     if not candidates:
         logger.info("Gate runner: all candidates skipped (open positions / cooloff)")
+        _persist_multiplier_stats({}, None, [])
         return []
 
     logger.info(f"Gate runner: {len(candidates)} candidate(s) — {[c['ticker'] for c in candidates]}")
