@@ -3,9 +3,10 @@ import { COMPANY_NAMES } from "../companyNames.js";
 import HoverTooltip, { TipRow, TipHeader } from "./HoverTooltip";
 
 const REASON_COLOR = {
-  TP:  "var(--green)",
-  SL:  "var(--red)",
-  TSL: "#e8a020",
+  TP:     "var(--t-accent)",
+  SL:     "var(--t-red)",
+  TSL:    "var(--t-amber)",
+  REGIME: "#6aa0f0",
 };
 
 function fmtDate(iso) {
@@ -13,23 +14,21 @@ function fmtDate(iso) {
   return iso.slice(0, 10);
 }
 
-function TradeRow({ t, i }) {
+function TradeRow({ t }) {
   const [tip, setTip] = useState(null);
   const win    = t.outcome === "WIN";
   const loss   = t.outcome === "LOSS";
   const isOpen = !t.outcome;
-  const pnlColor = win ? "var(--green)" : loss ? "var(--red)" : "var(--text-3)";
-  const pnlPct   = t.exit_price && t.entry_price
+  const pnlColor = win ? "var(--t-accent)" : loss ? "var(--t-red)" : "var(--t-text-3)";
+  const pnlPct = t.exit_price && t.entry_price
     ? (t.exit_price - t.entry_price) / t.entry_price
     : t.pnl_pct ?? null;
+
   return (
     <div
       onMouseMove={e => setTip({ x: e.clientX, y: e.clientY })}
       onMouseLeave={() => setTip(null)}
-      style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "10px 16px", borderTop: "1px solid var(--border)",
-      }}
+      style={{ display: "flex", alignItems: "center", gap: 10, borderTop: "1px solid var(--t-border)", padding: "8px 14px" }}
     >
       <HoverTooltip pos={tip}>
         <TipHeader>{t.ticker}{COMPANY_NAMES[t.ticker] ? ` — ${COMPANY_NAMES[t.ticker]}` : ""}</TipHeader>
@@ -38,42 +37,33 @@ function TradeRow({ t, i }) {
         <TipRow label="Exit"        value={t.timestamp_exit ? fmtDate(t.timestamp_exit) : isOpen ? "open" : "—"} />
         <TipRow label="Entry Price" value={t.entry_price != null ? `$${t.entry_price.toFixed(2)}` : "—"} />
         <TipRow label="Exit Price"  value={t.exit_price != null ? `$${t.exit_price.toFixed(2)}` : "—"} />
-        {t.exit_reason && <TipRow label="Exit Reason" value={t.exit_reason} color={REASON_COLOR[t.exit_reason] ?? "var(--text-3)"} />}
-        <TipRow label="P&L %"       value={pnlPct != null ? `${pnlPct >= 0 ? "+" : ""}${(pnlPct * 100).toFixed(2)}%` : isOpen ? "open" : "—"} color={pnlColor} />
+        {t.exit_reason && <TipRow label="Exit Reason" value={t.exit_reason} color={REASON_COLOR[t.exit_reason] ?? "var(--t-text-3)"} />}
+        <TipRow label="P&L %" value={pnlPct != null ? `${pnlPct >= 0 ? "+" : ""}${(pnlPct * 100).toFixed(2)}%` : isOpen ? "open" : "—"} color={pnlColor} />
       </HoverTooltip>
-      <div>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 15, color: "var(--text-1)", fontWeight: 700 }}>
-            {t.ticker}
-          </span>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--t-text-1)", fontWeight: 700 }}>{t.ticker}</span>
           {COMPANY_NAMES[t.ticker] && (
-            <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)" }}>
-              {COMPANY_NAMES[t.ticker]}
-            </span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--t-text-3)" }}>{COMPANY_NAMES[t.ticker]}</span>
           )}
         </div>
-        <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)", marginTop: 3 }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--t-text-3)", marginTop: 2 }}>
           {fmtDate(t.timestamp)}
           {t.sector && <span style={{ marginLeft: 8 }}>{t.sector}</span>}
-          {t.exit_reason && (
-            <span style={{ marginLeft: 8, color: REASON_COLOR[t.exit_reason] ?? "var(--text-3)" }}>
-              {t.exit_reason}
-            </span>
-          )}
+          {t.exit_reason && <span style={{ marginLeft: 8, color: REASON_COLOR[t.exit_reason] ?? "var(--t-text-3)" }}>{t.exit_reason}</span>}
         </div>
       </div>
 
-      <div style={{ textAlign: "right" }}>
+      <div style={{ textAlign: "right", flexShrink: 0 }}>
         {isOpen ? (
-          <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 13, color: "var(--text-3)", fontWeight: 600 }}>
-            OPEN
-          </div>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--t-text-3)" }}>OPEN</span>
         ) : (
-          <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 16, color: pnlColor, fontWeight: 700 }}>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 13, color: pnlColor, fontWeight: 700 }}>
             {pnlPct != null ? `${pnlPct >= 0 ? "+" : ""}${(pnlPct * 100).toFixed(2)}%` : "—"}
-          </div>
+          </span>
         )}
-        <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)", marginTop: 3 }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--t-text-3)", marginTop: 2 }}>
           {t.entry_price != null ? `$${t.entry_price.toFixed(2)}` : "—"}
           {t.exit_price != null && <span> → ${t.exit_price.toFixed(2)}</span>}
         </div>
@@ -86,10 +76,10 @@ export default function LiveTradeLog({ trades = [] }) {
   const [open, setOpen] = useState(false);
 
   const sorted = useMemo(() => {
-    const open   = trades.filter(t => !t.outcome);
-    const closed = trades.filter(t =>  t.outcome)
-                         .sort((a, b) => (b.timestamp ?? "") < (a.timestamp ?? "") ? -1 : 1);
-    return [...open, ...closed];
+    const openTrades   = trades.filter(t => !t.outcome);
+    const closedTrades = trades.filter(t =>  t.outcome)
+                               .sort((a, b) => (b.timestamp ?? "") < (a.timestamp ?? "") ? -1 : 1);
+    return [...openTrades, ...closedTrades];
   }, [trades]);
 
   const wins   = trades.filter(t => t.outcome === "WIN").length;
@@ -97,30 +87,30 @@ export default function LiveTradeLog({ trades = [] }) {
   const openN  = trades.filter(t => !t.outcome).length;
 
   return (
-    <div className="card" style={{ marginTop: 16 }}>
-      <div className="card-header" onClick={() => setOpen(v => !v)} style={{ cursor: "pointer", userSelect: "none" }}>
-        <div className="card-title">Live Trade Log</div>
-        <div className="card-meta" style={{ display: "flex", gap: 14, alignItems: "center" }}>
+    <div className="t-card">
+      <div className="t-card-head" style={{ cursor: "pointer", userSelect: "none" }} onClick={() => setOpen(v => !v)}>
+        <div className="t-card-title">TRADE HISTORY · LIVE</div>
+        <div className="t-row" style={{ gap: 10 }}>
           {trades.length === 0 ? (
-            <span style={{ color: "var(--text-3)" }}>no trades yet</span>
+            <span className="t-meta">NO TRADES YET</span>
           ) : (
             <>
-              <span style={{ color: "var(--green)" }}>{wins}W</span>
-              <span style={{ color: "var(--red)" }}>{losses}L</span>
-              {openN > 0 && <span style={{ color: "var(--text-3)" }}>{openN} open</span>}
+              <span className="t-pos" style={{ fontFamily: "var(--mono)", fontSize: 11 }}>{wins}W</span>
+              <span className="t-neg" style={{ fontFamily: "var(--mono)", fontSize: 11 }}>{losses}L</span>
+              {openN > 0 && <span className="t-meta">{openN} OPEN</span>}
             </>
           )}
-          <span style={{ fontSize: 11, color: "var(--text-3)" }}>{open ? "▲" : "▼"}</span>
+          <span className="t-meta">{open ? "▲" : "▼"}</span>
         </div>
       </div>
 
       {open && trades.length === 0 && (
-        <div className="card-body">
-          <p className="muted">Trades will appear here once live bracket orders are placed and filled.</p>
+        <div className="t-card-body" style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--t-text-3)" }}>
+          Trades will appear once live bracket orders are placed and filled.
         </div>
       )}
 
-      {open && trades.length > 0 && sorted.map((t, i) => <TradeRow key={i} t={t} i={i} />)}
+      {open && sorted.map((t, i) => <TradeRow key={i} t={t} />)}
     </div>
   );
 }

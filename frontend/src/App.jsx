@@ -1,18 +1,9 @@
 import React, { useState, useEffect, useMemo, Component } from "react";
-import ComparePanel      from "./components/ComparePanel.jsx";
-import TradeLog          from "./components/TradeLog.jsx";
-import BacktestPanel     from "./components/BacktestPanel.jsx";
-import NightLog          from "./components/NightLog.jsx";
-import DemoTradeLog      from "./components/DemoTradeLog.jsx";
-import LiveTradeLog      from "./components/LiveTradeLog.jsx";
 import RotationForecast  from "./components/RotationForecast.jsx";
-import Watchlist         from "./components/Watchlist.jsx";
 import SectorGrid        from "./components/SectorGrid.jsx";
 import SectorRotation    from "./components/SectorRotation.jsx";
 import SectorRegime      from "./components/SectorRegime.jsx";
-import RegimeBayes       from "./components/RegimeBayes.jsx";
 import LiveAccount       from "./components/LiveAccount.jsx";
-import LiveOrderLog      from "./components/LiveOrderLog.jsx";
 import ApexTerminal      from "./components/ApexTerminal.jsx";
 import ApexAtlas         from "./components/ApexAtlas.jsx";
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect, TweakColor } from "./components/TweaksPanel.jsx";
@@ -692,8 +683,6 @@ export default function App() {
   const [tickers,       setTickers]       = useState(null);
   const [showSettings,  setShowSettings]  = useState(false);
   const [showPromote,   setShowPromote]   = useState(false);
-  const [showTest,      setShowTest]      = useState(false);
-  const [backtestResult, setBacktestResult] = useState(null);
   const [auditReports,   setAuditReports]   = useState([]);
 
   // ── Tweaks ──────────────────────────────────────────────────────────────────
@@ -757,7 +746,10 @@ export default function App() {
     alerts:        adaptAlerts(driftAlerts),
     demoTrades,
     liveTrades,
-  }), [sectors, wallet, gateHist, liveGateHist, equity, regimeData, driftAlerts, liveEquity, liveAccount, livePositions, settings, demoTrades, liveTrades]);
+    settings,
+    auditReports,
+    liveOrders,
+  }), [sectors, wallet, gateHist, liveGateHist, equity, regimeData, driftAlerts, liveEquity, liveAccount, livePositions, settings, demoTrades, liveTrades, auditReports, liveOrders]);
 
   // ── Tweaks helpers ──────────────────────────────────────────────────────────
   const unwrap = v => (v && typeof v === "object" && "value" in v) ? v.value : v;
@@ -781,19 +773,13 @@ export default function App() {
   const supplementalPanels = (
     <div className="supp-grid">
       <ErrorBoundary label="Rotation Forecast"><RotationForecast /></ErrorBoundary>
-      <ErrorBoundary label="Watchlist"><Watchlist /></ErrorBoundary>
       <ErrorBoundary label="Sector Rotation"><SectorRotation /></ErrorBoundary>
       <ErrorBoundary label="Sector Regime"><SectorRegime /></ErrorBoundary>
       <div className="supp-full">
         <ErrorBoundary label="Sector Grid"><SectorGrid sectors={sectors} /></ErrorBoundary>
       </div>
-      <div className="supp-full">
-        <ErrorBoundary label="Regime Bayes"><RegimeBayes /></ErrorBoundary>
-      </div>
+
       <ErrorBoundary label="Live Account"><LiveAccount account={liveAccount} status={liveStatus} /></ErrorBoundary>
-      <ErrorBoundary label="Live Orders"><LiveOrderLog orders={liveOrders} /></ErrorBoundary>
-      <ErrorBoundary label="Demo Trade Log"><DemoTradeLog trades={adaptedData.demoTrades} /></ErrorBoundary>
-      <ErrorBoundary label="Live Trade Log"><LiveTradeLog trades={adaptedData.liveTrades} /></ErrorBoundary>
     </div>
   );
 
@@ -831,7 +817,6 @@ export default function App() {
         title="Tweaks"
         onSettings={() => setShowSettings(true)}
         onPromote={liveStatus?.enabled ? () => setShowPromote(true) : null}
-        onTest={() => setShowTest(true)}
       >
         <TweakSection title="Direction">
           <TweakRadio label="Design" value={t.direction}
@@ -886,63 +871,6 @@ export default function App() {
             options={[{value:"serif",label:"Serif+Mono"},{value:"sans",label:"All sans"}]} />
         </TweakSection>
       </TweaksPanel>
-
-      {/* ── Test overlay ────────────────────────────────────────────────── */}
-      {showTest && (
-        <div className="test-overlay">
-          <div className="test-overlay-header">
-            <span className="test-overlay-title">TEST / DIAGNOSTICS</span>
-            <button className="test-close-btn" onClick={() => setShowTest(false)}>✕ Close</button>
-          </div>
-          <div className="test-main">
-            <div className="test-left">
-              <ErrorBoundary label="Compare">
-                <ComparePanel data={compareData} />
-              </ErrorBoundary>
-              <ErrorBoundary label="Live Account">
-                <LiveAccount account={liveAccount} status={liveStatus} />
-              </ErrorBoundary>
-              <ErrorBoundary label="Live Orders">
-                <LiveOrderLog orders={liveOrders} />
-              </ErrorBoundary>
-              <ErrorBoundary label="Demo Trade Log">
-                <DemoTradeLog trades={adaptedData.demoTrades} />
-              </ErrorBoundary>
-              <ErrorBoundary label="Live Trade Log">
-                <LiveTradeLog trades={adaptedData.liveTrades} />
-              </ErrorBoundary>
-              <ErrorBoundary label="Rotation Forecast">
-                <RotationForecast />
-              </ErrorBoundary>
-              <ErrorBoundary label="Sector Rotation">
-                <SectorRotation />
-              </ErrorBoundary>
-              <ErrorBoundary label="Sector Regime">
-                <SectorRegime />
-              </ErrorBoundary>
-              <ErrorBoundary label="Regime Bayes">
-                <RegimeBayes />
-              </ErrorBoundary>
-              <ErrorBoundary label="Watchlist">
-                <Watchlist />
-              </ErrorBoundary>
-              {backtestResult && (
-                <ErrorBoundary label="Backtest Results">
-                  <TradeLog result={backtestResult} />
-                </ErrorBoundary>
-              )}
-              <ErrorBoundary label="Night Log">
-                <NightLog reports={auditReports} />
-              </ErrorBoundary>
-            </div>
-            <div className="test-right">
-              <ErrorBoundary label="Backtest">
-                <BacktestPanel onResult={setBacktestResult} />
-              </ErrorBoundary>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Modals ──────────────────────────────────────────────────────── */}
       {showSettings && (

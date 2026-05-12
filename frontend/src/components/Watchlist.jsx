@@ -3,14 +3,16 @@ import { COMPANY_NAMES } from "../companyNames.js";
 import HoverTooltip, { TipRow, TipHeader } from "./HoverTooltip";
 
 const SIGNAL_META = {
-  recovering: { label: "RECOVERING", color: "#a78bfa" },
-  breakout:   { label: "BREAKOUT",   color: "#00d48c" },
+  recovering: { label: "RECOVERING", color: "var(--t-accent)" },
+  breakout:   { label: "BREAKOUT",   color: "var(--t-accent)" },
   trending:   { label: "TRENDING",   color: "#6aa0f0" },
   rising:     { label: "RISING",     color: "#7ab8ff" },
-  extended:   { label: "EXTENDED",   color: "#ffaa00" },
-  breakdown:  { label: "BREAKDOWN",  color: "#ff3355" },
-  weak:       { label: "WEAK",       color: "#404040" },
+  extended:   { label: "EXTENDED",   color: "var(--t-amber)" },
+  breakdown:  { label: "BREAKDOWN",  color: "var(--t-red)" },
+  weak:       { label: "WEAK",       color: "var(--t-text-3)" },
 };
+
+const cls = (...a) => a.filter(Boolean).join(" ");
 
 function weeks(days) {
   if (!days) return null;
@@ -18,80 +20,61 @@ function weeks(days) {
   return `${Math.round(days / 5)}w`;
 }
 
-function scoreColor(score) {
-  if (score === null || score === undefined) return "var(--text-3)";
-  if (score >= 0.55) return "var(--green)";
-  if (score >= 0.40) return "#e8a020";
-  return "var(--red)";
-}
-
-function WatchlistItem({ item, onRemove }) {
+function WatchlistRow({ item, onRemove }) {
   const [tip, setTip] = useState(null);
-  const sm     = SIGNAL_META[item.signal] ?? SIGNAL_META.weak;
-  const color  = scoreColor(item.score);
+  const sm    = SIGNAL_META[item.signal] ?? SIGNAL_META.weak;
+  const score = item.score;
+  const scoreClass = score == null ? "" : score >= 0.55 ? "t-pos" : score >= 0.40 ? "" : "t-neg";
   const streak = weeks(item.streak_days);
+
   return (
     <div
-      key={item.ticker}
       onMouseMove={e => setTip({ x: e.clientX, y: e.clientY })}
       onMouseLeave={() => setTip(null)}
       style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "10px 16px", borderTop: "1px solid var(--border)",
-        background: item.pre_rotation ? "#faff6905" : "transparent",
+        display: "flex", alignItems: "center", gap: 10,
+        borderTop: "1px solid var(--t-border)",
+        padding: "8px 14px",
+        background: item.pre_rotation ? "rgba(250,255,105,0.03)" : "transparent",
       }}
     >
       <HoverTooltip pos={tip}>
         <TipHeader>{item.ticker}{COMPANY_NAMES[item.ticker] ? ` — ${COMPANY_NAMES[item.ticker]}` : ""}</TipHeader>
         <TipRow label="Signal"       value={`${sm.label}${streak ? ` · ${streak}` : ""}`} color={sm.color} />
-        <TipRow label="Streak"       value={streak ?? "—"} />
         <TipRow label="Sector"       value={item.sector ?? "—"} />
-        <TipRow label="Score"        value={item.score?.toFixed(3) ?? "—"} color={color} />
-        <TipRow label="Pre-rotation" value={item.pre_rotation ? "YES" : "NO"} color={item.pre_rotation ? "var(--green)" : "var(--text-3)"} />
+        <TipRow label="Score"        value={score?.toFixed(3) ?? "—"} />
+        <TipRow label="Pre-rotation" value={item.pre_rotation ? "YES" : "NO"} color={item.pre_rotation ? "var(--t-accent)" : "var(--t-text-3)"} />
         <TipRow label="Source"       value={item.source ?? "—"} />
       </HoverTooltip>
-      <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 15, color: "var(--text-1)", fontWeight: 700 }}>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--t-text-1)", fontWeight: 700 }}>
             {item.ticker}
           </span>
-          <span style={{
-            fontFamily: "'Inconsolata', monospace", fontSize: 9, fontWeight: 700,
-            color: sm.color, background: `${sm.color}18`, border: `1px solid ${sm.color}44`,
-            borderRadius: 3, padding: "1px 5px",
-          }}>
+          <span className="t-pill" style={{ color: sm.color, background: `${sm.color}18`, borderColor: `${sm.color}44`, fontSize: 9 }}>
             {sm.label}{streak ? <span style={{ fontWeight: 400, opacity: 0.7 }}> · {streak}</span> : null}
           </span>
           {item.pre_rotation && (
-            <span style={{
-              fontFamily: "'Inconsolata', monospace", fontSize: 9, fontWeight: 700,
-              color: "var(--green)", background: "#faff6910",
-              border: "1px solid #faff6938", borderRadius: 3, padding: "1px 5px",
-            }}>
-              PRE-ROT
-            </span>
+            <span className="t-pill t-pill-paper" style={{ fontSize: 9 }}>PRE-ROT</span>
           )}
         </div>
-        <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)", marginTop: 3 }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--t-text-3)", marginTop: 2 }}>
           {item.sector}
-          {item.source === "manual" && <span style={{ marginLeft: 8, color: "var(--text-3)", opacity: 0.6 }}>manual</span>}
+          {item.source === "manual" && <span style={{ marginLeft: 8, opacity: 0.6 }}>manual</span>}
         </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 16, color, fontWeight: 700 }}>
-          {item.score?.toFixed(3) ?? "—"}
-        </span>
-        <button
-          onClick={() => onRemove(item.ticker)}
-          style={{
-            fontFamily: "'Inconsolata', monospace", fontSize: 14,
-            background: "none", border: "none",
-            color: "var(--text-3)", cursor: "pointer", padding: "0 2px", lineHeight: 1,
-          }}
-          title="Remove"
-        >×</button>
-      </div>
+      <span className={cls("t-num-sm", scoreClass)} style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700, minWidth: 40, textAlign: "right" }}>
+        {score?.toFixed(3) ?? "—"}
+      </span>
+
+      <button
+        onClick={() => onRemove(item.ticker)}
+        className="t-btn"
+        style={{ padding: "2px 6px", fontSize: 12, minWidth: "unset" }}
+        title="Remove"
+      >×</button>
     </div>
   );
 }
@@ -139,27 +122,21 @@ export default function Watchlist() {
   const sorted = [...items].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
 
   return (
-    <div className="card">
-      <div
-        className="card-header"
-        onClick={() => setOpen(v => !v)}
-        style={{ cursor: "pointer", userSelect: "none" }}
-      >
-        <div className="card-title">
-          Watchlist {!open && items.length > 0 && (
-            <span style={{ fontWeight: 400, color: "var(--text-3)", fontSize: 11 }}>({items.length})</span>
-          )}
+    <div className="t-card">
+      <div className="t-card-head" style={{ cursor: "pointer", userSelect: "none" }} onClick={() => setOpen(v => !v)}>
+        <div className="t-card-title">
+          WATCHLIST
+          {!open && items.length > 0 && <span className="t-meta" style={{ marginLeft: 8 }}>{items.length}</span>}
         </div>
-        <div className="card-meta" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {open && <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 10, color: "var(--text-3)" }}>pre-breakout candidates</span>}
-          <span style={{ fontSize: 11, color: "var(--text-3)" }}>{open ? "▲" : "▼"}</span>
+        <div className="t-row" style={{ gap: 10 }}>
+          {open && <span className="t-meta">PRE-BREAKOUT CANDIDATES</span>}
+          <span className="t-meta">{open ? "▲" : "▼"}</span>
         </div>
       </div>
 
       {open && (
         <>
-          {/* Add form */}
-          <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--border)" }} onClick={e => e.stopPropagation()}>
+          <div style={{ padding: "8px 14px", borderBottom: "1px solid var(--t-border)" }} onClick={e => e.stopPropagation()}>
             <form onSubmit={handleAdd} style={{ display: "flex", gap: 6, alignItems: "center" }}>
               <input
                 value={input}
@@ -167,43 +144,36 @@ export default function Watchlist() {
                 placeholder="TICKER"
                 maxLength={5}
                 style={{
-                  fontFamily: "'Inconsolata', monospace", fontSize: 12,
-                  background: "var(--bg)", border: "1px solid var(--border)",
-                  borderRadius: 4, padding: "5px 10px", color: "var(--text-1)",
-                  width: 90, textTransform: "uppercase", outline: "none",
+                  fontFamily: "var(--mono)", fontSize: 12,
+                  background: "var(--t-bg)", border: "1px solid var(--t-border)",
+                  borderRadius: 4, padding: "5px 10px", color: "var(--t-text-1)",
+                  width: 80, textTransform: "uppercase", outline: "none",
                 }}
               />
-              <button type="submit" disabled={adding || !input.trim()} style={{
-                fontFamily: "'Inconsolata', monospace", fontSize: 11, fontWeight: 600,
-                background: "transparent", border: "1px solid var(--border)",
-                borderRadius: 4, padding: "5px 12px", color: "var(--text-2)",
-                cursor: adding || !input.trim() ? "default" : "pointer",
-                opacity: adding || !input.trim() ? 0.4 : 1,
-              }}>
-                {adding ? "…" : "+ Watch"}
+              <button type="submit" disabled={adding || !input.trim()} className="t-btn"
+                style={{ opacity: adding || !input.trim() ? 0.4 : 1 }}>
+                {adding ? "…" : "+ WATCH"}
               </button>
               {addErr && (
-                <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--red)" }}>
-                  {addErr}
-                </span>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--t-red)" }}>{addErr}</span>
               )}
             </form>
           </div>
 
           {error && (
-            <div style={{ padding: "10px 16px", fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--red)" }}>
+            <div style={{ padding: "10px 14px", fontFamily: "var(--mono)", fontSize: 11, color: "var(--t-red)" }}>
               {error}
             </div>
           )}
 
           {!error && items.length === 0 && (
-            <div className="card-body">
-              <p className="muted">No tickers yet — RECOVERING tickers are added automatically after each poll.</p>
+            <div className="t-card-body" style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--t-text-3)" }}>
+              No tickers — RECOVERING tickers are added automatically after each poll.
             </div>
           )}
 
           {sorted.map(item => (
-            <WatchlistItem key={item.ticker} item={item} onRemove={handleRemove} />
+            <WatchlistRow key={item.ticker} item={item} onRemove={handleRemove} />
           ))}
         </>
       )}

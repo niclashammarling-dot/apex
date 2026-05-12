@@ -191,11 +191,12 @@ function Wallet({ D, mode }) {
 
 function Positions({ D, mode }) {
   const positions = mode === "live" ? (D.livePositions || []) : (D.positions || []);
+  const maxPos = mode === "live" ? (D.settings?.live?.max_positions ?? 6) : (D.settings?.demo?.max_positions ?? 6);
   return (
     <section className="a-section">
       <header className="a-section-head">
         <div>
-          <div className="a-eyebrow">Open positions · {positions.length} of 4</div>
+          <div className="a-eyebrow">Open positions · {positions.length} of {maxPos}</div>
           <h2 className="a-title">Holdings</h2>
         </div>
         <span className="a-meta">25% sector cap · 15% per position</span>

@@ -1,20 +1,15 @@
 import React, { useState, useEffect } from "react";
 import HoverTooltip, { TipRow, TipHeader } from "./HoverTooltip";
 
-const RANK_COLORS = ["#faff69", "#bcbcbb", "#a0a0a0", "#686868", "#686868"];
+const RANK_COLORS = ["var(--t-accent)", "#bcbcbb", "#a0a0a0", "#686868", "#686868"];
 
-function accent(i) { return RANK_COLORS[i] ?? "#888"; }
+function accent(i) { return RANK_COLORS[i] ?? "var(--t-text-3)"; }
 
 function TraceRow({ label, value, highlight }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", padding: "1px 0" }}>
-      <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 10, color: "var(--text-3)" }}>
-        {label}
-      </span>
-      <span style={{
-        fontFamily: "'Inconsolata', monospace", fontSize: 10,
-        color: highlight ? "var(--text-1)" : "var(--text-2)", fontWeight: highlight ? 600 : 400,
-      }}>
+      <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--t-text-3)" }}>{label}</span>
+      <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: highlight ? "var(--t-text-1)" : "var(--t-text-2)", fontWeight: highlight ? 600 : 400 }}>
         {value}
       </span>
     </div>
@@ -23,97 +18,75 @@ function TraceRow({ label, value, highlight }) {
 
 function LeaderboardRow({ entry, i, isOpen, onToggle }) {
   const [tip, setTip] = useState(null);
-  const hasAlloc  = entry.allocation > 0;
-  const col       = accent(i);
-  const trace     = entry.signal_trace ?? {};
-  const postPct   = Math.round(entry.posterior * 100);
-  const allocPct  = Math.round(entry.allocation * 100);
+  const hasAlloc = entry.allocation > 0;
+  const col      = accent(i);
+  const trace    = entry.signal_trace ?? {};
+  const postPct  = Math.round(entry.posterior * 100);
+  const allocPct = Math.round(entry.allocation * 100);
+
   return (
-    <div key={entry.sector} style={{ opacity: hasAlloc ? 1 : 0.45 }}>
+    <div style={{ opacity: hasAlloc ? 1 : 0.45 }}>
       <div
         onMouseMove={e => setTip({ x: e.clientX, y: e.clientY })}
         onMouseLeave={() => setTip(null)}
         onClick={() => onToggle(entry.sector)}
         style={{
           display: "flex", alignItems: "center", gap: 8,
-          padding: "8px 12px", borderTop: "1px solid var(--border)",
-          cursor: "pointer", background: isOpen ? "#1a1a18" : "transparent",
+          padding: "8px 14px", borderTop: "1px solid var(--t-border)",
+          cursor: "pointer",
+          background: isOpen ? "rgba(255,255,255,0.03)" : "transparent",
         }}
       >
         <HoverTooltip pos={tip}>
           <TipHeader>{entry.sector}</TipHeader>
-          <TipRow label="Rank"          value={`#${entry.rank}`} />
-          <TipRow label="Posterior"     value={`${postPct}%`} />
-          <TipRow label="Adj Score"     value={entry.adjusted_score.toFixed(3)} />
-          <TipRow label="Allocation"    value={hasAlloc ? `${allocPct}%` : "—"} />
+          <TipRow label="Rank"       value={`#${entry.rank}`} />
+          <TipRow label="Posterior"  value={`${postPct}%`} />
+          <TipRow label="Adj Score"  value={entry.adjusted_score.toFixed(3)} />
+          <TipRow label="Allocation" value={hasAlloc ? `${allocPct}%` : "—"} />
           {trace.lr_ticker != null && <TipRow label="LR Tickers" value={`×${trace.lr_ticker.toFixed(3)}`} />}
           {trace.lr_etf    != null && <TipRow label="LR ETF"     value={`×${trace.lr_etf.toFixed(3)}`} />}
           {trace.lr_rs     != null && <TipRow label="LR RS"      value={`×${trace.lr_rs.toFixed(3)}`} />}
           {trace.lr_ipo    != null && <TipRow label="LR IPO"     value={`×${trace.lr_ipo.toFixed(3)}`} />}
         </HoverTooltip>
-        {/* Rank */}
-        <span style={{
-          fontFamily: "'Inconsolata', monospace", fontSize: 9, fontWeight: 700,
-          color: col, background: col + "18", border: `1px solid ${col}44`,
-          borderRadius: 3, padding: "1px 5px", minWidth: 22, textAlign: "center", flexShrink: 0,
-        }}>
+
+        <span className="t-pill" style={{ color: col, background: `${col}18`, borderColor: `${col}44`, fontSize: 9, minWidth: 24, textAlign: "center", flexShrink: 0 }}>
           #{entry.rank}
         </span>
 
-        {/* Sector */}
-        <span style={{
-          fontFamily: "'Inconsolata', monospace", fontSize: 12,
-          color: hasAlloc ? "var(--text-1)" : "var(--text-3)",
-          fontWeight: hasAlloc ? 600 : 400, minWidth: 100, flex: 1,
-        }}>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: hasAlloc ? "var(--t-text-1)" : "var(--t-text-3)", fontWeight: hasAlloc ? 600 : 400, flex: 1, minWidth: 0 }}>
           {entry.sector}
         </span>
 
-        {/* Posterior bar + % */}
         <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-          <div style={{ background: "#2a2a28", borderRadius: 2, height: 3, width: 36 }}>
-            <div style={{
-              width: `${postPct}%`, height: "100%", borderRadius: 2,
-              background: postPct >= 60 ? "var(--text-2)" : postPct >= 40 ? "var(--text-3)" : "#404040",
-            }} />
+          <div style={{ background: "var(--t-grid)", borderRadius: 2, height: 3, width: 36 }}>
+            <div style={{ width: `${postPct}%`, height: "100%", borderRadius: 2, background: postPct >= 60 ? "var(--t-text-2)" : postPct >= 40 ? "var(--t-text-3)" : "#404040" }} />
           </div>
-          <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 10, color: "var(--text-3)", minWidth: 28 }}>
-            {postPct}%
-          </span>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--t-text-3)", minWidth: 28 }}>{postPct}%</span>
         </div>
 
-        {/* adj score */}
-        <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-2)", minWidth: 38, textAlign: "right", flexShrink: 0 }}>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--t-text-2)", minWidth: 38, textAlign: "right", flexShrink: 0 }}>
           {entry.adjusted_score.toFixed(3)}
         </span>
 
-        {/* Allocation */}
         {hasAlloc ? (
           <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-            <div style={{ background: "#2a2a28", borderRadius: 2, height: 4, width: 40 }}>
+            <div style={{ background: "var(--t-grid)", borderRadius: 2, height: 4, width: 40 }}>
               <div style={{ width: `${allocPct}%`, height: "100%", background: col, borderRadius: 2 }} />
             </div>
-            <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 12, color: col, fontWeight: 700, minWidth: 32 }}>
-              {allocPct}%
-            </span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: col, fontWeight: 700, minWidth: 32 }}>{allocPct}%</span>
           </div>
         ) : (
-          <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 10, color: "#404040", minWidth: 72, textAlign: "right" }}>
-            no alloc
-          </span>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--t-text-3)", minWidth: 72, textAlign: "right" }}>no alloc</span>
         )}
 
-        <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 10, color: "var(--text-3)", minWidth: 8 }}>
-          {isOpen ? "▲" : "▼"}
-        </span>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--t-text-3)" }}>{isOpen ? "▲" : "▼"}</span>
       </div>
 
-      {/* Signal trace */}
       {isOpen && (
         <div style={{
-          borderTop: `1px solid ${col}22`,
-          padding: "8px 14px 10px 40px",
-          background: "#111110",
+          borderTop: `1px solid var(--t-border)`,
+          padding: "8px 14px 10px 42px",
+          background: "rgba(0,0,0,0.15)",
           display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 24px",
         }}>
           <TraceRow label="recovering tickers"   value={trace.recovering_tickers ?? "—"} />
@@ -149,7 +122,7 @@ export default function RegimeBayes() {
     fetch("/api/sectors/regime-bayes")
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(d => { setData(d); setLoading(false); })
-      .catch(e => { setError(`Failed to load regime allocation (${e})`); setLoading(false); });
+      .catch(e => { setError(`Failed to load (${e})`); setLoading(false); });
   }
 
   useEffect(() => { load(); }, []);
@@ -169,86 +142,54 @@ export default function RegimeBayes() {
   }
 
   if (loading) return null;
-  if (error)   return (
-    <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--red)", padding: "8px 0" }}>
-      {error}
-    </div>
+  if (error) return (
+    <div style={{ padding: "10px 14px", fontFamily: "var(--mono)", fontSize: 11, color: "var(--t-red)" }}>{error}</div>
   );
 
   return (
-    <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
-
-      {/* Header */}
-      <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 10, color: "var(--text-3)", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 500 }}>
-            Regime Allocation
-          </span>
-          <span style={{
-            fontFamily: "'Inconsolata', monospace", fontSize: 9, fontWeight: 600,
-            color: "var(--text-3)", border: "1px solid var(--border)",
-            borderRadius: 3, padding: "1px 6px",
-          }}>
-            BAYESIAN
-          </span>
-          {data?.date && (
-            <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 10, color: "var(--text-3)" }}>
-              as of {data.date}
+    <div className="t-card">
+      <div className="t-card-head">
+        <div className="t-card-title">
+          SECTOR ALLOCATION
+          {data?.date && <span className="t-meta" style={{ marginLeft: 8 }}>as of {data.date}</span>}
+        </div>
+        <div className="t-row" style={{ gap: 8 }}>
+          {triggerMsg && (
+            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: triggerMsg === "Done" ? "var(--t-accent)" : "var(--t-red)" }}>
+              {triggerMsg}
             </span>
           )}
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-            {triggerMsg && (
-              <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 10, color: triggerMsg === "Done" ? "var(--green)" : "var(--red)" }}>
-                {triggerMsg}
-              </span>
-            )}
-            <button
-              onClick={triggerRun}
-              disabled={triggering}
-              title="Run regime update now"
-              style={{
-                fontFamily: "'Inconsolata', monospace", fontSize: 10,
-                padding: "2px 8px", borderRadius: 4, cursor: triggering ? "default" : "pointer",
-                border: "1px solid var(--border)", background: "transparent",
-                color: "var(--text-3)", opacity: triggering ? 0.5 : 1,
-              }}
-            >
-              {triggering ? "running…" : "⟳ run"}
-            </button>
-          </div>
+          <button className="t-btn" onClick={triggerRun} disabled={triggering} style={{ opacity: triggering ? 0.5 : 1 }}>
+            {triggering ? "RUNNING…" : "⟳ RUN"}
+          </button>
         </div>
       </div>
 
-      {/* Not available */}
       {!data?.available && (
-        <div style={{ padding: "12px 14px", fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)" }}>
+        <div className="t-card-body" style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--t-text-3)" }}>
           {data?.reason ?? "Waiting for first EOD regime run."}
-          <span style={{ marginLeft: 8, opacity: 0.6 }}>Use ⟳ run to trigger manually.</span>
+          <span style={{ marginLeft: 8, opacity: 0.6 }}>Use ⟳ RUN to trigger manually.</span>
         </div>
       )}
 
-      {/* Leaderboard rows */}
       {data?.available && data.leaderboard.map((entry, i) => (
         <LeaderboardRow key={entry.sector} entry={entry} i={i} isOpen={!!expanded[entry.sector]} onToggle={toggle} />
       ))}
 
-      {/* IPO context */}
       {data?.available && data.ipo_context && (
-        <div style={{ padding: "8px 12px 12px", borderTop: "1px solid var(--border)" }}>
+        <div style={{ borderTop: "1px solid var(--t-border)", padding: "8px 14px" }}>
           <button
             onClick={() => setShowIpo(v => !v)}
-            style={{
-              fontFamily: "'Inconsolata', monospace", fontSize: 10, cursor: "pointer",
-              background: "none", border: "none", color: "var(--text-3)", padding: 0,
-            }}
+            className="t-btn"
+            style={{ fontSize: 10 }}
           >
-            {showIpo ? "▲" : "▼"} IPO sentiment
+            {showIpo ? "▲" : "▼"} IPO SENTIMENT
           </button>
           {showIpo && (
             <pre style={{
-              fontFamily: "'Inconsolata', monospace", fontSize: 10, color: "var(--text-2)",
-              background: "#111110", border: "1px solid var(--border)",
-              borderRadius: 4, padding: "8px 12px", marginTop: 6,
+              fontFamily: "var(--mono)", fontSize: 10, color: "var(--t-text-2)",
+              background: "rgba(0,0,0,0.2)", border: "1px solid var(--t-border)",
+              borderRadius: 4, padding: "8px 12px", marginTop: 8,
               whiteSpace: "pre-wrap", lineHeight: 1.6,
             }}>
               {data.ipo_context}
@@ -256,7 +197,6 @@ export default function RegimeBayes() {
           )}
         </div>
       )}
-
     </div>
   );
 }

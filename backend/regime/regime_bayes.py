@@ -41,7 +41,7 @@ RESULT_CACHE_PATH = Path(__file__).parent.parent.parent / "data" / "regime_resul
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-LEADERBOARD_SIZE      = 5      # number of sectors tracked
+LEADERBOARD_SIZE      = 8      # number of sectors tracked
 ALLOCATION_THRESHOLD  = 0.5    # adjusted score floor for allocation eligibility
 TICKER_RECOVERY_DAYS  = 5      # consecutive days for ticker recovery signal
 RS_WINDOW_DAYS        = 5      # lookback window for RS divergence

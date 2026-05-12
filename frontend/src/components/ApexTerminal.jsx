@@ -1,5 +1,13 @@
 import React, { useState, useEffect, useMemo } from "react";
 import "../apex-dashboard.css";
+import BacktestPanel from "./BacktestPanel.jsx";
+import TradeLog      from "./TradeLog.jsx";
+import NightLog      from "./NightLog.jsx";
+import RegimeBayes   from "./RegimeBayes.jsx";
+import Watchlist     from "./Watchlist.jsx";
+import DemoTradeLog  from "./DemoTradeLog.jsx";
+import LiveTradeLog  from "./LiveTradeLog.jsx";
+import LiveOrderLog  from "./LiveOrderLog.jsx";
 
 const fmt$ = (n, d = 2) => "$" + Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 const fmtPct = (n, d = 2) => (n >= 0 ? "+" : "−") + Math.abs(n * 100).toFixed(d) + "%";
@@ -218,10 +226,11 @@ function LockChain({ D }) {
 
 function Positions({ D, mode }) {
   const positions = mode === "live" ? (D.livePositions || []) : (D.positions || []);
+  const maxPos = mode === "live" ? (D.settings?.live?.max_positions ?? 6) : (D.settings?.demo?.max_positions ?? 6);
   return (
     <div className="t-card">
       <div className="t-card-head">
-        <div className="t-card-title">OPEN POSITIONS · {positions.length}/4</div>
+        <div className="t-card-title">OPEN POSITIONS · {positions.length}/{maxPos}</div>
         <div className="t-meta">25% SECTOR CAP</div>
       </div>
       <div className="t-card-body" style={{ padding: 0 }}>
@@ -329,46 +338,52 @@ function Legend({ swatch, label, border }) {
 }
 
 function GateFeed({ D, mode }) {
+  const [open, setOpen] = useState(false);
   const rows = mode === "live" ? (D.liveGateRows || []) : (D.gateRows || []);
   if (rows.length === 0) return null;
   return (
     <div className="t-card">
-      <div className="t-card-head">
+      <div className="t-card-head" style={{ cursor: "pointer", userSelect: "none" }} onClick={() => setOpen(v => !v)}>
         <div className="t-card-title">GATE ACTIVITY</div>
-        <div className="t-meta">LAST {rows.length} · {mode === "live" ? "LIVE" : "DEMO"}</div>
+        <div className="t-row" style={{ gap: 10 }}>
+          <span className="t-meta">LAST {rows.length} · {mode === "live" ? "LIVE" : "DEMO"}</span>
+          <span className="t-meta">{open ? "▲" : "▼"}</span>
+        </div>
       </div>
-      <div className="t-card-body" style={{ padding: 0, maxHeight: 380, overflow: "auto" }}>
-        <table className="t-tbl t-tbl-pad t-tbl-feed">
-          <thead>
-            <tr>
-              <th>TIME</th><th>SYM</th><th>SEC</th><th>SCORE</th>
-              <th>SENT</th><th>CONF</th><th>OUTCOME</th><th>REASON</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => {
-              const cls2 = r.outcome === "TRADE_EXECUTED" ? "t-gate-x"
-                : r.outcome.startsWith("SKIPPED") ? "t-gate-skip"
-                : "t-gate-filt";
-              const time = new Date(r.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-              return (
-                <tr key={i}>
-                  <td className="t-meta">{time}</td>
-                  <td><strong>{r.sym}</strong></td>
-                  <td className="t-meta">{r.sector}</td>
-                  <td>{(r.score ?? 0).toFixed(2)}</td>
-                  <td className={(r.sent ?? 0) >= 0 ? "t-pos" : "t-neg"}>
-                    {r.sent != null ? `${r.sent >= 0 ? "+" : ""}${r.sent.toFixed(2)}` : "—"}
-                  </td>
-                  <td>{r.conf != null ? r.conf.toFixed(2) : "—"}</td>
-                  <td><span className={cls("t-pill", cls2)}>{r.outcome.replace("FILTERED_","L").replace("SKIPPED_","SK·")}</span></td>
-                  <td className="t-meta">{r.reason}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      {open && (
+        <div className="t-card-body" style={{ padding: 0, maxHeight: 380, overflow: "auto" }}>
+          <table className="t-tbl t-tbl-pad t-tbl-feed">
+            <thead>
+              <tr>
+                <th>TIME</th><th>SYM</th><th>SEC</th><th>SCORE</th>
+                <th>SENT</th><th>CONF</th><th>OUTCOME</th><th>REASON</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => {
+                const cls2 = r.outcome === "TRADE_EXECUTED" ? "t-gate-x"
+                  : r.outcome.startsWith("SKIPPED") ? "t-gate-skip"
+                  : "t-gate-filt";
+                const time = new Date(r.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+                return (
+                  <tr key={i}>
+                    <td className="t-meta">{time}</td>
+                    <td><strong>{r.sym}</strong></td>
+                    <td className="t-meta">{r.sector}</td>
+                    <td>{(r.score ?? 0).toFixed(2)}</td>
+                    <td className={(r.sent ?? 0) >= 0 ? "t-pos" : "t-neg"}>
+                      {r.sent != null ? `${r.sent >= 0 ? "+" : ""}${r.sent.toFixed(2)}` : "—"}
+                    </td>
+                    <td>{r.conf != null ? r.conf.toFixed(2) : "—"}</td>
+                    <td><span className={cls("t-pill", cls2)}>{r.outcome.replace("FILTERED_","L").replace("SKIPPED_","SK·")}</span></td>
+                    <td className="t-meta">{r.reason}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -397,6 +412,46 @@ function Alerts({ D }) {
   );
 }
 
+function TestView({ D }) {
+  const [backtestResult, setBacktestResult] = useState(null);
+  return (
+    <div className="t-grid" style={{ gridTemplateColumns: "1fr 520px" }}>
+      <div className="t-col-main">
+        <div className="t-card">
+          <div className="t-card-head">
+            <div className="t-card-title">NIGHTLY AUDIT</div>
+            <div className="t-meta">{(D.auditReports || []).length} REPORTS</div>
+          </div>
+          <div className="t-card-body">
+            <NightLog reports={D.auditReports || []} />
+          </div>
+        </div>
+      </div>
+      <div className="t-col-side">
+        <div className="t-card">
+          <div className="t-card-head">
+            <div className="t-card-title">BACKTEST ENGINE</div>
+            <div className="t-meta">SECTOR-FILTERED · KELLY SIZING</div>
+          </div>
+          <div className="t-card-body">
+            <BacktestPanel onResult={setBacktestResult} />
+          </div>
+        </div>
+        {backtestResult && (
+          <div className="t-card">
+            <div className="t-card-head">
+              <div className="t-card-title">BACKTEST RESULTS</div>
+            </div>
+            <div className="t-card-body">
+              <TradeLog result={backtestResult} />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Header({ D, mode, setMode, onSettings, onPromote, marketOpen }) {
   const w = mode === "live" ? D.liveWallet : D.wallet;
   const pnl = w ? ((w.unrealized ?? 0) + (w.realized ?? 0)) : 0;
@@ -420,6 +475,7 @@ function Header({ D, mode, setMode, onSettings, onPromote, marketOpen }) {
             LIVE
             <span className="t-pill t-pill-paper" style={{ marginLeft: 8 }}>PAPER</span>
           </button>
+          <button className={cls("t-tab", mode === "test" && "t-tab-on")} onClick={() => setMode("test")}>TEST</button>
         </div>
       </div>
       <div className="t-row" style={{ gap: 12 }}>
@@ -429,7 +485,7 @@ function Header({ D, mode, setMode, onSettings, onPromote, marketOpen }) {
           </div>
         )}
         {onSettings && <button className="t-btn" onClick={onSettings}>⚙ SETTINGS</button>}
-        {onPromote && <button className="t-btn t-btn-promote" onClick={onPromote}>↑ PROMOTE</button>}
+        {onPromote  && <button className="t-btn t-btn-promote" onClick={onPromote}>↑ PROMOTE</button>}
       </div>
     </header>
   );
@@ -444,27 +500,40 @@ export default function ApexTerminal({ tweaks = {}, data: D, onSettings, onPromo
   return (
     <div className="t-root" data-density={tweaks.density || "comfortable"} data-theme={tweaks.theme || "dark"} data-palette={tweaks.palette || "neon"} data-font={tweaks.font || "mono"}>
       <Header D={D} mode={mode} setMode={setMode} onSettings={onSettings} onPromote={onPromote} marketOpen={marketOpen} />
-      <div className="t-grid">
-        <div className="t-col-main">
-          <RegimeDial D={D} />
-          <Positions D={D} mode={mode} />
-          <SectorGrid D={D} />
-          <GateFeed D={D} mode={mode} />
-        </div>
-        <div className="t-col-side">
-          <Wallet D={D} mode={mode} />
-          <EquityHero D={D} mode={mode} />
-          <LockChain D={D} />
-          <Alerts D={D} />
-        </div>
-      </div>
-      {supplemental && (
-        <div style={{ borderTop: "1px solid var(--t-border)", padding: "32px 24px", colorScheme: tweaks.theme === "light" ? "light" : "dark" }}>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--t-text-3)", marginBottom: 24 }}>
-            Analysis &amp; Tools
+      {mode === "test" ? (
+        <TestView D={D} />
+      ) : (
+        <>
+          <div className="t-grid">
+            <div className="t-col-main">
+              <RegimeDial D={D} />
+              <Positions D={D} mode={mode} />
+              <SectorGrid D={D} />
+              <GateFeed D={D} mode={mode} />
+              <Watchlist />
+              {mode === "live"
+                ? <LiveTradeLog trades={D.liveTrades || []} />
+                : <DemoTradeLog trades={D.demoTrades || []} />
+              }
+              {mode === "live" && <LiveOrderLog orders={D.liveOrders || []} />}
+            </div>
+            <div className="t-col-side">
+              <Wallet D={D} mode={mode} />
+              <EquityHero D={D} mode={mode} />
+              <LockChain D={D} />
+              <RegimeBayes />
+              <Alerts D={D} />
+            </div>
           </div>
-          {supplemental}
-        </div>
+          {supplemental && (
+            <div style={{ borderTop: "1px solid var(--t-border)", padding: "32px 24px", colorScheme: tweaks.theme === "light" ? "light" : "dark" }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--t-text-3)", marginBottom: 24 }}>
+                Analysis &amp; Tools
+              </div>
+              {supplemental}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
