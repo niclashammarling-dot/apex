@@ -188,9 +188,9 @@ Run the LLM finding verifier — strips template artifacts and tags unverified f
 python3 audit/verify_llm_findings.py
 ```
 
-Commit the report and registry to master:
+Commit all changes — report, registry, and any code fixes written during the audit run:
 ```
-git add audit/nightly-report-YYYY-MM-DD.md audit/CHECKS.md
+git add -A
 git commit -m "audit: nightly report YYYY-MM-DD"
 git push
 ```
