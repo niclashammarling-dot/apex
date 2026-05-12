@@ -200,6 +200,7 @@ function adaptTickers(sectors) {
         ev:         t.ev ?? score,
         trend:      t.trend_score ?? momentum,
         rs:         t.rs_score ?? volume,
+        rsi:        t.rsi ?? null,
         chg:        t.chg ?? 0,
         price:      t.price ?? 0,
         watchlist:  false,
@@ -211,16 +212,22 @@ function adaptTickers(sectors) {
 
 function buildSECTORS(sectors) {
   const tickersBySector = {};
+  const scoresBySector  = {};
+  const trendBySector   = {};
   (sectors || []).forEach(s => {
     const meta = SECTOR_META[s.sector];
     if (!meta) return;
     tickersBySector[meta.code] = (s.tickers || []).map(t => t.ticker);
+    scoresBySector[meta.code]  = s.avg_signal ?? null;
+    trendBySector[meta.code]   = s.trend ?? "flat";
   });
   return Object.entries(SECTOR_META).map(([, meta]) => ({
-    code:    meta.code,
-    name:    meta.displayName,
-    etf:     meta.etf,
-    tickers: tickersBySector[meta.code] || [],
+    code:      meta.code,
+    name:      meta.displayName,
+    etf:       meta.etf,
+    tickers:   tickersBySector[meta.code] || [],
+    avgSignal: scoresBySector[meta.code] ?? null,
+    trend:     trendBySector[meta.code]  ?? "flat",
   }));
 }
 

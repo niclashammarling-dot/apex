@@ -295,11 +295,23 @@ function SectorGrid({ D }) {
               <div className="t-sec-head">
                 <div className="t-sec-code">{s.code}</div>
                 <div className="t-sec-name">{s.name}</div>
+                {s.avgSignal != null && (() => {
+                  const sc = s.avgSignal >= 0.55 ? "var(--t-accent)" : s.avgSignal >= 0.40 ? "var(--t-amber)" : "var(--t-text-3)";
+                  const arrow = s.trend === "up" ? "↑" : s.trend === "down" ? "↓" : null;
+                  return (
+                    <span className="t-sec-score" style={{ color: sc }}>
+                      {s.avgSignal.toFixed(3)}{arrow && <span style={{ fontSize: 9, marginLeft: 2 }}>{arrow}</span>}
+                    </span>
+                  );
+                })()}
                 <div className="t-sec-etf">{s.etf}</div>
               </div>
               <div className="t-sec-tiles">
                 {(bySector[s.code] || []).map(t => {
                   const c = t.score >= 0.7 ? "t-accent" : t.score >= 0.55 ? "t-amber" : "t-text-3";
+                  const volC = t.volume >= 0.6 ? "var(--t-accent)" : t.volume >= 0.35 ? "var(--t-amber)" : "var(--t-text-3)";
+                  const rsiC = t.rsi >= 70 ? "var(--t-amber)" : t.rsi <= 30 ? "var(--t-neg)" : "var(--t-text-2)";
+                  const momC = t.momentum >= 0.55 ? "var(--t-accent)" : t.momentum >= 0.40 ? "var(--t-amber)" : "var(--t-neg)";
                   return (
                     <div key={t.sym} className={cls("t-tile", t.watchlist && "t-tile-watch")}>
                       <div className="t-tile-sym">{t.sym}</div>
@@ -315,6 +327,24 @@ function SectorGrid({ D }) {
                       </div>
                       <div className={cls("t-tile-chg", (t.chg ?? 0) >= 0 ? "t-pos" : "t-neg")}>
                         {(t.chg ?? 0) >= 0 ? "+" : ""}{(t.chg ?? 0).toFixed(2)}%
+                      </div>
+                      <div className="t-tile-metrics">
+                        {[
+                          { label: "V", value: t.volume,   color: volC, min: 0, max: 1,   fmt: v => v.toFixed(2) },
+                          { label: "R", value: t.rsi,      color: rsiC, min: 0, max: 100, fmt: v => Math.round(v) },
+                          { label: "M", value: t.momentum, color: momC, min: 0, max: 1,   fmt: v => v.toFixed(2) },
+                        ].map(({ label, value, color, min, max, fmt }) => {
+                          const pct = value != null ? Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100)) : 0;
+                          return (
+                            <div key={label} className="t-tile-metric-row">
+                              <span className="t-tile-metric-label">{label}</span>
+                              <div className="t-tile-metric-track">
+                                <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 1 }} />
+                              </div>
+                              <span className="t-tile-metric-val" style={{ color }}>{value != null ? fmt(value) : "—"}</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   );

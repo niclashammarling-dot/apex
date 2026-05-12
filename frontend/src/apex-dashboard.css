@@ -114,15 +114,16 @@
 /* Sector grid */
 .t-sectors { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px 22px; }
 .t-sec-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px dashed var(--t-border); }
-.t-sec-code { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; color: var(--t-accent); font-weight: 600; }
-.t-sec-name { font-family: var(--mono); font-size: 11px; color: var(--t-text-2); text-transform: uppercase; letter-spacing: 0.06em; }
-.t-sec-etf { font-family: var(--mono); font-size: 10px; color: var(--t-text-3); margin-left: auto; }
+.t-sec-code { font-family: var(--mono); font-size: 13px; letter-spacing: 0.1em; color: var(--t-accent); font-weight: 600; }
+.t-sec-name { font-family: var(--mono); font-size: 13px; color: var(--t-text-2); text-transform: uppercase; letter-spacing: 0.06em; }
+.t-sec-score { font-family: var(--mono); font-size: 14px; font-weight: 600; margin-left: auto; }
+.t-sec-etf { font-family: var(--mono); font-size: 10px; color: var(--t-text-3); margin-left: 8px; }
 .t-sec-excluded .t-sec-code { color: var(--t-text-3); }
 .t-sec-excluded .t-tile { opacity: 0.55; }
 .t-sec-tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
 .t-tile {
   background: var(--t-bg); border: 1px solid var(--t-border); padding: 6px; display: grid;
-  grid-template-rows: auto auto 24px auto; gap: 3px; min-height: 76px;
+  grid-template-rows: auto auto 24px auto auto; gap: 3px; min-height: 76px;
 }
 .t-tile-watch { border-color: color-mix(in oklab, var(--t-accent) 60%, var(--t-border)); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--t-accent) 20%, transparent); }
 .t-tile-sym { font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--t-text-1); letter-spacing: 0.04em; }
@@ -130,13 +131,18 @@
 .t-tile-spark { display: flex; align-items: flex-end; gap: 1.5px; height: 24px; }
 .t-tile-bar { flex: 1; min-height: 2px; }
 .t-tile-chg { font-family: var(--mono); font-size: 10px; }
+.t-tile-metrics { display: flex; flex-direction: column; gap: 2px; }
+.t-tile-metric-row { display: flex; align-items: center; gap: 3px; }
+.t-tile-metric-label { font-family: var(--mono); font-size: 8px; color: var(--t-text-3); width: 8px; flex-shrink: 0; }
+.t-tile-metric-track { flex: 1; background: var(--t-border); border-radius: 1px; height: 3px; min-width: 0; }
+.t-tile-metric-val { font-family: var(--mono); font-size: 8px; width: 22px; text-align: right; flex-shrink: 0; }
 /* Alerts */
 .t-alert { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--t-bg); border: 1px solid var(--t-border); border-radius: 3px; }
 /* Density */
 .t-root[data-density="compact"] .t-card-body { padding: 10px; }
 .t-root[data-density="compact"] .t-grid { gap: 12px; padding: 14px 18px; }
 .t-root[data-density="compact"] .t-num-xl { font-size: 26px; }
-.t-root[data-density="compact"] .t-tile { min-height: 64px; padding: 4px; }
+.t-root[data-density="compact"] .t-tile { min-height: 80px; padding: 4px; }
 .t-root[data-density="compact"] .t-tile-score { font-size: 11px; }
 .t-root[data-density="compact"] .t-tile-spark { height: 18px; }
 
