@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { COMPANY_NAMES } from "../companyNames.js";
+import HoverTooltip, { TipRow, TipHeader } from "./HoverTooltip";
 
 const REASON_COLOR = {
   TP:   "var(--green)",
@@ -19,6 +20,48 @@ const COLS = [
   { col: "pnl",          label: "P&L $"  },
   { col: "signal_score", label: "Score"  },
 ];
+
+function TradeRow({ t, i, sort }) {
+  const [tip, setTip] = useState(null);
+  const win  = t.outcome === "WIN";
+  const loss = t.outcome === "LOSS";
+  const pnlColor = win ? "var(--green)" : loss ? "var(--red)" : "var(--text-3)";
+  return (
+    <tr
+      onMouseMove={e => setTip({ x: e.clientX, y: e.clientY })}
+      onMouseLeave={() => setTip(null)}
+      style={{ borderBottom: "1px solid #242422" }}
+    >
+      <HoverTooltip pos={tip}>
+        <TipHeader>{t.ticker}{COMPANY_NAMES[t.ticker] ? ` — ${COMPANY_NAMES[t.ticker]}` : ""}</TipHeader>
+        <TipRow label="Sector"       value={t.sector ?? "—"} />
+        <TipRow label="Entry"        value={t.entry_date ?? "—"} />
+        <TipRow label="Exit"         value={t.exit_date ?? "—"} />
+        <TipRow label="Exit Reason"  value={t.exit_reason ?? "—"} color={REASON_COLOR[t.exit_reason] ?? "var(--text-3)"} />
+        <TipRow label="P&L %"        value={t.pnl_pct != null ? `${t.pnl_pct >= 0 ? "+" : ""}${(t.pnl_pct * 100).toFixed(2)}%` : "—"} color={pnlColor} />
+        <TipRow label="P&L $"        value={t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}$${Math.abs(t.pnl).toFixed(2)}` : "—"} color={pnlColor} />
+        <TipRow label="Signal Score" value={t.signal_score?.toFixed(3) ?? "—"} />
+      </HoverTooltip>
+      <td style={{ padding: "7px 14px" }}>
+        <div style={{ color: "var(--text-1)", fontWeight: 500 }}>{t.ticker}</div>
+        {COMPANY_NAMES[t.ticker] && (
+          <div style={{ color: "var(--text-3)", fontSize: 10, marginTop: 1 }}>{COMPANY_NAMES[t.ticker]}</div>
+        )}
+      </td>
+      <td style={{ padding: "7px 14px", color: "var(--text-3)" }}>{t.sector}</td>
+      <td style={{ padding: "7px 14px", color: "var(--text-3)" }}>{t.entry_date}</td>
+      <td style={{ padding: "7px 14px", color: "var(--text-3)" }}>{t.exit_date ?? "—"}</td>
+      <td style={{ padding: "7px 14px", color: REASON_COLOR[t.exit_reason] ?? "var(--text-3)" }}>{t.exit_reason ?? "—"}</td>
+      <td style={{ padding: "7px 14px", color: pnlColor }}>
+        {t.pnl_pct != null ? `${t.pnl_pct >= 0 ? "+" : ""}${(t.pnl_pct * 100).toFixed(2)}%` : "—"}
+      </td>
+      <td style={{ padding: "7px 14px", color: pnlColor }}>
+        {t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}$${Math.abs(t.pnl).toFixed(2)}` : "—"}
+      </td>
+      <td style={{ padding: "7px 14px", color: "var(--text-3)" }}>{t.signal_score?.toFixed(3) ?? "—"}</td>
+    </tr>
+  );
+}
 
 export default function TradeLog({ result }) {
   const [sort, setSort] = useState({ col: "entry_date", dir: 1 });
@@ -73,32 +116,7 @@ export default function TradeLog({ result }) {
             </tr>
           </thead>
           <tbody>
-            {trades.map((t, i) => {
-              const win  = t.outcome === "WIN";
-              const loss = t.outcome === "LOSS";
-              const pnlColor = win ? "var(--green)" : loss ? "var(--red)" : "var(--text-3)";
-              return (
-                <tr key={i} style={{ borderBottom: "1px solid #242422" }}>
-                  <td style={{ padding: "7px 14px" }}>
-                    <div style={{ color: "var(--text-1)", fontWeight: 500 }}>{t.ticker}</div>
-                    {COMPANY_NAMES[t.ticker] && (
-                      <div style={{ color: "var(--text-3)", fontSize: 10, marginTop: 1 }}>{COMPANY_NAMES[t.ticker]}</div>
-                    )}
-                  </td>
-                  <td style={{ padding: "7px 14px", color: "var(--text-3)" }}>{t.sector}</td>
-                  <td style={{ padding: "7px 14px", color: "var(--text-3)" }}>{t.entry_date}</td>
-                  <td style={{ padding: "7px 14px", color: "var(--text-3)" }}>{t.exit_date ?? "—"}</td>
-                  <td style={{ padding: "7px 14px", color: REASON_COLOR[t.exit_reason] ?? "var(--text-3)" }}>{t.exit_reason ?? "—"}</td>
-                  <td style={{ padding: "7px 14px", color: pnlColor }}>
-                    {t.pnl_pct != null ? `${t.pnl_pct >= 0 ? "+" : ""}${(t.pnl_pct * 100).toFixed(2)}%` : "—"}
-                  </td>
-                  <td style={{ padding: "7px 14px", color: pnlColor }}>
-                    {t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}$${Math.abs(t.pnl).toFixed(2)}` : "—"}
-                  </td>
-                  <td style={{ padding: "7px 14px", color: "var(--text-3)" }}>{t.signal_score?.toFixed(3) ?? "—"}</td>
-                </tr>
-              );
-            })}
+            {trades.map((t, i) => <TradeRow key={i} t={t} i={i} sort={sort} />)}
           </tbody>
         </table>
       </div>

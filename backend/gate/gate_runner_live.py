@@ -23,6 +23,7 @@ from backend.db import (
 )
 from backend.gate.chain import evaluate_chain
 from backend.gate.gate_runner import PRE_ROTATION_FLOOR, _chain_to_gate_result, _compute_bayesian_multipliers
+from backend.sector_caps import compute_dynamic_caps
 
 _MAX_WORKERS = 5
 
@@ -119,9 +120,13 @@ def run() -> list[dict]:
         compute_ticker_rotation_scores,
         get_rotation_forecast,
     )
-    sector_regime      = compute_sector_regime()
-    rotation_scores    = compute_ticker_rotation_scores()
+    sector_regime       = compute_sector_regime()
+    rotation_scores     = compute_ticker_rotation_scores()
     regime_bayes_result = _get_regime_bayes().last_result()
+
+    sector_exposure_live: dict[str, float] = dict(_sector_exposure)
+    dynamic_caps_live    = compute_dynamic_caps(cfg.get("max_sector_exposure", 0.30),
+                                                regime_result=regime_bayes_result)
 
     # Pre-rotation promotion — same logic as demo gate
     forecast         = get_rotation_forecast()
@@ -219,6 +224,54 @@ def run() -> list[dict]:
                         logger.warning(f"Live trade rejected [{ticker}]: notional too small (${notional:.2f})")
                         result["outcome"] = "TRADE_REJECTED"
                     else:
+                        sector    = signal.get("sector", "")
+                        sec_cap   = dynamic_caps_live.get(sector, cfg.get("max_sector_exposure", 0.30))
+                        projected = round(sector_exposure_live.get(sector, 0.0) + notional / _starting_balance, 3)
+                        if projected > sec_cap:
+                            logger.warning(
+                                f"Live trade rejected [{ticker}]: {sector} sector cap — "
+                                f"projected {projected:.0%} > cap {sec_cap:.0%}"
+                            )
+                            result["outcome"] = "TRADE_REJECTED"
+                        else:
+                            try:
+                                order_id = broker.place_bracket_order(
+                                    ticker          = ticker,
+                                    notional        = notional,
+                                    current_price   = signal["price"],
+                                    take_profit_pct = cfg["take_profit_pct"],
+                                    stop_loss_pct   = cfg["stop_loss_pct"],
+                                )
+                                result["outcome"] = "TRADE_EXECUTED"
+                                open_tickers.add(ticker)
+                                open_count += 1
+                                sector_exposure_live[sector] = projected
+                                _record_live_trade(signal, notional, order_id, cfg)
+                                _fire_trade_alert(ticker, signal, notional, order_id, cfg)
+                                logger.info(
+                                    f"Live gate [{ticker}]: overflow slot {overflow_level} executed — "
+                                    f"score {signal['signal_score']:.4f} >= {overflow_threshold:.4f}"
+                                )
+                            except Exception as e:
+                                logger.error(f"Live trade failed [{ticker}]: {e}")
+                                result["outcome"] = "TRADE_FAILED"
+            else:
+                position_pct = result["lock3"]["position_size_pct"] if result.get("lock3") else cfg["max_position_size"]
+                notional     = acct["buying_power"] * min(position_pct, cfg["max_position_size"])
+                if notional < 10:
+                    logger.warning(f"Live trade rejected [{ticker}]: notional too small (${notional:.2f})")
+                    result["outcome"] = "TRADE_REJECTED"
+                else:
+                    sector    = signal.get("sector", "")
+                    sec_cap   = dynamic_caps_live.get(sector, cfg.get("max_sector_exposure", 0.30))
+                    projected = round(sector_exposure_live.get(sector, 0.0) + notional / _starting_balance, 3)
+                    if projected > sec_cap:
+                        logger.warning(
+                            f"Live trade rejected [{ticker}]: {sector} sector cap — "
+                            f"projected {projected:.0%} > cap {sec_cap:.0%}"
+                        )
+                        result["outcome"] = "TRADE_REJECTED"
+                    else:
                         try:
                             order_id = broker.place_bracket_order(
                                 ticker          = ticker,
@@ -230,38 +283,12 @@ def run() -> list[dict]:
                             result["outcome"] = "TRADE_EXECUTED"
                             open_tickers.add(ticker)
                             open_count += 1
+                            sector_exposure_live[sector] = projected
                             _record_live_trade(signal, notional, order_id, cfg)
                             _fire_trade_alert(ticker, signal, notional, order_id, cfg)
-                            logger.info(
-                                f"Live gate [{ticker}]: overflow slot {overflow_level} executed — "
-                                f"score {signal['signal_score']:.4f} >= {overflow_threshold:.4f}"
-                            )
                         except Exception as e:
                             logger.error(f"Live trade failed [{ticker}]: {e}")
                             result["outcome"] = "TRADE_FAILED"
-            else:
-                position_pct = result["lock3"]["position_size_pct"] if result.get("lock3") else cfg["max_position_size"]
-                notional     = acct["buying_power"] * min(position_pct, cfg["max_position_size"])
-                if notional < 10:
-                    logger.warning(f"Live trade rejected [{ticker}]: notional too small (${notional:.2f})")
-                    result["outcome"] = "TRADE_REJECTED"
-                else:
-                    try:
-                        order_id = broker.place_bracket_order(
-                            ticker          = ticker,
-                            notional        = notional,
-                            current_price   = signal["price"],
-                            take_profit_pct = cfg["take_profit_pct"],
-                            stop_loss_pct   = cfg["stop_loss_pct"],
-                        )
-                        result["outcome"] = "TRADE_EXECUTED"
-                        open_tickers.add(ticker)
-                        open_count += 1
-                        _record_live_trade(signal, notional, order_id, cfg)
-                        _fire_trade_alert(ticker, signal, notional, order_id, cfg)
-                    except Exception as e:
-                        logger.error(f"Live trade failed [{ticker}]: {e}")
-                        result["outcome"] = "TRADE_FAILED"
 
         insert_live_gate_result({
             "timestamp":           result["timestamp"],

@@ -1,565 +1,134 @@
-import React, { useState, useEffect, Component } from "react";
-import SectorGrid      from "./components/SectorGrid.jsx";
-import SectorRotation  from "./components/SectorRotation.jsx";
-import SectorRegime    from "./components/SectorRegime.jsx";
-import RegimeBayes    from "./components/RegimeBayes.jsx";
-import Watchlist          from "./components/Watchlist.jsx";
-import RotationForecast   from "./components/RotationForecast.jsx";
-import WalletPanel   from "./components/WalletPanel.jsx";
-import GateFeed      from "./components/GateFeed.jsx";
-import EquityCurve   from "./components/EquityCurve.jsx";
-import BacktestPanel from "./components/BacktestPanel.jsx";
-import TradeLog      from "./components/TradeLog.jsx";
-import LiveAccount   from "./components/LiveAccount.jsx";
-import LivePositions from "./components/LivePositions.jsx";
-import LiveOrderLog  from "./components/LiveOrderLog.jsx";
-import LiveTradeLog  from "./components/LiveTradeLog.jsx";
-import LiveGateFeed  from "./components/LiveGateFeed.jsx";
-import ComparePanel  from "./components/ComparePanel.jsx";
-import DemoTradeLog  from "./components/DemoTradeLog.jsx";
-import DemoPositions from "./components/DemoPositions.jsx";
-import NightLog      from "./components/NightLog.jsx";
+import React, { useState, useEffect, useMemo, Component } from "react";
+import ComparePanel      from "./components/ComparePanel.jsx";
+import TradeLog          from "./components/TradeLog.jsx";
+import BacktestPanel     from "./components/BacktestPanel.jsx";
+import NightLog          from "./components/NightLog.jsx";
+import DemoTradeLog      from "./components/DemoTradeLog.jsx";
+import LiveTradeLog      from "./components/LiveTradeLog.jsx";
+import RotationForecast  from "./components/RotationForecast.jsx";
+import Watchlist         from "./components/Watchlist.jsx";
+import SectorRotation    from "./components/SectorRotation.jsx";
+import SectorRegime      from "./components/SectorRegime.jsx";
+import RegimeBayes       from "./components/RegimeBayes.jsx";
+import LiveAccount       from "./components/LiveAccount.jsx";
+import LiveOrderLog      from "./components/LiveOrderLog.jsx";
+import ApexTerminal      from "./components/ApexTerminal.jsx";
+import ApexAtlas         from "./components/ApexAtlas.jsx";
+import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect, TweakColor } from "./components/TweaksPanel.jsx";
 
+// ── Modal / overlay CSS only ──────────────────────────────────────────────────
 const CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', system-ui, sans-serif; font-size: 14px; min-height: 100vh; -webkit-font-smoothing: antialiased; }
 
   :root {
-    --green:     #faff69;
-    --red:       #ff7575;
-    --bg:        #151515;
-    --bg-card:   #1f1f1c;
-    --bg-header: #282828;
-    --border:    #343434;
-    --text-1:    #ffffff;
-    --text-2:    #bcbcbb;
-    --text-3:    #a0a0a0;
+    --green: #faff69; --red: #ff7575;
+    --bg: #151515; --bg-card: #1f1f1c; --bg-header: #282828;
+    --border: #343434; --text-1: #ffffff; --text-2: #bcbcbb; --text-3: #a0a0a0;
   }
-
   @keyframes ping  { 0%{opacity:0.6;transform:scale(1)} 100%{opacity:0;transform:scale(2.4)} }
-  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.15} }
 
-  body {
-    background: var(--bg);
-    color: var(--text-1);
-    font-family: 'Inter', system-ui, sans-serif;
-    font-size: 14px;
-    min-height: 100vh;
-    -webkit-font-smoothing: antialiased;
+  /* ── Supplemental panels ───────────────────────── */
+  .supp-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start;
   }
+  .supp-full { grid-column: 1 / -1; }
 
-  /* ── Header ─────────────────────────────────── */
-  .header {
-    background: var(--bg-header);
-    border-bottom: 1px solid var(--border);
-    padding: 0 32px;
-    height: 52px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    position: sticky;
-    top: 0;
-    z-index: 10;
+  /* ── Test overlay ──────────────────────────────── */
+  .test-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: var(--bg); overflow: auto;
+    display: flex; flex-direction: column;
   }
-
-  .header-left  { display: flex; align-items: center; gap: 20px; }
-  .header-right { display: flex; align-items: center; gap: 20px; }
-
-  .logo {
-    font-family: 'Inconsolata', monospace;
-    font-size: 17px;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    color: var(--green);
+  .test-overlay-header {
+    background: var(--bg-header); border-bottom: 1px solid var(--border);
+    padding: 0 28px; height: 48px; display: flex; align-items: center;
+    justify-content: space-between; position: sticky; top: 0; z-index: 10;
   }
-
-  .market-badge {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    font-family: 'Inconsolata', monospace;
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--text-3);
+  .test-overlay-title { font-family: 'Inconsolata', monospace; font-size: 13px; color: var(--text-2); letter-spacing: 0.08em; }
+  .test-close-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--text-3);
+    border-radius: 4px; font-family: 'Inconsolata', monospace; font-size: 11px;
+    letter-spacing: 0.06em; padding: 5px 12px; cursor: pointer; transition: all 0.15s;
   }
+  .test-close-btn:hover { color: var(--text-1); border-color: var(--text-2); }
+  .test-main { padding: 24px 28px; display: grid; grid-template-columns: 1fr 360px; gap: 20px; align-items: start; }
+  .test-left, .test-right { display: flex; flex-direction: column; gap: 20px; }
 
-  .market-dot { width: 8px; height: 8px; border-radius: 50%; }
-  .market-dot.open   { background: var(--green); box-shadow: 0 0 8px rgba(250,255,105,0.5); }
-  .market-dot.closed { background: var(--text-3); }
-
-  .header-balance {
-    font-family: 'Inconsolata', monospace;
-    font-size: 14px;
-    color: var(--text-2);
-  }
-
-  .header-balance .pnl-pos { color: var(--green); }
-  .header-balance .pnl-neg { color: var(--red); }
-
-  .refresh-btn {
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    color: var(--text-3);
-    font-family: 'Inconsolata', monospace;
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    padding: 6px 14px;
-    cursor: pointer;
-    text-transform: uppercase;
-    transition: all 0.15s;
-  }
-  .refresh-btn:hover { background: #282826; color: var(--text-1); border-color: #3a3a38; }
-
-  /* ── Layout ──────────────────────────────────── */
-  .main {
-    padding: 24px 32px;
-    max-width: 1440px;
-    margin: 0 auto;
-    display: grid;
-    grid-template-columns: 1fr 380px;
-    gap: 20px;
-    align-items: start;
-  }
-
-  .main-left  { display: flex; flex-direction: column; gap: 20px; }
-  .main-right { display: flex; flex-direction: column; gap: 20px; position: sticky; top: 96px; }
-
-  /* ── Shared ──────────────────────────────────── */
-  .section-label {
-    font-family: 'Inconsolata', monospace;
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-3);
-    margin-bottom: 14px;
-  }
-
-  .muted { color: var(--text-3); font-size: 13px; }
-
-  .error-banner {
-    background: #1f0e0e;
-    border: 1px solid #4a1a1a;
-    border-radius: 5px;
-    color: var(--red);
-    font-family: 'Inconsolata', monospace;
-    font-size: 12px;
-    padding: 12px 16px;
-  }
-
-  /* ── Card ────────────────────────────────────── */
-  .card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
-    box-shadow: rgba(0,0,0,0.06) 0 4px 4px 0, rgba(0,0,0,0.18) 0 4px 25px 0 inset;
-  }
-
-  .card-header {
-    background: var(--bg-header);
-    border-bottom: 1px solid var(--border);
-    padding: 11px 16px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .card-header::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 15%;
-    right: 15%;
-    height: 1px;
-    background: linear-gradient(to right, transparent, rgba(250,255,105,0.4), transparent);
-    pointer-events: none;
-  }
-
-  .card-title {
-    font-family: 'Inconsolata', monospace;
-    font-size: 12px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-2);
-    font-weight: 600;
-  }
-
-  .card-meta {
-    font-family: 'Inconsolata', monospace;
-    font-size: 11px;
-    color: var(--text-3);
-  }
-
-  .card-body { padding: 16px; }
-
-  /* ── Wallet ──────────────────────────────────── */
-  .wallet-balance-row {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    margin-bottom: 8px;
-  }
-
-  .wallet-balance-main {
-    font-family: 'Inconsolata', monospace;
-    font-size: 26px;
-    font-weight: 600;
-    color: var(--text-1);
-  }
-
-  .wallet-pnl { font-family: 'Inconsolata', monospace; font-size: 15px; font-weight: 600; }
-  .wallet-pnl-pct { font-size: 13px; margin-left: 5px; opacity: 0.85; }
-
-  .wallet-sub-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-family: 'Inconsolata', monospace;
-    font-size: 13px;
-    color: var(--text-3);
-    margin-bottom: 4px;
-  }
-  .wallet-sub-row span:not(.muted) { color: var(--text-2); }
-
-  .wallet-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-family: 'Inconsolata', monospace;
-    font-size: 13px;
-    margin-top: 10px;
-  }
-  .wallet-table th {
-    color: var(--text-3);
-    text-align: left;
-    padding: 6px 8px;
-    font-weight: 400;
-    letter-spacing: 0.04em;
-    border-bottom: 1px solid var(--border);
-    font-size: 11px;
-    text-transform: uppercase;
-  }
-  .wallet-table td {
-    padding: 7px 8px;
-    border-bottom: 1px solid #2a2a28;
-    color: var(--text-2);
-  }
-  .wallet-table td strong { color: var(--text-1); }
-
-  .outcome-badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    font-weight: 600;
-  }
-  .outcome-win     { background: #1e1e00; color: var(--green); }
-  .outcome-loss    { background: #2a0a0a; color: var(--red); }
-  .outcome-expired { background: #1e1e1c; color: var(--text-3); }
-  .outcome-open    { background: #141424; color: #6aa0f0; }
-
-  /* ── Gate feed ───────────────────────────────── */
-  .feed-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-family: 'Inconsolata', monospace;
-    font-size: 13px;
-  }
-  .feed-table th {
-    color: var(--text-3);
-    text-align: left;
-    padding: 10px 16px;
-    font-weight: 400;
-    letter-spacing: 0.06em;
-    border-bottom: 1px solid var(--border);
-    font-size: 11px;
-    text-transform: uppercase;
-  }
-  .feed-table td {
-    padding: 9px 16px;
-    border-bottom: 1px solid #2a2a28;
-    color: var(--text-2);
-  }
-  .feed-table td strong { color: var(--text-1); font-weight: 600; }
-  .feed-table tr:last-child td { border-bottom: none; }
-  .feed-table tr:hover td { background: #282826; }
-
-  .gate-badge {
-    display: inline-block;
-    padding: 3px 9px;
-    border-radius: 4px;
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    font-weight: 600;
-  }
-  .gate-executed { background: #1e1e00; color: var(--green); }
-  .gate-rejected { background: #2a1e00; color: #d4a020; }
-  .gate-fail     { background: #1e1e1c; color: var(--text-3); }
-  .gate-macro    { background: #1e1a00; color: #c8a020; }
-  .gate-skipped  { background: #181816; color: var(--text-3); }
-
-  /* ── Tab bar ─────────────────────────────────── */
-  .tab-bar {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    background: var(--bg-header);
-    border-bottom: 1px solid var(--border);
-    padding: 0 32px;
-    position: sticky;
-    top: 52px;
-    z-index: 9;
-  }
-
-  .tab-btn {
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--text-3);
-    cursor: pointer;
-    font-family: 'Inconsolata', monospace;
-    font-size: 12px;
-    letter-spacing: 0.08em;
-    padding: 12px 16px;
-    text-transform: uppercase;
-    transition: color 0.15s, border-color 0.15s;
-  }
-  .tab-btn:hover { color: var(--text-2); }
-  .tab-btn.active {
-    color: var(--green);
-    border-bottom-color: var(--green);
-  }
-
-  .live-dot {
-    display: inline-block;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--green);
-    box-shadow: 0 0 6px rgba(250,255,105,0.6);
-    margin-right: 6px;
-    vertical-align: middle;
-  }
-
-  /* ── Promote modal ───────────────────────────────── */
+  /* ── Modal overlay ─────────────────────────────── */
   .modal-overlay {
-    position: fixed; inset: 0;
-    background: rgba(0,0,0,0.72);
-    z-index: 100;
-    display: flex; align-items: center; justify-content: center;
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    z-index: 2000; display: flex; align-items: center; justify-content: center;
   }
   .modal {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 24px;
-    width: 480px;
-    max-width: 95vw;
-    max-height: 80vh;
-    overflow-y: auto;
-    box-shadow: rgba(0,0,0,0.06) 0 4px 4px 0, rgba(0,0,0,0.18) 0 4px 25px 0 inset;
+    background: #1a1a18; border: 1px solid var(--border); border-radius: 8px;
+    padding: 24px; min-width: 520px; max-width: 90vw; max-height: 90vh;
+    overflow-y: auto; color: var(--text-1);
   }
-  .modal-title {
-    font-family: 'Inconsolata', monospace;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-1);
-    margin-bottom: 6px;
-  }
-  .modal-sub {
-    font-size: 13px;
-    color: var(--text-3);
-    margin-bottom: 18px;
-    line-height: 1.5;
-  }
-  .modal-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-family: 'Inconsolata', monospace;
-    font-size: 12px;
-    margin-bottom: 20px;
-  }
-  .modal-table th {
-    color: var(--text-3); font-weight: 400;
-    text-align: left; padding: 5px 8px;
-    border-bottom: 1px solid var(--border);
-    text-transform: uppercase; letter-spacing: 0.04em;
-  }
-  .modal-table td { padding: 7px 8px; color: var(--text-2); border-bottom: 1px solid #2a2a28; }
-  .modal-table td.changed { color: var(--green); font-weight: 600; }
-  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+  .modal-title { font-family: 'Inconsolata', monospace; font-size: 14px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--green); margin-bottom: 8px; }
+  .modal-sub { font-size: 12px; color: var(--text-3); margin-bottom: 16px; }
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+  .modal-table { width: 100%; border-collapse: collapse; font-family: 'Inconsolata', monospace; font-size: 12px; }
+  .modal-table th { color: var(--text-3); text-align: left; padding: 6px 8px; font-weight: 400; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+  .modal-table td { padding: 5px 8px; color: var(--text-2); border-bottom: 1px solid #252523; }
+  .modal-table td.changed { color: var(--green); }
   .btn-confirm {
-    background: #1e1e00; border: 1px solid var(--green);
-    color: var(--green); border-radius: 5px;
-    font-family: 'Inconsolata', monospace; font-size: 12px;
+    background: #1a1a00; border: 1px solid #3a3a00; color: var(--green);
+    border-radius: 5px; font-family: 'Inconsolata', monospace; font-size: 12px;
     letter-spacing: 0.06em; padding: 8px 18px; cursor: pointer;
-    text-transform: uppercase; transition: background 0.15s;
+    text-transform: uppercase; transition: all 0.15s;
   }
   .btn-confirm:hover { background: #2a2a00; }
   .btn-cancel {
-    background: transparent; border: 1px solid var(--border);
-    color: var(--text-3); border-radius: 5px;
-    font-family: 'Inconsolata', monospace; font-size: 12px;
+    background: transparent; border: 1px solid var(--border); color: var(--text-3);
+    border-radius: 5px; font-family: 'Inconsolata', monospace; font-size: 12px;
     letter-spacing: 0.06em; padding: 8px 18px; cursor: pointer;
     text-transform: uppercase; transition: all 0.15s;
   }
   .btn-cancel:hover { color: var(--text-1); border-color: var(--text-2); }
-  .promote-btn {
-    background: transparent; border: 1px solid #2a2a00;
-    color: var(--green); border-radius: 5px;
-    font-family: 'Inconsolata', monospace; font-size: 11px;
-    letter-spacing: 0.06em; padding: 5px 12px; cursor: pointer;
-    text-transform: uppercase; transition: all 0.15s;
-  }
-  .promote-btn:hover { background: #1e1e00; border-color: #3a3a00; }
-
-  .settings-btn {
-    background: transparent; border: 1px solid var(--border);
-    color: var(--text-3); border-radius: 5px;
-    font-family: 'Inconsolata', monospace; font-size: 11px;
-    letter-spacing: 0.06em; padding: 6px 12px; cursor: pointer;
-    transition: all 0.15s;
-  }
-  .settings-btn:hover { background: #282826; color: var(--text-1); border-color: #3a3a38; }
 
   /* ── Settings modal ──────────────────────────────── */
-  .settings-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 24px;
-    margin-bottom: 20px;
-  }
-  .settings-col-title {
-    font-family: 'Inconsolata', monospace;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-3);
-    margin-bottom: 12px;
-  }
+  .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 20px; }
+  .settings-col-title { font-family: 'Inconsolata', monospace; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); margin-bottom: 12px; }
   .settings-field { margin-bottom: 12px; }
-  .settings-label {
-    font-family: 'Inconsolata', monospace;
-    font-size: 11px;
-    color: var(--text-3);
-    margin-bottom: 4px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .settings-input {
-    width: 100%;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    color: var(--text-1);
-    font-family: 'Inconsolata', monospace;
-    font-size: 13px;
-    padding: 6px 10px;
-    outline: none;
-    transition: border-color 0.15s;
-  }
+  .settings-label { font-family: 'Inconsolata', monospace; font-size: 11px; color: var(--text-3); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .settings-input { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text-1); font-family: 'Inconsolata', monospace; font-size: 13px; padding: 6px 10px; outline: none; transition: border-color 0.15s; }
   .settings-input:focus { border-color: #4a4a38; }
-  .settings-save-btn {
-    width: 100%;
-    background: #1a1a00; border: 1px solid #3a3a00;
-    color: var(--text-2); border-radius: 4px;
-    font-family: 'Inconsolata', monospace; font-size: 11px;
-    letter-spacing: 0.06em; padding: 7px; cursor: pointer;
-    text-transform: uppercase; transition: all 0.15s; margin-top: 4px;
-  }
+  .settings-save-btn { width: 100%; background: #1a1a00; border: 1px solid #3a3a00; color: var(--text-2); border-radius: 4px; font-family: 'Inconsolata', monospace; font-size: 11px; letter-spacing: 0.06em; padding: 7px; cursor: pointer; text-transform: uppercase; transition: all 0.15s; margin-top: 4px; }
   .settings-save-btn:hover { background: #252500; border-color: #4a4a00; }
   .settings-save-btn.saved { background: #1a1a00; border-color: var(--green); color: var(--green); }
-
-  .sector-thresholds-toggle {
-    width: 100%; background: transparent; border: 1px solid var(--border);
-    border-radius: 5px; color: var(--text-3); cursor: pointer;
-    font-family: 'Inconsolata', monospace; font-size: 11px; letter-spacing: 0.07em;
-    padding: 8px 12px; text-align: left; margin-top: 20px;
-    display: flex; justify-content: space-between; align-items: center;
-    transition: border-color 0.15s, color 0.15s;
-  }
+  .sector-thresholds-toggle { width: 100%; background: transparent; border: 1px solid var(--border); border-radius: 5px; color: var(--text-3); cursor: pointer; font-family: 'Inconsolata', monospace; font-size: 11px; letter-spacing: 0.07em; padding: 8px 12px; text-align: left; margin-top: 20px; display: flex; justify-content: space-between; align-items: center; transition: border-color 0.15s, color 0.15s; }
   .sector-thresholds-toggle:hover { border-color: #3a3a38; color: var(--text-2); }
-  .sector-thresholds-body {
-    margin-top: 8px; border: 1px solid var(--border); border-radius: 5px;
-    padding: 12px 14px;
-  }
-  .sector-thresh-row {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 4px 0; border-bottom: 1px solid #2a2a28; font-size: 11px;
-  }
+  .sector-thresholds-body { margin-top: 8px; border: 1px solid var(--border); border-radius: 5px; padding: 12px 14px; }
+  .sector-thresh-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid #2a2a28; font-size: 11px; }
   .sector-thresh-row:last-child { border-bottom: none; }
   .sector-thresh-name { color: var(--text-2); font-family: 'Inconsolata', monospace; }
   .sector-thresh-val  { color: var(--text-1); font-weight: 600; font-family: 'Inconsolata', monospace; }
-  .sector-thresh-bar  {
-    height: 3px; background: #2a2a28; border-radius: 2px;
-    flex: 1; margin: 0 10px; overflow: hidden;
-  }
+  .sector-thresh-bar  { height: 3px; background: #2a2a28; border-radius: 2px; flex: 1; margin: 0 10px; overflow: hidden; }
   .sector-thresh-fill { height: 100%; background: var(--green); border-radius: 2px; opacity: 0.55; }
   .sector-thresh-fallback { color: var(--text-3); font-size: 10px; margin-top: 10px; font-family: 'Inconsolata', monospace; }
-  .sector-thresh-recal {
-    background: transparent; border: 1px solid #2a2a28; color: var(--text-3);
-    border-radius: 4px; font-family: 'Inconsolata', monospace; font-size: 10px;
-    letter-spacing: 0.06em; padding: 4px 10px; cursor: pointer; margin-top: 10px;
-    transition: all 0.15s;
-  }
+  .sector-thresh-recal { background: transparent; border: 1px solid #2a2a28; color: var(--text-3); border-radius: 4px; font-family: 'Inconsolata', monospace; font-size: 10px; letter-spacing: 0.06em; padding: 4px 10px; cursor: pointer; margin-top: 10px; transition: all 0.15s; }
   .sector-thresh-recal:hover { background: #1a1a00; border-color: #3a3a00; color: var(--green); }
   .sector-thresh-recal:disabled { opacity: 0.5; cursor: not-allowed; }
-
   .settings-tabs { display: flex; gap: 2px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
-  .settings-tab {
-    background: transparent; border: none; border-bottom: 2px solid transparent;
-    color: var(--text-3); cursor: pointer;
-    font-family: 'Inconsolata', monospace; font-size: 11px;
-    letter-spacing: 0.08em; padding: 8px 16px;
-    text-transform: uppercase; transition: all 0.15s;
-  }
+  .settings-tab { background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--text-3); cursor: pointer; font-family: 'Inconsolata', monospace; font-size: 11px; letter-spacing: 0.08em; padding: 8px 16px; text-transform: uppercase; transition: all 0.15s; }
   .settings-tab:hover { color: var(--text-2); }
   .settings-tab.active { color: var(--green); border-bottom-color: var(--green); }
-
   .ticker-sector { margin-bottom: 16px; }
-  .ticker-sector-name {
-    font-family: 'Inconsolata', monospace; font-size: 11px;
-    color: var(--text-3); text-transform: uppercase;
-    letter-spacing: 0.06em; margin-bottom: 6px;
-  }
+  .ticker-sector-name { font-family: 'Inconsolata', monospace; font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
   .ticker-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
-  .ticker-chip {
-    display: flex; align-items: center; gap: 5px;
-    background: #141414; border: 1px solid #2a2a28;
-    border-radius: 4px; padding: 3px 8px;
-    font-family: 'Inconsolata', monospace; font-size: 12px; color: var(--text-2);
-  }
-  .ticker-chip-remove {
-    background: none; border: none; color: var(--text-3);
-    cursor: pointer; font-size: 13px; line-height: 1; padding: 0;
-    transition: color 0.15s;
-  }
+  .ticker-chip { display: flex; align-items: center; gap: 5px; background: #141414; border: 1px solid #2a2a28; border-radius: 4px; padding: 3px 8px; font-family: 'Inconsolata', monospace; font-size: 12px; color: var(--text-2); }
+  .ticker-chip-remove { background: none; border: none; color: var(--text-3); cursor: pointer; font-size: 13px; line-height: 1; padding: 0; transition: color 0.15s; }
   .ticker-chip-remove:hover { color: var(--red); }
   .ticker-add-row { display: flex; gap: 6px; }
-  .ticker-add-input {
-    background: var(--bg); border: 1px solid var(--border);
-    border-radius: 4px; color: var(--text-1);
-    font-family: 'Inconsolata', monospace; font-size: 12px;
-    padding: 4px 8px; width: 80px; outline: none; text-transform: uppercase;
-  }
+  .ticker-add-input { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text-1); font-family: 'Inconsolata', monospace; font-size: 12px; padding: 4px 8px; width: 80px; outline: none; text-transform: uppercase; }
   .ticker-add-input:focus { border-color: #4a4a38; }
-  .ticker-add-btn {
-    background: #1a1a00; border: 1px solid #3a3a00; border-radius: 4px;
-    color: var(--green); font-family: 'Inconsolata', monospace; font-size: 11px;
-    letter-spacing: 0.06em; padding: 4px 10px; cursor: pointer;
-    text-transform: uppercase; transition: all 0.15s;
-  }
+  .ticker-add-btn { background: #1a1a00; border: 1px solid #3a3a00; border-radius: 4px; color: var(--green); font-family: 'Inconsolata', monospace; font-size: 11px; letter-spacing: 0.06em; padding: 4px 10px; cursor: pointer; text-transform: uppercase; transition: all 0.15s; }
   .ticker-add-btn:hover { background: #252500; }
-
-  /* ── Scrollbar ───────────────────────────────── */
-  ::-webkit-scrollbar { width: 4px; height: 4px; }
-  ::-webkit-scrollbar-track { background: var(--bg-card); }
-  ::-webkit-scrollbar-thumb { background: #3a3a38; border-radius: 2px; }
+  .error-banner { color: var(--red); font-family: 'Inconsolata', monospace; font-size: 12px; padding: 8px; }
 `;
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
 function isMarketOpen() {
   const now = new Date();
@@ -570,37 +139,17 @@ function isMarketOpen() {
   return mins >= 9 * 60 + 30 && mins < 16 * 60;
 }
 
-// ── Error boundary ────────────────────────────────────────────────────────────
-// Catches render errors in child components so one broken section doesn't
-// unmount the entire dashboard.
-
 class ErrorBoundary extends Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false, message: "" };
-  }
-  static getDerivedStateFromError(err) {
-    return { hasError: true, message: err?.message || "Unknown error" };
-  }
-  componentDidCatch(err, info) {
-    console.error("ErrorBoundary caught:", err, info);
-  }
+  constructor(props) { super(props); this.state = { hasError: false, message: "" }; }
+  static getDerivedStateFromError(err) { return { hasError: true, message: err?.message || "Unknown error" }; }
+  componentDidCatch(err, info) { console.error("ErrorBoundary caught:", err, info); }
   render() {
     if (this.state.hasError) {
-      return (
-        <div className="card">
-          <div className="card-header"><div className="card-title">{this.props.label || "Section"}</div></div>
-          <div className="card-body error-banner">
-            Render error: {this.state.message}
-          </div>
-        </div>
-      );
+      return <div className="error-banner">Render error: {this.state.message}</div>;
     }
     return this.props.children;
   }
 }
-
-// ── Fetch helper with exponential-backoff retry ───────────────────────────────
 
 async function fetchWithRetry(url, maxAttempts = 3) {
   let delay = 1000;
@@ -617,59 +166,251 @@ async function fetchWithRetry(url, maxAttempts = 3) {
   }
 }
 
+// ── Sector meta — exact strings from config.py ────────────────────────────────
+
+const SECTOR_META = {
+  Technology:      { code: "TECH",  etf: "XLK",  displayName: "Technology",    excluded: false },
+  Healthcare:      { code: "HLTH",  etf: "XLV",  displayName: "Healthcare",     excluded: false },
+  Energy:          { code: "ENER",  etf: "XLE",  displayName: "Energy",         excluded: false },
+  Industrials:     { code: "INDU",  etf: "XLI",  displayName: "Industrials",    excluded: false },
+  Financials:      { code: "FIN",   etf: "XLF",  displayName: "Financials",     excluded: true  },
+  ConsumerDisc:    { code: "CDIS",  etf: "XLY",  displayName: "Consumer Disc.", excluded: false },
+  ConsumerStaples: { code: "CSTP",  etf: "XLP",  displayName: "Cons. Staples",  excluded: true  },
+  Communication:   { code: "COMM",  etf: "XLC",  displayName: "Communication",  excluded: false },
+  Utilities:       { code: "UTIL",  etf: "XLU",  displayName: "Utilities",      excluded: true  },
+  Materials:       { code: "MATR",  etf: "XLB",  displayName: "Materials",      excluded: false },
+  RealEstate:      { code: "REIT",  etf: "XLRE", displayName: "Real Estate",    excluded: false },
+};
+
+const EXCLUDED_CODES = new Set(
+  Object.values(SECTOR_META).filter(m => m.excluded).map(m => m.code)
+);
+
+// ── Data adapters ─────────────────────────────────────────────────────────────
+
+function adaptTickers(sectors) {
+  const out = [];
+  (sectors || []).forEach(s => {
+    const meta = SECTOR_META[s.sector];
+    if (!meta) return;
+    (s.tickers || []).forEach(t => {
+      const score = t.signal_score ?? 0;
+      const momentum = t.momentum_score ?? score;
+      const volume = t.volume_score ?? score;
+      out.push({
+        sym:        t.ticker,
+        sector:     meta.code,
+        sectorName: meta.displayName,
+        etf:        s.etf || meta.etf,
+        score,
+        momentum,
+        volume,
+        ev:         score,
+        trend:      momentum,
+        rs:         volume,
+        chg:        0,
+        price:      t.price ?? 0,
+        watchlist:  false,
+      });
+    });
+  });
+  return out;
+}
+
+function buildSECTORS(sectors) {
+  const tickersBySector = {};
+  (sectors || []).forEach(s => {
+    const meta = SECTOR_META[s.sector];
+    if (!meta) return;
+    tickersBySector[meta.code] = (s.tickers || []).map(t => t.ticker);
+  });
+  return Object.entries(SECTOR_META).map(([, meta]) => ({
+    code:    meta.code,
+    name:    meta.displayName,
+    etf:     meta.etf,
+    tickers: tickersBySector[meta.code] || [],
+  }));
+}
+
+function adaptRegime(regimeData) {
+  if (!regimeData?.leaderboard) return [];
+  return regimeData.leaderboard.map(r => {
+    const meta = SECTOR_META[r.sector];
+    return {
+      code:      meta?.code ?? r.sector,
+      name:      meta?.displayName ?? r.sector,
+      etf:       meta?.etf ?? "",
+      excluded:  meta?.excluded ?? false,
+      prior:     r.posterior * 0.9,
+      posterior: r.posterior ?? 0,
+      delta:     0,
+      ipo:       r.allocation ?? 0,
+    };
+  });
+}
+
+function adaptEquity(equityData) {
+  if (!equityData || equityData.length === 0) return [];
+  return equityData.map((p, i) => ({
+    day:   i,
+    value: p.balance ?? p.value ?? 0,
+  }));
+}
+
+function adaptWallet(wallet) {
+  if (!wallet) return null;
+  return {
+    balance:    wallet.balance ?? 0,
+    starting:   wallet.starting_balance ?? 2000,
+    cash:       wallet.cash ?? 0,
+    invested:   wallet.invested ?? 0,
+    realized:   wallet.realized_pnl ?? 0,
+    unrealized: wallet.unrealized_pnl ?? 0,
+    winRate:    wallet.win_rate ?? 0,
+    trades:     wallet.total_trades ?? 0,
+    avgWin:     0,
+    avgLoss:    0,
+    drawdown:   0,
+    sharpe:     0,
+  };
+}
+
+function adaptLiveWallet(account, livePositions, settings) {
+  const starting = settings?.live?.starting_balance ?? 25000;
+  if (!account) {
+    return { balance: 0, starting, cash: 0, invested: 0, realized: 0, unrealized: 0, winRate: 0, trades: 0, avgWin: 0, avgLoss: 0, drawdown: 0, sharpe: 0 };
+  }
+  const unrealized = (livePositions || []).reduce((s, p) => s + (p.unrealized_pnl ?? 0), 0);
+  return {
+    balance:    account.equity ?? 0,
+    starting,
+    cash:       account.cash ?? 0,
+    invested:   (account.equity ?? 0) - (account.cash ?? 0),
+    realized:   account.total_pnl ?? 0,
+    unrealized,
+    winRate:    0,
+    trades:     0,
+    avgWin:     0,
+    avgLoss:    0,
+    drawdown:   0,
+    sharpe:     0,
+  };
+}
+
+function adaptPositions(openPositions) {
+  return (openPositions || []).map(p => ({
+    sym:    p.ticker,
+    sector: (Object.entries(SECTOR_META).find(([, m]) => m.code === (SECTOR_META[p.sector ?? ""]?.code)) || [])[1]?.code ?? "",
+    qty:    p.shares ?? 1,
+    entry:  p.price ?? 0,
+    mkt:    p.current_price ?? p.price ?? 0,
+    pnl:    p.unrealized_pnl ?? 0,
+    pct:    (p.unrealized_pct ?? 0) * 100,
+    peak:   p.peak_price ?? p.current_price ?? p.price ?? 0,
+    held:   p.days_held ?? 0,
+    tp:     null,
+    sl:     null,
+    trail:  false,
+  }));
+}
+
+function adaptFunnel(funnel) {
+  if (!funnel || Object.keys(funnel).length === 0) return [];
+  const total      = funnel.total_candidates ?? 0;
+  const skippedO   = funnel.skipped_open ?? 0;
+  const skippedC   = funnel.skipped_cooloff ?? 0;
+  const evaluated  = funnel.evaluated ?? 0;
+  const macroFail  = funnel.macro_fail ?? 0;
+  const l2Fail     = funnel.l2_fail ?? 0;
+  const leadFail   = funnel.leading_fail ?? 0;
+  const l3Fail     = funnel.l3_fail ?? 0;
+  const overFail   = funnel.overflow_fail ?? 0;
+  const executed   = funnel.executed ?? 0;
+  const l1Fail     = Math.max(0, evaluated - macroFail - l2Fail - leadFail - l3Fail - overFail - executed);
+  return [
+    { stage: "POLLED",            label: "Tickers polled",   count: total     },
+    { stage: "SKIPPED_OPEN",      label: "Position open",    count: skippedO  },
+    { stage: "SKIPPED_COOLOFF",   label: "Cooloff",          count: skippedC  },
+    { stage: "FILTERED_L1",       label: "L1 · Eligibility", count: l1Fail    },
+    { stage: "FILTERED_MACRO",    label: "Macro blackout",   count: macroFail },
+    { stage: "FILTERED_L2",       label: "L2 · Quant",       count: l2Fail    },
+    { stage: "FILTERED_LEADING",  label: "L4 · Leading",     count: leadFail  },
+    { stage: "FILTERED_L3",       label: "L5 · Claude",      count: l3Fail    },
+    { stage: "FILTERED_OVERFLOW", label: "Overflow quant",   count: overFail  },
+    { stage: "TRADE_EXECUTED",    label: "Trade executed",   count: executed  },
+  ];
+}
+
+function adaptGateRows(rows) {
+  return (rows || []).map(r => ({
+    ts:      new Date(r.timestamp).getTime(),
+    sym:     r.ticker,
+    sector:  SECTOR_META[r.sector]?.code ?? r.sector ?? "",
+    score:   r.signal_score ?? 0,
+    sent:    null,
+    conf:    null,
+    outcome: r.gate_decision ?? "",
+    reason:  r.lock3_reasoning || r.macro_reason || r.l2_summary || r.gate_decision || "",
+  }));
+}
+
+function adaptAlerts(alerts) {
+  return (alerts || []).map(a => ({
+    sev:   a.severity ?? "LOW",
+    id:    `DRIFT-${a.id ?? a.parameter}`,
+    label: `${a.parameter} · ${a.metric} · dev ${a.deviation_pct != null ? (a.deviation_pct * 100).toFixed(1) + "%" : "?"}`,
+    ts:    new Date(a.updated_at ?? a.created_at ?? Date.now()).getTime(),
+  }));
+}
+
 // ── Settings modal ────────────────────────────────────────────────────────────
 
 const SETTINGS_FIELDS = [
   { key: "lock1_threshold",      label: "Lock 1 Fallback Threshold", step: 0.01, min: 0,    max: 1,
-    hint: "Fallback only — applies to sectors with insufficient history for calibration. Calibrated sectors use their own thresholds above. Dead zone below 0.65 (filter has no effect).",
+    hint: "Fallback only — applies to sectors with insufficient history for calibration. Dead zone below 0.65.",
     warnBelow: 0.65, critBelow: 0.60,
     warnMsg: v => v < 0.60 ? "Critical: in dead zone (< 0.60)" : "Below recommended minimum (0.65)" },
   { key: "lock2_sentiment_min",  label: "Lock 2 Sentiment Min",  step: 0.01, min: -1, max: 1,
-    hint: "Minimum Grok sentiment score required to pass Lock 2. Score ranges from -1 (very bearish) to +1 (very bullish). 0.0 = neutral or better. Raising this filters out weak or mixed sentiment." },
-  { key: "lock3_confidence_min", label: "Lock 5 (Claude) Confidence Min", step: 0.01, min: 0,  max: 1,
-    hint: "Minimum confidence score from Claude's LLM reasoning to pass Lock 5. 0 to 1 scale. At 0.7 Claude must be fairly certain before approving an entry. Raising this reduces false positives but may miss valid trades." },
+    hint: "Minimum Grok sentiment score to pass Lock 2. 0.0 = neutral or better." },
+  { key: "lock3_confidence_min", label: "Lock 5 (Claude) Confidence Min", step: 0.01, min: 0, max: 1,
+    hint: "Minimum Claude confidence score to pass Lock 5. At 0.7 Claude must be fairly certain." },
   { key: "lock_leading_min_pass", label: "Lock 4 (Leading) Min Checks", step: 1, min: 1, max: 4,
-    hint: "Minimum sub-checks that must pass in Lock 4 to advance. Out of 4: relative strength, put/call OI ratio, unusual call volume, Form 4 insider cluster. Default 2 = majority required." },
+    hint: "Minimum sub-checks that must pass in Lock 4. Out of 4. Default 2 = majority required." },
   { key: "max_drawdown_pct",     label: "Max Drawdown Alert",        step: 0.01, min: 0.01, max: 1,
-    hint: "Portfolio drawdown threshold passed to Claude in Lock 5 context. At 0.20 Claude is informed the account is under drawdown pressure — informs reasoning but does not block entries directly." },
+    hint: "Drawdown threshold passed to Claude in Lock 5 context." },
   { key: "take_profit_pct",      label: "Take Profit %",         step: 0.01, min: 0.01, max: 1, nullable: false,
     hint: "At 15% only 28% of trades hit target — 6–8% hits 55%+",
-    warnAbove: 0.08,
-    warnMsg: () => "Above 8% — most trades won't reach target" },
+    warnAbove: 0.08, warnMsg: () => "Above 8% — most trades won't reach target" },
   { key: "stop_loss_pct",        label: "Stop Loss %",           step: 0.01, min: 0.01, max: 0.5, nullable: false,
-    hint: "Hard exit if price falls this % below entry. 0.05 = exit at -5%. Tighter stops reduce loss size but increase whipsaw exits on volatile tickers." },
-  { key: "trailing_stop_pct",         label: "Trailing Stop %",          step: 0.005, min: 0.005, max: 0.5, nullable: true,
-    hint: "Locks in gains by trailing the stop up as price rises. 0.05 = stop trails 5% below the peak price. Leave blank to disable. When Profit-Lock is set, the trail tightens automatically once the peak gain threshold is reached." },
-  { key: "profit_lock_trigger_pct",   label: "Profit-Lock Trigger %",    step: 0.005, min: 0.005, max: 0.5, nullable: true,
-    hint: "Once a position's peak gain reaches this level, the trailing stop tightens to Profit-Lock Trail %. E.g. 0.02 = tighten once up +2%. Leave blank to disable. Requires Trailing Stop to be set." },
-  { key: "profit_lock_trail_pct",     label: "Profit-Lock Trail %",      step: 0.005, min: 0.005, max: 0.5, nullable: true,
-    hint: "Trailing stop distance applied after profit-lock activates. 0.015 = exit if price drops 1.5% from peak. Tighter than the standard trail to lock in partial gains on reversals." },
-  { key: "max_positions",        label: "Max Positions",         step: 1,    min: 1,    max: 20,
-    hint: "Above 6 dilutes signal quality",
-    warnAbove: 6,
-    warnMsg: () => "Above 6 — signal quality degrades" },
+    hint: "Hard exit if price falls this % below entry." },
+  { key: "trailing_stop_pct",    label: "Trailing Stop %",       step: 0.005, min: 0.005, max: 0.5, nullable: true,
+    hint: "Locks in gains by trailing the stop up as price rises. Leave blank to disable." },
+  { key: "profit_lock_trigger_pct", label: "Profit-Lock Trigger %", step: 0.005, min: 0.005, max: 0.5, nullable: true,
+    hint: "Once peak gain reaches this level, tighten trailing stop to Profit-Lock Trail %." },
+  { key: "profit_lock_trail_pct",   label: "Profit-Lock Trail %",   step: 0.005, min: 0.005, max: 0.5, nullable: true,
+    hint: "Trailing stop distance after profit-lock activates." },
+  { key: "max_positions",        label: "Max Positions",         step: 1, min: 1, max: 20,
+    hint: "Above 6 dilutes signal quality", warnAbove: 6, warnMsg: () => "Above 6 — signal quality degrades" },
   { key: "overflow_quant_increment", label: "Overflow Quant Step", step: 0.01, min: 0, max: 0.5,
-    hint: "Each position beyond max_positions raises the quant threshold by this multiplier. At 0.05: position 5 (if max=4) requires quant ×1.05, position 6 ×1.10. Escalating bar is self-limiting." },
+    hint: "Each position beyond max_positions raises the quant threshold by this multiplier." },
   { key: "max_position_size",    label: "Max Position Size",     step: 0.01, min: 0.01, max: 0.5,
-    hint: "Maximum fraction of account balance in a single position. 0.20 = no more than 20% per trade. Kelly sizing may suggest larger — this caps it." },
+    hint: "Maximum fraction of account balance in a single position." },
   { key: "daily_loss_cap",       label: "Daily Loss Cap ($)",    step: 10,   min: 10,   max: 10000,
-    hint: "Stops new entries for the rest of the day once cumulative losses hit this dollar amount. Prevents a bad day from compounding. Does not close open positions — only blocks new ones." },
-  { key: "starting_balance",    label: "Starting Balance ($)",  step: 100,  min: 100,  max: 10000000,
-    hint: "Account starting balance for position sizing and drawdown calculations. All % limits (position size, sector exposure, daily loss cap) scale from this value. Change only when the actual account balance changes." },
+    hint: "Stops new entries for the rest of the day once losses hit this amount." },
+  { key: "starting_balance",     label: "Starting Balance ($)",  step: 100,  min: 100,  max: 10000000,
+    hint: "Account starting balance for position sizing and drawdown calculations." },
   { key: "max_hold_days",        label: "Time Stop (days)",      step: 1,    min: 1,    max: 90,
-    hint: "Force-exits a position after this many calendar days regardless of P&L. Prevents capital from being tied up in stalled trades. Typically 5–10 days." },
+    hint: "Force-exits a position after this many calendar days." },
   { key: "vix_threshold",        label: "VIX Block Threshold",   step: 1,    min: 10,   max: 80,
-    hint: "At 25 blocked 52–61% of trading days in 2020/2022, missing recovery rallies",
-    warnBelow: 30,
-    warnMsg: () => "Below 30 — blocks recovery rallies" },
+    hint: "At 25 blocked 52–61% of trading days in 2020/2022", warnBelow: 30, warnMsg: () => "Below 30 — blocks recovery rallies" },
   { key: "macro_event_blackout_days",    label: "Event Blackout (days)",    step: 1, min: 0, max: 5,
-    hint: "Blocks new entries N days around scheduled macro events (Fed meetings, CPI, NFP). 0 = disabled. 1–2 days is typical to avoid pre-event volatility." },
+    hint: "Blocks new entries N days around scheduled macro events." },
   { key: "macro_earnings_blackout_days", label: "Earnings Blackout (days)", step: 1, min: 0, max: 7,
-    hint: "Blocks new entries N days before a ticker's earnings report. Reduces gap-risk from surprise results. 3–5 days is typical. 0 = disabled." },
+    hint: "Blocks new entries N days before a ticker's earnings report." },
   { key: "gate_cooloff_hours",   label: "Gate Cooloff (hours)",  step: 1,    min: 0,   max: 24,
-    hint: "Prevents the gate from re-evaluating the same ticker within this many hours after a decision. Stops the system from hammering the same ticker repeatedly in a volatile session. 0 = no cooloff." },
+    hint: "Prevents gate from re-evaluating same ticker within this many hours." },
   { key: "max_sector_exposure",  label: "Max Sector Exposure",   step: 0.05, min: 0.05, max: 1,
-    hint: "Maximum fraction of total account value in a single sector. 0.30 = no more than 30% in e.g. Technology at once. Prevents sector concentration risk." },
+    hint: "Maximum fraction of total account value in a single sector." },
 ];
 
 function SectorThresholds({ fallback }) {
@@ -678,10 +419,7 @@ function SectorThresholds({ fallback }) {
   const [recaling,   setRecaling]   = React.useState(false);
 
   React.useEffect(() => {
-    fetch("/api/calibrate/ticker-thresholds")
-      .then(r => r.json())
-      .then(d => setThresholds(d.thresholds || {}))
-      .catch(() => {});
+    fetch("/api/calibrate/ticker-thresholds").then(r => r.json()).then(d => setThresholds(d.thresholds || {})).catch(() => {});
   }, []);
 
   async function recalibrate() {
@@ -690,68 +428,50 @@ function SectorThresholds({ fallback }) {
       const r = await fetch("/api/calibrate/ticker-thresholds", { method: "POST" });
       const d = await r.json();
       setThresholds(d.thresholds || {});
-    } finally {
-      setRecaling(false);
-    }
+    } finally { setRecaling(false); }
   }
 
   const sorted = thresholds
     ? Object.entries(thresholds).sort((a, b) => b[1] - a[1])
-    : [];
-  const min = sorted.length ? sorted[sorted.length - 1][1] : 0.5;
-  const max = sorted.length ? sorted[0][1] : 0.65;
+    : null;
 
   return (
-    <div style={{ gridColumn: "1 / -1" }}>
+    <>
       <button className="sector-thresholds-toggle" onClick={() => setOpen(o => !o)}>
-        <span>LOCK 1 — Per-sector thresholds</span>
+        <span>Per-Sector Thresholds</span>
         <span>{open ? "▲" : "▼"}</span>
       </button>
       {open && (
         <div className="sector-thresholds-body">
-          {sorted.map(([sector, val]) => {
-            const pct = max === min ? 100 : ((val - min) / (max - min)) * 100;
-            return (
-              <div className="sector-thresh-row" key={sector}>
-                <span className="sector-thresh-name">{sector}</span>
-                <div className="sector-thresh-bar">
-                  <div className="sector-thresh-fill" style={{ width: `${pct}%` }} />
-                </div>
-                <span className="sector-thresh-val">{val.toFixed(4)}</span>
-              </div>
-            );
-          })}
-          {!sorted.length && <div className="muted" style={{ fontSize: 11 }}>No calibrated thresholds yet — run recalibrate.</div>}
-          <div className="sector-thresh-fallback">
-            Sectors without enough history for calibration fall back to: {fallback ?? "—"}. Recalibrate after backfill to reduce reliance on the fallback.
-          </div>
-          <button className="sector-thresh-recal" onClick={recalibrate} disabled={recaling}>
-            {recaling ? "Recalibrating…" : "↺ Recalibrate from history"}
+          {sorted && sorted.map(([k, v]) => (
+            <div className="sector-thresh-row" key={k}>
+              <span className="sector-thresh-name">{k}</span>
+              <span className="sector-thresh-bar"><span className="sector-thresh-fill" style={{ width: `${v * 100}%` }} /></span>
+              <span className="sector-thresh-val">{v.toFixed(3)}</span>
+            </div>
+          ))}
+          {fallback != null && (
+            <div className="sector-thresh-fallback">Fallback threshold: {fallback}</div>
+          )}
+          <button className="sector-thresh-recal" disabled={recaling} onClick={recalibrate}>
+            {recaling ? "Recalibrating…" : "↻ Recalibrate"}
           </button>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
 function SettingsCol({ title, config, accentColor, onSave }) {
-  const [values, setValues] = React.useState(config || {});
-  const [saved,  setSaved]  = React.useState(false);
+  const [vals, setVals] = React.useState({});
+  const [saved, setSaved] = React.useState(false);
 
-  React.useEffect(() => { setValues(config || {}); }, [config]);
-
-  function handleChange(key, val) {
-    setValues(prev => ({ ...prev, [key]: val === "" ? null : parseFloat(val) }));
-    setSaved(false);
-  }
-
-  function handleNullableToggle(key, f, enabled) {
-    setValues(prev => ({ ...prev, [key]: enabled ? (f.min ?? 0.01) : null }));
-    setSaved(false);
-  }
+  React.useEffect(() => {
+    if (config) setVals(config);
+  }, [config]);
 
   function handleSave() {
-    onSave(values);
+    onSave(vals);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
@@ -760,59 +480,42 @@ function SettingsCol({ title, config, accentColor, onSave }) {
     <div>
       <div className="settings-col-title" style={{ color: accentColor }}>{title}</div>
       {SETTINGS_FIELDS.map(f => {
+        const val = vals[f.key] ?? "";
+        const isEnabled = val !== null && val !== "";
         const isNullable = f.nullable === true;
-        const isEnabled  = values[f.key] != null;
-        const val        = parseFloat(values[f.key]);
-        const isCrit     = !isNaN(val) && f.critBelow  != null && val < f.critBelow;
-        const isWarn     = !isNaN(val) && !isCrit && (
-          (f.warnBelow != null && val < f.warnBelow) ||
-          (f.warnAbove != null && val > f.warnAbove)
+        const isCrit = f.critBelow != null && Number(val) < f.critBelow;
+        const isWarn = (!isCrit) && (
+          (f.warnBelow != null && Number(val) < f.warnBelow) ||
+          (f.warnAbove != null && Number(val) > f.warnAbove)
         );
         const borderColor = isCrit ? "var(--red)" : isWarn ? "#e8a020" : undefined;
         return (
           <div className="settings-field" key={f.key}>
-            <div className="settings-label" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              {isNullable && (
-                <input
-                  type="checkbox"
-                  checked={isEnabled}
-                  onChange={e => handleNullableToggle(f.key, f, e.target.checked)}
-                  style={{ cursor: "pointer", accentColor: "var(--green)" }}
-                />
-              )}
+            <div className="settings-label">
               {f.label}
+              {f.hint && <span style={{ marginLeft: 6, opacity: 0.5, fontSize: 9, fontStyle: "italic" }} title={f.hint}>?</span>}
             </div>
-            {f.hint && (
-              <div style={{ fontSize: 10, color: "var(--text-3)", marginBottom: 3, lineHeight: 1.4 }}>
-                {f.hint}
-              </div>
-            )}
             <input
-              className="settings-input"
-              type="number"
-              step={f.step}
-              min={f.min}
-              max={f.max}
-              value={values[f.key] ?? ""}
-              disabled={isNullable && !isEnabled}
-              onChange={e => handleChange(f.key, e.target.value)}
+              className="settings-input" type="number"
+              step={f.step} min={f.min} max={f.max}
+              value={val}
+              placeholder={isNullable ? "disabled" : ""}
+              onChange={e => {
+                const raw = e.target.value;
+                setVals(p => ({ ...p, [f.key]: raw === "" && isNullable ? null : parseFloat(raw) || raw }));
+              }}
               style={{
                 ...(isNullable && !isEnabled ? { opacity: 0.35 } : {}),
                 ...(borderColor ? { borderColor, boxShadow: `0 0 0 1px ${borderColor}` } : {}),
               }}
             />
             {(isCrit || isWarn) && f.warnMsg && (
-              <div style={{ fontSize: 10, color: borderColor, marginTop: 3, fontWeight: 600 }}>
-                ⚠ {f.warnMsg(val)}
-              </div>
+              <div style={{ fontSize: 10, color: borderColor, marginTop: 3, fontWeight: 600 }}>⚠ {f.warnMsg(val)}</div>
             )}
           </div>
         );
       })}
-      <button
-        className={`settings-save-btn ${saved ? "saved" : ""}`}
-        onClick={handleSave}
-      >
+      <button className={`settings-save-btn ${saved ? "saved" : ""}`} onClick={handleSave}>
         {saved ? "✓ Saved" : `Save ${title}`}
       </button>
     </div>
@@ -821,7 +524,7 @@ function SettingsCol({ title, config, accentColor, onSave }) {
 
 function TickersTab({ tickers, onAdd, onRemove }) {
   const [inputs, setInputs] = React.useState({});
-  if (!tickers) return <p className="muted">Loading…</p>;
+  if (!tickers) return <p style={{ color: "var(--text-3)" }}>Loading…</p>;
   return (
     <div style={{ maxHeight: 400, overflowY: "auto", paddingRight: 4 }}>
       {Object.entries(tickers).map(([sector, cfg]) => (
@@ -831,14 +534,12 @@ function TickersTab({ tickers, onAdd, onRemove }) {
             {cfg.tickers.map(t => (
               <div className="ticker-chip" key={t}>
                 {t}
-                <button className="ticker-chip-remove" onClick={() => onRemove(sector, t)} title={`Remove ${t}`}>×</button>
+                <button className="ticker-chip-remove" onClick={() => onRemove(sector, t)}>×</button>
               </div>
             ))}
           </div>
           <div className="ticker-add-row">
-            <input
-              className="ticker-add-input"
-              placeholder="AAPL"
+            <input className="ticker-add-input" placeholder="AAPL"
               value={inputs[sector] || ""}
               onChange={e => setInputs(p => ({ ...p, [sector]: e.target.value.toUpperCase() }))}
               onKeyDown={e => {
@@ -848,15 +549,12 @@ function TickersTab({ tickers, onAdd, onRemove }) {
                 }
               }}
             />
-            <button
-              className="ticker-add-btn"
-              onClick={() => {
-                if (inputs[sector]?.trim()) {
-                  onAdd(sector, inputs[sector].trim());
-                  setInputs(p => ({ ...p, [sector]: "" }));
-                }
-              }}
-            >+ Add</button>
+            <button className="ticker-add-btn" onClick={() => {
+              if (inputs[sector]?.trim()) {
+                onAdd(sector, inputs[sector].trim());
+                setInputs(p => ({ ...p, [sector]: "" }));
+              }
+            }}>+ Add</button>
           </div>
         </div>
       ))}
@@ -870,34 +568,26 @@ function SettingsModal({ settings, tickers, onSave, onTickerAdd, onTickerRemove,
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" style={{ width: 660 }} onClick={e => e.stopPropagation()}>
         <div className="modal-title" style={{ marginBottom: 12 }}>Settings</div>
-
         <div className="settings-tabs">
           <button className={`settings-tab ${activeTab === "thresholds" ? "active" : ""}`} onClick={() => setActiveTab("thresholds")}>Thresholds</button>
           <button className={`settings-tab ${activeTab === "tickers"    ? "active" : ""}`} onClick={() => setActiveTab("tickers")}>Tickers</button>
         </div>
-
         {activeTab === "thresholds" && (
           <>
-            <div className="modal-sub" style={{ marginBottom: 16 }}>
-              Changes take effect on the next gate cycle. No restart required.
-            </div>
+            <div className="modal-sub" style={{ marginBottom: 16 }}>Changes take effect on the next gate cycle. No restart required.</div>
             <div className="settings-grid">
               <SettingsCol title="Demo" config={settings?.demo} accentColor="var(--text-2)" onSave={vals => onSave("demo", vals)} />
-              <SettingsCol title="Live" config={settings?.live} accentColor="var(--green)"        onSave={vals => onSave("live", vals)} />
+              <SettingsCol title="Live" config={settings?.live} accentColor="var(--green)"  onSave={vals => onSave("live", vals)} />
               <SectorThresholds fallback={settings?.demo?.lock1_threshold} />
             </div>
           </>
         )}
-
         {activeTab === "tickers" && (
           <>
-            <div className="modal-sub" style={{ marginBottom: 16 }}>
-              Add or remove tickers per sector. Changes apply on the next poll cycle.
-            </div>
+            <div className="modal-sub" style={{ marginBottom: 16 }}>Add or remove tickers per sector. Changes apply on the next poll cycle.</div>
             <TickersTab tickers={tickers} onAdd={onTickerAdd} onRemove={onTickerRemove} />
           </>
         )}
-
         <div className="modal-actions" style={{ marginTop: 16 }}>
           <button className="btn-cancel" onClick={onClose}>Close</button>
         </div>
@@ -906,59 +596,40 @@ function SettingsModal({ settings, tickers, onSave, onTickerAdd, onTickerRemove,
   );
 }
 
-
 // ── Promote modal ─────────────────────────────────────────────────────────────
 
 const PROMOTE_LABELS = {
-  lock1_threshold:              "Lock 1 Threshold",
-  lock2_sentiment_min:          "Lock 2 Sentiment Min",
-  lock3_confidence_min:         "Lock 5 (Claude) Confidence Min",
-  lock_leading_min_pass:        "Lock 4 (Leading) Min Checks",
-  max_drawdown_pct:             "Max Drawdown Alert",
-  take_profit_pct:              "Take Profit %",
-  stop_loss_pct:                "Stop Loss %",
-  trailing_stop_pct:            "Trailing Stop %",
-  profit_lock_trigger_pct:     "Profit-Lock Trigger %",
-  profit_lock_trail_pct:       "Profit-Lock Trail %",
-  max_positions:                "Max Positions",
-  overflow_quant_increment:     "Overflow Quant Step",
-  max_position_size:            "Max Position Size",
-  daily_loss_cap:               "Daily Loss Cap ($)",
-  starting_balance:             "Starting Balance ($)",
-  max_hold_days:                "Time Stop (days)",
-  vix_threshold:                "VIX Block Threshold",
-  macro_event_blackout_days:    "Event Blackout (days)",
-  macro_earnings_blackout_days: "Earnings Blackout (days)",
-  gate_cooloff_hours:           "Gate Cooloff (hours)",
-  max_sector_exposure:          "Max Sector Exposure",
+  lock1_threshold: "Lock 1 Threshold", lock2_sentiment_min: "Lock 2 Sentiment Min",
+  lock3_confidence_min: "Lock 5 (Claude) Confidence Min", lock_leading_min_pass: "Lock 4 (Leading) Min Checks",
+  max_drawdown_pct: "Max Drawdown Alert", take_profit_pct: "Take Profit %", stop_loss_pct: "Stop Loss %",
+  trailing_stop_pct: "Trailing Stop %", profit_lock_trigger_pct: "Profit-Lock Trigger %",
+  profit_lock_trail_pct: "Profit-Lock Trail %", max_positions: "Max Positions",
+  overflow_quant_increment: "Overflow Quant Step", max_position_size: "Max Position Size",
+  daily_loss_cap: "Daily Loss Cap ($)", starting_balance: "Starting Balance ($)",
+  max_hold_days: "Time Stop (days)", vix_threshold: "VIX Block Threshold",
+  macro_event_blackout_days: "Event Blackout (days)", macro_earnings_blackout_days: "Earnings Blackout (days)",
+  gate_cooloff_hours: "Gate Cooloff (hours)", max_sector_exposure: "Max Sector Exposure",
 };
 
 function PromoteModal({ config, onConfirm, onCancel }) {
   const { live, demo } = config;
   const pct = v => `${(v * 100).toFixed(1)}%`;
   const fmt = (key, v) => {
-    if (key === "daily_loss_cap")  return `$${v}`;
-    if (key === "max_positions")   return v;
+    if (key === "daily_loss_cap") return `$${v}`;
+    if (key === "max_positions")  return v;
     if (typeof v === "number" && v < 2) return pct(v);
     return v;
   };
-
   return (
     <div className="modal-overlay" onClick={onCancel}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-title">Promote Demo Settings to Live</div>
-        <div className="modal-sub">
-          This will overwrite the live gate config with the current demo thresholds.
-          Changes take effect on the next gate cycle.
-        </div>
+        <div className="modal-sub">This will overwrite the live gate config with the current demo thresholds. Changes take effect on the next gate cycle.</div>
         <table className="modal-table">
-          <thead>
-            <tr><th>Setting</th><th>Demo (source)</th><th>Live (after promote)</th></tr>
-          </thead>
+          <thead><tr><th>Setting</th><th>Demo (source)</th><th>Live (after promote)</th></tr></thead>
           <tbody>
             {Object.keys(PROMOTE_LABELS).map(key => {
-              const liveVal = live?.[key];
-              const demoVal = demo?.[key];
+              const liveVal = live?.[key], demoVal = demo?.[key];
               const changed = liveVal !== demoVal;
               return (
                 <tr key={key}>
@@ -979,26 +650,33 @@ function PromoteModal({ config, onConfirm, onCancel }) {
   );
 }
 
+// ── Tweaks defaults ───────────────────────────────────────────────────────────
+
+const TWEAK_DEFAULTS = {
+  direction:       "terminal",
+  density:         "comfortable",
+  themeTerminal:   "dark",
+  themeAtlas:      "dark",
+  paletteTerminal: { value: "mint",  swatch: "#7ce0a1" },
+  paletteAtlas:    { value: "ember", swatch: "#c8451f" },
+  fontTerminal:    "mono",
+  fontAtlas:       "serif",
+  layout:          "regime-hero",
+};
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [activeTab,     setActiveTab]     = useState("demo");
+  // ── Demo state ─────────────────────────────────────────────────────────────
+  const [sectors,     setSectors]     = useState([]);
+  const [wallet,      setWallet]      = useState(null);
+  const [gateHist,    setGateHist]    = useState({ rows: [], funnel: null });
+  const [equity,      setEquity]      = useState([]);
+  const [regimeData,  setRegimeData]  = useState(null);
+  const [driftAlerts, setDriftAlerts] = useState([]);
+  const [demoTrades,  setDemoTrades]  = useState([]);
 
-  // ── Demo state ────────────────────────────────────────────────────────────
-  const [sectors,       setSectors]       = useState([]);
-  const [wallet,        setWallet]        = useState(null);
-  const [gateHist,      setGateHist]      = useState({ rows: [], funnel: null });
-  const [demoTrades,    setDemoTrades]    = useState([]);
-  const [equity,        setEquity]        = useState([]);
-  const [sectorError,   setSectorError]   = useState(null);
-  const [walletError,   setWalletError]   = useState(null);
-  const [gateError,     setGateError]     = useState(null);
-  const [equityError,   setEquityError]   = useState(null);
-  const [lastFetch,     setLastFetch]     = useState(null);
-  const [backtestResult, setBacktestResult] = useState(null);
-
-  // ── Live state ────────────────────────────────────────────────────────────
+  // ── Live state ─────────────────────────────────────────────────────────────
   const [liveStatus,    setLiveStatus]    = useState(null);
   const [liveAccount,   setLiveAccount]   = useState(null);
   const [livePositions, setLivePositions] = useState([]);
@@ -1006,387 +684,278 @@ export default function App() {
   const [liveTrades,    setLiveTrades]    = useState([]);
   const [liveGateHist,  setLiveGateHist]  = useState({ rows: [], funnel: null });
   const [liveEquity,    setLiveEquity]    = useState([]);
-  const [compareData,        setCompareData]        = useState(null);
-  const [liveConfig,         setLiveConfig]         = useState(null);
-  const [auditReports,       setAuditReports]       = useState([]);
-  const [gateCollapsed,      setGateCollapsed]      = useState(false);
-  const [liveGateCollapsed,  setLiveGateCollapsed]  = useState(false);
-  const [showPromote,   setShowPromote]   = useState(false);
+  const [compareData,   setCompareData]   = useState(null);
+
+  // ── UI state ────────────────────────────────────────────────────────────────
   const [settings,      setSettings]      = useState(null);
-  const [showSettings,  setShowSettings]  = useState(false);
   const [tickers,       setTickers]       = useState(null);
+  const [showSettings,  setShowSettings]  = useState(false);
+  const [showPromote,   setShowPromote]   = useState(false);
+  const [showTest,      setShowTest]      = useState(false);
+  const [backtestResult, setBacktestResult] = useState(null);
+  const [auditReports,   setAuditReports]   = useState([]);
 
-  // Each section loads independently so a slow or failing endpoint
-  // doesn't block the rest of the dashboard from rendering.
+  // ── Tweaks ──────────────────────────────────────────────────────────────────
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+
+  // ── Fetch ───────────────────────────────────────────────────────────────────
   function fetchDemoData() {
-    fetchWithRetry("/api/sectors")
-      .then(data => { setSectors(data || []); setSectorError(null); })
-      .catch(() => setSectorError("Failed to load sector signals"));
-
-    fetchWithRetry("/api/wallet")
-      .then(data => { setWallet(data || null); setWalletError(null); })
-      .catch(() => setWalletError("Failed to load wallet"));
-
-    fetchWithRetry("/api/gate/history")
-      .then(data => { setGateHist(data || { rows: [], funnel: null }); setGateError(null); })
-      .catch(() => setGateError("Failed to load gate history"));
-
-    fetchWithRetry("/api/demo/trades")
-      .then(data => setDemoTrades(data || []))
-      .catch(() => setDemoTrades([]));
-
-    fetchWithRetry("/api/wallet/equity")
-      .then(data => { setEquity(data || []); setEquityError(null); })
-      .catch(() => setEquityError("Failed to load equity curve"));
-
-    setLastFetch(new Date());
+    fetchWithRetry("/api/sectors").then(d => setSectors(d || [])).catch(() => {});
+    fetchWithRetry("/api/wallet").then(d => setWallet(d || null)).catch(() => {});
+    fetchWithRetry("/api/gate/history").then(d => setGateHist(d || { rows: [], funnel: null })).catch(() => {});
+    fetchWithRetry("/api/wallet/equity").then(d => setEquity(d || [])).catch(() => {});
+    fetchWithRetry("/api/sectors/regime-bayes").then(d => setRegimeData(d || null)).catch(() => {});
+    fetchWithRetry("/api/drift/alerts").then(d => setDriftAlerts(d?.alerts || [])).catch(() => {});
+    fetchWithRetry("/api/demo/trades").then(d => setDemoTrades(Array.isArray(d) ? d : d?.trades || [])).catch(() => {});
   }
 
   function fetchLiveData() {
-    fetchWithRetry("/api/live/status")
-      .then(data => setLiveStatus(data))
-      .catch(() => setLiveStatus({ enabled: false, connected: false, message: "Status fetch failed" }));
-
-    fetchWithRetry("/api/live/account")
-      .then(data => setLiveAccount(data))
-      .catch(() => setLiveAccount(null));
-
-    fetchWithRetry("/api/live/positions")
-      .then(data => setLivePositions(data || []))
-      .catch(() => setLivePositions([]));
-
-    fetchWithRetry("/api/live/orders")
-      .then(data => setLiveOrders(data || []))
-      .catch(() => setLiveOrders([]));
-
-    fetchWithRetry("/api/live/trades")
-      .then(data => setLiveTrades(data || []))
-      .catch(() => setLiveTrades([]));
-
-    fetchWithRetry("/api/live/gate/history")
-      .then(data => setLiveGateHist(data || { rows: [], funnel: null }))
-      .catch(() => setLiveGateHist({ rows: [], funnel: null }));
-
-    fetchWithRetry("/api/live/equity")
-      .then(data => setLiveEquity(data || []))
-      .catch(() => setLiveEquity([]));
-
-    fetchWithRetry("/api/live/compare")
-      .then(data => setCompareData(data || null))
-      .catch(() => setCompareData(null));
-
-    fetchWithRetry("/api/live/config")
-      .then(data => setLiveConfig(data || null))
-      .catch(() => setLiveConfig(null));
+    fetchWithRetry("/api/live/status").then(d => setLiveStatus(d)).catch(() => setLiveStatus({ enabled: false, connected: false }));
+    fetchWithRetry("/api/live/account").then(d => setLiveAccount(d)).catch(() => {});
+    fetchWithRetry("/api/live/positions").then(d => setLivePositions(d || [])).catch(() => {});
+    fetchWithRetry("/api/live/orders").then(d => setLiveOrders(d || [])).catch(() => {});
+    fetchWithRetry("/api/live/trades").then(d => setLiveTrades(d || [])).catch(() => {});
+    fetchWithRetry("/api/live/gate/history").then(d => setLiveGateHist(d || { rows: [], funnel: null })).catch(() => {});
+    fetchWithRetry("/api/live/equity").then(d => setLiveEquity(d || [])).catch(() => {});
+    fetchWithRetry("/api/live/compare").then(d => setCompareData(d || null)).catch(() => {});
   }
 
   function fetchSettings() {
-    fetchWithRetry("/api/settings")
-      .then(data => setSettings(data || null))
-      .catch(() => setSettings(null));
-
-    fetchWithRetry("/api/tickers")
-      .then(data => setTickers(data || null))
-      .catch(() => setTickers(null));
-  }
-
-  function fetchData() {
-    fetchDemoData();
-    fetchLiveData();
+    fetchWithRetry("/api/settings").then(d => setSettings(d || null)).catch(() => {});
+    fetchWithRetry("/api/tickers").then(d => setTickers(d || null)).catch(() => {});
   }
 
   function fetchAuditReports() {
-    fetch("/api/audit/reports")
-      .then(r => r.json())
-      .then(d => setAuditReports(d.reports || []))
-      .catch(() => {});
+    fetch("/api/audit/reports").then(r => r.json()).then(d => setAuditReports(d.reports || [])).catch(() => {});
   }
 
   useEffect(() => {
-    fetchData();
+    fetchDemoData();
+    fetchLiveData();
     fetchSettings();
     fetchAuditReports();
-    const iv = setInterval(fetchData, 30_000);
+    const iv = setInterval(() => { fetchDemoData(); fetchLiveData(); }, 30_000);
     return () => clearInterval(iv);
   }, []);
 
-  const marketOpen = isMarketOpen();
-  const updatedStr = lastFetch
-    ? lastFetch.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-    : "—";
+  // ── Adapted data ────────────────────────────────────────────────────────────
+  const adaptedData = useMemo(() => ({
+    SECTORS:       buildSECTORS(sectors),
+    EXCLUDED:      EXCLUDED_CODES,
+    tickers:       adaptTickers(sectors),
+    regime:        adaptRegime(regimeData),
+    equity:        adaptEquity(equity),
+    liveEq:        adaptEquity(liveEquity),
+    funnel:        adaptFunnel(gateHist.funnel),
+    gateRows:      adaptGateRows(gateHist.rows),
+    liveGateRows:  adaptGateRows(liveGateHist.rows),
+    positions:     adaptPositions(wallet?.open_positions ?? []),
+    livePositions: adaptPositions(livePositions),
+    wallet:        adaptWallet(wallet),
+    liveWallet:    adaptLiveWallet(liveAccount, livePositions, settings),
+    alerts:        adaptAlerts(driftAlerts),
+    demoTrades,
+    liveTrades,
+  }), [sectors, wallet, gateHist, liveGateHist, equity, regimeData, driftAlerts, liveEquity, liveAccount, livePositions, settings, demoTrades, liveTrades]);
 
-  const pnl    = wallet?.total_pnl ?? 0;
-  const sign   = pnl >= 0 ? "+" : "";
-  const pnlCls = pnl >= 0 ? "pnl-pos" : "pnl-neg";
+  // ── Tweaks helpers ──────────────────────────────────────────────────────────
+  const unwrap = v => (v && typeof v === "object" && "value" in v) ? v.value : v;
+  const marketOpen = isMarketOpen();
+
+  const tTerminal = {
+    density: t.density,
+    theme:   t.themeTerminal,
+    palette: unwrap(t.paletteTerminal),
+    font:    t.fontTerminal,
+    layout:  t.layout,
+  };
+  const tAtlas = {
+    density: t.density,
+    theme:   t.themeAtlas,
+    palette: unwrap(t.paletteAtlas),
+    font:    t.fontAtlas,
+    layout:  t.layout,
+  };
+
+  const supplementalPanels = (
+    <div className="supp-grid">
+      <ErrorBoundary label="Rotation Forecast"><RotationForecast /></ErrorBoundary>
+      <ErrorBoundary label="Watchlist"><Watchlist /></ErrorBoundary>
+      <ErrorBoundary label="Sector Rotation"><SectorRotation /></ErrorBoundary>
+      <ErrorBoundary label="Sector Regime"><SectorRegime /></ErrorBoundary>
+      <div className="supp-full">
+        <ErrorBoundary label="Regime Bayes"><RegimeBayes /></ErrorBoundary>
+      </div>
+      <ErrorBoundary label="Live Account"><LiveAccount account={liveAccount} status={liveStatus} /></ErrorBoundary>
+      <ErrorBoundary label="Live Orders"><LiveOrderLog orders={liveOrders} /></ErrorBoundary>
+      <ErrorBoundary label="Demo Trade Log"><DemoTradeLog trades={adaptedData.demoTrades} /></ErrorBoundary>
+      <ErrorBoundary label="Live Trade Log"><LiveTradeLog trades={adaptedData.liveTrades} /></ErrorBoundary>
+    </div>
+  );
 
   return (
     <>
       <style>{CSS}</style>
-      <div style={{
-        position: "fixed", inset: 0, pointerEvents: "none", zIndex: 9999,
-        backgroundImage: "repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.025) 2px,rgba(0,0,0,0.025) 4px)",
-      }} />
 
-      <header className="header">
-        <div className="header-left">
-          <div className="logo">APEX</div>
-          <div className="market-badge">
-            <div className={`market-dot ${marketOpen ? "open" : "closed"}`} />
-            <span style={{ color: marketOpen ? "var(--green)" : "var(--text-3)" }}>
-              {marketOpen ? "Market Open" : "Market Closed"}
-            </span>
+      {/* ── Main dashboard ──────────────────────────────────────────────── */}
+      {t.direction === "terminal" ? (
+        <ErrorBoundary label="Terminal">
+          <ApexTerminal
+            tweaks={tTerminal}
+            data={adaptedData}
+            marketOpen={marketOpen}
+            onSettings={() => setShowSettings(true)}
+            onPromote={liveStatus?.enabled ? () => setShowPromote(true) : null}
+            supplemental={supplementalPanels}
+          />
+        </ErrorBoundary>
+      ) : (
+        <ErrorBoundary label="Atlas">
+          <ApexAtlas
+            tweaks={tAtlas}
+            data={adaptedData}
+            marketOpen={marketOpen}
+            onSettings={() => setShowSettings(true)}
+            onPromote={liveStatus?.enabled ? () => setShowPromote(true) : null}
+            supplemental={supplementalPanels}
+          />
+        </ErrorBoundary>
+      )}
+
+      {/* ── Tweaks panel ────────────────────────────────────────────────── */}
+      <TweaksPanel
+        title="Tweaks"
+        onSettings={() => setShowSettings(true)}
+        onPromote={liveStatus?.enabled ? () => setShowPromote(true) : null}
+        onTest={() => setShowTest(true)}
+      >
+        <TweakSection title="Direction">
+          <TweakRadio label="Design" value={t.direction}
+            onChange={v => setTweak("direction", v)}
+            options={[{value:"terminal",label:"Terminal"},{value:"atlas",label:"Atlas"}]} />
+        </TweakSection>
+
+        <TweakSection title="Layout">
+          <TweakSelect label="Hero panel" value={t.layout}
+            onChange={v => setTweak("layout", v)}
+            options={[
+              {value:"equity-hero",  label:"Equity curve"},
+              {value:"regime-hero",  label:"Sector regime"},
+              {value:"funnel-hero",  label:"Gate funnel"},
+            ]} />
+          <TweakRadio label="Density" value={t.density}
+            onChange={v => setTweak("density", v)}
+            options={[{value:"comfortable",label:"Comfortable"},{value:"compact",label:"Compact"}]} />
+        </TweakSection>
+
+        <TweakSection title="A · Terminal">
+          <TweakRadio label="Theme" value={t.themeTerminal}
+            onChange={v => setTweak("themeTerminal", v)}
+            options={[{value:"dark",label:"Dark"},{value:"light",label:"Light"}]} />
+          <TweakColor label="Accent" value={t.paletteTerminal}
+            onChange={v => setTweak("paletteTerminal", v)}
+            options={[
+              {value:"neon",  swatch:"#faff69"},
+              {value:"cyan",  swatch:"#6ce4ff"},
+              {value:"ember", swatch:"#ff8a3d"},
+              {value:"mint",  swatch:"#7ce0a1"},
+            ]} />
+          <TweakRadio label="Type" value={t.fontTerminal}
+            onChange={v => setTweak("fontTerminal", v)}
+            options={[{value:"mono",label:"Mono+Sans"},{value:"sans",label:"All sans"}]} />
+        </TweakSection>
+
+        <TweakSection title="B · Atlas">
+          <TweakRadio label="Theme" value={t.themeAtlas}
+            onChange={v => setTweak("themeAtlas", v)}
+            options={[{value:"light",label:"Paper"},{value:"dark",label:"Ink"}]} />
+          <TweakColor label="Accent" value={t.paletteAtlas}
+            onChange={v => setTweak("paletteAtlas", v)}
+            options={[
+              {value:"ink",    swatch:"#b8470f"},
+              {value:"oxide",  swatch:"#1d6a55"},
+              {value:"cobalt", swatch:"#244aa3"},
+              {value:"ember",  swatch:"#c8451f"},
+            ]} />
+          <TweakRadio label="Type" value={t.fontAtlas}
+            onChange={v => setTweak("fontAtlas", v)}
+            options={[{value:"serif",label:"Serif+Mono"},{value:"sans",label:"All sans"}]} />
+        </TweakSection>
+      </TweaksPanel>
+
+      {/* ── Test overlay ────────────────────────────────────────────────── */}
+      {showTest && (
+        <div className="test-overlay">
+          <div className="test-overlay-header">
+            <span className="test-overlay-title">TEST / DIAGNOSTICS</span>
+            <button className="test-close-btn" onClick={() => setShowTest(false)}>✕ Close</button>
           </div>
-        </div>
-        <div className="header-right">
-          {activeTab === "demo" && wallet && (
-            <div className="header-balance">
-              ${wallet.balance.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-              {" "}<span className={pnlCls}>{sign}${pnl.toFixed(2)}</span>
-            </div>
-          )}
-          {activeTab === "live" && liveAccount && (
-            <div className="header-balance">
-              ${liveAccount.equity.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-              {" "}
-              <span className={liveAccount.day_pnl >= 0 ? "pnl-pos" : "pnl-neg"}>
-                {liveAccount.day_pnl >= 0 ? "+" : ""}${liveAccount.day_pnl.toFixed(2)}
-              </span>
-            </div>
-          )}
-          <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 10, color: "#3a3a38" }}>
-            {updatedStr}
-          </div>
-          <button className="settings-btn" onClick={() => setShowSettings(true)}>⚙ Settings</button>
-          <button className="refresh-btn" onClick={fetchData}>Refresh</button>
-        </div>
-      </header>
-
-      {/* ── Tab bar ───────────────────────────────────────────────────────── */}
-      <nav className="tab-bar">
-        <button
-          className={`tab-btn ${activeTab === "demo" ? "active" : ""}`}
-          onClick={() => setActiveTab("demo")}
-        >
-          Demo
-        </button>
-        <button
-          className={`tab-btn ${activeTab === "live" ? "active" : ""}`}
-          onClick={() => setActiveTab("live")}
-        >
-          {liveStatus?.enabled && liveStatus?.connected && (
-            <span className="live-dot" />
-          )}
-          Live
-          {liveStatus?.enabled && liveStatus?.connected && (
-            <span style={{
-              marginLeft: 8,
-              fontFamily: "'Inconsolata', monospace",
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: "0.06em",
-              padding: "1px 6px",
-              borderRadius: 3,
-              ...(liveStatus?.paper
-                ? { background: "#202000", color: "var(--green)" }
-                : { background: "#2a0808", color: "var(--red)" }
-              ),
-            }}>
-              {liveStatus?.paper ? "PAPER" : "LIVE"}
-            </span>
-          )}
-        </button>
-        <button
-          className={`tab-btn ${activeTab === "test" ? "active" : ""}`}
-          onClick={() => setActiveTab("test")}
-          style={{ marginLeft: "auto" }}
-        >
-          Test
-        </button>
-        {liveStatus?.enabled && (
-          <button className="promote-btn" onClick={() => setShowPromote(true)}>
-            ↑ Promote Demo → Live
-          </button>
-        )}
-      </nav>
-
-      {/* ── Demo tab ──────────────────────────────────────────────────────── */}
-      <div style={{ display: activeTab === "demo" ? "" : "none" }}>
-        <main className="main">
-          <div className="main-left">
-
-            {/* Gate feed — most actionable, top of column */}
-            <ErrorBoundary label="Gate Activity">
-              {gateError
-                ? <div className="error-banner">{gateError}</div>
-                : <GateFeed history={gateHist.rows} funnel={gateHist.funnel} collapsed={gateCollapsed} onCollapse={setGateCollapsed} />
-              }
-            </ErrorBoundary>
-
-            {/* Sector signals — full width */}
-            {sectorError
-              ? <div className="error-banner">{sectorError}</div>
-              : (
-                <ErrorBoundary label="Sector Signals">
-                  <SectorGrid sectors={sectors} />
+          <div className="test-main">
+            <div className="test-left">
+              <ErrorBoundary label="Compare">
+                <ComparePanel data={compareData} />
+              </ErrorBoundary>
+              <ErrorBoundary label="Live Account">
+                <LiveAccount account={liveAccount} status={liveStatus} />
+              </ErrorBoundary>
+              <ErrorBoundary label="Live Orders">
+                <LiveOrderLog orders={liveOrders} />
+              </ErrorBoundary>
+              <ErrorBoundary label="Demo Trade Log">
+                <DemoTradeLog trades={adaptedData.demoTrades} />
+              </ErrorBoundary>
+              <ErrorBoundary label="Live Trade Log">
+                <LiveTradeLog trades={adaptedData.liveTrades} />
+              </ErrorBoundary>
+              <ErrorBoundary label="Rotation Forecast">
+                <RotationForecast />
+              </ErrorBoundary>
+              <ErrorBoundary label="Sector Rotation">
+                <SectorRotation />
+              </ErrorBoundary>
+              <ErrorBoundary label="Sector Regime">
+                <SectorRegime />
+              </ErrorBoundary>
+              <ErrorBoundary label="Regime Bayes">
+                <RegimeBayes />
+              </ErrorBoundary>
+              <ErrorBoundary label="Watchlist">
+                <Watchlist />
+              </ErrorBoundary>
+              {backtestResult && (
+                <ErrorBoundary label="Backtest Results">
+                  <TradeLog result={backtestResult} />
                 </ErrorBoundary>
-              )
-            }
-
-            {/* Regime pair — side by side */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, alignItems: "start" }}>
-              <ErrorBoundary label="Sector Regime">
-                <SectorRegime />
-              </ErrorBoundary>
-              <ErrorBoundary label="Regime Allocation">
-                <RegimeBayes />
+              )}
+              <ErrorBoundary label="Night Log">
+                <NightLog reports={auditReports} />
               </ErrorBoundary>
             </div>
-
-            <ErrorBoundary label="Rotation Forecast">
-              <RotationForecast />
-            </ErrorBoundary>
-
-            <ErrorBoundary label="Sector Rotation">
-              <SectorRotation />
-            </ErrorBoundary>
-
-            <ErrorBoundary label="Watchlist">
-              <Watchlist />
-            </ErrorBoundary>
-
-          </div>
-
-          <div className="main-right">
-            <ErrorBoundary label="Wallet">
-              {walletError
-                ? <div className="error-banner">{walletError}</div>
-                : <WalletPanel wallet={wallet} />
-              }
-            </ErrorBoundary>
-
-            <ErrorBoundary label="Open Positions">
-              <DemoPositions positions={wallet?.open_positions ?? []} />
-            </ErrorBoundary>
-
-            <ErrorBoundary label="Equity Curve">
-              {equityError
-                ? <div className="error-banner">{equityError}</div>
-                : <EquityCurve equity={equity} />
-              }
-            </ErrorBoundary>
-
-          </div>
-        </main>
-
-        <div style={{ padding: "0 28px 28px" }}>
-          <ErrorBoundary label="Demo Trade Log">
-            <DemoTradeLog trades={demoTrades} />
-          </ErrorBoundary>
-        </div>
-      </div>
-
-      {/* ── Live tab ──────────────────────────────────────────────────────── */}
-      <div style={{ display: activeTab === "live" ? "" : "none" }}>
-        <main className="main">
-          <div className="main-left">
-
-            {/* Gate feed — most actionable, top of column */}
-            <ErrorBoundary label="Live Gate Feed">
-              <LiveGateFeed history={liveGateHist.rows} funnel={liveGateHist.funnel} collapsed={liveGateCollapsed} onCollapse={setLiveGateCollapsed} />
-            </ErrorBoundary>
-
-            {/* Regime pair — side by side */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, alignItems: "start" }}>
-              <ErrorBoundary label="Sector Regime">
-                <SectorRegime />
-              </ErrorBoundary>
-              <ErrorBoundary label="Regime Allocation">
-                <RegimeBayes />
+            <div className="test-right">
+              <ErrorBoundary label="Backtest">
+                <BacktestPanel onResult={setBacktestResult} />
               </ErrorBoundary>
             </div>
-
-            <ErrorBoundary label="Rotation Forecast">
-              <RotationForecast />
-            </ErrorBoundary>
-
-            <ErrorBoundary label="Watchlist">
-              <Watchlist />
-            </ErrorBoundary>
-
           </div>
-
-          <div className="main-right">
-
-            <ErrorBoundary label="Live Account">
-              <LiveAccount account={liveAccount} status={liveStatus} />
-            </ErrorBoundary>
-
-            <ErrorBoundary label="Live Positions">
-              <LivePositions positions={livePositions} />
-            </ErrorBoundary>
-
-            <ErrorBoundary label="Live Equity Curve">
-              <EquityCurve equity={liveEquity} />
-            </ErrorBoundary>
-          </div>
-        </main>
-
-        <div style={{ padding: "0 28px 32px" }}>
-          <ErrorBoundary label="Live Trade Log">
-            <LiveTradeLog trades={liveTrades} />
-          </ErrorBoundary>
-          <ErrorBoundary label="Live Order Log">
-            <LiveOrderLog orders={liveOrders} />
-          </ErrorBoundary>
         </div>
-      </div>
+      )}
 
-      {/* ── Test tab ──────────────────────────────────────────────────────── */}
-      <div style={{ display: activeTab === "test" ? "" : "none" }}>
-        <main className="main">
-          <div className="main-left">
-            <ErrorBoundary label="Compare">
-              <ComparePanel data={compareData} />
-            </ErrorBoundary>
-
-            {backtestResult && (
-              <ErrorBoundary label="Backtest Results">
-                <TradeLog result={backtestResult} />
-              </ErrorBoundary>
-            )}
-
-            <ErrorBoundary label="Night Log">
-              <NightLog reports={auditReports} />
-            </ErrorBoundary>
-          </div>
-
-          <div className="main-right">
-            <ErrorBoundary label="Backtest">
-              <BacktestPanel onResult={setBacktestResult} />
-            </ErrorBoundary>
-          </div>
-        </main>
-      </div>
-
-      {/* ── Modals — rendered outside tabs so they work from either tab ──── */}
+      {/* ── Modals ──────────────────────────────────────────────────────── */}
       {showSettings && (
         <SettingsModal
           settings={settings}
           tickers={tickers}
           onSave={(side, updates) => {
             fetch(`/api/settings/${side}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
+              method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify(updates),
             }).then(() => fetchSettings());
           }}
           onTickerAdd={(sector, ticker) =>
-            fetch(`/api/tickers/${sector}/add?ticker=${ticker}`, { method: "POST" })
-              .then(() => fetchData())
+            fetch(`/api/tickers/${sector}/add?ticker=${ticker}`, { method: "POST" }).then(() => fetchDemoData())
           }
           onTickerRemove={(sector, ticker) =>
-            fetch(`/api/tickers/${sector}/remove?ticker=${ticker}`, { method: "POST" })
-              .then(() => fetchData())
+            fetch(`/api/tickers/${sector}/remove?ticker=${ticker}`, { method: "POST" }).then(() => fetchDemoData())
           }
           onClose={() => setShowSettings(false)}
         />
@@ -1398,7 +967,6 @@ export default function App() {
           onConfirm={async () => {
             await fetch("/api/live/config/promote", { method: "POST" });
             setShowPromote(false);
-            fetchData();
             fetchLiveData();
           }}
           onCancel={() => setShowPromote(false)}

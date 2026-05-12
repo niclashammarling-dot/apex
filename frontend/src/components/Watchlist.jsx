@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { COMPANY_NAMES } from "../companyNames.js";
+import HoverTooltip, { TipRow, TipHeader } from "./HoverTooltip";
 
 const SIGNAL_META = {
   recovering: { label: "RECOVERING", color: "#a78bfa" },
@@ -21,6 +23,77 @@ function scoreColor(score) {
   if (score >= 0.55) return "var(--green)";
   if (score >= 0.40) return "#e8a020";
   return "var(--red)";
+}
+
+function WatchlistItem({ item, onRemove }) {
+  const [tip, setTip] = useState(null);
+  const sm     = SIGNAL_META[item.signal] ?? SIGNAL_META.weak;
+  const color  = scoreColor(item.score);
+  const streak = weeks(item.streak_days);
+  return (
+    <div
+      key={item.ticker}
+      onMouseMove={e => setTip({ x: e.clientX, y: e.clientY })}
+      onMouseLeave={() => setTip(null)}
+      style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "10px 16px", borderTop: "1px solid var(--border)",
+        background: item.pre_rotation ? "#faff6905" : "transparent",
+      }}
+    >
+      <HoverTooltip pos={tip}>
+        <TipHeader>{item.ticker}{COMPANY_NAMES[item.ticker] ? ` — ${COMPANY_NAMES[item.ticker]}` : ""}</TipHeader>
+        <TipRow label="Signal"       value={`${sm.label}${streak ? ` · ${streak}` : ""}`} color={sm.color} />
+        <TipRow label="Streak"       value={streak ?? "—"} />
+        <TipRow label="Sector"       value={item.sector ?? "—"} />
+        <TipRow label="Score"        value={item.score?.toFixed(3) ?? "—"} color={color} />
+        <TipRow label="Pre-rotation" value={item.pre_rotation ? "YES" : "NO"} color={item.pre_rotation ? "var(--green)" : "var(--text-3)"} />
+        <TipRow label="Source"       value={item.source ?? "—"} />
+      </HoverTooltip>
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 15, color: "var(--text-1)", fontWeight: 700 }}>
+            {item.ticker}
+          </span>
+          <span style={{
+            fontFamily: "'Inconsolata', monospace", fontSize: 9, fontWeight: 700,
+            color: sm.color, background: `${sm.color}18`, border: `1px solid ${sm.color}44`,
+            borderRadius: 3, padding: "1px 5px",
+          }}>
+            {sm.label}{streak ? <span style={{ fontWeight: 400, opacity: 0.7 }}> · {streak}</span> : null}
+          </span>
+          {item.pre_rotation && (
+            <span style={{
+              fontFamily: "'Inconsolata', monospace", fontSize: 9, fontWeight: 700,
+              color: "var(--green)", background: "#faff6910",
+              border: "1px solid #faff6938", borderRadius: 3, padding: "1px 5px",
+            }}>
+              PRE-ROT
+            </span>
+          )}
+        </div>
+        <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)", marginTop: 3 }}>
+          {item.sector}
+          {item.source === "manual" && <span style={{ marginLeft: 8, color: "var(--text-3)", opacity: 0.6 }}>manual</span>}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 16, color, fontWeight: 700 }}>
+          {item.score?.toFixed(3) ?? "—"}
+        </span>
+        <button
+          onClick={() => onRemove(item.ticker)}
+          style={{
+            fontFamily: "'Inconsolata', monospace", fontSize: 14,
+            background: "none", border: "none",
+            color: "var(--text-3)", cursor: "pointer", padding: "0 2px", lineHeight: 1,
+          }}
+          title="Remove"
+        >×</button>
+      </div>
+    </div>
+  );
 }
 
 export default function Watchlist() {
@@ -129,61 +202,9 @@ export default function Watchlist() {
             </div>
           )}
 
-          {sorted.map(item => {
-            const sm     = SIGNAL_META[item.signal] ?? SIGNAL_META.weak;
-            const color  = scoreColor(item.score);
-            const streak = weeks(item.streak_days);
-            return (
-              <div key={item.ticker} style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "10px 16px", borderTop: "1px solid var(--border)",
-                background: item.pre_rotation ? "#faff6905" : "transparent",
-              }}>
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 15, color: "var(--text-1)", fontWeight: 700 }}>
-                      {item.ticker}
-                    </span>
-                    <span style={{
-                      fontFamily: "'Inconsolata', monospace", fontSize: 9, fontWeight: 700,
-                      color: sm.color, background: `${sm.color}18`, border: `1px solid ${sm.color}44`,
-                      borderRadius: 3, padding: "1px 5px",
-                    }}>
-                      {sm.label}{streak ? <span style={{ fontWeight: 400, opacity: 0.7 }}> · {streak}</span> : null}
-                    </span>
-                    {item.pre_rotation && (
-                      <span style={{
-                        fontFamily: "'Inconsolata', monospace", fontSize: 9, fontWeight: 700,
-                        color: "var(--green)", background: "#faff6910",
-                        border: "1px solid #faff6938", borderRadius: 3, padding: "1px 5px",
-                      }}>
-                        PRE-ROT
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)", marginTop: 3 }}>
-                    {item.sector}
-                    {item.source === "manual" && <span style={{ marginLeft: 8, color: "var(--text-3)", opacity: 0.6 }}>manual</span>}
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 16, color, fontWeight: 700 }}>
-                    {item.score?.toFixed(3) ?? "—"}
-                  </span>
-                  <button
-                    onClick={() => handleRemove(item.ticker)}
-                    style={{
-                      fontFamily: "'Inconsolata', monospace", fontSize: 14,
-                      background: "none", border: "none",
-                      color: "var(--text-3)", cursor: "pointer", padding: "0 2px", lineHeight: 1,
-                    }}
-                    title="Remove"
-                  >×</button>
-                </div>
-              </div>
-            );
-          })}
+          {sorted.map(item => (
+            <WatchlistItem key={item.ticker} item={item} onRemove={handleRemove} />
+          ))}
         </>
       )}
     </div>

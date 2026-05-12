@@ -1,0 +1,33 @@
+{
+  "date": "2026-05-11",
+  "ipo_shares": {
+    "Financials": 0.0909,
+    "ConsumerDisc": 0.0909,
+    "Industrials": 0.0909,
+    "Healthcare": 0.0909,
+    "ConsumerStaples": 0.0909,
+    "RealEstate": 0.0909,
+    "Materials": 0.0909,
+    "Technology": 0.0909,
+    "Energy": 0.0909,
+    "Communication": 0.0909,
+    "Utilities": 0.0909
+  },
+  "ipo_counts": {
+    "Financials": 0,
+    "ConsumerDisc": 0,
+    "Industrials": 0,
+    "Healthcare": 0,
+    "ConsumerStaples": 0,
+    "RealEstate": 0,
+    "Materials": 0,
+    "Technology": 0,
+    "Energy": 0,
+    "Communication": 0,
+    "Utilities": 0
+  },
+  "total_ipos": 0,
+  "risk_off": true,
+  "context": "IPO Sentiment (2026-05-11, last 30 days):\n  Total market IPOs: 0\n  RISK-OFF SIGNAL: Zero IPO activity in window.\n  Interpretation: institutional capital avoiding new listings.\n  Consider: reduce position sizing, favour defensive sectors.",
+  "listings": []
+}

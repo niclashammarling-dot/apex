@@ -129,6 +129,12 @@ Verify all Python files in `backend/gate/` use fully-qualified `backend.*` impor
 - Flag any match as CRITICAL — bare imports fail at runtime with ModuleNotFoundError when the app runs from the project root.
 - Also check `backend/gate/chain.py` specifically: all lock imports must be `from backend.gate.lockN_* import`.
 
+### CHECK 33 — Bayesian multiplier health
+- Read `data/bayesian_multiplier_stats.json`.
+- On weekdays: flag WARNING if the file is missing or has a date prior to today — the gate runner did not complete or the stats writer was removed.
+- Flag CRITICAL if `suspicious_cycles > 0`: a cycle ran with `regime_present=True`, `queued_count≥3`, and `all_unity=True`. This means `ticker_allocations()` returned zeros or the sector allocation lookup failed silently — Bayesian sizing had no effect despite regime data being available.
+- Distinguish from legitimate all-1.0: `multiplier_count=0` (no queued tickers) and `regime_present=False` (no regime data) are not suspicious. Only the combination of regime-present + tickers-queued + all-unity is the failure pattern.
+
 ### CHECK 18 — Audit pipeline completeness
 Every `.py` script in `audit/` must be explicitly called somewhere in these instructions.
 - List all `.py` files in `audit/` (excluding `__pycache__`).

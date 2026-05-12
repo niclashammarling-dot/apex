@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { COMPANY_NAMES } from "../companyNames.js";
+import HoverTooltip, { TipRow, TipHeader } from "./HoverTooltip";
 
 const CYCLICAL  = ["Technology", "Financials", "Industrials", "ConsumerDisc",
                    "Energy", "Materials", "Communication"];
@@ -28,49 +29,105 @@ function weeks(days) {
   return `${Math.round(days / 5)}w`;
 }
 
+function rsiColor(v)  { return v >= 70 ? "#ffaa00" : v <= 30 ? "var(--red)" : "var(--text-2)"; }
+function volColor(v)  { return v >= 0.6 ? "var(--green)" : v >= 0.35 ? "#e8a020" : "var(--text-3)"; }
+function momColor(v)  { return v >= 0.55 ? "var(--green)" : v >= 0.40 ? "#e8a020" : "var(--red)"; }
+
+function MiniBar({ label, value, min = 0, max = 1, colorFn }) {
+  const pct = value != null ? Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100)) : 0;
+  const color = value != null ? colorFn(value) : "var(--text-3)";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 3, flex: 1, minWidth: 0 }}>
+      <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 9, color: "var(--text-3)", width: 22, flexShrink: 0, letterSpacing: "0.04em" }}>
+        {label}
+      </span>
+      <div style={{ background: "#2a2a28", borderRadius: 2, height: 3, flex: 1, minWidth: 20 }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 2, transition: "width 0.3s ease" }} />
+      </div>
+      <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 9, color, width: 26, textAlign: "right", flexShrink: 0 }}>
+        {value != null ? (max === 100 ? Math.round(value) : value.toFixed(2)) : "—"}
+      </span>
+    </div>
+  );
+}
+
+function TickerTooltip({ t }) {
+  const sm     = SIGNAL_META[t.signal] ?? SIGNAL_META.weak;
+  const streak = weeks(t.streak_days);
+  return (
+    <>
+      <TipHeader>{t.ticker}{COMPANY_NAMES[t.ticker] ? ` — ${COMPANY_NAMES[t.ticker]}` : ""}</TipHeader>
+      <TipRow label="Signal" value={`${sm.label}${streak ? ` · ${streak}` : ""}`} color={sm.color} />
+      <TipRow label="Score"  value={t.signal_score?.toFixed(4) ?? "—"} color={scoreColor(t.signal_score)} />
+      <TipRow label="Trend"  value={t.trend ?? "—"} color={t.trend === "up" ? "var(--green)" : t.trend === "down" ? "var(--red)" : "var(--text-3)"} />
+      <TipRow label="Price"  value={t.price != null ? `$${t.price.toFixed(2)}` : "—"} />
+      <TipRow label="VOL"    value={t.volume_score != null ? t.volume_score.toFixed(3) : "—"} color={t.volume_score != null ? volColor(t.volume_score) : "var(--text-3)"} />
+      <TipRow label="RSI"    value={t.rsi != null ? Math.round(t.rsi).toString() : "—"} color={t.rsi != null ? rsiColor(t.rsi) : "var(--text-3)"} />
+      <TipRow label="MOM"    value={t.momentum_score != null ? t.momentum_score.toFixed(3) : "—"} color={t.momentum_score != null ? momColor(t.momentum_score) : "var(--text-3)"} />
+    </>
+  );
+}
+
 function TickerRow({ t }) {
+  const [tip, setTip] = useState(null);
   const color  = scoreColor(t.signal_score);
   const sm     = SIGNAL_META[t.signal] ?? SIGNAL_META.weak;
   const streak = weeks(t.streak_days);
   return (
-    <div style={{
-      display: "flex", alignItems: "center", justifyContent: "space-between",
-      padding: "5px 12px 5px 20px",
-      borderTop: "1px solid #1e1e1c",
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
-        <span style={{
-          fontFamily: "'Inconsolata', monospace", fontSize: 12,
-          color: "var(--text-1)", fontWeight: 600, minWidth: 44,
-        }}>
-          {t.ticker}
-        </span>
-        {COMPANY_NAMES[t.ticker] && (
+    <div
+      onMouseMove={e => setTip({ x: e.clientX, y: e.clientY })}
+      onMouseLeave={() => setTip(null)}
+      style={{
+        margin: "4px 8px", borderRadius: 5,
+        border: "1px solid #2a2a28",
+        background: "#131311",
+        cursor: "default",
+      }}
+    >
+      <HoverTooltip pos={tip}><TickerTooltip t={t} /></HoverTooltip>
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "5px 10px 3px 10px",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
           <span style={{
-            fontFamily: "'Inconsolata', monospace", fontSize: 10, color: "var(--text-3)",
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            fontFamily: "'Inconsolata', monospace", fontSize: 12,
+            color: "var(--text-1)", fontWeight: 600, minWidth: 44,
           }}>
-            {COMPANY_NAMES[t.ticker]}
+            {t.ticker}
           </span>
-        )}
+          {COMPANY_NAMES[t.ticker] && (
+            <span style={{
+              fontFamily: "'Inconsolata', monospace", fontSize: 10, color: "var(--text-3)",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>
+              {COMPANY_NAMES[t.ticker]}
+            </span>
+          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <span style={{
+            fontFamily: "'Inconsolata', monospace", fontSize: 9, fontWeight: 700,
+            color: sm.color, background: `${sm.color}18`, border: `1px solid ${sm.color}44`,
+            borderRadius: 3, padding: "1px 5px",
+          }}>
+            {sm.label}{streak ? <span style={{ fontWeight: 400, opacity: 0.7 }}> · {streak}</span> : null}
+          </span>
+          <span style={{
+            fontFamily: "'Inconsolata', monospace", fontSize: 12, color, fontWeight: 600,
+            minWidth: 38, textAlign: "right",
+          }}>
+            {t.signal_score?.toFixed(3) ?? "—"}
+          </span>
+          <span style={{ fontSize: 11, color: t.trend === "up" ? "var(--green)" : t.trend === "down" ? "var(--red)" : "var(--text-3)", minWidth: 10 }}>
+            {t.trend === "up" ? "↑" : t.trend === "down" ? "↓" : "→"}
+          </span>
+        </div>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-        <span style={{
-          fontFamily: "'Inconsolata', monospace", fontSize: 9, fontWeight: 700,
-          color: sm.color, background: `${sm.color}18`, border: `1px solid ${sm.color}44`,
-          borderRadius: 3, padding: "1px 5px",
-        }}>
-          {sm.label}{streak ? <span style={{ fontWeight: 400, opacity: 0.7 }}> · {streak}</span> : null}
-        </span>
-        <span style={{
-          fontFamily: "'Inconsolata', monospace", fontSize: 12, color, fontWeight: 600,
-          minWidth: 38, textAlign: "right",
-        }}>
-          {t.signal_score?.toFixed(3) ?? "—"}
-        </span>
-        <span style={{ fontSize: 11, color: t.trend === "up" ? "var(--green)" : t.trend === "down" ? "var(--red)" : "var(--text-3)", minWidth: 10 }}>
-          {t.trend === "up" ? "↑" : t.trend === "down" ? "↓" : "→"}
-        </span>
+      <div style={{ display: "flex", gap: 8, padding: "0 10px 5px 10px" }}>
+        <MiniBar label="VOL" value={t.volume_score}   min={0} max={1}   colorFn={volColor} />
+        <MiniBar label="RSI" value={t.rsi}            min={0} max={100} colorFn={rsiColor} />
+        <MiniBar label="MOM" value={t.momentum_score} min={0} max={1}   colorFn={momColor} />
       </div>
     </div>
   );

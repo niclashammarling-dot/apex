@@ -1,4 +1,5 @@
 import { useState } from "react";
+import HoverTooltip, { TipRow, TipHeader } from "./HoverTooltip";
 
 // Derive 5-lock pass states from gate_decision string.
 // Returns [l1, l2, l3, l4, l5] where true=pass, false=fail, null=not evaluated.
@@ -95,6 +96,73 @@ function FunnelSummary({ funnel }) {
   );
 }
 
+function GateRowSummary({ row, i, expanded, setExpanded }) {
+  const [tip, setTip] = useState(null);
+  const meta = OUTCOME_LABELS[row.gate_decision] || { label: row.gate_decision, cls: "gate-fail" };
+  const isSkipped  = row.gate_decision === "SKIPPED_OPEN" || row.gate_decision === "SKIPPED_COOLOFF";
+  const hasDetail  = !isSkipped && !!(row.lock3_reasoning || row.lock_leading_checks || row.l2_summary || row.macro_reason);
+  const isExpanded = expanded[i];
+  const ts = row._count > 1
+    ? `${fmtTime(row.timestamp)} – ${fmtTime(row._lastTs)}`
+    : fmtTime(row.timestamp);
+  const [s1, s2, s3, s4, s5] = getLockStates(row.gate_decision);
+  const decisionColor = row.gate_decision === "TRADE_EXECUTED" ? "var(--green)"
+    : row.gate_decision === "SKIPPED_OPEN" || row.gate_decision === "SKIPPED_COOLOFF" ? "var(--text-3)"
+    : "var(--red)";
+  return (
+    <tr
+      key={i}
+      style={{ cursor: hasDetail ? "pointer" : "default" }}
+      onMouseMove={e => setTip({ x: e.clientX, y: e.clientY })}
+      onMouseLeave={() => setTip(null)}
+      onClick={() => hasDetail && setExpanded(e => ({ ...e, [i]: !e[i] }))}
+    >
+      <HoverTooltip pos={tip}>
+        <TipHeader>{row.ticker}</TipHeader>
+        <TipRow label="Time"     value={ts} />
+        <TipRow label="Score / Thr" value={row.signal_score != null ? `${row.signal_score.toFixed(3)}${row.l1_threshold != null ? ` / ${row.l1_threshold.toFixed(3)}` : ""}` : "—"} />
+        <TipRow label="Decision" value={meta.label} color={decisionColor} />
+        {!isSkipped && <>
+          <TipRow label="L1" value={s1 === true ? "✓" : s1 === false ? "✗" : "—"} color={s1 === true ? "var(--green)" : s1 === false ? "var(--red)" : "var(--text-3)"} />
+          <TipRow label="L2" value={s2 === true ? "✓" : s2 === false ? "✗" : "—"} color={s2 === true ? "var(--green)" : s2 === false ? "var(--red)" : "var(--text-3)"} />
+          <TipRow label="L3" value={s3 === true ? "✓" : s3 === false ? "✗" : "—"} color={s3 === true ? "var(--green)" : s3 === false ? "var(--red)" : "var(--text-3)"} />
+          <TipRow label="L4" value={s4 === true ? "✓" : s4 === false ? "✗" : "—"} color={s4 === true ? "var(--green)" : s4 === false ? "var(--red)" : "var(--text-3)"} />
+          <TipRow label="L5" value={s5 === true ? "✓" : s5 === false ? "✗" : "—"} color={s5 === true ? "var(--green)" : s5 === false ? "var(--red)" : "var(--text-3)"} />
+        </>}
+        {row.macro_reason && <TipRow label="Macro" value={row.macro_reason.slice(0, 60)} />}
+      </HoverTooltip>
+      <td className="muted">{ts}</td>
+      <td>
+        <strong>{row.ticker}</strong>
+        {hasDetail && (
+          <span style={{ color: "var(--text-3)", fontSize: 11, marginLeft: 6 }}>
+            {isExpanded ? "▲" : "▼"}
+          </span>
+        )}
+      </td>
+      <td style={{ fontFamily: "'Inconsolata', monospace" }}>
+        <ScoreVsThreshold score={row.signal_score} threshold={row.l1_threshold} />
+      </td>
+      <td>
+        {isSkipped ? (
+          <span style={{ color: "var(--text-3)", fontSize: 12 }}>—</span>
+        ) : (
+          <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
+            <Lock label="L1" pass={s1} />
+            <Lock label="L2" pass={s2} />
+            <Lock label="L3" pass={s3} />
+            <Lock label="L4" pass={s4} />
+            <Lock label="L5" pass={s5} />
+          </div>
+        )}
+      </td>
+      <td>
+        <span className={`gate-badge ${meta.cls}`}>{meta.label}{row._count > 1 ? ` ×${row._count}` : ""}</span>
+      </td>
+    </tr>
+  );
+}
+
 export default function GateFeed({ history, funnel, collapsed, onCollapse }) {
   const [expanded, setExpanded] = useState({});
 
@@ -147,51 +215,13 @@ export default function GateFeed({ history, funnel, collapsed, onCollapse }) {
             </thead>
             <tbody>
               {grouped.map((row, i) => {
-                const meta = OUTCOME_LABELS[row.gate_decision] || { label: row.gate_decision, cls: "gate-fail" };
                 const isSkipped  = row.gate_decision === "SKIPPED_OPEN" || row.gate_decision === "SKIPPED_COOLOFF";
                 const hasDetail  = !isSkipped && !!(row.lock3_reasoning || row.lock_leading_checks || row.l2_summary || row.macro_reason);
                 const isExpanded = expanded[i];
                 const checks     = row.lock_leading_checks;
-                const ts = row._count > 1
-                  ? `${fmtTime(row.timestamp)} – ${fmtTime(row._lastTs)}`
-                  : fmtTime(row.timestamp);
-                const [s1, s2, s3, s4, s5] = getLockStates(row.gate_decision);
                 return (
                   <>
-                    <tr
-                      key={i}
-                      style={{ cursor: hasDetail ? "pointer" : "default" }}
-                      onClick={() => hasDetail && setExpanded(e => ({ ...e, [i]: !e[i] }))}
-                    >
-                      <td className="muted">{ts}</td>
-                      <td>
-                        <strong>{row.ticker}</strong>
-                        {hasDetail && (
-                          <span style={{ color: "var(--text-3)", fontSize: 11, marginLeft: 6 }}>
-                            {isExpanded ? "▲" : "▼"}
-                          </span>
-                        )}
-                      </td>
-                      <td style={{ fontFamily: "'Inconsolata', monospace" }}>
-                        <ScoreVsThreshold score={row.signal_score} threshold={row.l1_threshold} />
-                      </td>
-                      <td>
-                        {isSkipped ? (
-                          <span style={{ color: "var(--text-3)", fontSize: 12 }}>—</span>
-                        ) : (
-                          <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
-                            <Lock label="L1" pass={s1} />
-                            <Lock label="L2" pass={s2} />
-                            <Lock label="L3" pass={s3} />
-                            <Lock label="L4" pass={s4} />
-                            <Lock label="L5" pass={s5} />
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <span className={`gate-badge ${meta.cls}`}>{meta.label}{row._count > 1 ? ` ×${row._count}` : ""}</span>
-                      </td>
-                    </tr>
+                    <GateRowSummary key={i} row={row} i={i} expanded={expanded} setExpanded={setExpanded} />
                     {isExpanded && hasDetail && (
                       <tr key={`${i}-detail`}>
                         <td colSpan={5} style={{

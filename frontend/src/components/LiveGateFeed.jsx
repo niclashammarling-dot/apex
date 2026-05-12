@@ -1,4 +1,5 @@
 import { useState } from "react";
+import HoverTooltip, { TipRow, TipHeader } from "./HoverTooltip";
 
 // Derive 5-lock pass states from gate_decision string.
 // Returns [l1, l2, l3, l4, l5] where true=pass, false=fail, null=not evaluated.
@@ -89,6 +90,84 @@ function decisionBadge(decision) {
   return { cls: "gate-fail", label: decision ?? "—" };
 }
 
+function LiveGateRowSummary({ row, i, expanded, setExpanded }) {
+  const [tip, setTip] = useState(null);
+  const fmt = ts => ts
+    ? new Date(ts).toLocaleString("en-US", {
+        month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hour12: false,
+      })
+    : "—";
+  const ts = row._count > 1
+    ? `${fmt(row.timestamp)} – ${fmt(row._lastTs)}`
+    : fmt(row.timestamp);
+  const { cls, label } = decisionBadge(row.gate_decision);
+  const isSkipped = row.gate_decision === "SKIPPED_OPEN" || row.gate_decision === "SKIPPED_COOLOFF";
+  const hasDetail = !isSkipped && !!(row.lock3_reasoning || row.lock_leading_checks || row.l2_summary || row.macro_reason);
+  const isOpen    = expanded === i;
+  const [s1, s2, s3, s4, s5] = getLockStates(row.gate_decision);
+  const decisionColor = row.gate_decision === "TRADE_EXECUTED" ? "var(--green)"
+    : row.gate_decision === "SKIPPED_OPEN" || row.gate_decision === "SKIPPED_COOLOFF" ? "var(--text-3)"
+    : "var(--red)";
+  return (
+    <tr
+      onMouseMove={e => setTip({ x: e.clientX, y: e.clientY })}
+      onMouseLeave={() => setTip(null)}
+      onClick={() => hasDetail && setExpanded(isOpen ? null : i)}
+      style={{ cursor: hasDetail ? "pointer" : "default" }}
+    >
+      <HoverTooltip pos={tip}>
+        <TipHeader>{row.ticker}</TipHeader>
+        <TipRow label="Time"        value={ts} />
+        <TipRow label="Score / Thr" value={row.signal_score != null ? `${row.signal_score.toFixed(3)}${row.l1_threshold != null ? ` / ${row.l1_threshold.toFixed(3)}` : ""}` : "—"} />
+        <TipRow label="Decision"    value={label} color={decisionColor} />
+        {!isSkipped && <>
+          <TipRow label="L1" value={s1 === true ? "✓" : s1 === false ? "✗" : "—"} color={s1 === true ? "var(--green)" : s1 === false ? "var(--red)" : "var(--text-3)"} />
+          <TipRow label="L2" value={s2 === true ? "✓" : s2 === false ? "✗" : "—"} color={s2 === true ? "var(--green)" : s2 === false ? "var(--red)" : "var(--text-3)"} />
+          <TipRow label="L3" value={s3 === true ? "✓" : s3 === false ? "✗" : "—"} color={s3 === true ? "var(--green)" : s3 === false ? "var(--red)" : "var(--text-3)"} />
+          <TipRow label="L4" value={s4 === true ? "✓" : s4 === false ? "✗" : "—"} color={s4 === true ? "var(--green)" : s4 === false ? "var(--red)" : "var(--text-3)"} />
+          <TipRow label="L5" value={s5 === true ? "✓" : s5 === false ? "✗" : "—"} color={s5 === true ? "var(--green)" : s5 === false ? "var(--red)" : "var(--text-3)"} />
+        </>}
+        {row.macro_reason && <TipRow label="Macro" value={row.macro_reason.slice(0, 60)} />}
+        {row.alpaca_order_id && <TipRow label="Order ID" value={row.alpaca_order_id} />}
+      </HoverTooltip>
+      <td style={{ fontFamily: "'Inconsolata', monospace", fontSize: 12 }}>{ts}</td>
+      <td>
+        <strong>{row.ticker}</strong>
+        {hasDetail && (
+          <span style={{ color: "var(--text-3)", fontSize: 11, marginLeft: 6 }}>
+            {isOpen ? "▲" : "▼"}
+          </span>
+        )}
+      </td>
+      <td style={{ fontFamily: "'Inconsolata', monospace" }}>
+        <ScoreVsThreshold score={row.signal_score} threshold={row.l1_threshold} />
+      </td>
+      <td>
+        {isSkipped ? (
+          <span style={{ color: "var(--text-3)", fontSize: 12 }}>—</span>
+        ) : (
+          <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
+            <Lock label="L1" pass={s1} />
+            <Lock label="L2" pass={s2} />
+            <Lock label="L3" pass={s3} />
+            <Lock label="L4" pass={s4} />
+            <Lock label="L5" pass={s5} />
+          </div>
+        )}
+      </td>
+      <td>
+        <span className={`gate-badge ${cls}`}>{label}{row._count > 1 ? ` ×${row._count}` : ""}</span>
+        {row.alpaca_order_id && (
+          <span style={{ marginLeft: 8, fontSize: 11, color: "var(--text-3)", fontFamily: "'Inconsolata', monospace" }}>
+            #{row.alpaca_order_id.slice(0, 8)}
+          </span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
 export default function LiveGateFeed({ history, funnel, collapsed, onCollapse }) {
   const [expanded, setExpanded] = useState(null);
 
@@ -142,62 +221,13 @@ export default function LiveGateFeed({ history, funnel, collapsed, onCollapse })
         </thead>
         <tbody>
           {grouped.map((row, i) => {
-            const fmt = ts => ts
-              ? new Date(ts).toLocaleString("en-US", {
-                  month: "2-digit", day: "2-digit",
-                  hour: "2-digit", minute: "2-digit", hour12: false,
-                })
-              : "—";
-            const ts = row._count > 1
-              ? `${fmt(row.timestamp)} – ${fmt(row._lastTs)}`
-              : fmt(row.timestamp);
-            const { cls, label } = decisionBadge(row.gate_decision);
             const isSkipped = row.gate_decision === "SKIPPED_OPEN" || row.gate_decision === "SKIPPED_COOLOFF";
             const hasDetail = !isSkipped && !!(row.lock3_reasoning || row.lock_leading_checks || row.l2_summary || row.macro_reason);
             const isOpen    = expanded === i;
             const checks    = row.lock_leading_checks;
-            const [s1, s2, s3, s4, s5] = getLockStates(row.gate_decision);
 
             return [
-              <tr
-                key={i}
-                onClick={() => hasDetail && setExpanded(isOpen ? null : i)}
-                style={{ cursor: hasDetail ? "pointer" : "default" }}
-              >
-                <td style={{ fontFamily: "'Inconsolata', monospace", fontSize: 12 }}>{ts}</td>
-                <td>
-                  <strong>{row.ticker}</strong>
-                  {hasDetail && (
-                    <span style={{ color: "var(--text-3)", fontSize: 11, marginLeft: 6 }}>
-                      {isOpen ? "▲" : "▼"}
-                    </span>
-                  )}
-                </td>
-                <td style={{ fontFamily: "'Inconsolata', monospace" }}>
-                  <ScoreVsThreshold score={row.signal_score} threshold={row.l1_threshold} />
-                </td>
-                <td>
-                  {isSkipped ? (
-                    <span style={{ color: "var(--text-3)", fontSize: 12 }}>—</span>
-                  ) : (
-                    <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
-                      <Lock label="L1" pass={s1} />
-                      <Lock label="L2" pass={s2} />
-                      <Lock label="L3" pass={s3} />
-                      <Lock label="L4" pass={s4} />
-                      <Lock label="L5" pass={s5} />
-                    </div>
-                  )}
-                </td>
-                <td>
-                  <span className={`gate-badge ${cls}`}>{label}{row._count > 1 ? ` ×${row._count}` : ""}</span>
-                  {row.alpaca_order_id && (
-                    <span style={{ marginLeft: 8, fontSize: 11, color: "var(--text-3)", fontFamily: "'Inconsolata', monospace" }}>
-                      #{row.alpaca_order_id.slice(0, 8)}
-                    </span>
-                  )}
-                </td>
-              </tr>,
+              <LiveGateRowSummary key={i} row={row} i={i} expanded={expanded} setExpanded={setExpanded} />,
               isOpen && hasDetail && (
                 <tr key={`${i}-detail`}>
                   <td colSpan={5} style={{

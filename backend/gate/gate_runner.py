@@ -7,7 +7,8 @@ Trade execution via wallet.py. All results logged to DB.
 """
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from pathlib import Path
 
 from loguru import logger
 
@@ -148,12 +149,29 @@ def run() -> list[dict]:
             evaluated.append((signal, result))
 
     evaluated.sort(key=lambda x: (0 if x[0].get("pre_rotation") else 1, x[0].get("signal_score", 0)), reverse=True)
-    max_positions      = cfg["max_positions"]
-    overflow_increment = cfg.get("overflow_quant_increment", 0.05)
-    open_count         = len(open_tickers)  # snapshot; incremented on each executed trade
+    max_positions        = cfg["max_positions"]
+    overflow_increment   = cfg.get("overflow_quant_increment", 0.05)
+    open_count           = len(open_tickers)  # snapshot; incremented on each executed trade
+    bayesian_multipliers = _compute_bayesian_multipliers(evaluated, regime_bayes_result)
 
     for signal, result in evaluated:
         ticker = signal["ticker"]
+
+        # Apply Bayesian sector sizing — scale Lock 5 recommendation by relative
+        # signal strength within the sector's portfolio allocation.
+        if result["outcome"] == "TRADE_QUEUED" and result.get("lock3"):
+            _scale = bayesian_multipliers.get(ticker, 1.0)
+            if _scale != 1.0:
+                _raw  = result["lock3"]["position_size_pct"]
+                result["lock3"]["position_size_pct"] = min(
+                    round(_raw * _scale, 4),
+                    cfg.get("max_position_size", 0.10),
+                )
+                logger.info(
+                    f"Gate [{ticker}]: Bayesian size scale={_scale:.3f} "
+                    f"({_raw:.4f} → {result['lock3']['position_size_pct']:.4f})"
+                )
+
         if result["outcome"] == "TRADE_QUEUED":
             if open_count >= max_positions:
                 # Overflow slot — check escalating quant threshold
@@ -208,6 +226,7 @@ def run() -> list[dict]:
         })
         _log_summary(ticker, result)
 
+    _persist_multiplier_stats(bayesian_multipliers, regime_bayes_result, evaluated)
     return results
 
 
@@ -389,6 +408,109 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
         "l2_summary":          l3_data.get("summary"),
         "macro_reason":        l1.reason if (l1 and not l1.passed) else None,
     }
+
+
+_MULTIPLIER_STATS_PATH = Path(__file__).parent.parent.parent / "data" / "bayesian_multiplier_stats.json"
+
+
+def _persist_multiplier_stats(
+    multipliers: dict[str, float],
+    regime_bayes_result,
+    evaluated: list[tuple[dict, dict]],
+) -> None:
+    """
+    Append one cycle record to the daily Bayesian multiplier stats file.
+
+    The file accumulates per-cycle entries within a trading day. The audit
+    check reads it nightly and flags any cycle where regime was present,
+    ≥3 tickers were queued, but every multiplier was exactly 1.0 — the
+    silent failure mode where ticker_allocations() returned zeros.
+    """
+    today = date.today().isoformat()
+    queued_count    = sum(1 for _, r in evaluated if r["outcome"] == "TRADE_QUEUED")
+    regime_present  = regime_bayes_result is not None and bool(
+        getattr(regime_bayes_result, "allocation", {})
+    )
+    vals      = list(multipliers.values())
+    all_unity = bool(vals) and all(v == 1.0 for v in vals)
+    variance  = 0.0
+    if len(vals) >= 2:
+        mean     = sum(vals) / len(vals)
+        variance = round(sum((v - mean) ** 2 for v in vals) / len(vals), 6)
+
+    cycle = {
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
+        "regime_present":  regime_present,
+        "queued_count":    queued_count,
+        "multiplier_count": len(multipliers),
+        "all_unity":       all_unity,
+        "variance":        variance,
+    }
+    suspicious = regime_present and queued_count >= 3 and all_unity
+
+    try:
+        existing: dict = {}
+        if _MULTIPLIER_STATS_PATH.exists():
+            try:
+                existing = json.loads(_MULTIPLIER_STATS_PATH.read_text())
+            except Exception:
+                existing = {}
+
+        if existing.get("date") != today:
+            existing = {"date": today, "cycles": [], "suspicious_cycles": 0}
+
+        existing["cycles"].append(cycle)
+        if suspicious:
+            existing["suspicious_cycles"] = existing.get("suspicious_cycles", 0) + 1
+
+        _MULTIPLIER_STATS_PATH.write_text(json.dumps(existing, indent=2))
+    except Exception as e:
+        logger.warning(f"Gate runner: failed to persist multiplier stats: {e}")
+
+
+def _compute_bayesian_multipliers(
+    evaluated: list[tuple[dict, dict]],
+    regime_bayes_result,
+) -> dict[str, float]:
+    """
+    Per-ticker size multipliers from Bayesian sector allocation.
+
+    For each sector with queued trades, distribute the sector's portfolio
+    allocation proportionally by signal score via RegimeBayes.ticker_allocations().
+    The multiplier is ticker_bayesian_alloc / equal_weight_baseline — tickers
+    with above-average signal strength get sized up, laggards get sized down.
+
+    Returns {} when regime_bayes_result is unavailable (multipliers default to 1.0).
+    Non-qualifying sectors (allocation=0) are excluded; their trades are handled
+    by dynamic_caps and the regime floor elsewhere.
+    """
+    if not regime_bayes_result:
+        return {}
+
+    from collections import defaultdict
+    from backend.regime.regime_bayes import RegimeBayes
+
+    sector_queued: dict[str, list[tuple[str, float]]] = defaultdict(list)
+    for signal, result in evaluated:
+        if result["outcome"] == "TRADE_QUEUED":
+            sector_queued[signal.get("sector", "")].append(
+                (signal["ticker"], signal["signal_score"])
+            )
+
+    multipliers: dict[str, float] = {}
+    allocs = regime_bayes_result.allocation
+
+    for sector, tickers in sector_queued.items():
+        sector_alloc = allocs.get(sector, 0.0)
+        if sector_alloc <= 0 or not tickers:
+            continue
+        baseline     = sector_alloc / len(tickers)   # equal-weight reference
+        ticker_scores = {t: s for t, s in tickers}
+        per_ticker    = RegimeBayes.ticker_allocations(sector_alloc, ticker_scores)
+        for ticker, alloc in per_ticker.items():
+            multipliers[ticker] = round(alloc / baseline, 4) if baseline > 0 else 1.0
+
+    return multipliers
 
 
 def _log_summary(ticker: str, result: dict) -> None:

@@ -9,6 +9,7 @@ Pure grep/parse, no LLM. Writes findings to audit/nightly-report-YYYY-MM-DD.md.
 # CHECK 26 added 2026-05-03: L1/L2 threshold-source parity (both must use get_ticker_thresholds())
 # CHECK 27 added 2026-05-06: GICS sector classification parity (tickers.json vs authoritative GICS map)
 # CHECK 29 added 2026-05-07: Live sector exposure cap wiring (sector_exposure_live computed and enforced in both execution branches)
+# CHECK 33 added 2026-05-09: Bayesian multiplier health (silent all-1.0 detection via data/bayesian_multiplier_stats.json)
 
 import json
 import re
@@ -1163,19 +1164,20 @@ def write_report(retirement_candidates):
 
 def check32():
     """
-    Verify local master is not behind origin/master.
+    Verify local master is not behind origin/master and working tree is clean.
 
-    The nightly audit runner commits to origin/master. Local dev commits
-    accumulate without being pushed. When they diverge, the local audit/
-    directory is stale and the frontend shows an outdated last-test date
-    with no error raised anywhere.
+    Two assertions:
+      1. Local master not behind origin/master — nightly agent commits to origin;
+         unpushed dev commits cause stale audit/ and wrong frontend last-test date.
+         CRITICAL if >3 behind, WARNING if 1–3.
+      2. No uncommitted files in working tree — nightly agent may write files without
+         committing; those changes silently persist across sessions and are invisible
+         to the audit history.
 
-    CRITICAL if local master is >3 commits behind origin (more than one
-    missed nightly cycle). WARNING if 1–3 behind (caught within same day).
-
-    Prevented by: 2026-05-09. 26 nightly commits accumulated on origin
-    over 25 days while 19 dev commits sat unpushed — frontend showed
-    2026-05-03 as last test when origin had run through 2026-05-09.
+    Prevented by: 2026-05-09. 26 nightly commits accumulated on origin over 25 days
+    while 19 dev commits sat unpushed. Extended 2026-05-12: nightly agent wrote 14
+    files (frontend + backend) on May 9 without committing; changes sat untracked
+    for 3 days.
     """
     try:
         result = subprocess.run(
@@ -1198,6 +1200,79 @@ def check32():
     elif behind > 0:
         flag(32, "Git sync divergence", "WARNING", ".git/",
              f"Local master is {behind} commit(s) behind origin/master — push dev commits after session close")
+
+    try:
+        dirty = subprocess.run(
+            ["git", "diff", "--name-only", "HEAD"],
+            cwd=REPO, capture_output=True, text=True, timeout=15,
+        )
+        uncommitted = [l for l in dirty.stdout.splitlines() if l.strip()]
+        count = len(uncommitted)
+    except Exception:
+        count = None
+
+    if count is None:
+        flag(32, "Git sync divergence", "WARNING", ".git/",
+             "Could not count uncommitted changes — git diff HEAD failed")
+    elif count > 0:
+        flag(32, "Git sync divergence", "WARNING", ".git/",
+             f"{count} uncommitted file(s) in working tree — changes will be lost or skipped on next nightly run")
+
+
+def check33():
+    """
+    Bayesian multiplier health — silent all-1.0 detection.
+
+    _compute_bayesian_multipliers() can silently return all 1.0 in two
+    distinct failure modes:
+      A) regime_bayes_result was None (legitimate: no regime data)
+      B) ticker_allocations() returned empty/zero (broken: upstream failure)
+
+    Mode A produces no multiplier entries at all (multiplier_count=0).
+    Mode B produces entries but every value is 1.0 (all_unity=True).
+
+    The suspicious_cycles counter in the stats file tracks mode B specifically:
+    regime was present, ≥3 tickers were queued, but every multiplier was 1.0.
+
+    CRITICAL: any suspicious cycle detected today.
+    WARNING: stats file missing or stale on a weekday (runner may have stopped).
+    """
+    path = REPO / "data" / "bayesian_multiplier_stats.json"
+    today = date.today()
+    is_trading_day = today.weekday() < 5
+
+    if not path.exists():
+        if is_trading_day:
+            flag(33, "Bayesian multiplier health", "WARNING",
+                 "data/bayesian_multiplier_stats.json",
+                 "Stats file missing — _persist_multiplier_stats() not called; "
+                 "gate runner may be down or the call was removed from gate_runner.run()")
+        return
+
+    try:
+        stats = json.loads(path.read_text())
+    except Exception as e:
+        flag(33, "Bayesian multiplier health", "WARNING",
+             "data/bayesian_multiplier_stats.json",
+             f"Stats file unreadable: {e}")
+        return
+
+    file_date = stats.get("date", "")
+    if is_trading_day and file_date != today.isoformat():
+        flag(33, "Bayesian multiplier health", "WARNING",
+             "data/bayesian_multiplier_stats.json",
+             f"Stats file is from {file_date or '(missing)'}, not today ({today.isoformat()}) — "
+             "gate runner did not complete a full cycle or _persist_multiplier_stats() was removed")
+        return
+
+    suspicious = stats.get("suspicious_cycles", 0)
+    if suspicious > 0:
+        total = len(stats.get("cycles", []))
+        flag(33, "Bayesian multiplier health", "CRITICAL",
+             "data/bayesian_multiplier_stats.json",
+             f"{suspicious}/{total} gate cycle(s): regime_result present, ≥3 tickers queued, "
+             f"but all multipliers=1.0 — ticker_allocations() likely returned zeros or "
+             f"sector allocation lookup failed silently; Bayesian sizing had no effect")
 
 
 if __name__ == "__main__":
@@ -1225,5 +1300,6 @@ if __name__ == "__main__":
     check30()
     check31()
     check32()
+    check33()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])

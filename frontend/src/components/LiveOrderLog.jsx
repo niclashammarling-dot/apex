@@ -1,4 +1,5 @@
 import { useState } from "react";
+import HoverTooltip, { TipRow, TipHeader } from "./HoverTooltip";
 
 const STATUS_META = {
   filled:           { label: "FILLED",   color: "var(--green)",  bg: "#1e1e00" },
@@ -10,6 +11,71 @@ const STATUS_META = {
   accepted:         { label: "ACCEPTED", color: "var(--text-3)", bg: "transparent" },
   pending_new:      { label: "PENDING",  color: "var(--text-3)", bg: "transparent" },
 };
+
+function OrderRow({ o }) {
+  const [tip, setTip] = useState(null);
+  const meta = STATUS_META[o.status?.toLowerCase()] ?? { label: o.status, color: "var(--text-3)", bg: "transparent" };
+  const sideColor = o.side?.includes("buy") ? "var(--green)" : "var(--red)";
+  const ts = o.submitted_at
+    ? new Date(o.submitted_at).toLocaleString("en-US", {
+        month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hour12: false,
+      })
+    : "—";
+  return (
+    <div
+      onMouseMove={e => setTip({ x: e.clientX, y: e.clientY })}
+      onMouseLeave={() => setTip(null)}
+      style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "10px 16px", borderTop: "1px solid var(--border)",
+      }}
+    >
+      <HoverTooltip pos={tip}>
+        <TipHeader>{o.side?.toUpperCase()} {o.ticker}</TipHeader>
+        <TipRow label="Qty"          value={o.filled_qty ?? o.qty ?? "—"} />
+        <TipRow label="Submitted"    value={ts} />
+        <TipRow label="Filled Price" value={o.filled_price ? `$${parseFloat(o.filled_price).toFixed(2)}` : "—"} />
+        <TipRow label="Status"       value={meta.label} color={meta.color} />
+        <TipRow label="Order ID"     value={o.id ?? "—"} />
+      </HoverTooltip>
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{
+            fontFamily: "'Inconsolata', monospace", fontSize: 11, fontWeight: 700,
+            color: sideColor, letterSpacing: "0.06em",
+          }}>
+            {o.side?.toUpperCase()}
+          </span>
+          <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 15, color: "var(--text-1)", fontWeight: 700 }}>
+            {o.ticker}
+          </span>
+          <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)" }}>
+            {(o.filled_qty ?? o.qty ?? "—")} shares
+          </span>
+        </div>
+        <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)", marginTop: 3 }}>
+          {ts}
+        </div>
+      </div>
+
+      <div style={{ textAlign: "right" }}>
+        <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 15, color: "var(--text-1)", fontWeight: 600 }}>
+          {o.filled_price ? `$${parseFloat(o.filled_price).toFixed(2)}` : "—"}
+        </div>
+        <div style={{ marginTop: 3 }}>
+          <span style={{
+            fontFamily: "'Inconsolata', monospace", fontSize: 10, fontWeight: 700,
+            color: meta.color, background: meta.bg,
+            borderRadius: 3, padding: "1px 6px", letterSpacing: "0.04em",
+          }}>
+            {meta.label}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function LiveOrderLog({ orders }) {
   const [open, setOpen] = useState(false);
@@ -28,58 +94,7 @@ export default function LiveOrderLog({ orders }) {
         <div className="card-body"><p className="muted">No orders yet.</p></div>
       )}
 
-      {open && orders.length > 0 && orders.map(o => {
-        const meta = STATUS_META[o.status?.toLowerCase()] ?? { label: o.status, color: "var(--text-3)", bg: "transparent" };
-        const sideColor = o.side?.includes("buy") ? "var(--green)" : "var(--red)";
-        const ts = o.submitted_at
-          ? new Date(o.submitted_at).toLocaleString("en-US", {
-              month: "2-digit", day: "2-digit",
-              hour: "2-digit", minute: "2-digit", hour12: false,
-            })
-          : "—";
-
-        return (
-          <div key={o.id} style={{
-            display: "flex", alignItems: "center", justifyContent: "space-between",
-            padding: "10px 16px", borderTop: "1px solid var(--border)",
-          }}>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{
-                  fontFamily: "'Inconsolata', monospace", fontSize: 11, fontWeight: 700,
-                  color: sideColor, letterSpacing: "0.06em",
-                }}>
-                  {o.side?.toUpperCase()}
-                </span>
-                <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 15, color: "var(--text-1)", fontWeight: 700 }}>
-                  {o.ticker}
-                </span>
-                <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)" }}>
-                  {(o.filled_qty ?? o.qty ?? "—")} shares
-                </span>
-              </div>
-              <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)", marginTop: 3 }}>
-                {ts}
-              </div>
-            </div>
-
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 15, color: "var(--text-1)", fontWeight: 600 }}>
-                {o.filled_price ? `$${parseFloat(o.filled_price).toFixed(2)}` : "—"}
-              </div>
-              <div style={{ marginTop: 3 }}>
-                <span style={{
-                  fontFamily: "'Inconsolata', monospace", fontSize: 10, fontWeight: 700,
-                  color: meta.color, background: meta.bg,
-                  borderRadius: 3, padding: "1px 6px", letterSpacing: "0.04em",
-                }}>
-                  {meta.label}
-                </span>
-              </div>
-            </div>
-          </div>
-        );
-      })}
+      {open && orders.length > 0 && orders.map(o => <OrderRow key={o.id} o={o} />)}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import HoverTooltip, { TipRow, TipHeader } from "./HoverTooltip";
 
 const SIGNAL_META = {
   breakout:   { label: "BREAKOUT",   color: "#00d48c" },
@@ -27,12 +28,25 @@ function weeks(days) {
 }
 
 function TickerRow({ t }) {
+  const [tip, setTip] = useState(null);
   const sm = SIGNAL_META[t.signal] ?? SIGNAL_META.weak;
+  const velocityColor = t.velocity === "accelerating" ? "#00d48c" : t.velocity === "decelerating" ? "#ff3355" : "var(--text-3)";
   return (
-    <div style={{
-      display: "flex", alignItems: "center", justifyContent: "space-between",
-      padding: "4px 12px 4px 20px", borderTop: "1px solid #1e1e1c",
-    }}>
+    <div
+      onMouseMove={e => setTip({ x: e.clientX, y: e.clientY })}
+      onMouseLeave={() => setTip(null)}
+      style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "4px 12px 4px 20px", borderTop: "1px solid #1e1e1c",
+      }}
+    >
+      <HoverTooltip pos={tip}>
+        <TipHeader>{t.ticker}</TipHeader>
+        <TipRow label="Signal"         value={sm.label} color={sm.color} />
+        <TipRow label="Pre-rotation"   value={t.pre_rotation ? "YES" : "NO"} color={t.pre_rotation ? "var(--green)" : "var(--text-3)"} />
+        <TipRow label="Velocity"       value={t.velocity ?? "—"} color={velocityColor} />
+        <TipRow label="Rotation Score" value={t.rotation_score != null ? (t.rotation_score * 100).toFixed(0) + "%" : "—"} />
+      </HoverTooltip>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 12, color: "var(--text-1)", fontWeight: 600, minWidth: 44 }}>
           {t.ticker}
@@ -66,15 +80,19 @@ function TickerRow({ t }) {
 }
 
 function SectorRow({ sector, stat, tickers, expanded, onToggle }) {
+  const [tip, setTip] = useState(null);
   const sm      = SIGNAL_META[stat.signal] ?? SIGNAL_META.weak;
   const score   = stat.score?.toFixed(3) ?? "—";
   const streak  = weeks(stat.streak_days);
   const isOpen  = !!expanded[sector];
   const st      = tickers.filter(t => t.sector === sector);
+  const velocityColor = stat.velocity === "accelerating" ? "#00d48c" : stat.velocity === "decelerating" ? "#ff3355" : "var(--text-3)";
 
   return (
     <>
       <div
+        onMouseMove={e => setTip({ x: e.clientX, y: e.clientY })}
+        onMouseLeave={() => setTip(null)}
         onClick={() => onToggle(sector)}
         style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -82,6 +100,14 @@ function SectorRow({ sector, stat, tickers, expanded, onToggle }) {
           cursor: "pointer", background: isOpen ? "#1a1a18" : "transparent",
         }}
       >
+        <HoverTooltip pos={tip}>
+          <TipHeader>{sector}</TipHeader>
+          <TipRow label="Signal"   value={sm.label} color={sm.color} />
+          <TipRow label="Streak"   value={streak ?? "—"} />
+          <TipRow label="Score"    value={score} />
+          <TipRow label="Velocity" value={stat.velocity ?? "—"} color={velocityColor} />
+          {stat.etf && <TipRow label="ETF" value={stat.etf} />}
+        </HoverTooltip>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ width: 3, height: 20, background: sm.color, borderRadius: 2, flexShrink: 0, opacity: 0.7 }} />
           <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 12, color: "var(--text-2)", fontWeight: 500 }}>
