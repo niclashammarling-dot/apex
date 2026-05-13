@@ -203,6 +203,9 @@ function adaptTickers(sectors) {
         rsi:        t.rsi ?? null,
         chg:        t.chg ?? 0,
         price:      t.price ?? 0,
+        signal:     t.signal ?? "weak",
+        streak_days: t.streak_days ?? 0,
+        trendDir:   t.trend ?? "flat",
         watchlist:  false,
       });
     });

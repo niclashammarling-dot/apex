@@ -8,6 +8,8 @@ import Watchlist     from "./Watchlist.jsx";
 import DemoTradeLog  from "./DemoTradeLog.jsx";
 import LiveTradeLog  from "./LiveTradeLog.jsx";
 import LiveOrderLog  from "./LiveOrderLog.jsx";
+import HoverTooltip, { TipRow, TipHeader } from "./HoverTooltip.jsx";
+import { COMPANY_NAMES } from "../companyNames.js";
 
 const fmt$ = (n, d = 2) => "$" + Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 const fmtPct = (n, d = 2) => (n >= 0 ? "+" : "−") + Math.abs(n * 100).toFixed(d) + "%";
@@ -268,6 +270,98 @@ function Positions({ D, mode }) {
   );
 }
 
+const TIP_GREEN  = "#00d48c";
+const TIP_AMBER  = "#ffaa00";
+const TIP_RED    = "#ff3355";
+const TIP_DIM    = "#666";
+
+const scoreColor = s => s >= 0.7 ? TIP_GREEN : s >= 0.55 ? TIP_AMBER : TIP_DIM;
+
+function TickerTooltip({ t }) {
+  const sigColor   = SIGNAL_COLORS[t.signal] ?? TIP_DIM;
+  const sigLabel   = SIGNAL_LABELS[t.signal]  ?? "WEAK";
+  const streak     = t.streak_days >= 5 ? `${Math.round(t.streak_days / 5)}W` : t.streak_days > 0 ? `${t.streak_days}D` : null;
+  const trendColor = t.trendDir === "up" ? TIP_GREEN : t.trendDir === "down" ? TIP_RED : TIP_DIM;
+  return (
+    <>
+      <TipHeader>{t.sym}{COMPANY_NAMES[t.sym] ? ` — ${COMPANY_NAMES[t.sym]}` : ""}</TipHeader>
+      <TipRow label="Signal" value={streak ? `${sigLabel} · ${streak}` : sigLabel} color={sigColor} />
+      <TipRow label="Score"  value={t.score.toFixed(4)} color={scoreColor(t.score)} />
+      <TipRow label="Trend"  value={t.trendDir} color={trendColor} />
+      <TipRow label="Price"  value={t.price ? `$${t.price.toFixed(2)}` : "—"} />
+      <TipRow label="Chg"    value={`${t.chg >= 0 ? "+" : ""}${t.chg.toFixed(2)}%`} color={t.chg >= 0 ? TIP_GREEN : TIP_RED} />
+      <TipRow label="VOL"    value={t.volume != null ? t.volume.toFixed(3) : "—"} color={t.volume >= 0.6 ? TIP_GREEN : t.volume >= 0.35 ? TIP_AMBER : TIP_DIM} />
+      <TipRow label="RSI"    value={t.rsi != null ? Math.round(t.rsi).toString() : "—"} color={t.rsi >= 70 ? TIP_RED : t.rsi <= 30 ? TIP_AMBER : TIP_GREEN} />
+      <TipRow label="MOM"    value={t.momentum != null ? t.momentum.toFixed(3) : "—"} color={t.momentum >= 0.55 ? TIP_GREEN : t.momentum >= 0.40 ? TIP_AMBER : TIP_RED} />
+    </>
+  );
+}
+
+function Tile({ t }) {
+  const [tip, setTip] = useState(null);
+  const c    = t.score >= 0.7 ? "t-accent" : t.score >= 0.55 ? "t-amber" : "t-text-3";
+  const volC = t.volume >= 0.6 ? "var(--t-accent)" : t.volume >= 0.35 ? "var(--t-amber)" : "var(--t-text-3)";
+  const rsiC = t.rsi >= 70 ? "var(--t-neg)" : t.rsi <= 30 ? "var(--t-amber)" : "var(--t-accent)";
+  const momC = t.momentum >= 0.55 ? "var(--t-accent)" : t.momentum >= 0.40 ? "var(--t-amber)" : "var(--t-neg)";
+  return (
+    <div
+      className={cls("t-tile", t.watchlist && "t-tile-watch")}
+      onMouseMove={e => setTip({ x: e.clientX, y: e.clientY })}
+      onMouseLeave={() => setTip(null)}
+    >
+      <HoverTooltip pos={tip}><TickerTooltip t={t} /></HoverTooltip>
+      <div className="t-tile-sym">{t.sym}</div>
+      <div className="t-tile-score" style={{ color: `var(--${c})` }}>{t.score.toFixed(2)}</div>
+      <div className={cls("t-tile-chg", (t.chg ?? 0) >= 0 ? "t-pos" : "t-neg")}>
+        {(t.chg ?? 0) >= 0 ? "+" : ""}{(t.chg ?? 0).toFixed(2)}%
+      </div>
+      <div className="t-tile-spark">
+        {[
+          { label: "V", value: t.volume,   color: volC, max: 1   },
+          { label: "R", value: t.rsi,      color: rsiC, max: 100 },
+          { label: "M", value: t.momentum, color: momC, max: 1   },
+        ].map(({ label, value, color, max }) => {
+          const pct = value != null ? Math.max(2, Math.min(100, (value / max) * 100)) : 2;
+          return (
+            <div key={label} className="t-tile-spark-col">
+              <div className="t-tile-spark-track">
+                <div style={{ height: `${pct}%`, background: color, borderRadius: "1px 1px 0 0" }} />
+              </div>
+              <span className="t-tile-spark-label" style={{ color }}>{label}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="t-tile-signal" style={{ color: SIGNAL_COLORS[t.signal] ?? "var(--t-text-3)" }}>
+        {SIGNAL_LABELS[t.signal] ?? "WEK"}{sigStreak(t.streak_days)}
+      </div>
+    </div>
+  );
+}
+
+const SIGNAL_COLORS = {
+  breakout:   "#00d48c",
+  trending:   "#6aa0f0",
+  rising:     "#6aa0f0",
+  extended:   "#ffaa00",
+  breakdown:  "#ff3355",
+  recovering: "#ffaa00",
+  weak:       null,
+};
+const SIGNAL_LABELS = {
+  breakout:   "BRK",
+  trending:   "TRD",
+  rising:     "RIS",
+  extended:   "EXT",
+  breakdown:  "BDN",
+  recovering: "REC",
+  weak:       "WEK",
+};
+function sigStreak(days) {
+  if (days <= 0) return "";
+  return days < 5 ? ` ${days}D` : ` ${Math.round(days / 5)}W`;
+}
+
 function SectorGrid({ D }) {
   const bySector = useMemo(() => {
     const m = {};
@@ -307,48 +401,7 @@ function SectorGrid({ D }) {
                 <div className="t-sec-etf">{s.etf}</div>
               </div>
               <div className="t-sec-tiles">
-                {(bySector[s.code] || []).map(t => {
-                  const c = t.score >= 0.7 ? "t-accent" : t.score >= 0.55 ? "t-amber" : "t-text-3";
-                  const volC = t.volume >= 0.6 ? "var(--t-accent)" : t.volume >= 0.35 ? "var(--t-amber)" : "var(--t-text-3)";
-                  const rsiC = t.rsi >= 70 ? "var(--t-amber)" : t.rsi <= 30 ? "var(--t-neg)" : "var(--t-text-2)";
-                  const momC = t.momentum >= 0.55 ? "var(--t-accent)" : t.momentum >= 0.40 ? "var(--t-amber)" : "var(--t-neg)";
-                  return (
-                    <div key={t.sym} className={cls("t-tile", t.watchlist && "t-tile-watch")}>
-                      <div className="t-tile-sym">{t.sym}</div>
-                      <div className="t-tile-score" style={{ color: `var(--${c})` }}>{t.score.toFixed(2)}</div>
-                      <div className="t-tile-spark">
-                        {[t.momentum, t.volume, t.ev, t.trend, t.rs].map((v, i) => (
-                          <div key={i} className="t-tile-bar" style={{
-                            height: `${(v ?? 0.5) * 100}%`,
-                            background: `var(--${c})`,
-                            opacity: 0.55 + (v ?? 0.5) * 0.45,
-                          }} />
-                        ))}
-                      </div>
-                      <div className={cls("t-tile-chg", (t.chg ?? 0) >= 0 ? "t-pos" : "t-neg")}>
-                        {(t.chg ?? 0) >= 0 ? "+" : ""}{(t.chg ?? 0).toFixed(2)}%
-                      </div>
-                      <div className="t-tile-metrics">
-                        {[
-                          { label: "V", value: t.volume,   color: volC, min: 0, max: 1,   fmt: v => v.toFixed(2) },
-                          { label: "R", value: t.rsi,      color: rsiC, min: 0, max: 100, fmt: v => Math.round(v) },
-                          { label: "M", value: t.momentum, color: momC, min: 0, max: 1,   fmt: v => v.toFixed(2) },
-                        ].map(({ label, value, color, min, max, fmt }) => {
-                          const pct = value != null ? Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100)) : 0;
-                          return (
-                            <div key={label} className="t-tile-metric-row">
-                              <span className="t-tile-metric-label">{label}</span>
-                              <div className="t-tile-metric-track">
-                                <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 1 }} />
-                              </div>
-                              <span className="t-tile-metric-val" style={{ color }}>{value != null ? fmt(value) : "—"}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
+                {(bySector[s.code] || []).map(t => <Tile key={t.sym} t={t} />)}
               </div>
             </div>
           ))}

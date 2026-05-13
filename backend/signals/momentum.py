@@ -12,17 +12,27 @@ def _rsi(series: pd.Series, period: int = 14) -> pd.Series:
     return 100 - (100 / (1 + rs))
 
 
+RSI_DISCOUNT_START = 70   # linear discount begins here
+RSI_HARD_CAP       = 80   # rsi_blocked=True above this — callers must skip entry
+
+
 def compute(df: pd.DataFrame) -> dict:
     """
     Momentum score based on price vs 20d MA and RSI(14).
 
-    momentum_score formula (from architecture §4.1):
+    momentum_score formula:
         momentum      = (price - ma20) / ma20
         rsi_score     = (rsi - 50) / 50          → [-1, +1]
         combined      = 0.6 * momentum + 0.4 * rsi_score
         normalized    → [0, 1] for aggregation
 
-    Returns keys: price, ma20, rsi, momentum_raw, momentum_score
+    RSI overbought adjustment (validated 2023-2026 backtest):
+        RSI < 70:  normal formula
+        RSI 70-80: linear discount — rsi_score scaled from 1.0x → 0.0x
+        RSI >= 80: rsi_blocked=True — callers must skip entry entirely
+                   (backtest showed PF < 1.0 and 41.7% win rate above this level)
+
+    Returns keys: price, ma20, rsi, momentum_raw, momentum_score, rsi_blocked
     """
     close = df["Close"]
     price = float(close.iloc[-1])
@@ -32,7 +42,16 @@ def compute(df: pd.DataFrame) -> dict:
     rsi        = float(rsi_series.iloc[-1]) if not pd.isna(rsi_series.iloc[-1]) else 50.0
 
     momentum_raw = (price - ma20) / ma20 if ma20 else 0.0
-    rsi_score    = (rsi - 50) / 50                          # [-1, +1]
+
+    # RSI contribution with overbought discount
+    rsi_blocked = rsi >= RSI_HARD_CAP
+    if rsi_blocked:
+        rsi_score = 0.0
+    elif rsi >= RSI_DISCOUNT_START:
+        discount  = 1.0 - (rsi - RSI_DISCOUNT_START) / (RSI_HARD_CAP - RSI_DISCOUNT_START)
+        rsi_score = ((rsi - 50) / 50) * discount
+    else:
+        rsi_score = (rsi - 50) / 50
 
     # Clip momentum_raw to ±20% before combining.
     # Stocks rarely deviate more than 20% from their 20d MA in normal conditions,
@@ -52,4 +71,5 @@ def compute(df: pd.DataFrame) -> dict:
         "momentum_raw":      round(momentum_raw, 5),
         "momentum_clipped":  round(momentum_clipped, 5),
         "momentum_score":    round(momentum_score, 4),
+        "rsi_blocked":       rsi_blocked,
     }

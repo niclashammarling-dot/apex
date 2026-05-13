@@ -607,6 +607,8 @@ def _build_signal_cache(
                     etf_mult  = etf_cache.get((etf, date_str), 1.0) if etf else 1.0
 
                     mom = momentum.compute(df)
+                    if mom.get("rsi_blocked"):
+                        continue
                     vol = volume.compute(df)
                     trd = trend.compute(df)
                     rs  = relative_strength.compute(df, spy_ret20)

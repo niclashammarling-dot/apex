@@ -89,6 +89,9 @@ def _score_ticker(
             return None
 
         mom = momentum.compute(df)
+        if mom.get("rsi_blocked"):
+            logger.debug(f"{symbol}: RSI {mom['rsi']:.1f} >= 80 — blocked")
+            return None
         vol = volume.compute(df)
         trd = trend.compute(df)
         rs  = relative_strength.compute(df, spy_return_20d)
