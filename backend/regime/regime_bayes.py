@@ -8,7 +8,7 @@ Two-stage calculation:
   1. Regime posterior — Bayesian update from four independent signals
   2. Adjusted score   — sector aggregate score × regime posterior
   3. Leaderboard      — top 5 sectors ranked by adjusted score
-  4. Allocation       — proportional split among qualifiers (adjusted > 0.5)
+  4. Allocation       — linear-ramp split among qualifiers (adjusted > 0.35)
 
 The allocation output is consumed by:
   - Lock chain: determines how many tickers can be traded per sector
@@ -42,7 +42,7 @@ RESULT_CACHE_PATH = Path(__file__).parent.parent.parent / "data" / "regime_resul
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 LEADERBOARD_SIZE      = 8      # number of sectors tracked
-ALLOCATION_THRESHOLD  = 0.5    # adjusted score floor for allocation eligibility
+ALLOCATION_FLOOR      = 0.35   # hard entry floor; sectors below get zero allocation
 TICKER_RECOVERY_DAYS  = 5      # consecutive days for ticker recovery signal
 RS_WINDOW_DAYS        = 5      # lookback window for RS divergence
 POSTERIOR_DECAY       = 0.90   # daily pull-back toward base prior; prevents saturation at 1.0
@@ -287,7 +287,7 @@ class RegimeBayes:
           1. Update Bayesian posteriors for all sectors
           2. Compute adjusted scores (aggregate × posterior)
           3. Rank all sectors → top 5 leaderboard
-          4. Compute proportional allocation among qualifiers (adjusted > 0.5)
+          4. Compute linear-ramp allocation among qualifiers (adjusted > 0.35)
           5. Persist posteriors to DB
           6. Return RegimeResult with allocation vector and full signal trace
 
@@ -382,13 +382,20 @@ class RegimeBayes:
         for i, entry in enumerate(leaderboard):
             entry.rank = i + 1
 
-        # Proportional allocation among qualifiers
-        qualifiers = [e for e in leaderboard if e.adjusted_score >= ALLOCATION_THRESHOLD]
-        total_adj  = sum(e.adjusted_score for e in qualifiers)
+        # Proportional allocation — linear ramp above ALLOCATION_FLOOR.
+        # raw_weight = (adjusted_score - floor) / (1 - floor), clamped to [0, 1].
+        # Eliminates the binary cliff at 0.5: sectors just above the floor get a
+        # small positive allocation rather than jumping from 0 to a full proportional share.
+        qualifiers = [e for e in leaderboard if e.adjusted_score >= ALLOCATION_FLOOR]
+        raw_weights = {
+            e.sector: (e.adjusted_score - ALLOCATION_FLOOR) / (1.0 - ALLOCATION_FLOOR)
+            for e in qualifiers
+        }
+        total_raw = sum(raw_weights.values())
 
         for entry in leaderboard:
-            if entry in qualifiers and total_adj > 0:
-                entry.allocation = round(entry.adjusted_score / total_adj, 4)
+            if entry.sector in raw_weights and total_raw > 0:
+                entry.allocation = round(raw_weights[entry.sector] / total_raw, 4)
             else:
                 entry.allocation = 0.0
 

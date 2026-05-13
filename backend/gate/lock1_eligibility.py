@@ -5,7 +5,7 @@ The first and coarsest gate in the apex lock chain. Combines two checks:
 
   A. Regime eligibility — is this ticker's sector currently qualifying
      for portfolio allocation? Requires sector adjusted score
-     (aggregate × posterior) >= ALLOCATION_THRESHOLD (0.5).
+     (aggregate × posterior) >= ALLOCATION_FLOOR (0.35).
 
   B. Macro filter — are current conditions safe for new entries?
        1. VIX above threshold — market-wide fear, block all tickers
@@ -32,7 +32,7 @@ from loguru import logger
 
 from backend.config import EXCLUDED_SECTORS
 from backend.gate.types import LockResult
-from backend.regime.regime_bayes import ALLOCATION_THRESHOLD, LEADERBOARD_SIZE
+from backend.regime.regime_bayes import ALLOCATION_FLOOR, LEADERBOARD_SIZE
 
 LOCK_ID = 1
 
@@ -145,12 +145,12 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
     allocation     = sector_entry.allocation
     rank           = sector_entry.rank
 
-    if adjusted_score < ALLOCATION_THRESHOLD:
+    if adjusted_score < ALLOCATION_FLOOR:
         return LockResult.fail(
             lock_id=LOCK_ID,
             reason=(
                 f"Sector '{sector}' adjusted score {adjusted_score:.3f} "
-                f"< allocation floor {ALLOCATION_THRESHOLD:.2f}"
+                f"< allocation floor {ALLOCATION_FLOOR:.2f}"
             ),
             data={
                 "regime_available": True,
@@ -159,7 +159,7 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
                 "adjusted_score":   adjusted_score,
                 "allocation":       allocation,
                 "rank":             rank,
-                "floor":            ALLOCATION_THRESHOLD,
+                "floor":            ALLOCATION_FLOOR,
             },
         )
 
@@ -234,7 +234,7 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
             "adjusted_score":   adjusted_score,
             "allocation":       allocation,
             "rank":             rank,
-            "floor":            ALLOCATION_THRESHOLD,
+            "floor":            ALLOCATION_FLOOR,
             "regime_leader":    regime_result.leader,
             "regime_date":      regime_result.date,
             "vix":              vix,
