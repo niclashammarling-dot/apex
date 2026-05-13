@@ -137,10 +137,12 @@ def _apply_signals(
     lr_etf: float,
     lr_rs: float,
     lr_ipo: float,
+    lr_rank: float = 1.0,
 ) -> dict:
     """
-    Apply all four likelihood ratios sequentially.
-    lr_ticker and lr_etf are now symmetric — both arms (bull/bear) encoded in a single LR.
+    Apply all five likelihood ratios sequentially.
+    lr_ticker and lr_etf are symmetric — both arms (bull/bear) encoded in a single LR.
+    lr_rank is the cross-sectional ETF return rank signal (Signal 5).
     Returns intermediate and final posteriors for full transparency.
     """
     p0 = prior
@@ -148,6 +150,7 @@ def _apply_signals(
     p2 = _bayesian_update(p1, lr_etf)
     p3 = _bayesian_update(p2, lr_rs)
     p4 = _bayesian_update(p3, lr_ipo)
+    p5 = _bayesian_update(p4, lr_rank)
 
     return {
         "prior":         round(p0, 4),
@@ -155,12 +158,69 @@ def _apply_signals(
         "after_etf":     round(p2, 4),
         "after_rs":      round(p3, 4),
         "after_ipo":     round(p4, 4),
-        "posterior":     round(p4, 4),
+        "after_rank":    round(p5, 4),
+        "posterior":     round(p5, 4),
         "lr_ticker":     round(lr_ticker, 3),
         "lr_etf":        round(lr_etf, 3),
         "lr_rs":         round(lr_rs, 3),
         "lr_ipo":        round(lr_ipo, 3),
+        "lr_rank":       round(lr_rank, 3),
     }
+
+
+def _compute_rank_lrs(
+    raw_data: "pd.DataFrame",
+    sector_etf_map: dict[str, str],
+    n_days: int = 10,
+    base: float = 1.5,
+) -> dict[str, float]:
+    """
+    Cross-sectional ETF return rank signal (Signal 5).
+
+    Ranks all sectors by their n-day ETF return, then maps rank → LR via:
+        LR = base ^ ((n_sectors + 1 - 2 × rank) / (n_sectors - 1))
+
+    Gives LR=base for rank 1, LR=1/base for rank n, LR≈1.0 for middle ranks.
+    Ties resolved by average rank (symmetric, no hand-tuning).
+    Sectors whose ETF has insufficient data are excluded from ranking and receive LR=1.0.
+    """
+    import math
+
+    returns: dict[str, float] = {}
+    for sector, etf in sector_etf_map.items():
+        try:
+            level0 = raw_data.columns.get_level_values(0)
+            if etf not in level0:
+                continue
+            closes = raw_data[etf]["Close"].dropna()
+            if len(closes) < n_days + 1:
+                continue
+            returns[sector] = float(closes.iloc[-1] / closes.iloc[-(n_days + 1)] - 1)
+        except Exception:
+            continue
+
+    if not returns:
+        return {}
+
+    # Sort descending, assign average rank for ties
+    sorted_items = sorted(returns.items(), key=lambda x: x[1], reverse=True)
+    n = len(sorted_items)
+    if n < 2:
+        return {s: 1.0 for s in returns}
+
+    lrs: dict[str, float] = {}
+    i = 0
+    while i < n:
+        j = i
+        while j < n and sorted_items[j][1] == sorted_items[i][1]:
+            j += 1
+        avg_rank = (i + j + 1) / 2  # 1-based average rank
+        for k in range(i, j):
+            sector = sorted_items[k][0]
+            lrs[sector] = round(base ** ((n + 1 - 2 * avg_rank) / (n - 1)), 4)
+        i = j
+
+    return lrs
 
 
 # ── Data classes ──────────────────────────────────────────────────────────────
@@ -244,6 +304,9 @@ class RegimeBayes:
         # Leader decline stats — used as RS divergence input for all candidates
         leader_rs = self._sector_decline_stats(current_leader, raw_data, today)
 
+        # Signal 5: cross-sectional ETF return rank — computed once for all sectors
+        rank_lrs = _compute_rank_lrs(raw_data, self.sector_etf_map)
+
         entries: list[SectorEntry] = []
 
         for sector in all_sectors:
@@ -273,6 +336,10 @@ class RegimeBayes:
             ipo_share = ipo_shares.get(sector, 0.0)
             lr_ipo    = _lr_ipo_cluster(ipo_share)
 
+            # Signal 5: cross-sectional ETF return rank
+            # Falls back to LR=1.0 (neutral) if ETF data is unavailable for this sector
+            lr_rank = rank_lrs.get(sector, 1.0)
+
             # Decay yesterday's posterior toward the base prior before applying today's signals.
             # Without decay all LRs are ≥ 1.0 in neutral/bullish conditions and posteriors
             # saturate at 1.0, collapsing the model's discriminatory power.
@@ -280,7 +347,7 @@ class RegimeBayes:
             persistent_prior = self._posteriors.get(sector, prior)
             decayed_prior    = POSTERIOR_DECAY * persistent_prior + (1.0 - POSTERIOR_DECAY) * base_prior
 
-            trace    = _apply_signals(decayed_prior, lr_ticker, lr_etf, lr_rs, lr_ipo)
+            trace     = _apply_signals(decayed_prior, lr_ticker, lr_etf, lr_rs, lr_ipo, lr_rank)
             posterior = trace["posterior"]
 
             # Stage for DB persist below

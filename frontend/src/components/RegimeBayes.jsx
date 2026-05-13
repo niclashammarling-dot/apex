@@ -98,10 +98,12 @@ function LeaderboardRow({ entry, i, isOpen, onToggle }) {
           <TraceRow label="after ETF"            value={trace.after_etf != null ? (trace.after_etf * 100).toFixed(1) + "%" : "—"} highlight />
           <TraceRow label="after RS"             value={trace.after_rs != null ? (trace.after_rs * 100).toFixed(1) + "%" : "—"} highlight />
           <TraceRow label="after IPO"            value={trace.after_ipo != null ? (trace.after_ipo * 100).toFixed(1) + "%" : "—"} highlight />
+          <TraceRow label="after rank"           value={trace.after_rank != null ? (trace.after_rank * 100).toFixed(1) + "%" : "—"} highlight />
           <TraceRow label="LR ticker"            value={trace.lr_ticker != null ? `×${trace.lr_ticker.toFixed(3)}` : "—"} />
           <TraceRow label="LR ETF"               value={trace.lr_etf != null ? `×${trace.lr_etf.toFixed(3)}` : "—"} />
           <TraceRow label="LR RS"                value={trace.lr_rs != null ? `×${trace.lr_rs.toFixed(3)}` : "—"} />
           <TraceRow label="LR IPO"               value={trace.lr_ipo != null ? `×${trace.lr_ipo.toFixed(3)}` : "—"} />
+          <TraceRow label="LR rank"              value={trace.lr_rank != null ? `×${trace.lr_rank.toFixed(3)}` : "—"} />
         </div>
       )}
     </div>
