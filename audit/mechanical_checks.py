@@ -33,6 +33,19 @@ def flag(check_num, check_name, sev, file_line, finding):
     triggered.add(check_num)
 
 
+def _most_recent_trading_day(ref: date | None = None) -> date:
+    """Return the most recent Mon-Fri on or before ref (default: today).
+
+    Used for staleness checks that run at ~4 AM before market open — a
+    today-only check would always flag because today's data doesn't exist yet.
+    The correct question is: did the job run on the last trading day?
+    """
+    d = ref or date.today()
+    while d.weekday() >= 5:  # Saturday=5, Sunday=6
+        d -= timedelta(days=1)
+    return d
+
+
 # ── CHECK 3 — Fractional qty ──────────────────────────────────────────────────
 
 def check3():
@@ -1240,8 +1253,8 @@ def check33():
     The suspicious_cycles counter in the stats file tracks mode B specifically:
     regime was present, ≥3 tickers were queued, but every multiplier was 1.0.
 
-    CRITICAL: any suspicious cycle detected today.
-    WARNING: stats file missing or stale on a weekday (runner may have stopped).
+    CRITICAL: any suspicious cycle detected in the most recent stats file.
+    WARNING: stats file missing or predates the most recent trading day (runner may have stopped).
     """
     path = REPO / "data" / "bayesian_multiplier_stats.json"
     today = date.today()
@@ -1264,12 +1277,18 @@ def check33():
         return
 
     file_date = stats.get("date", "")
-    if is_trading_day and file_date != today.isoformat():
-        flag(33, "Bayesian multiplier health", "WARNING",
-             "data/bayesian_multiplier_stats.json",
-             f"Stats file is from {file_date or '(missing)'}, not today ({today.isoformat()}) — "
-             "gate runner did not complete a full cycle or _persist_multiplier_stats() was removed")
-        return
+    if is_trading_day:
+        # Use most-recent-trading-day comparison rather than today-equality — the audit
+        # runs at ~4 AM before any gate cycles, so today's file never exists yet.
+        last_trading_day = _most_recent_trading_day(today - timedelta(days=1))
+        file_d = date.fromisoformat(file_date) if file_date else None
+        if file_d is None or file_d < last_trading_day:
+            flag(33, "Bayesian multiplier health", "WARNING",
+                 "data/bayesian_multiplier_stats.json",
+                 f"Stats file is from {file_date or '(missing)'}, last trading day was "
+                 f"{last_trading_day} — gate runner did not complete a full cycle or "
+                 "_persist_multiplier_stats() was removed")
+            return
 
     suspicious = stats.get("suspicious_cycles", 0)
     if suspicious > 0:
@@ -1322,13 +1341,14 @@ def check35():
              "lock4_pcr_history is empty — collect_pcr cron job has never completed successfully")
         return
 
-    last_date  = date.fromisoformat(row[0])
-    age_days   = (today - last_date).days
-    if age_days > 1:
+    last_date        = date.fromisoformat(row[0])
+    last_trading_day = _most_recent_trading_day(today - timedelta(days=1))
+    if last_date < last_trading_day:
+        age_days = (today - last_date).days
         flag(35, "PCR collection freshness", "WARNING", "data/apex.db:lock4_pcr_history",
-             f"last PCR observation is from {row[0]} ({age_days}d ago) — "
-             "collect_pcr cron job may have failed; per-ticker percentile calibration "
-             "will be delayed if collection gap grows beyond 1 week")
+             f"last PCR observation is from {row[0]} ({age_days}d ago, last trading day was "
+             f"{last_trading_day}) — collect_pcr cron job may have failed; per-ticker "
+             "percentile calibration will be delayed if collection gap grows beyond 1 week")
 
 
 def check36():
