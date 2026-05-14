@@ -1,17 +1,14 @@
 """
 gate/lock4_leading.py — Lock 4: Leading Signals
 
-Renamed and upgraded from gate/lock_leading.py.
-Logic is identical — return type upgraded from plain dict to LockResult.
-Data is downloaded internally (same as current lock_leading.py).
-
 Four sub-checks that ask "is informed/smart money positioning into this
 ticker ahead of a move?":
 
-  1. relative_strength  — ticker 5-day return > its sector ETF 5-day return
-  2. put_call_ratio     — near-term options skewing toward calls (P/C < 0.7)
-  3. unusual_calls      — call volume >= 2x put volume (unusual accumulation)
-  4. insider_cluster    — 2+ distinct insider Form 4 filings in last 14 days
+  1. relative_strength    — ticker 5-day return > its sector ETF 5-day return
+  2. put_call_ratio       — near-term options skewing toward calls (P/C < threshold)
+  3. unusual_calls        — call volume >= 2x put volume (unusual accumulation)
+  4. volume_accumulation  — up/down volume ratio > 1.2 over 20 days (equity-market
+                            accumulation; independent of options and price momentum)
 
 Passes when at least min_pass (default 2) of the 4 checks pass.
 
@@ -21,9 +18,6 @@ Public API:
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-
-import requests
 import yfinance as yf
 from loguru import logger
 
@@ -63,19 +57,21 @@ def _build_sector_etf() -> dict[str, str]:
 
 SECTOR_ETF = _build_sector_etf()
 
-_EDGAR_SEARCH = (
-    "https://efts.sec.gov/LATEST/search-index"
-    "?q=%22{ticker}%22&forms=4&dateRange=custom&startdt={start}&enddt={end}"
-)
-_EDGAR_HEADERS = {"User-Agent": "apex-signal-gate contact@example.com"}
-
 # Sub-check weights for score computation
 WEIGHTS = {
-    "relative_strength": 0.25,
-    "put_call_ratio":    0.25,
-    "unusual_calls":     0.25,
-    "insider_cluster":   0.25,
+    "relative_strength":   0.25,
+    "put_call_ratio":      0.25,
+    "unusual_calls":       0.25,
+    "volume_accumulation": 0.25,
 }
+
+# Up/down volume ratio threshold — 1.2 grounded in 90-day APEX universe sample
+# (65 tickers, 2026-05-14). Distribution bifurcates cleanly: active APEX names
+# (NVDA 1.89, AMD 2.21, AAPL 2.19, AMZN 2.24, QCOM 3.30) above threshold;
+# excluded sectors (Utilities, beaten-down REITs) below. Median 0.88, P75 1.35.
+# Snapshot taken during a recovery period — revisit after 3-6 months of live data.
+VOL_ACCUM_THRESHOLD = 1.2
+VOL_ACCUM_WINDOW    = 20  # trading days
 
 
 def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS) -> LockResult:
@@ -95,7 +91,7 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS) -> LockResult:
         ("relative_strength", _check_relative_strength, (ticker, sector)),
         ("put_call_ratio",    _check_put_call_ratio,    (ticker,)),
         ("unusual_calls",     _check_unusual_call_volume, (ticker,)),
-        ("insider_cluster",   _check_insider_cluster,   (ticker,)),
+        ("volume_accumulation", _check_volume_accumulation, (ticker,)),
     ]:
         try:
             checks[name] = fn(*args)
@@ -222,29 +218,42 @@ def _check_unusual_call_volume(ticker: str) -> dict:
     }
 
 
-def _check_insider_cluster(ticker: str) -> dict:
-    """2+ distinct insiders filed Form 4 for this ticker in the last 14 days."""
-    end   = datetime.now(timezone.utc)
-    start = end - timedelta(days=14)
+def _check_volume_accumulation(ticker: str) -> dict:
+    """Up/down volume ratio over 20 days > 1.2 (accumulation dominates distribution)."""
+    # Need ~30 calendar days to guarantee 20 trading days after weekends/holidays
+    raw = yf.download(ticker, period="30d", progress=False, auto_adjust=True)
+    if raw.empty:
+        return {"pass": False, "reason": "price/volume data unavailable"}
 
-    url = _EDGAR_SEARCH.format(
-        ticker=ticker,
-        start=start.strftime("%Y-%m-%d"),
-        end=end.strftime("%Y-%m-%d"),
-    )
+    close = raw["Close"].squeeze()
+    vol   = raw["Volume"].squeeze()
+    idx   = close.index.intersection(vol.index)
+    close = close[idx].dropna()
+    vol   = vol[idx].dropna()
 
-    resp = requests.get(url, timeout=10, headers=_EDGAR_HEADERS)
-    if resp.status_code != 200:
-        return {"pass": False, "reason": f"EDGAR returned {resp.status_code}"}
+    if len(close) < VOL_ACCUM_WINDOW:
+        return {"pass": False, "reason": f"only {len(close)} trading days available (need {VOL_ACCUM_WINDOW})"}
 
-    hits   = resp.json().get("hits", {}).get("hits", [])
-    filers = {h.get("_source", {}).get("entity_name", "") for h in hits
-              if h.get("_source", {}).get("entity_name")}
-    count  = len(filers)
-    passed = count >= 2
+    close = close.tail(VOL_ACCUM_WINDOW)
+    vol   = vol.tail(VOL_ACCUM_WINDOW)
+    ret   = close.diff()
+
+    up_vol   = float(vol[ret > 0].sum())
+    down_vol = float(vol[ret < 0].sum())
+
+    if down_vol == 0:
+        ratio = float("inf")
+    else:
+        ratio = up_vol / down_vol
+
+    passed = ratio > VOL_ACCUM_THRESHOLD
 
     return {
-        "pass":   passed,
-        "count":  count,
-        "reason": f"{count} distinct insider Form 4 filer(s) in last 14d",
+        "pass":      passed,
+        "ratio":     round(ratio, 3),
+        "up_vol":    int(up_vol),
+        "down_vol":  int(down_vol),
+        "window":    VOL_ACCUM_WINDOW,
+        "threshold": VOL_ACCUM_THRESHOLD,
+        "reason":    f"up/down vol ratio {ratio:.2f} over {VOL_ACCUM_WINDOW}d ({'accumulation' if passed else 'distribution/neutral'})",
     }

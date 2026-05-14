@@ -45,6 +45,7 @@ Columns: `last_triggered` = most recent date the check found an issue. `last_cle
 | 33 | Bayesian multiplier health | 2026-05-09 | _compute_bayesian_multipliers() can silently return all 1.0 when ticker_allocations() returns zeros; indistinguishable from correct behavior in trade output | data/bayesian_multiplier_stats.json,backend/gate/gate_runner.py,backend/gate/gate_runner_live.py | 2026-05-14 | — |
 | 34 | Backtest gate gap comment integrity | 2026-05-14 | Bayesian floor not wired into either backtest engine; trade counts overstate live entry frequency by 3–15×; comments in engine.py + engine_fast.py must persist to prevent future misinterpretation of backtest output | backend/backtest/engine.py,backend/backtest/engine_fast.py | — | 2026-05-14 |
 | 35 | PCR collection freshness | 2026-05-14 | lock4_pcr_history daily collection underpins the per-ticker P25 percentile calibration scheduled to replace interim PCR_THRESHOLD=0.85 in 4–8 weeks; a gap in collection delays the replacement and leaves the interim threshold in place indefinitely | data/apex.db:lock4_pcr_history,backend/data/lock4_pcr_collector.py | — | 2026-05-14 |
+| 36 | L4 sub-check pass rates | 2026-05-14 | insider_cluster had 0% pass rate across 101 L4 evaluations — gate ran as 2-of-3 while architecture said 2-of-4; dead weight was invisible at aggregate pass rate (10-12% looked plausible); sub-check breakdown is required for gate health | data/apex.db:signals | — | 2026-05-14 |
 
 ## Retired Checks
 

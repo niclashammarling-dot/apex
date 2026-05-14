@@ -87,7 +87,7 @@ def _lr_pass(lock_id: int, score: float = 0.75, data: dict = None) -> LockResult
                 "relative_strength": {"pass": True,  "reason": "outperforms"},
                 "put_call_ratio":    {"pass": True,  "reason": "P/C 0.5"},
                 "unusual_calls":     {"pass": True,  "reason": "3x"},
-                "insider_cluster":   {"pass": False, "reason": "1 filer"},
+                "volume_accumulation": {"pass": False, "reason": "up/down vol ratio 0.88 over 20d (distribution/neutral)"},
             },
             "pass_count": 3, "min_pass": 2,
         }

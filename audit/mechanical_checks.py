@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28, 29, 32, 33, 34, 35
+APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28, 29, 32, 33, 34, 35, 36
 Pure grep/parse, no LLM. Writes findings to audit/nightly-report-YYYY-MM-DD.md.
 """
 # CHECK 22 added 2026-04-15: Yahoo data pipeline health
@@ -11,6 +11,7 @@ Pure grep/parse, no LLM. Writes findings to audit/nightly-report-YYYY-MM-DD.md.
 # CHECK 29 added 2026-05-07: Live sector exposure cap wiring (sector_exposure_live computed and enforced in both execution branches)
 # CHECK 33 added 2026-05-09: Bayesian multiplier health (silent all-1.0 detection via data/bayesian_multiplier_stats.json)
 # CHECK 35 added 2026-05-14: PCR collection freshness (lock4_pcr_history must have observations from most recent trading day)
+# CHECK 36 added 2026-05-14: L4 sub-check pass rate health (any sub-check with <5% pass rate over 30d = dead weight candidate)
 
 import json
 import re
@@ -1330,6 +1331,73 @@ def check35():
              "will be delayed if collection gap grows beyond 1 week")
 
 
+def check36():
+    """
+    L4 sub-check pass rates must all be above a dead-weight floor.
+
+    A 2-of-N gate can absorb a permanently-failing sub-check without surfacing
+    it in aggregate pass rate. L4 ran as 2-of-3 for its entire operational life
+    while the architecture said 2-of-4 — insider_cluster had 0% pass rate over
+    101 evaluations, invisible at the gate level (10-12% aggregate pass rate).
+
+    Query: parse lock_leading_checks JSON from signals table for the last 30 days.
+    Flag any sub-check with <5% pass rate when at least MIN_OBS observations exist.
+    Threshold 5% chosen to catch base-rate mismatches (like insider_cluster at 0%)
+    while tolerating rare-but-valid signals (e.g. something that fires only in
+    specific market regimes).
+    """
+    MIN_OBS       = 10
+    DEAD_THRESHOLD = 0.05
+    WINDOW_DAYS   = 30
+
+    db = REPO / "data/apex.db"
+    if not db.exists():
+        return
+
+    cutoff = (date.today() - timedelta(days=WINDOW_DAYS)).isoformat()
+
+    try:
+        conn  = sqlite3.connect(db)
+        rows  = conn.execute(
+            "SELECT lock_leading_checks FROM signals "
+            "WHERE lock_leading_checks IS NOT NULL AND timestamp >= ?",
+            (cutoff,)
+        ).fetchall()
+        conn.close()
+    except Exception as e:
+        flag(36, "L4 sub-check pass rates", "WARNING", "data/apex.db:signals",
+             f"could not query signals table: {e}")
+        return
+
+    if not rows:
+        return  # no L4 evaluations in window — nothing to check
+
+    import json as _json
+    counts = {}  # sub-check name → [total, passes]
+    for (raw,) in rows:
+        try:
+            checks = _json.loads(raw)
+        except Exception:
+            continue
+        for name, result in checks.items():
+            if name not in counts:
+                counts[name] = [0, 0]
+            counts[name][0] += 1
+            if isinstance(result, dict) and result.get("pass"):
+                counts[name][1] += 1
+
+    for name, (total, passes) in counts.items():
+        if total < MIN_OBS:
+            continue
+        rate = passes / total
+        if rate < DEAD_THRESHOLD:
+            flag(36, "L4 sub-check pass rates", "WARNING",
+                 "data/apex.db:signals",
+                 f"L4 sub-check '{name}' passed {passes}/{total} times "
+                 f"({rate*100:.1f}%) over {WINDOW_DAYS}d — likely dead weight; "
+                 f"review base-rate assumption for the APEX universe")
+
+
 if __name__ == "__main__":
     check3()
     check4()
@@ -1357,5 +1425,6 @@ if __name__ == "__main__":
     check32()
     check33()
     check35()
+    check36()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])
