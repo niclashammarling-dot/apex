@@ -1,7 +1,8 @@
 export const COMPANY_NAMES = {
   AAPL: "Apple", MSFT: "Microsoft", NVDA: "Nvidia", AMD: "AMD", V: "Visa",
+  AVGO: "Broadcom", CRM: "Salesforce", ORCL: "Oracle", ADBE: "Adobe", NOW: "ServiceNow", QCOM: "Qualcomm",
   JNJ: "J&J", PFE: "Pfizer", UNH: "UnitedHealth", MRNA: "Moderna", LLY: "Eli Lilly",
-  XOM: "ExxonMobil", CVX: "Chevron", HAL: "Halliburton", COP: "ConocoPhillips", OXY: "Occidental",
+  EOG: "EOG Resources", CVX: "Chevron", HAL: "Halliburton", COP: "ConocoPhillips", OXY: "Occidental",
   CAT: "Caterpillar", BA: "Boeing", GE: "GE", HON: "Honeywell", DE: "Deere",
   JPM: "JPMorgan", BAC: "Bank of America", GS: "Goldman", BLK: "BlackRock", MS: "Morgan Stanley",
   AMZN: "Amazon", TSLA: "Tesla", NKE: "Nike", MCD: "McDonald's", HD: "Home Depot",
@@ -10,4 +11,5 @@ export const COMPANY_NAMES = {
   DUK: "Duke Energy", SO: "Southern Co", AEP: "AEP", EXC: "Exelon", NEE: "NextEra",
   LIN: "Linde", APD: "Air Products", NEM: "Newmont", FCX: "Freeport", SHW: "Sherwin-Williams",
   PLD: "Prologis", AMT: "American Tower", EQIX: "Equinix", SPG: "Simon Property", WELL: "Welltower",
+  DLR: "Digital Realty", O: "Realty Income", VTR: "Ventas", PSA: "Public Storage",
 };

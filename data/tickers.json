@@ -6,7 +6,13 @@
       "MSFT",
       "NVDA",
       "AMD",
-      "V"
+      "V",
+      "AVGO",
+      "CRM",
+      "ORCL",
+      "ADBE",
+      "NOW",
+      "QCOM"
     ]
   },
   "Healthcare": {
@@ -22,7 +28,7 @@
   "Energy": {
     "etf": "XLE",
     "tickers": [
-      "XOM",
+      "EOG",
       "CVX",
       "HAL",
       "COP",
@@ -106,7 +112,11 @@
       "AMT",
       "EQIX",
       "SPG",
-      "WELL"
+      "WELL",
+      "DLR",
+      "O",
+      "VTR",
+      "PSA"
     ]
   }
 }
