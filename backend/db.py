@@ -204,6 +204,21 @@ def init_db() -> None:
                 posterior   REAL NOT NULL,
                 updated_at  TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS lock4_pcr_history (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker         TEXT    NOT NULL,
+                date           TEXT    NOT NULL,
+                pcr            REAL    NOT NULL,
+                expiry_1       TEXT,
+                expiry_2       TEXT,
+                call_oi        INTEGER,
+                put_oi         INTEGER,
+                is_dislocation INTEGER NOT NULL DEFAULT 0,
+                UNIQUE (ticker, date)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_pcr_ticker_date ON lock4_pcr_history(ticker, date DESC);
         """)
         conn.commit()
         logger.info(f"DB initialised at {DB_PATH}")
@@ -1099,6 +1114,86 @@ def get_live_gate_funnel_counts(since: str | None = None) -> dict:
             "executed":         executed,
             "rejected":         rejected,
         }
+    finally:
+        conn.close()
+
+
+def insert_pcr_observation(
+    ticker: str,
+    date: str,
+    pcr: float,
+    expiry_1: str | None = None,
+    expiry_2: str | None = None,
+    call_oi: int | None = None,
+    put_oi: int | None = None,
+    is_dislocation: bool = False,
+) -> None:
+    """
+    Insert a daily P/C ratio observation for Lock 4 baseline calibration.
+    Skips silently on duplicate (ticker, date) — idempotent.
+    """
+    conn = get_db()
+    try:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO lock4_pcr_history
+              (ticker, date, pcr, expiry_1, expiry_2, call_oi, put_oi, is_dislocation)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (ticker, date, round(pcr, 4), expiry_1, expiry_2, call_oi, put_oi,
+             1 if is_dislocation else 0),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_pcr_history(
+    ticker: str | None = None,
+    exclude_dislocation: bool = True,
+    min_date: str | None = None,
+) -> list[dict]:
+    """
+    Retrieve PCR history for percentile calibration.
+
+    Args:
+        ticker:              Filter to a specific ticker (None = all).
+        exclude_dislocation: Drop rows where is_dislocation=1 (default True).
+        min_date:            ISO date string lower bound (inclusive).
+    """
+    conn = get_db()
+    try:
+        clauses = []
+        params: list = []
+        if ticker:
+            clauses.append("ticker = ?")
+            params.append(ticker)
+        if exclude_dislocation:
+            clauses.append("is_dislocation = 0")
+        if min_date:
+            clauses.append("date >= ?")
+            params.append(min_date)
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        rows = conn.execute(
+            f"SELECT ticker, date, pcr, expiry_1, expiry_2, call_oi, put_oi, is_dislocation "
+            f"FROM lock4_pcr_history {where} ORDER BY ticker, date",
+            params,
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def set_pcr_dislocation(date: str, is_dislocation: bool) -> int:
+    """Manually flag or unflag all observations on a given date as dislocation days."""
+    conn = get_db()
+    try:
+        cur = conn.execute(
+            "UPDATE lock4_pcr_history SET is_dislocation = ? WHERE date = ?",
+            (1 if is_dislocation else 0, date),
+        )
+        conn.commit()
+        return cur.rowcount
     finally:
         conn.close()
 

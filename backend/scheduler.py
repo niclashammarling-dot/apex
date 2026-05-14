@@ -6,6 +6,7 @@ from loguru import logger
 
 from backend.config import EXIT_CHECK_INTERVAL, GATE_INTERVAL, POLL_INTERVAL_SECTORS
 from backend.data.fetcher_yahoo import fetch_all_sectors
+from backend.data.lock4_pcr_collector import collect_pcr_snapshot
 from backend.db import (
     insert_sector_snapshots,
     insert_signal,
@@ -499,6 +500,15 @@ def start_scheduler() -> None:
         hour=16,
         minute=15,          # 15 min after market close — snapshots settled
         id="eod_regime",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        collect_pcr_snapshot,
+        "cron",
+        day_of_week="mon-fri",
+        hour=16,
+        minute=30,          # 30 min after market close — OI data settled post-close
+        id="collect_pcr",
         replace_existing=True,
     )
     scheduler.add_job(

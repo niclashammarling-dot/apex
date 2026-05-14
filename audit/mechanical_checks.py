@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28, 29, 32
+APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28, 29, 32, 33, 34, 35
 Pure grep/parse, no LLM. Writes findings to audit/nightly-report-YYYY-MM-DD.md.
 """
 # CHECK 22 added 2026-04-15: Yahoo data pipeline health
@@ -10,6 +10,7 @@ Pure grep/parse, no LLM. Writes findings to audit/nightly-report-YYYY-MM-DD.md.
 # CHECK 27 added 2026-05-06: GICS sector classification parity (tickers.json vs authoritative GICS map)
 # CHECK 29 added 2026-05-07: Live sector exposure cap wiring (sector_exposure_live computed and enforced in both execution branches)
 # CHECK 33 added 2026-05-09: Bayesian multiplier health (silent all-1.0 detection via data/bayesian_multiplier_stats.json)
+# CHECK 35 added 2026-05-14: PCR collection freshness (lock4_pcr_history must have observations from most recent trading day)
 
 import json
 import re
@@ -1279,6 +1280,56 @@ def check33():
              f"sector allocation lookup failed silently; Bayesian sizing had no effect")
 
 
+# ── CHECK 35 — PCR collection freshness ──────────────────────────────────────
+
+def check35():
+    """
+    lock4_pcr_history must have observations from the most recent trading day.
+
+    The Lock 4 PCR baseline calibration (per-ticker P25 percentile replacing
+    the interim 0.85 fixed threshold) depends on daily collection. A gap in the
+    collection means the calibration baseline grows stale and the replacement
+    threshold cannot be computed on schedule.
+
+    Uses the 26h staleness window — same standard as CHECK 17 and CHECK 22.
+    Only fires on weekdays; collection is not expected on weekends.
+    """
+    today = date.today()
+    if today.weekday() >= 5:
+        return
+
+    db = REPO / "data/apex.db"
+    if not db.exists():
+        return
+
+    try:
+        conn = sqlite3.connect(db)
+        row  = conn.execute("SELECT MAX(date) FROM lock4_pcr_history").fetchone()
+        conn.close()
+    except sqlite3.OperationalError:
+        flag(35, "PCR collection freshness", "WARNING", "data/apex.db:lock4_pcr_history",
+             "lock4_pcr_history table missing — PCR collection has never run; "
+             "check that scheduler collect_pcr job is wired and backend has been restarted")
+        return
+    except Exception as e:
+        flag(35, "PCR collection freshness", "WARNING", "data/apex.db:lock4_pcr_history",
+             f"could not query lock4_pcr_history: {e}")
+        return
+
+    if not row or not row[0]:
+        flag(35, "PCR collection freshness", "WARNING", "data/apex.db:lock4_pcr_history",
+             "lock4_pcr_history is empty — collect_pcr cron job has never completed successfully")
+        return
+
+    last_date  = date.fromisoformat(row[0])
+    age_days   = (today - last_date).days
+    if age_days > 1:
+        flag(35, "PCR collection freshness", "WARNING", "data/apex.db:lock4_pcr_history",
+             f"last PCR observation is from {row[0]} ({age_days}d ago) — "
+             "collect_pcr cron job may have failed; per-ticker percentile calibration "
+             "will be delayed if collection gap grows beyond 1 week")
+
+
 if __name__ == "__main__":
     check3()
     check4()
@@ -1305,5 +1356,6 @@ if __name__ == "__main__":
     check31()
     check32()
     check33()
+    check35()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])

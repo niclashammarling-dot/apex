@@ -32,6 +32,14 @@ from backend.gate.types import LockResult
 LOCK_ID  = 4
 MIN_PASS = 2
 
+# PCR threshold — set to 0.85 based on 17-day APEX universe sample (mean 0.827).
+# Generic options-literature prior (0.7) passes Utilities/Financials names that are
+# excluded from APEX on fundamentals and blocks Technology/Industrials names that are
+# the primary targets. 0.85 reflects the actual APEX universe distribution.
+# Interim: replace with per-ticker P25 percentile once lock4_pcr_history has 4-8 weeks
+# of daily observations (collection started 2026-05-14).
+PCR_THRESHOLD = 0.85
+
 
 def _build_sector_etf() -> dict[str, str]:
     try:
@@ -174,14 +182,15 @@ def _check_put_call_ratio(ticker: str) -> dict:
         return {"pass": False, "reason": "zero open interest"}
 
     pc     = put_oi / call_oi if call_oi > 0 else 99.0
-    passed = pc < 0.7
+    passed = pc < PCR_THRESHOLD
 
     return {
-        "pass":     passed,
-        "pc_ratio": round(pc, 2),
-        "call_oi":  call_oi,
-        "put_oi":   put_oi,
-        "reason":   f"P/C {pc:.2f} ({'bullish' if passed else 'neutral/bearish'})",
+        "pass":      passed,
+        "pc_ratio":  round(pc, 2),
+        "call_oi":   call_oi,
+        "put_oi":    put_oi,
+        "threshold": PCR_THRESHOLD,
+        "reason":    f"P/C {pc:.2f} vs threshold {PCR_THRESHOLD} ({'bullish' if passed else 'neutral/bearish'})",
     }
 
 

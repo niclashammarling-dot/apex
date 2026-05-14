@@ -405,10 +405,10 @@ const SETTINGS_FIELDS = [
     hint: "Force-exits a position after this many calendar days." },
   { key: "vix_threshold",        label: "VIX Block Threshold",   step: 1,    min: 10,   max: 80,
     hint: "At 25 blocked 52–61% of trading days in 2020/2022", warnBelow: 30, warnMsg: () => "Below 30 — blocks recovery rallies" },
-  { key: "macro_event_blackout_days",    label: "Event Blackout (days)",    step: 1, min: 0, max: 5,
-    hint: "Blocks new entries N days around scheduled macro events." },
+  { key: "macro_event_blackout_days",    label: "CPI/NFP Pre-Event Block (days)", step: 1, min: 0, max: 5,
+    hint: "Blocks new entries N days before CPI and NFP releases only. FOMC always uses a fixed 2-day pre-event window — post-event sessions are never blocked." },
   { key: "macro_earnings_blackout_days", label: "Earnings Blackout (days)", step: 1, min: 0, max: 7,
-    hint: "Blocks new entries N days before a ticker's earnings report." },
+    hint: "Blocks new entries N days before a ticker's earnings report. Pre-event only — entries are not blocked after the print." },
   { key: "gate_cooloff_hours",   label: "Gate Cooloff (hours)",  step: 1,    min: 0,   max: 24,
     hint: "Prevents gate from re-evaluating same ticker within this many hours." },
   { key: "max_sector_exposure",  label: "Max Sector Exposure",   step: 0.05, min: 0.05, max: 1,
@@ -609,7 +609,7 @@ const PROMOTE_LABELS = {
   overflow_quant_increment: "Overflow Quant Step", max_position_size: "Max Position Size",
   daily_loss_cap: "Daily Loss Cap ($)", starting_balance: "Starting Balance ($)",
   max_hold_days: "Time Stop (days)", vix_threshold: "VIX Block Threshold",
-  macro_event_blackout_days: "Event Blackout (days)", macro_earnings_blackout_days: "Earnings Blackout (days)",
+  macro_event_blackout_days: "CPI/NFP Pre-Event Block (days)", macro_earnings_blackout_days: "Earnings Blackout (days)",
   gate_cooloff_hours: "Gate Cooloff (hours)", max_sector_exposure: "Max Sector Exposure",
 };
 

@@ -73,6 +73,12 @@ def _nfp_dates(start_year: int = 2025, end_year: int = 2026) -> set[date]:
 _NFP_DATES   = _nfp_dates()
 _MACRO_DATES = _FOMC_DATES | _CPI_DATES | _NFP_DATES
 
+# FOMC spans two meeting days; pre-event window is 2 to cover the full session.
+# CPI and NFP are single-day releases; their window comes from macro_event_blackout_days (cfg).
+_FOMC_PRE_EVENT_DAYS = 2
+
+_calendar_expiry_checked = False
+
 # ── Earnings cache ────────────────────────────────────────────────────────────
 _earnings_cache: dict[str, dict] = {}
 _EARNINGS_TTL = 6 * 3600
@@ -164,6 +170,10 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
         )
 
     # ── B. Macro filter ───────────────────────────────────────────────────────
+    global _calendar_expiry_checked
+    if not _calendar_expiry_checked:
+        _check_calendar_expiry()
+        _calendar_expiry_checked = True
     _vt = cfg.get("vix_threshold");          vix_threshold     = 25.0 if _vt is None else _vt
     _eb = cfg.get("macro_event_blackout_days");    event_blackout    = 1    if _eb is None else _eb
     _ea = cfg.get("macro_earnings_blackout_days"); earnings_blackout = 3    if _ea is None else _ea
@@ -182,7 +192,7 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
             },
         )
 
-    blocked, event_desc = _days_to_nearest_event(today, event_blackout)
+    blocked, event_desc = _days_to_nearest_event(today, event_blackout, _FOMC_PRE_EVENT_DAYS)
     if blocked:
         return LockResult.fail(
             lock_id=LOCK_ID,
@@ -289,18 +299,41 @@ def _get_vix() -> float | None:
 
 # ── Macro event helpers ───────────────────────────────────────────────────────
 
-def _days_to_nearest_event(today: date, blackout: int) -> tuple[bool, str | None]:
+def _days_to_nearest_event(
+    today: date, event_blackout: int, fomc_blackout: int
+) -> tuple[bool, str | None]:
+    """Pre-event only. Post-event entries are not blocked — the print is known and
+    the regime signal has more information, not less."""
     for d in _MACRO_DATES:
-        delta = abs((d - today).days)
-        if delta <= blackout:
-            if d in _FOMC_DATES:
-                name = "FOMC"
-            elif d in _CPI_DATES:
-                name = "CPI"
-            else:
-                name = "NFP"
-            return True, f"{name} on {d.isoformat()} (Δ{delta}d)"
+        if d in _FOMC_DATES:
+            name    = "FOMC"
+            window  = fomc_blackout
+        elif d in _CPI_DATES:
+            name    = "CPI"
+            window  = event_blackout
+        else:
+            name    = "NFP"
+            window  = event_blackout
+        days_ahead = (d - today).days
+        if 0 <= days_ahead <= window:
+            return True, f"{name} on {d.isoformat()} (in {days_ahead}d)"
     return False, None
+
+
+def _check_calendar_expiry() -> None:
+    """Warn when the macro calendar is within 60 days of expiring."""
+    today       = date.today()
+    future      = [d for d in _MACRO_DATES if d >= today]
+    if not future:
+        logger.error("Lock 1: macro event calendar is exhausted — update _FOMC_DATES/_CPI_DATES")
+        return
+    last_date   = max(future)
+    days_left   = (last_date - today).days
+    if days_left < 60:
+        logger.warning(
+            f"Lock 1: macro calendar expires in {days_left}d (last entry {last_date.isoformat()}) "
+            "— update _FOMC_DATES/_CPI_DATES/_nfp_dates before it runs dry"
+        )
 
 
 # ── Earnings helpers ──────────────────────────────────────────────────────────
