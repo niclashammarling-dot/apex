@@ -388,7 +388,7 @@ def get_portfolio() -> dict:
     win_rate      = wins / len(closed_trades) if closed_trades else None
 
     return {
-        "balance":          round(cash + unrealized_total, 2),
+        "balance":          round(cash + invested + unrealized_total, 2),
         "cash":             round(cash, 2),
         "invested":         round(invested, 2),
         "starting_balance": STARTING_BALANCE,
