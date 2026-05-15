@@ -616,7 +616,6 @@ function PromoteModal({ config, onConfirm, onCancel }) {
   const { live, demo } = config;
   const pct = v => `${(v * 100).toFixed(1)}%`;
   const fmt = (key, v) => {
-    if (key === "daily_loss_cap") return `$${v}`;
     if (key === "max_positions")  return v;
     if (typeof v === "number" && v < 2) return pct(v);
     return v;
