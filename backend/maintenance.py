@@ -48,6 +48,33 @@ def check_sector_names() -> list[str]:
     return issues
 
 
+def check_promote_exclusions() -> list[str]:
+    """
+    Account-size-specific config keys must not appear in the promotable set.
+
+    starting_balance and daily_loss_cap are calibrated to account size, not
+    strategy. If either ends up in demo_thresholds(), Promote will overwrite
+    the live values — corrupting the sector exposure denominator and the daily
+    loss cap with demo-scale numbers.
+    """
+    from backend.live_config import _PROMOTE_EXCLUDE, demo_thresholds
+    required = {"starting_balance", "daily_loss_cap"}
+    issues = []
+    promotable = set(demo_thresholds().keys())
+    leaked = required - _PROMOTE_EXCLUDE
+    if leaked:
+        issues.append(
+            f"Keys missing from _PROMOTE_EXCLUDE: {sorted(leaked)} — "
+            "these will be overwritten on next Promote"
+        )
+    in_promotable = required & promotable
+    if in_promotable:
+        issues.append(
+            f"Account-specific keys present in demo_thresholds(): {sorted(in_promotable)}"
+        )
+    return issues
+
+
 def check_context_parity() -> list[str]:
     """
     Demo and live gate runners must build identical risk_limits keys in the
@@ -84,9 +111,10 @@ def check_context_parity() -> list[str]:
 # ── Scheduler entry point ─────────────────────────────────────────────────────
 
 _CHECKS = [
-    ("config_parity",  check_config_parity),
-    ("sector_names",   check_sector_names),
-    ("context_parity", check_context_parity),
+    ("config_parity",      check_config_parity),
+    ("sector_names",       check_sector_names),
+    ("context_parity",     check_context_parity),
+    ("promote_exclusions", check_promote_exclusions),
 ]
 
 

@@ -607,7 +607,6 @@ const PROMOTE_LABELS = {
   trailing_stop_pct: "Trailing Stop %", profit_lock_trigger_pct: "Profit-Lock Trigger %",
   profit_lock_trail_pct: "Profit-Lock Trail %", max_positions: "Max Positions",
   overflow_quant_increment: "Overflow Quant Step", max_position_size: "Max Position Size",
-  daily_loss_cap: "Daily Loss Cap ($)", starting_balance: "Starting Balance ($)",
   max_hold_days: "Time Stop (days)", vix_threshold: "VIX Block Threshold",
   macro_event_blackout_days: "CPI/NFP Pre-Event Block (days)", macro_earnings_blackout_days: "Earnings Blackout (days)",
   gate_cooloff_hours: "Gate Cooloff (hours)", max_sector_exposure: "Max Sector Exposure",

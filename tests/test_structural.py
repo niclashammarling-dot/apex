@@ -5,7 +5,12 @@ These catch config/code drift that unit tests miss: mismatched key sets,
 naming divergences, and context shape gaps between demo and live pipelines.
 Run automatically on Saturdays via the scheduler; also part of CI.
 """
-from backend.maintenance import check_config_parity, check_sector_names, check_context_parity
+from backend.maintenance import (
+    check_config_parity,
+    check_context_parity,
+    check_promote_exclusions,
+    check_sector_names,
+)
 
 
 def test_config_key_parity():
@@ -21,3 +26,8 @@ def test_sector_etf_names_match_config():
 def test_lock3_context_parity():
     """Demo and live gate runners must build identical risk_limits keys for Lock 3."""
     assert check_context_parity() == []
+
+
+def test_promote_exclusions():
+    """starting_balance and daily_loss_cap must never appear in the promotable set."""
+    assert check_promote_exclusions() == []

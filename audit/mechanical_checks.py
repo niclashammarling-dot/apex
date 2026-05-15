@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28, 29, 32, 33, 34, 35, 36
+APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28, 29, 32, 33, 34, 35, 36, 37
 Pure grep/parse, no LLM. Writes findings to audit/nightly-report-YYYY-MM-DD.md.
 """
 # CHECK 22 added 2026-04-15: Yahoo data pipeline health
@@ -12,6 +12,7 @@ Pure grep/parse, no LLM. Writes findings to audit/nightly-report-YYYY-MM-DD.md.
 # CHECK 33 added 2026-05-09: Bayesian multiplier health (silent all-1.0 detection via data/bayesian_multiplier_stats.json)
 # CHECK 35 added 2026-05-14: PCR collection freshness (lock4_pcr_history must have observations from most recent trading day)
 # CHECK 36 added 2026-05-14: L4 sub-check pass rate health (any sub-check with <5% pass rate over 30d = dead weight candidate)
+# CHECK 37 added 2026-05-15: Promote exclusion integrity (starting_balance and daily_loss_cap must not be in demo_thresholds())
 
 import json
 import re
@@ -1129,7 +1130,7 @@ def update_registry():
 def write_report(retirement_candidates):
     REPORT.parent.mkdir(exist_ok=True)
 
-    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28}
+    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28, 37}
     rows = []
     check_names = {
         3: "Fractional qty", 4: "Config parity", 5: "Sector name strings",
@@ -1142,6 +1143,7 @@ def write_report(retirement_candidates):
         24: "Chain-runner wiring", 25: "gate_decision string parity",
         26: "L1/L2 threshold-source parity", 27: "GICS classification parity",
         28: "EXCLUDED_SECTORS gate wiring",
+        37: "Promote exclusion integrity",
     }
 
     # One clean row per check that had no findings
@@ -1418,6 +1420,64 @@ def check36():
                  f"review base-rate assumption for the APEX universe")
 
 
+def check37():
+    """
+    Promote exclusion integrity — account-size-specific config keys must not
+    appear in the promotable set.
+
+    Two structural assertions:
+      1. _PROMOTE_EXCLUDE in backend/live_config.py contains both "starting_balance"
+         and "daily_loss_cap" (text check — catches accidental removal).
+      2. demo_thresholds() returns neither key at runtime (import check — catches
+         the filter being bypassed in code even if the constant looks correct).
+
+    Prevented by: 2026-05-15. Promote wrote starting_balance=2000 into live_config,
+    corrupting sector exposure denominator (notional/2000 = 735% projected, sector
+    cap 20% → all live trades unconditionally rejected). daily_loss_cap=$100 would
+    have imposed near-zero daily limit on a $100k account.
+    """
+    REQUIRED = {"starting_balance", "daily_loss_cap"}
+    path = REPO / "backend/live_config.py"
+    if not path.exists():
+        flag(37, "Promote exclusion integrity", "CRITICAL",
+             "backend/live_config.py", "live_config.py not found")
+        return
+
+    text = path.read_text()
+
+    # 1. Text check: both keys must appear inside the _PROMOTE_EXCLUDE assignment
+    excl_match = re.search(r'_PROMOTE_EXCLUDE\s*=\s*\{([^}]+)\}', text)
+    if not excl_match:
+        flag(37, "Promote exclusion integrity", "CRITICAL",
+             "backend/live_config.py",
+             "_PROMOTE_EXCLUDE not defined — all config keys are promotable")
+        return
+
+    excl_body = excl_match.group(1)
+    for key in REQUIRED:
+        if f'"{key}"' not in excl_body and f"'{key}'" not in excl_body:
+            flag(37, "Promote exclusion integrity", "CRITICAL",
+                 "backend/live_config.py",
+                 f'"{key}" missing from _PROMOTE_EXCLUDE — Promote will overwrite live value '
+                 f'with demo-scale equivalent on next run')
+
+    # 2. Runtime check: demo_thresholds() must not contain either key
+    try:
+        import sys
+        sys.path.insert(0, str(REPO))
+        from backend.live_config import demo_thresholds
+        promotable = set(demo_thresholds().keys())
+        for key in REQUIRED:
+            if key in promotable:
+                flag(37, "Promote exclusion integrity", "CRITICAL",
+                     "backend/live_config.py:demo_thresholds",
+                     f'"{key}" present in demo_thresholds() output — exclusion filter is not working')
+    except Exception as e:
+        flag(37, "Promote exclusion integrity", "WARNING",
+             "backend/live_config.py",
+             f"Could not import demo_thresholds for runtime check: {e}")
+
+
 if __name__ == "__main__":
     check3()
     check4()
@@ -1446,5 +1506,6 @@ if __name__ == "__main__":
     check33()
     check35()
     check36()
+    check37()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])

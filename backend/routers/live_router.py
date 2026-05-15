@@ -218,7 +218,18 @@ def get_live_config_endpoint():
 
 @router.post("/config/promote")
 def promote_demo_to_live():
-    """Copy current demo thresholds into live_config.json."""
+    """Copy current demo thresholds into live_config.json.
+
+    Copies strategy parameters only. Account-size-specific keys are excluded
+    by demo_thresholds() via _PROMOTE_EXCLUDE:
+      - starting_balance: demo=$2k, live=$100k — different denominators;
+        leaked into live would corrupt sector exposure checks (notional/2000 = 1500%)
+      - daily_loss_cap: absolute dollars calibrated to account size; promoting
+        demo's $100 to live would impose a near-zero daily limit on a $100k account
+
+    Any new config key must be deliberately placed in _KEYS (promotable) or
+    _PROMOTE_EXCLUDE (account-specific). Default-in-_KEYS means it gets promoted.
+    """
     _require_live()
     from backend.live_config import demo_thresholds, set_live_config
     new_cfg = set_live_config(demo_thresholds())

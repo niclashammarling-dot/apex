@@ -141,6 +141,12 @@ Every `.py` script in `audit/` must be explicitly called somewhere in these inst
 - Verify each one appears in a `python3 audit/...` command in this file.
 - Flag any script present in `audit/` but not referenced here as WARNING — it is dead code.
 
+### CHECK 37 — Promote exclusion integrity
+Account-size-specific config keys must not appear in the promotable set.
+- Run `python3 -c "from backend.maintenance import check_promote_exclusions; r = check_promote_exclusions(); print(r)"`.
+- Flag any non-empty result as CRITICAL — a leaked key means the next Promote will overwrite live account-specific constants with demo-scale values, silently corrupting sector exposure calculations or daily loss limits.
+- Specifically: `starting_balance` (sector exposure denominator; demo=$2k, live=$100k) and `daily_loss_cap` (absolute dollars; demo=$100 → near-zero daily limit on $100k account) must be in `_PROMOTE_EXCLUDE` and absent from `demo_thresholds()`.
+
 ### Update the registry
 
 After writing the report, run this Python script. Set `triggered` to check numbers that had at least one finding.

@@ -142,7 +142,14 @@ def _write_atomic(cfg: dict) -> None:
         raise
 
 
+# Settings that must never be promoted from demo — account-size specific.
+# starting_balance: demo=$2k, live=$100k — completely different denominator
+# daily_loss_cap:   absolute dollars calibrated to account size; demo=$100, live=$1000
+_PROMOTE_EXCLUDE = {"starting_balance", "daily_loss_cap"}
+
+
 def demo_thresholds() -> dict:
-    """Return current demo gate thresholds for the Promote preview."""
+    """Return promotable demo gate thresholds (excludes account-size-specific keys)."""
     from backend.demo_config import get_demo_config
-    return get_demo_config()
+    cfg = get_demo_config()
+    return {k: v for k, v in cfg.items() if k not in _PROMOTE_EXCLUDE}
