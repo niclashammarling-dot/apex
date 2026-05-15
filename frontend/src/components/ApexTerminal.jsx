@@ -40,13 +40,23 @@ function EquityHero({ D, mode }) {
   const peak = eq[peakIdx].value;
   const wallet = mode === "live" ? D.liveWallet : D.wallet;
 
+  // Duration: calendar days from first closed trade to today
+  const closedPts = eq.filter(p => p.ts && /^\d{4}-\d{2}-\d{2}/.test(p.ts));
+  const firstTs = closedPts[0]?.ts;
+  const calDays = firstTs ? Math.round((Date.now() - new Date(firstTs).getTime()) / 86400000) : null;
+
+  // MTD: last closed-trade point before the current month as baseline
+  const curYM = new Date().toISOString().slice(0, 7);
+  const mtdBase = [...closedPts].reverse().find(p => p.ts.slice(0, 7) < curYM);
+  const mtdPct = mtdBase ? (end - mtdBase.value) / mtdBase.value : null;
+
   return (
     <div className="t-card">
       <div className="t-card-head">
         <div className="t-card-title">EQUITY · {mode === "live" ? "LIVE" : "DEMO"}</div>
         <div className="t-row" style={{ gap: 18 }}>
-          <span className="t-meta">92D</span>
-          <span className="t-meta">MTD · {fmtPct(pct * 0.4)}</span>
+          {calDays != null && <span className="t-meta">{calDays}D</span>}
+          {mtdPct != null && <span className="t-meta">MTD · {fmtPct(mtdPct)}</span>}
           {wallet.sharpe > 0 && <span className="t-meta">SHARPE · {wallet.sharpe.toFixed(2)}</span>}
         </div>
       </div>
@@ -114,7 +124,7 @@ function Wallet({ D, mode }) {
           <KV k="UNREALIZED" v={<span className={(w.unrealized ?? 0) >= 0 ? "t-pos" : "t-neg"}>{fmt$(w.unrealized ?? 0)}</span>} />
           <KV k="WIN RATE"   v={((w.winRate ?? 0) * 100).toFixed(0) + "%"} />
           <KV k="TRADES"     v={w.trades ?? 0} />
-          {w.drawdown !== 0 && <KV k="DRAWDOWN" v={<span className="t-neg">{fmtPct(w.drawdown)}</span>} />}
+          {w.drawdown > 0 && <KV k="DRAWDOWN" v={<span className="t-neg">{fmtPct(-w.drawdown)}</span>} />}
           {w.sharpe > 0 && <KV k="SHARPE" v={w.sharpe.toFixed(2)} />}
         </div>
       </div>

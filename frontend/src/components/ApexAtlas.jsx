@@ -45,18 +45,23 @@ function EquityBanded({ D, mode }) {
 
   const wallet = mode === "live" ? D.liveWallet : D.wallet;
 
+  const closedPts = eq.filter(p => p.ts && /^\d{4}-\d{2}-\d{2}/.test(p.ts));
+  const firstTs = closedPts[0]?.ts;
+  const calDays = firstTs ? Math.round((Date.now() - new Date(firstTs).getTime()) / 86400000) : null;
+  const title = calDays != null ? `Equity, ${calDays} days` : "Equity curve";
+
   return (
     <section className="a-section a-hero">
       <header className="a-section-head">
         <div>
           <div className="a-eyebrow">Fig. 01 · Cumulative equity</div>
-          <h2 className="a-title">Equity, ninety-two sessions</h2>
+          <h2 className="a-title">{title}</h2>
         </div>
         <div className="a-row" style={{ gap: 32 }}>
           <Stat label="Balance" value={fmt$(end)} />
           <Stat label="P/L" value={fmtPct(pct)} tone={pnl >= 0 ? "pos" : "neg"} />
           {wallet?.sharpe > 0 && <Stat label="Sharpe" value={wallet.sharpe.toFixed(2)} />}
-          {wallet?.drawdown !== 0 && wallet?.drawdown && <Stat label="Max DD" value={fmtPct(wallet.drawdown)} tone="neg" />}
+          {wallet?.drawdown > 0 && <Stat label="Max DD" value={fmtPct(-wallet.drawdown)} tone="neg" />}
         </div>
       </header>
       <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: "100%", height: h, display: "block" }}>

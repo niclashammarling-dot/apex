@@ -251,15 +251,33 @@ function adaptRegime(regimeData) {
   });
 }
 
-function adaptEquity(equityData) {
+function adaptEquity(equityData, walletBalance) {
   if (!equityData || equityData.length === 0) return [];
-  return equityData.map((p, i) => ({
+  const pts = equityData.map((p, i) => ({
     day:   i,
     value: p.balance ?? p.value ?? 0,
+    ts:    p.ts ?? null,
+    mtm:   p.mtm ?? false,
   }));
+  // Keep MTM point in sync with the wallet balance (avoids price-fetch race between endpoints)
+  if (walletBalance != null && pts.length > 0 && pts[pts.length - 1].mtm) {
+    pts[pts.length - 1].value = walletBalance;
+  }
+  return pts;
 }
 
-function adaptWallet(wallet) {
+function _maxDD(equityPoints) {
+  if (!equityPoints || equityPoints.length < 2) return 0;
+  let peak = equityPoints[0].value;
+  let dd = 0;
+  for (const p of equityPoints) {
+    if (p.value > peak) peak = p.value;
+    if (peak > 0) dd = Math.max(dd, (peak - p.value) / peak);
+  }
+  return dd;
+}
+
+function adaptWallet(wallet, equityPoints) {
   if (!wallet) return null;
   return {
     balance:    wallet.balance ?? 0,
@@ -272,12 +290,12 @@ function adaptWallet(wallet) {
     trades:     wallet.total_trades ?? 0,
     avgWin:     0,
     avgLoss:    0,
-    drawdown:   0,
+    drawdown:   _maxDD(equityPoints),
     sharpe:     0,
   };
 }
 
-function adaptLiveWallet(account, livePositions, settings) {
+function adaptLiveWallet(account, livePositions, settings, equityPoints) {
   const starting = settings?.live?.starting_balance ?? 25000;
   if (!account) {
     return { balance: 0, starting, cash: 0, invested: 0, realized: 0, unrealized: 0, winRate: 0, trades: 0, avgWin: 0, avgLoss: 0, drawdown: 0, sharpe: 0 };
@@ -294,7 +312,7 @@ function adaptLiveWallet(account, livePositions, settings) {
     trades:     0,
     avgWin:     0,
     avgLoss:    0,
-    drawdown:   0,
+    drawdown:   _maxDD(equityPoints),
     sharpe:     0,
   };
 }
@@ -737,27 +755,31 @@ export default function App() {
   }, []);
 
   // ── Adapted data ────────────────────────────────────────────────────────────
-  const adaptedData = useMemo(() => ({
-    SECTORS:       buildSECTORS(sectors),
-    EXCLUDED:      EXCLUDED_CODES,
-    tickers:       adaptTickers(sectors),
-    regime:        adaptRegime(regimeData),
-    equity:        adaptEquity(equity),
-    liveEq:        adaptEquity(liveEquity),
-    funnel:        adaptFunnel(gateHist.funnel),
-    gateRows:      adaptGateRows(gateHist.rows),
-    liveGateRows:  adaptGateRows(liveGateHist.rows),
-    positions:     adaptPositions(wallet?.open_positions ?? []),
-    livePositions: adaptPositions(livePositions),
-    wallet:        adaptWallet(wallet),
-    liveWallet:    adaptLiveWallet(liveAccount, livePositions, settings),
-    alerts:        adaptAlerts(driftAlerts),
-    demoTrades,
-    liveTrades,
-    settings,
-    auditReports,
-    liveOrders,
-  }), [sectors, wallet, gateHist, liveGateHist, equity, regimeData, driftAlerts, liveEquity, liveAccount, livePositions, settings, demoTrades, liveTrades, auditReports, liveOrders]);
+  const adaptedData = useMemo(() => {
+    const eq     = adaptEquity(equity,     wallet?.balance);
+    const liveEq = adaptEquity(liveEquity, liveAccount?.equity);
+    return {
+      SECTORS:       buildSECTORS(sectors),
+      EXCLUDED:      EXCLUDED_CODES,
+      tickers:       adaptTickers(sectors),
+      regime:        adaptRegime(regimeData),
+      equity:        eq,
+      liveEq,
+      funnel:        adaptFunnel(gateHist.funnel),
+      gateRows:      adaptGateRows(gateHist.rows),
+      liveGateRows:  adaptGateRows(liveGateHist.rows),
+      positions:     adaptPositions(wallet?.open_positions ?? []),
+      livePositions: adaptPositions(livePositions),
+      wallet:        adaptWallet(wallet, eq),
+      liveWallet:    adaptLiveWallet(liveAccount, livePositions, settings, liveEq),
+      alerts:        adaptAlerts(driftAlerts),
+      demoTrades,
+      liveTrades,
+      settings,
+      auditReports,
+      liveOrders,
+    };
+  }, [sectors, wallet, gateHist, liveGateHist, equity, regimeData, driftAlerts, liveEquity, liveAccount, livePositions, settings, demoTrades, liveTrades, auditReports, liveOrders]);
 
   // ── Tweaks helpers ──────────────────────────────────────────────────────────
   const unwrap = v => (v && typeof v === "object" && "value" in v) ? v.value : v;
