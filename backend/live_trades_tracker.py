@@ -107,9 +107,10 @@ def check_live_exits() -> list[dict]:
         # ── Time-stop ───────────────────────────────────────────────────────
         elif _trading_days_since(trade["timestamp"]) >= max_hold_days:
             logger.info(f"Live time-stop [{ticker}]: {max_hold_days} trading days elapsed — closing")
+            price_now = _current_price(ticker)
             try:
                 result = broker.close_position(ticker)
-                exit_price = float(result.get("filled_avg_price") or trade["entry_price"])
+                exit_price = float(result.get("filled_avg_price") or price_now or trade["entry_price"])
             except Exception as e:
                 logger.warning(f"Live time-stop [{ticker}]: close_position failed — {e}")
                 continue
@@ -213,9 +214,10 @@ def check_live_regime_exits() -> list[dict]:
         ticker = trade["ticker"]
         sector = trade["sector"]
 
+        price_now = _current_price(ticker)
         try:
             result_close = broker.close_position(ticker)
-            exit_price   = float(result_close.get("filled_avg_price") or trade["entry_price"])
+            exit_price   = float(result_close.get("filled_avg_price") or price_now or trade["entry_price"])
         except Exception as e:
             logger.warning(f"Live regime exit [{ticker}]: close_position failed — {e}")
             continue
@@ -302,6 +304,18 @@ def _find_exit_from_orders(ticker: str, broker) -> tuple[float | None, str, str]
         exit_reason = "MANUAL"
 
     return exit_price, exit_reason, exited_at
+
+
+def _current_price(ticker: str) -> float | None:
+    """Fetch latest close price for a single ticker via yfinance."""
+    try:
+        hist = yf.Ticker(ticker).history(period="2d")
+        if hist.empty:
+            return None
+        return float(hist["Close"].iloc[-1])
+    except Exception as e:
+        logger.warning(f"_current_price [{ticker}]: {e}")
+        return None
 
 
 def _leg_reason(leg: dict) -> str:
