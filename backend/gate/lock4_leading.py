@@ -52,6 +52,8 @@ def _build_sector_etf() -> dict[str, str]:
             "Utilities":       "XLU",
             "RealEstate":      "XLRE",
             "Communication":   "XLC",
+            "Semiconductors":  "SOXX",
+            "Defense":         "ITA",
         }
 
 
