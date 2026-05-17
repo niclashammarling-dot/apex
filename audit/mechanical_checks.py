@@ -826,19 +826,21 @@ def check27():
     # Authoritative GICS sector for each ticker in the APEX universe.
     # Update this map whenever a ticker is added or GICS publishes a reclassification.
     GICS_MAP = {
-        # Technology (XLK)
+        # Technology (XLK) — V post-2018 GICS stays in IT (payment networks reclassified)
         "AAPL": "Technology", "MSFT": "Technology", "NVDA": "Technology",
-        "AMD": "Technology", "V": "Technology",
+        "AMD": "Technology",  "V": "Technology",    "AVGO": "Technology",
+        "CRM": "Technology",  "ORCL": "Technology", "ADBE": "Technology",
+        "NOW": "Technology",  "QCOM": "Technology",
         # Healthcare (XLV)
         "JNJ": "Healthcare", "PFE": "Healthcare", "UNH": "Healthcare",
         "MRNA": "Healthcare", "LLY": "Healthcare",
         # Energy (XLE)
-        "XOM": "Energy", "CVX": "Energy", "HAL": "Energy",
+        "EOG": "Energy", "CVX": "Energy", "HAL": "Energy",
         "COP": "Energy", "OXY": "Energy",
         # Industrials (XLI)
         "CAT": "Industrials", "BA": "Industrials", "GE": "Industrials",
         "HON": "Industrials", "DE": "Industrials",
-        # Financials (XLF) — excludes V and MA (moved to IT in 2018)
+        # Financials (XLF)
         "JPM": "Financials", "BAC": "Financials", "GS": "Financials",
         "BLK": "Financials", "MS": "Financials",
         # ConsumerDisc (XLY)
@@ -847,9 +849,9 @@ def check27():
         # ConsumerStaples (XLP)
         "PG": "ConsumerStaples", "KO": "ConsumerStaples", "PEP": "ConsumerStaples",
         "WMT": "ConsumerStaples", "COST": "ConsumerStaples",
-        # Communication (XLC) — includes META and GOOGL post-2018 restructuring
+        # Communication (XLC) — META and GOOGL post-2018 restructuring
         "GOOGL": "Communication", "META": "Communication", "NFLX": "Communication",
-        "DIS": "Communication", "SPOT": "Communication",
+        "DIS": "Communication",   "SPOT": "Communication",
         # Utilities (XLU)
         "DUK": "Utilities", "SO": "Utilities", "AEP": "Utilities",
         "EXC": "Utilities", "NEE": "Utilities",
@@ -858,7 +860,14 @@ def check27():
         "FCX": "Materials", "SHW": "Materials",
         # RealEstate (XLRE)
         "PLD": "RealEstate", "AMT": "RealEstate", "EQIX": "RealEstate",
-        "SPG": "RealEstate", "WELL": "RealEstate",
+        "SPG": "RealEstate", "WELL": "RealEstate", "DLR": "RealEstate",
+        "O": "RealEstate",   "VTR": "RealEstate",  "PSA": "RealEstate",
+        # Semiconductors (SOXX) — added 2026-05-17
+        "ASML": "Semiconductors", "AMAT": "Semiconductors", "LRCX": "Semiconductors",
+        "KLAC": "Semiconductors", "MU": "Semiconductors",
+        # Defense (ITA) — added 2026-05-17
+        "LMT": "Defense", "RTX": "Defense", "NOC": "Defense",
+        "GD": "Defense",  "HII": "Defense",
     }
 
     tickers_path = REPO / "data/tickers.json"

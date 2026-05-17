@@ -118,5 +118,25 @@
       "VTR",
       "PSA"
     ]
+  },
+  "Semiconductors": {
+    "etf": "SOXX",
+    "tickers": [
+      "ASML",
+      "AMAT",
+      "LRCX",
+      "KLAC",
+      "MU"
+    ]
+  },
+  "Defense": {
+    "etf": "ITA",
+    "tickers": [
+      "LMT",
+      "RTX",
+      "NOC",
+      "GD",
+      "HII"
+    ]
   }
 }
