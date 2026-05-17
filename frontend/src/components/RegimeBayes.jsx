@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import HoverTooltip, { TipRow, TipHeader } from "./HoverTooltip";
 
+const EXCLUDED_SECTORS = new Set(["Financials", "ConsumerStaples", "Utilities"]);
+
 const RANK_COLORS = ["var(--t-accent)", "#bcbcbb", "#a0a0a0", "#686868", "#686868"];
 
 function accent(i) { return RANK_COLORS[i] ?? "var(--t-text-3)"; }
@@ -174,9 +176,11 @@ export default function RegimeBayes() {
         </div>
       )}
 
-      {data?.available && data.leaderboard.map((entry, i) => (
-        <LeaderboardRow key={entry.sector} entry={entry} i={i} isOpen={!!expanded[entry.sector]} onToggle={toggle} />
-      ))}
+      {data?.available && data.leaderboard
+        .filter(e => !EXCLUDED_SECTORS.has(e.sector))
+        .map((entry, i) => (
+          <LeaderboardRow key={entry.sector} entry={entry} i={i} isOpen={!!expanded[entry.sector]} onToggle={toggle} />
+        ))}
 
       {data?.available && data.ipo_context && (
         <div style={{ borderTop: "1px solid var(--t-border)", padding: "8px 14px" }}>
