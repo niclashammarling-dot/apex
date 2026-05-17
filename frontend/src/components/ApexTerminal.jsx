@@ -141,7 +141,7 @@ function KV({ k, v }) {
   );
 }
 
-const DIAL_ORDER = ["TECH","HLTH","ENER","INDU","FIN","CDIS","CSTP","COMM","UTIL","MATR","REIT"];
+const DIAL_ORDER = ["TECH","HLTH","ENER","INDU","FIN","CDIS","CSTP","COMM","UTIL","MATR","REIT","SEMI","DEF"];
 
 function RegimeDial({ D }) {
   if (!D.regime || D.regime.length === 0) return null;
@@ -184,8 +184,8 @@ function RegimeDial({ D }) {
           <table className="t-tbl">
             <thead><tr><th>RNK</th><th>SECTOR</th><th style={{textAlign:"right"}}>POST</th><th style={{textAlign:"right"}}>Δ</th></tr></thead>
             <tbody>
-              {D.regime.slice(0, 8).map((s, i) => (
-                <tr key={s.code} className={s.excluded ? "t-row-dim" : ""}>
+              {D.regime.filter(s => !s.excluded).slice(0, 8).map((s, i) => (
+                <tr key={s.code}>
                   <td>{(i+1).toString().padStart(2,"0")}</td>
                   <td>{s.name}</td>
                   <td style={{textAlign:"right"}}>{s.posterior.toFixed(3)}</td>
