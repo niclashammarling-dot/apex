@@ -784,6 +784,10 @@ LOCK 1 THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
 # ── Scheduler entry point ─────────────────────────────────────────────────────
 
 def send_weekly_report() -> None:
+    # Mark before sending — prevents duplicate sends on rapid server restarts.
+    # Trade-off: a crash after marking but before sending skips that week's email.
+    # This is preferable to sending 3 emails over a weekend restart loop.
+    _mark_sent()
     # Check for drift and recalibrate before building the report,
     # so before/after threshold changes can be included in the email.
     recal_changes: dict[str, tuple[float, float]] = {}
@@ -827,6 +831,5 @@ def send_weekly_report() -> None:
             logger.info(f"Weekly report built (no channel configured):\n{plain}")
         else:
             logger.info("Weekly report sent")
-        _mark_sent()
     except Exception as e:
         logger.error(f"Weekly report failed: {e}")

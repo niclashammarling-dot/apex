@@ -144,7 +144,7 @@ def check9():
         ("vix_threshold",    demo, "data/demo_config.json", lambda v: v < 30,  "WARNING", "vix_threshold < 30 — blocks recovery rallies"),
         ("vix_threshold",    live, "data/live_config.json", lambda v: v < 30,  "WARNING", "vix_threshold < 30 on live"),
         ("take_profit_pct",  demo, "data/demo_config.json", lambda v: v > 0.08, "WARNING", "take_profit_pct > 0.08 — most trades won't hit target"),
-        ("max_positions",    demo, "data/demo_config.json", lambda v: v > 6,   "WARNING", "max_positions > 6 — dilutes signal quality"),
+        ("max_positions",    demo, "data/demo_config.json", lambda v: v > 15,  "WARNING", "max_positions > 15 — beyond portfolio capacity"),
     ]
     for key, cfg, label, cond, sev, msg in checks:
         val = cfg.get(key)

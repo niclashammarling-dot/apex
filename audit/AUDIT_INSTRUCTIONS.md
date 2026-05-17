@@ -67,7 +67,7 @@ Flag any value outside these bounds:
 - `lock1_threshold` live: >= 0.65.
 - `vix_threshold`: >= 30.
 - `take_profit_pct`: <= 0.08.
-- `max_positions` demo: <= 6.
+- `max_positions` demo: <= 15. This is user-controlled; do not revert it.
 - Check git log: `git log --oneline -10 -- data/demo_config.json data/live_config.json`. Flag any config change in the last 7 days without a per-value justification in the commit message.
 
 ### CHECK 10 — Ticker signal data coverage (silent degradation canary)

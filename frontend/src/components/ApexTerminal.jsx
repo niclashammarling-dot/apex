@@ -141,9 +141,10 @@ function KV({ k, v }) {
   );
 }
 
+const DIAL_ORDER = ["TECH","HLTH","ENER","INDU","FIN","CDIS","CSTP","COMM","UTIL","MATR","REIT"];
+
 function RegimeDial({ D }) {
   if (!D.regime || D.regime.length === 0) return null;
-  const N = D.regime.length;
   const R = 110, cx = 130, cy = 130;
   return (
     <div className="t-card">
@@ -158,7 +159,8 @@ function RegimeDial({ D }) {
           ))}
           <circle cx={cx} cy={cy} r={R * 0.5} fill="none" stroke="var(--t-accent)" strokeOpacity="0.35" strokeDasharray="3 3" />
           {D.regime.map((s, i) => {
-            const ang = (i / N) * Math.PI * 2 - Math.PI / 2;
+            const slot = DIAL_ORDER.indexOf(s.code);
+            const ang = ((slot >= 0 ? slot : i) / DIAL_ORDER.length) * Math.PI * 2 - Math.PI / 2;
             const rr = R * s.posterior;
             const x2 = cx + Math.cos(ang) * R;
             const y2 = cy + Math.sin(ang) * R;
