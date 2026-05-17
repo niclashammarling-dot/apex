@@ -37,6 +37,7 @@ EXCLUDED_SECTORS: dict[str, str] = {
 # threshold when calibration landed below a sweep-validated edge threshold.
 SECTOR_THRESHOLD_FLOORS: dict[str, float] = {
     "ConsumerDisc": 0.75,  # Calibration at 0.70 local minimum; PF 1.64 at 0.75 (2026-05-07 sweep)
+    "Defense":      0.75,  # PF 2.76 at 0.75 vs 2.06 at 0.70; identical pattern to ConsumerDisc (2026-05-17 sweep)
 }
 
 # --- Polling intervals (minutes) ---
@@ -150,6 +151,14 @@ SECTORS = {
     "RealEstate": {
         "etf": "XLRE",
         "tickers": ["PLD", "AMT", "EQIX", "SPG", "WELL", "DLR", "O", "VTR", "PSA"],
+    },
+    "Semiconductors": {
+        "etf": "SOXX",
+        "tickers": ["ASML", "AMAT", "LRCX", "KLAC", "MU"],
+    },
+    "Defense": {
+        "etf": "ITA",
+        "tickers": ["LMT", "RTX", "NOC", "GD", "HII"],
     },
 }
 

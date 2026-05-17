@@ -1758,6 +1758,71 @@ def check40():
                          f'or set a real value')
 
 
+def check41():
+    """
+    New-sector integrity — Semiconductors and Defense.
+
+    Four assertions:
+      A. "Semiconductors" in config.SECTORS with ETF=SOXX.
+      B. "Defense" in config.SECTORS with ETF=ITA.
+      C. Neither sector appears in EXCLUDED_SECTORS.
+      D. "Defense" in SECTOR_THRESHOLD_FLOORS at 0.75 — sweep-validated floor
+         (PF 2.76 at 0.75 vs 2.06 at 0.70; identical ConsumerDisc pattern).
+
+    Prevented by: 2026-05-17 sector expansion sweep. Both sectors passed
+    PF > 1.0 across 0.55–0.75 threshold range. Semiconductors peaks at 0.70
+    baseline (PF 2.36, 48 trades); Defense floor set at 0.75 (PF 2.76).
+    Silent removal or ETF drift would resume evaluating them under the wrong
+    regime signal.
+    """
+    config_path = REPO / "backend/config.py"
+    config_text = config_path.read_text()
+
+    # A. Semiconductors present with correct ETF
+    if '"Semiconductors"' not in config_text:
+        flag(41, "New-sector integrity", "CRITICAL",
+             "backend/config.py",
+             '"Semiconductors" missing from config.SECTORS — sector removed or renamed')
+    elif '"SOXX"' not in config_text:
+        flag(41, "New-sector integrity", "CRITICAL",
+             "backend/config.py",
+             'Semiconductors ETF is not SOXX — regime signal will track wrong benchmark')
+
+    # B. Defense present with correct ETF
+    if '"Defense"' not in config_text:
+        flag(41, "New-sector integrity", "CRITICAL",
+             "backend/config.py",
+             '"Defense" missing from config.SECTORS — sector removed or renamed')
+    elif '"ITA"' not in config_text:
+        flag(41, "New-sector integrity", "CRITICAL",
+             "backend/config.py",
+             'Defense ETF is not ITA — regime signal will track wrong benchmark')
+
+    # C. Neither sector is excluded
+    excl_start = config_text.find("EXCLUDED_SECTORS")
+    excl_end   = config_text.find("}", excl_start)
+    excl_block = config_text[excl_start:excl_end] if excl_start >= 0 else ""
+    for sector in ("Semiconductors", "Defense"):
+        if f'"{sector}"' in excl_block:
+            flag(41, "New-sector integrity", "CRITICAL",
+                 "backend/config.py",
+                 f'"{sector}" found in EXCLUDED_SECTORS — sweep-validated sector blocked at L1')
+
+    # D. Defense floor at 0.75
+    floors_start = config_text.find("SECTOR_THRESHOLD_FLOORS")
+    floors_end   = config_text.find("}", floors_start)
+    floors_block = config_text[floors_start:floors_end] if floors_start >= 0 else ""
+    if '"Defense"' not in floors_block:
+        flag(41, "New-sector integrity", "CRITICAL",
+             "backend/config.py",
+             '"Defense" missing from SECTOR_THRESHOLD_FLOORS — 0.75 floor not enforced; '
+             'recalibration may drift to 0.70 and lose the selectivity improvement')
+    elif '"Defense":      0.75' not in config_text and '"Defense": 0.75' not in config_text:
+        flag(41, "New-sector integrity", "CRITICAL",
+             "backend/config.py",
+             'Defense floor is not 0.75 — sweep-validated threshold changed')
+
+
 if __name__ == "__main__":
     check3()
     check4()
@@ -1790,5 +1855,6 @@ if __name__ == "__main__":
     check38()
     check39()
     check40()
+    check41()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])

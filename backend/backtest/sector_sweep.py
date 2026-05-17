@@ -27,7 +27,7 @@ from backend.backtest.engine_fast import precompute, run as backtest_run
 START       = "2021-01-01"
 END         = "2026-05-01"
 
-TARGET_SECTORS = ["ConsumerDisc", "ConsumerStaples", "Financials", "Utilities"]
+TARGET_SECTORS = ["ConsumerDisc", "ConsumerStaples", "Financials", "Utilities", "Semiconductors", "Defense"]
 THRESHOLDS     = [0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90]
 MIN_TRADES     = 5   # below this, verdict is "insufficient data"
 
