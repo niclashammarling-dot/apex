@@ -3,7 +3,7 @@ import { COMPANY_NAMES } from "../companyNames.js";
 import HoverTooltip, { TipRow, TipHeader } from "./HoverTooltip";
 
 const CYCLICAL  = ["Technology", "Financials", "Industrials", "ConsumerDisc",
-                   "Energy", "Materials", "Communication"];
+                   "Energy", "Materials", "Communication", "Semiconductors", "Defense"];
 const DEFENSIVE = ["Utilities", "Healthcare", "ConsumerStaples", "RealEstate"];
 
 const SIGNAL_META = {

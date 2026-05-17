@@ -18,7 +18,7 @@ const REGIME_META = {
 };
 
 const CYCLICAL  = new Set(["Technology", "Financials", "Industrials", "ConsumerDisc",
-                            "Energy", "Materials", "Communication"]);
+                            "Energy", "Materials", "Communication", "Semiconductors", "Defense"]);
 const DEFENSIVE = new Set(["Utilities", "Healthcare", "ConsumerStaples", "RealEstate"]);
 
 function weeks(days) {

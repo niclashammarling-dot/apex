@@ -12,4 +12,6 @@ export const COMPANY_NAMES = {
   LIN: "Linde", APD: "Air Products", NEM: "Newmont", FCX: "Freeport", SHW: "Sherwin-Williams",
   PLD: "Prologis", AMT: "American Tower", EQIX: "Equinix", SPG: "Simon Property", WELL: "Welltower",
   DLR: "Digital Realty", O: "Realty Income", VTR: "Ventas", PSA: "Public Storage",
+  ASML: "ASML", AMAT: "Appl. Materials", LRCX: "Lam Research", KLAC: "KLA Corp", MU: "Micron",
+  LMT: "Lockheed Martin", RTX: "RTX", NOC: "Northrop Grumman", GD: "General Dynamics", HII: "HII",
 };

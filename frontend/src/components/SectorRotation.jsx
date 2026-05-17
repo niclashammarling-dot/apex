@@ -11,12 +11,14 @@ const SECTOR_COLORS = {
   Communication:   "#ff7722",   //  22° orange-red
   Energy:          "#ffaa00",   //  40° golden amber
   ConsumerStaples: "#aacc11",   //  75° chartreuse
+  Semiconductors:  "#77cc00",   // 115° lime — gap between ConsumerStaples and Utilities
   Utilities:       "#22bb55",   // 145° green
   Healthcare:      "#00ccaa",   // 168° teal
   ConsumerDisc:    "#00aaee",   // 200° sky blue
   Technology:      "#4477ff",   // 225° blue
   Materials:       "#8844ff",   // 265° indigo
   Industrials:     "#cc44ee",   // 290° violet
+  Defense:         "#ee44cc",   // 310° warm magenta
   RealEstate:      "#ff44aa",   // 330° pink
 };
 
@@ -24,6 +26,7 @@ const SECTOR_DASH = {
   Communication:   "5 3",    // orange-red close to Energy amber — dash it
   ConsumerDisc:    "5 3",    // sky blue close to Technology blue — dash it
   Materials:       "5 3",    // indigo close to Industrials violet — dash it
+  Defense:         "5 3",    // warm magenta close to Industrials violet and RealEstate pink — dash it
 };
 
 const RANGES = [
