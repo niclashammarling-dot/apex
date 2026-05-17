@@ -3,6 +3,13 @@ import HoverTooltip, { TipRow, TipHeader } from "./HoverTooltip";
 
 const EXCLUDED_SECTORS = new Set(["Financials", "ConsumerStaples", "Utilities"]);
 
+// Active sectors not yet in the backend leaderboard get placeholder rows (posterior=0)
+// so newly added sectors appear immediately rather than waiting for first EOD run.
+const ACTIVE_SECTORS = [
+  "Technology","Healthcare","Energy","Industrials","ConsumerDisc",
+  "Communication","Materials","RealEstate","Semiconductors","Defense",
+];
+
 const RANK_COLORS = ["var(--t-accent)", "#bcbcbb", "#a0a0a0", "#686868", "#686868"];
 
 function accent(i) { return RANK_COLORS[i] ?? "var(--t-text-3)"; }
@@ -125,7 +132,17 @@ export default function RegimeBayes() {
     setLoading(true);
     fetch("/api/sectors/regime-bayes")
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then(d => { setData(d); setLoading(false); })
+      .then(d => {
+        if (d?.leaderboard) {
+          const seen = new Set(d.leaderboard.map(e => e.sector));
+          ACTIVE_SECTORS.forEach(s => {
+            if (!seen.has(s))
+              d.leaderboard.push({ sector: s, posterior: 0, adjusted_score: 0,
+                                   allocation: 0, rank: 99, signal_trace: {} });
+          });
+        }
+        setData(d); setLoading(false);
+      })
       .catch(e => { setError(`Failed to load (${e})`); setLoading(false); });
   }
 
