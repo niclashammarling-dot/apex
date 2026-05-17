@@ -30,7 +30,7 @@ LOCK3_CONFIDENCE_MIN  = 0.60
 EXCLUDED_SECTORS: dict[str, str] = {
     "Financials":      "Rate-driven sector; momentum signal has no structural validity; PF 0.46 at baseline, no crossover at any threshold",
     "Utilities":       "Rate-driven sector; PF never crosses 1.0 across 0.55–0.80 sweep; incompatible with momentum model",
-    "ConsumerStaples": "Edge only at low thresholds (0.55–0.60), inverted vs gate direction; no viable operating-range threshold",
+    "ConsumerStaples": "Anti-correlated with regime posterior: post≥0.60 PF 0.554 (2026-05-17 conditioned sweep). High posterior = defensive rotation = momentum entry conditions worst. Exclusion revalidated. KO exception: PF 2.025 at post≥0.50 (4 trades), manual-only.",
 }
 
 # Minimum Lock 2 signal score floors per sector, applied above the calibrated

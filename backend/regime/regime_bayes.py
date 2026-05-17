@@ -296,7 +296,8 @@ class RegimeBayes:
                     if no IPO data available (neutral signal).
         """
         today_str    = today.isoformat()
-        all_sectors  = list(self.sectors_cfg.keys())
+        from backend.config import EXCLUDED_SECTORS
+        all_sectors  = [s for s in self.sectors_cfg if s not in EXCLUDED_SECTORS]
 
         # Current leader — rank 1 from last result, or highest snapshot on first run
         current_leader = self._current_leader(sector_snapshots)
