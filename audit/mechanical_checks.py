@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28, 29, 32, 33, 34, 35, 36, 37
+APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28, 29, 32, 33, 34, 35, 36, 37, 38
 Pure grep/parse, no LLM. Writes findings to audit/nightly-report-YYYY-MM-DD.md.
 """
 # CHECK 22 added 2026-04-15: Yahoo data pipeline health
@@ -13,6 +13,7 @@ Pure grep/parse, no LLM. Writes findings to audit/nightly-report-YYYY-MM-DD.md.
 # CHECK 35 added 2026-05-14: PCR collection freshness (lock4_pcr_history must have observations from most recent trading day)
 # CHECK 36 added 2026-05-14: L4 sub-check pass rate health (any sub-check with <5% pass rate over 30d = dead weight candidate)
 # CHECK 37 added 2026-05-15: Promote exclusion integrity (starting_balance and daily_loss_cap must not be in demo_thresholds())
+# CHECK 38 added 2026-05-17: Live entry absence-of-activity (N=5 silent active days + filter breakdown diagnostic)
 
 import json
 import re
@@ -1130,7 +1131,7 @@ def update_registry():
 def write_report(retirement_candidates):
     REPORT.parent.mkdir(exist_ok=True)
 
-    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28, 37}
+    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28, 37, 38}
     rows = []
     check_names = {
         3: "Fractional qty", 4: "Config parity", 5: "Sector name strings",
@@ -1144,6 +1145,7 @@ def write_report(retirement_candidates):
         26: "L1/L2 threshold-source parity", 27: "GICS classification parity",
         28: "EXCLUDED_SECTORS gate wiring",
         37: "Promote exclusion integrity",
+        38: "Live entry absence-of-activity",
     }
 
     # One clean row per check that had no findings
@@ -1478,6 +1480,105 @@ def check37():
              f"Could not import demo_thresholds for runtime check: {e}")
 
 
+def check38():
+    """
+    Live entry absence-of-activity — WARNING diagnostic for extended gate silence.
+
+    When the live gate evaluates candidates (≥ M gate assessments/day) but no
+    TRADE_EXECUTED events fire for N consecutive active trading days, surface a
+    diagnostic with filter breakdown. The breakdown distinguishes compression
+    (FILTERED_L1 dominant) from eligibility breakage (FILTERED_ELIGIBILITY dominant).
+
+    Three confirmed instances of this failure class: daily_loss_cap silent halt,
+    insider_cluster dead sub-check, promote-exclusion near-miss. All produced
+    valid-looking state with indistinguishable silence.
+
+    Severity: WARNING — not a hard fail. Legitimate compression periods trigger this;
+    the filter breakdown is what makes it actionable.
+
+    N=5: one trading week of silence before surfacing.
+    M=5: minimum FILTERED_* + TRADE_EXECUTED assessments per day to confirm gate ran.
+         SKIPPED_* rows excluded — they reflect cooloff/timing, not gate evaluation.
+    """
+    N = 5
+    M = 5
+
+    db = REPO / "data/apex.db"
+    if not db.exists():
+        return
+
+    try:
+        conn = sqlite3.connect(db)
+
+        last_entry_row = conn.execute(
+            "SELECT DATE(MAX(timestamp)) FROM live_gate_history "
+            "WHERE gate_decision = 'TRADE_EXECUTED'"
+        ).fetchone()
+        last_entry_date = last_entry_row[0] if last_entry_row and last_entry_row[0] else None
+
+        since_clause = f"AND DATE(timestamp) > '{last_entry_date}'" if last_entry_date else ""
+
+        # Only count real gate assessments (not scheduling skips)
+        daily_rows = conn.execute(f"""
+            SELECT DATE(timestamp) as day,
+                   SUM(CASE WHEN gate_decision = 'TRADE_EXECUTED' THEN 1 ELSE 0 END) as entries,
+                   COUNT(*) as assessments
+            FROM live_gate_history
+            WHERE gate_decision NOT LIKE 'SKIPPED_%'
+            {since_clause}
+            GROUP BY day
+            ORDER BY day
+        """).fetchall()
+
+        conn.close()
+    except Exception as e:
+        flag(38, "Live entry absence-of-activity", "WARNING",
+             "data/apex.db:live_gate_history",
+             f"could not query live_gate_history: {e}")
+        return
+
+    if not daily_rows:
+        return
+
+    # Active silent days: gate demonstrably ran (≥M assessments) and no entry fired
+    active_silent = [row for row in daily_rows if row[2] >= M and row[1] == 0]
+    consecutive = len(active_silent)
+
+    if consecutive < N:
+        return
+
+    # Filter breakdown for the silence window
+    try:
+        conn = sqlite3.connect(db)
+        filter_rows = conn.execute(f"""
+            SELECT gate_decision, COUNT(*) as cnt
+            FROM live_gate_history
+            WHERE gate_decision LIKE 'FILTERED_%'
+            {since_clause}
+            GROUP BY gate_decision
+            ORDER BY cnt DESC
+            LIMIT 3
+        """).fetchall()
+        conn.close()
+    except Exception:
+        filter_rows = []
+
+    total_filtered = sum(r[1] for r in filter_rows)
+    breakdown_parts = []
+    for decision, cnt in filter_rows[:2]:
+        pct = (cnt / total_filtered * 100) if total_filtered else 0
+        breakdown_parts.append(f"{decision} {pct:.0f}%")
+    breakdown = ", ".join(breakdown_parts) if breakdown_parts else "no filter data"
+
+    avg_daily = sum(r[2] for r in active_silent) / consecutive
+    entry_desc = f"last entry {last_entry_date}" if last_entry_date else "no entries ever recorded"
+
+    flag(38, "Live entry absence-of-activity", "WARNING",
+         "data/apex.db:live_gate_history",
+         f"{consecutive} active trading days with no TRADE_EXECUTED ({entry_desc}); "
+         f"avg {avg_daily:.0f} assessments/day; dominant filters: {breakdown}")
+
+
 if __name__ == "__main__":
     check3()
     check4()
@@ -1507,5 +1608,6 @@ if __name__ == "__main__":
     check35()
     check36()
     check37()
+    check38()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])

@@ -147,6 +147,19 @@ Account-size-specific config keys must not appear in the promotable set.
 - Flag any non-empty result as CRITICAL — a leaked key means the next Promote will overwrite live account-specific constants with demo-scale values, silently corrupting sector exposure calculations or daily loss limits.
 - Specifically: `starting_balance` (sector exposure denominator; demo=$2k, live=$100k) and `daily_loss_cap` (absolute dollars; demo=$100 → near-zero daily limit on $100k account) must be in `_PROMOTE_EXCLUDE` and absent from `demo_thresholds()`.
 
+### CHECK 38 — Live entry absence-of-activity
+
+Run as part of `python3 audit/mechanical_checks.py` (no separate invocation needed).
+
+Queries `data/apex.db:live_gate_history`. Trigger condition: ≥ N=5 consecutive active trading days (≥ M=5 gate assessments, excluding SKIPPED_*) with zero TRADE_EXECUTED since the last entry.
+
+**Severity: WARNING** — diagnostic only. Do not treat as an audit failure. Legitimate compression periods will trigger this; the filter breakdown is what distinguishes compression from breakage:
+- FILTERED_ELIGIBILITY dominant → eligibility logic suspect (sector exposure, promote corruption, config error)
+- FILTERED_L1 dominant → threshold calibration too tight or market genuinely compressed
+- FILTERED_LEADING dominant → leading indicators blocking broadly
+
+Output row includes: days since last entry, average daily assessment count, top 2 filter reasons with percentages.
+
 ### Update the registry
 
 After writing the report, run this Python script. Set `triggered` to check numbers that had at least one finding.
