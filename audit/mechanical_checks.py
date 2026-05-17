@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28, 29, 32, 33, 34, 35, 36, 37, 38
+APEX Mechanical Checks — CHECK 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28, 29, 32, 33, 34, 35, 36, 37, 38, 39, 40
 Pure grep/parse, no LLM. Writes findings to audit/nightly-report-YYYY-MM-DD.md.
 """
 # CHECK 22 added 2026-04-15: Yahoo data pipeline health
@@ -15,6 +15,7 @@ Pure grep/parse, no LLM. Writes findings to audit/nightly-report-YYYY-MM-DD.md.
 # CHECK 37 added 2026-05-15: Promote exclusion integrity (starting_balance and daily_loss_cap must not be in demo_thresholds())
 # CHECK 38 added 2026-05-17: Live entry absence-of-activity (N=5 silent active days + filter breakdown diagnostic)
 # CHECK 39 added 2026-05-17: Live peak_price integrity (open position with peak=entry and age >2 trading days = price feed or tracking failure)
+# CHECK 40 added 2026-05-17: Config coverage audit (A: every _KEYS key consumed somewhere in repo; B: None-default keys in allowlist or CRITICAL)
 
 import json
 import re
@@ -1132,7 +1133,7 @@ def update_registry():
 def write_report(retirement_candidates):
     REPORT.parent.mkdir(exist_ok=True)
 
-    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28, 37, 38}
+    mechanical_checks = {3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 24, 25, 26, 27, 28, 37, 38, 40}
     rows = []
     check_names = {
         3: "Fractional qty", 4: "Config parity", 5: "Sector name strings",
@@ -1147,6 +1148,7 @@ def write_report(retirement_candidates):
         28: "EXCLUDED_SECTORS gate wiring",
         37: "Promote exclusion integrity",
         38: "Live entry absence-of-activity",
+        40: "Config coverage audit",
     }
 
     # One clean row per check that had no findings
@@ -1633,6 +1635,129 @@ def check39():
              f"trailing stop silently disabled: {detail}")
 
 
+def check40():
+    """
+    Config coverage audit — two sub-checks:
+
+    A) Wiring coverage: every key in _KEYS (demo_config.py / live_config.py) must
+       have at least one consumption hit anywhere in the repo. A recognized key with
+       zero hits is the exact failure class that produced the trailing_stop_pct gap:
+       key registered, default set, consuming code never read it.
+       Repo-wide grep excludes tests/, venv, and the config modules themselves so
+       new consumer files are automatically covered without maintaining a file list.
+
+    B) None-default detection: keys whose _defaults() value is None are "recognized
+       but silently disabled". Allowlisted None defaults get WARNING (acknowledged
+       disabled feature). Unlisted None defaults get CRITICAL — a key added without
+       documenting the disabled intent is an unannotated valid-looking silence risk.
+
+    Prevented by: trailing_stop_pct post-mortem (2026-05-17). Third instance of the
+    valid-looking silence failure class: key in _KEYS, default=None, the critical
+    path consumers gated on `if trail_pct is not None` — trailing stop silently
+    disabled for 35 days while appearing correctly configured.
+    """
+    import sys as _sys
+
+    # Explicit operator acknowledgment that these keys are intentionally disabled by default.
+    # To enable a key: set a non-None default in _defaults() and remove it from this set.
+    _NONE_DEFAULTS_ALLOWED = {"trailing_stop_pct"}
+
+    _SKIP_SEGMENTS = {".venv", "venv", "__pycache__", ".git", "node_modules", "tests"}
+    _SKIP_FILES = {
+        REPO / "backend/demo_config.py",
+        REPO / "backend/live_config.py",
+    }
+
+    def _collect_keys(path: Path) -> list:
+        text = path.read_text()
+        m = re.search(r'_KEYS\s*=\s*\[([^\]]+)\]', text, re.DOTALL)
+        if not m:
+            return []
+        return re.findall(r'"([^"]+)"', m.group(1))
+
+    def _collect_defaults(module_label: str) -> dict:
+        try:
+            if str(REPO) not in _sys.path:
+                _sys.path.insert(0, str(REPO))
+            if module_label == "demo":
+                from backend.demo_config import _defaults as _dd
+                return _dd()
+            else:
+                from backend.live_config import _defaults as _ld
+                return _ld()
+        except Exception:
+            return {}
+
+    def _repo_py_files():
+        for fpath in REPO.rglob("*.py"):
+            if any(seg in fpath.parts for seg in _SKIP_SEGMENTS):
+                continue
+            if fpath in _SKIP_FILES:
+                continue
+            yield fpath
+
+    demo_cfg = REPO / "backend/demo_config.py"
+    live_cfg  = REPO / "backend/live_config.py"
+
+    if not demo_cfg.exists() or not live_cfg.exists():
+        flag(40, "Config coverage audit", "WARNING",
+             "backend/demo_config.py,backend/live_config.py",
+             "one or both config modules missing — cannot run coverage check")
+        return
+
+    demo_keys = _collect_keys(demo_cfg)
+    live_keys = _collect_keys(live_cfg)
+
+    if not demo_keys and not live_keys:
+        flag(40, "Config coverage audit", "WARNING",
+             "backend/demo_config.py",
+             "_KEYS list not found or empty in both config modules — pattern may have changed")
+        return
+
+    # ── Sub-check A: wiring coverage ─────────────────────────────────────────
+    all_keys = sorted(set(demo_keys) | set(live_keys))
+
+    # Build corpus once to avoid re-reading files per key
+    repo_texts = [
+        (fp, fp.read_text(errors="ignore"))
+        for fp in _repo_py_files()
+    ]
+
+    for key in all_keys:
+        # Match both quote styles: cfg["key"], cfg['key'], cfg.get("key"..., cfg.get('key'...
+        pattern = re.compile(
+            rf'''cfg\[["']{re.escape(key)}["']\]|cfg\.get\(["']{re.escape(key)}["']'''
+        )
+        hits = [fp for fp, text in repo_texts if pattern.search(text)]
+        if not hits:
+            flag(40, "Config coverage audit", "CRITICAL",
+                 "backend/demo_config.py,backend/live_config.py",
+                 f'"{key}" in _KEYS but no cfg["{key}"] or cfg.get("{key}"...) found in repo '
+                 f'— recognized key with no consumer (valid-looking silence risk)')
+
+    # ── Sub-check B: None-default detection ──────────────────────────────────
+    for label, module_label in [("demo", "demo"), ("live", "live")]:
+        defaults = _collect_defaults(module_label)
+        if not defaults:
+            flag(40, "Config coverage audit", "WARNING",
+                 f"backend/{label}_config.py",
+                 f"_defaults() could not be imported for {label} config — skipping None-default check")
+            continue
+        for key, val in defaults.items():
+            if val is None:
+                if key in _NONE_DEFAULTS_ALLOWED:
+                    flag(40, "Config coverage audit", "WARNING",
+                         f"backend/{label}_config.py:_defaults",
+                         f'"{key}" defaults to None (feature disabled) — acknowledged in '
+                         f'_NONE_DEFAULTS_ALLOWED; set a non-None value to enable')
+                else:
+                    flag(40, "Config coverage audit", "CRITICAL",
+                         f"backend/{label}_config.py:_defaults",
+                         f'"{key}" defaults to None but is not in _NONE_DEFAULTS_ALLOWED '
+                         f'— unlisted disabled default; add to allowlist with intent comment '
+                         f'or set a real value')
+
+
 if __name__ == "__main__":
     check3()
     check4()
@@ -1664,5 +1789,6 @@ if __name__ == "__main__":
     check37()
     check38()
     check39()
+    check40()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])
