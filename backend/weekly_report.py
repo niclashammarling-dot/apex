@@ -340,7 +340,7 @@ def _funnel_rate(numer: int | None, denom: int | None) -> str:
 
 
 def _funnel_count(n: int | None) -> str:
-    return str(n or 0) if n else "—"
+    return "—" if n is None else str(n)
 
 
 def _td(content: str, bold: bool = False, color: str = "") -> str:
@@ -791,6 +791,7 @@ def send_weekly_report() -> None:
     # Check for drift and recalibrate before building the report,
     # so before/after threshold changes can be included in the email.
     recal_changes: dict[str, tuple[float, float]] = {}
+    flagged: list[str] = []
     try:
         since = _week_start_iso()
         status = _threshold_status(since)

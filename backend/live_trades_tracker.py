@@ -15,7 +15,7 @@ import yfinance as yf
 from loguru import logger
 
 from backend.config import LIVE_ENABLED
-from backend.db import close_live_trade, get_open_live_trades
+from backend.db import close_live_trade, get_open_live_trades, update_live_trade_peak_price
 
 
 def _trading_days_since(iso_timestamp: str) -> int:
@@ -58,8 +58,10 @@ def check_live_exits() -> list[dict]:
     """
     For each open live trade:
     1. Check Alpaca for filled TP/SL bracket legs.
-    2. If held longer than max_hold_days, cancel the bracket and close at market.
-    3. If position no longer exists in Alpaca, find the most recent filled sell
+    2. Software trailing stop — fires when drawdown from peak >= trailing_stop_pct.
+       Updates peak_price in DB each run; close_position() cancels the bracket.
+    3. If held longer than max_hold_days, cancel the bracket and close at market.
+    4. If position no longer exists in Alpaca, find the most recent filled sell
        order for that ticker and record the exit (covers manual closes and TP/SL
        fills on positions whose bracket legs are no longer visible).
     Returns list of closed trade dicts.
@@ -75,6 +77,7 @@ def check_live_exits() -> list[dict]:
     from backend.live_config import get_live_config
     cfg           = get_live_config()
     max_hold_days = cfg["max_hold_days"]
+    trail_pct     = cfg.get("trailing_stop_pct")  # None = disabled
 
     # Snapshot of tickers currently held in Alpaca — used for reconciliation fallback.
     try:
@@ -86,8 +89,9 @@ def check_live_exits() -> list[dict]:
     closed = []
 
     for trade in open_trades:
-        ticker   = trade["ticker"]
-        order_id = trade["alpaca_order_id"]
+        ticker      = trade["ticker"]
+        order_id    = trade["alpaca_order_id"]
+        entry_price = trade["entry_price"]
 
         try:
             order = broker.get_order_by_id(order_id)
@@ -95,27 +99,53 @@ def check_live_exits() -> list[dict]:
             logger.warning(f"Live exit check [{ticker}]: could not fetch order {order_id} — {e}")
             order = None
 
+        # ── Peak price tracking ─────────────────────────────────────────────
+        current = _current_price(ticker)
+        if current is not None:
+            peak = trade.get("peak_price") or entry_price
+            if current > peak:
+                peak = current
+                update_live_trade_peak_price(trade["id"], peak)
+        else:
+            peak = trade.get("peak_price") or entry_price
+
         # ── Check TP/SL bracket legs ────────────────────────────────────────
         filled_leg = _find_filled_sell_leg(order) if order else None
         if filled_leg:
             exit_price  = filled_leg["filled_avg_price"]
             exit_reason = _leg_reason(filled_leg)
-            pnl         = round((exit_price - trade["entry_price"]) * trade["qty"], 2)
+            pnl         = round((exit_price - entry_price) * trade["qty"], 2)
             outcome     = "WIN" if pnl > 0 else "LOSS"
             exited_at   = filled_leg["filled_at"] or datetime.now(timezone.utc).isoformat()
+
+        # ── Software trailing stop ──────────────────────────────────────────
+        elif trail_pct is not None and current is not None and (peak - current) / peak >= trail_pct:
+            logger.info(
+                f"Live trailing stop [{ticker}]: drawdown {(peak - current)/peak:.1%} "
+                f"from peak ${peak:.2f} — closing"
+            )
+            try:
+                result = broker.close_position(ticker)
+                exit_price = float(result.get("filled_avg_price") or current or entry_price)
+            except Exception as e:
+                logger.warning(f"Live trailing stop [{ticker}]: close_position failed — {e}")
+                continue
+            exit_reason = "TRAILING_STOP"
+            pnl         = round((exit_price - entry_price) * trade["qty"], 2)
+            outcome     = "WIN" if exit_price > entry_price else "LOSS"
+            exited_at   = datetime.now(timezone.utc).isoformat()
 
         # ── Time-stop ───────────────────────────────────────────────────────
         elif _trading_days_since(trade["timestamp"]) >= max_hold_days:
             logger.info(f"Live time-stop [{ticker}]: {max_hold_days} trading days elapsed — closing")
-            price_now = _current_price(ticker)
             try:
                 result = broker.close_position(ticker)
-                exit_price = float(result.get("filled_avg_price") or price_now or trade["entry_price"])
+                exit_price = float(result.get("filled_avg_price") or current or entry_price)
             except Exception as e:
                 logger.warning(f"Live time-stop [{ticker}]: close_position failed — {e}")
                 continue
             exit_reason = "TIME"
-            pnl         = round((exit_price - trade["entry_price"]) * trade["qty"], 2)
+            pnl         = round((exit_price - entry_price) * trade["qty"], 2)
             outcome     = "WIN" if pnl > 0 else "LOSS"
             exited_at   = datetime.now(timezone.utc).isoformat()
 

@@ -243,7 +243,13 @@ def init_db() -> None:
         _add_column_if_missing(conn, "live_gate_history", "lock_leading_pass",   "INTEGER DEFAULT 0")
         _add_column_if_missing(conn, "live_gate_history", "lock_leading_checks", "TEXT")
         # Trailing stop — peak price tracking
-        _add_column_if_missing(conn, "trades", "peak_price", "REAL")
+        _add_column_if_missing(conn, "trades",      "peak_price", "REAL")
+        _add_column_if_missing(conn, "live_trades", "peak_price", "REAL")
+        conn.execute("""
+            UPDATE live_trades SET peak_price = entry_price
+            WHERE outcome = 'OPEN' AND peak_price IS NULL
+        """)
+        conn.commit()
         # Gate fail reasoning — why each lock failed
         _add_column_if_missing(conn, "signals",           "l2_summary",   "TEXT")
         _add_column_if_missing(conn, "signals",           "macro_reason", "TEXT")
@@ -568,6 +574,15 @@ def update_trade_peak_price(trade_id: int, peak_price: float) -> None:
     conn = get_db()
     try:
         conn.execute("UPDATE trades SET peak_price = ? WHERE id = ?", (peak_price, trade_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_live_trade_peak_price(trade_id: int, peak_price: float) -> None:
+    conn = get_db()
+    try:
+        conn.execute("UPDATE live_trades SET peak_price = ? WHERE id = ?", (peak_price, trade_id))
         conn.commit()
     finally:
         conn.close()

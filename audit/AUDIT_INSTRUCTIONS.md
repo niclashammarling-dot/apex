@@ -160,6 +160,18 @@ Queries `data/apex.db:live_gate_history`. Trigger condition: ≥ N=5 consecutive
 
 Output row includes: days since last entry, average daily assessment count, top 2 filter reasons with percentages.
 
+### CHECK 39 — Live peak_price integrity
+
+Run as part of `python3 audit/mechanical_checks.py` (no separate invocation needed).
+
+Queries `data/apex.db:live_trades`. Trigger condition: any open live position where `peak_price IS NULL OR peak_price = entry_price` and the position has been open for more than 2 trading days.
+
+**Severity: WARNING** — the trailing stop is silently disabled for the flagged position. Two failure modes:
+- `peak_price IS NULL` → migration didn't run or DB write failed at open time
+- `peak_price = entry_price` after >2 days → `update_live_trade_peak_price()` is not being called (scheduler gap, price feed returning None continuously, or `check_live_exits()` not running)
+
+A new position on its first or second trading day will legitimately show `peak = entry` if price hasn't yet exceeded entry — the 2-day grace window prevents false positives on fresh entries.
+
 ### Update the registry
 
 After writing the report, run this Python script. Set `triggered` to check numbers that had at least one finding.

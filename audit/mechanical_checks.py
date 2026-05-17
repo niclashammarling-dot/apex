@@ -14,6 +14,7 @@ Pure grep/parse, no LLM. Writes findings to audit/nightly-report-YYYY-MM-DD.md.
 # CHECK 36 added 2026-05-14: L4 sub-check pass rate health (any sub-check with <5% pass rate over 30d = dead weight candidate)
 # CHECK 37 added 2026-05-15: Promote exclusion integrity (starting_balance and daily_loss_cap must not be in demo_thresholds())
 # CHECK 38 added 2026-05-17: Live entry absence-of-activity (N=5 silent active days + filter breakdown diagnostic)
+# CHECK 39 added 2026-05-17: Live peak_price integrity (open position with peak=entry and age >2 trading days = price feed or tracking failure)
 
 import json
 import re
@@ -1579,6 +1580,59 @@ def check38():
          f"avg {avg_daily:.0f} assessments/day; dominant filters: {breakdown}")
 
 
+def check39():
+    """
+    CHECK 39 — Live peak_price integrity.
+
+    An open live position where peak_price is NULL or equal to entry_price after
+    more than 2 trading days means the software trailing stop is silently disabled:
+    peak tracking is not running (scheduler issue) or the price feed is failing.
+    Either cause leaves the position with no trailing-stop protection despite the
+    mechanism being wired.
+
+    Threshold: > 2 trading days open with peak_price IS NULL OR peak_price = entry_price.
+    Severity: WARNING (does not prevent entries, but live protection is degraded).
+    """
+    import sqlite3
+    import pandas as pd
+
+    try:
+        conn = sqlite3.connect("data/apex.db")
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("""
+            SELECT id, ticker, timestamp, entry_price, peak_price
+            FROM live_trades
+            WHERE outcome = 'OPEN'
+              AND (peak_price IS NULL OR peak_price = entry_price)
+        """).fetchall()
+        conn.close()
+    except Exception as e:
+        flag(39, "Live peak_price integrity", "WARNING",
+             "data/apex.db:live_trades",
+             f"could not query live_trades: {e}")
+        return
+
+    stale = []
+    for r in rows:
+        try:
+            entry_date = datetime.fromisoformat(r["timestamp"]).date()
+            trading_days = len(pd.bdate_range(entry_date, date.today())) - 1
+        except Exception:
+            trading_days = 0
+        if trading_days > 2:
+            stale.append((r["ticker"], trading_days, r["peak_price"]))
+
+    if stale:
+        detail = "; ".join(
+            f"{ticker} (age {days}d, peak={'NULL' if peak is None else 'entry'})"
+            for ticker, days, peak in stale
+        )
+        flag(39, "Live peak_price integrity", "WARNING",
+             "data/apex.db:live_trades",
+             f"{len(stale)} open position(s) with stale peak_price after >2 trading days — "
+             f"trailing stop silently disabled: {detail}")
+
+
 if __name__ == "__main__":
     check3()
     check4()
@@ -1609,5 +1663,6 @@ if __name__ == "__main__":
     check36()
     check37()
     check38()
+    check39()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])
