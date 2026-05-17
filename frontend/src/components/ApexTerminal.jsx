@@ -158,7 +158,7 @@ function RegimeDial({ D }) {
             <circle key={r} cx={cx} cy={cy} r={R * r} fill="none" stroke="var(--t-grid)" strokeDasharray="2 3" />
           ))}
           <circle cx={cx} cy={cy} r={R * 0.5} fill="none" stroke="var(--t-accent)" strokeOpacity="0.35" strokeDasharray="3 3" />
-          {D.regime.map((s, i) => {
+          {D.regime.filter(s => !s.excluded).map((s, i) => {
             const slot = DIAL_ORDER.indexOf(s.code);
             const ang = ((slot >= 0 ? slot : i) / DIAL_ORDER.length) * Math.PI * 2 - Math.PI / 2;
             const rr = R * s.posterior;

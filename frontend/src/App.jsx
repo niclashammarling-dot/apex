@@ -238,8 +238,10 @@ function buildSECTORS(sectors) {
 
 function adaptRegime(regimeData) {
   if (!regimeData?.leaderboard) return [];
-  return regimeData.leaderboard.map(r => {
+  const seen = new Set();
+  const rows = regimeData.leaderboard.map(r => {
     const meta = SECTOR_META[r.sector];
+    if (meta) seen.add(meta.code);
     return {
       code:      meta?.code ?? r.sector,
       name:      meta?.displayName ?? r.sector,
@@ -251,6 +253,15 @@ function adaptRegime(regimeData) {
       ipo:       r.allocation ?? 0,
     };
   });
+  // Inject placeholder rows for active sectors not yet in the backend leaderboard
+  // (e.g. newly added sectors with no EOD history yet). posterior=0 is accurate.
+  Object.entries(SECTOR_META).forEach(([, meta]) => {
+    if (!meta.excluded && !seen.has(meta.code)) {
+      rows.push({ code: meta.code, name: meta.displayName, etf: meta.etf,
+                  excluded: false, prior: 0, posterior: 0, delta: 0, ipo: 0 });
+    }
+  });
+  return rows;
 }
 
 function adaptEquity(equityData, walletBalance) {
