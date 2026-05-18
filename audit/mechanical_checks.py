@@ -1777,16 +1777,15 @@ def check41():
     """
     New-sector integrity — Semiconductors and Defense.
 
-    Four assertions:
+    Three assertions:
       A. "Semiconductors" in config.SECTORS with ETF=SOXX.
       B. "Defense" in config.SECTORS with ETF=ITA.
       C. Neither sector appears in EXCLUDED_SECTORS.
-      D. "Defense" in SECTOR_THRESHOLD_FLOORS at 0.75 — sweep-validated floor
-         (PF 2.76 at 0.75 vs 2.06 at 0.70; identical ConsumerDisc pattern).
 
-    Prevented by: 2026-05-17 sector expansion sweep. Both sectors passed
-    PF > 1.0 across 0.55–0.75 threshold range. Semiconductors peaks at 0.70
-    baseline (PF 2.36, 48 trades); Defense floor set at 0.75 (PF 2.76).
+    Prevented by: 2026-05-17 sector expansion sweep. Both sectors passed PF > 1.0
+    at baseline L1=0.70. Isolated threshold sweep (2026-05-18) confirmed:
+    Semiconductors PF 1.431 at 0.70 (all tickers positive); Defense PF 1.692 at
+    0.70, floor at 0.75 removed (22 trades, portfolio-sweep contamination).
     Silent removal or ETF drift would resume evaluating them under the wrong
     regime signal.
     """
@@ -1822,20 +1821,6 @@ def check41():
             flag(41, "New-sector integrity", "CRITICAL",
                  "backend/config.py",
                  f'"{sector}" found in EXCLUDED_SECTORS — sweep-validated sector blocked at L1')
-
-    # D. Defense floor at 0.75
-    floors_start = config_text.find("SECTOR_THRESHOLD_FLOORS")
-    floors_end   = config_text.find("}", floors_start)
-    floors_block = config_text[floors_start:floors_end] if floors_start >= 0 else ""
-    if '"Defense"' not in floors_block:
-        flag(41, "New-sector integrity", "CRITICAL",
-             "backend/config.py",
-             '"Defense" missing from SECTOR_THRESHOLD_FLOORS — 0.75 floor not enforced; '
-             'recalibration may drift to 0.70 and lose the selectivity improvement')
-    elif '"Defense":      0.75' not in config_text and '"Defense": 0.75' not in config_text:
-        flag(41, "New-sector integrity", "CRITICAL",
-             "backend/config.py",
-             'Defense floor is not 0.75 — sweep-validated threshold changed')
 
 
 def check42():
