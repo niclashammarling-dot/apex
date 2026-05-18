@@ -10,6 +10,19 @@ to that sector. Reports trades / win rate / PF and verdicts:
 Reuses the precomputed cache from diagnose.py if the date range matches;
 otherwise builds it fresh (cached to Parquet on first run).
 
+METHODOLOGY NOTE (2026-05-18):
+This script runs full portfolio backtests and slices the trade log per sector.
+Per-sector PF is therefore contaminated by portfolio slot competition: changing
+the L1 threshold shifts which trades across ALL sectors compete for max_positions
+slots, so a sector's trade set and PnL are not isolated to its own signals. This
+produces non-monotonic trade counts and inflated/deflated per-sector PF at
+thresholds far from baseline.
+
+For threshold decisions on individual sectors, run a ticker-isolated sweep
+(see regime_conditioned_cs.py for the pattern: no portfolio caps, each trade
+evaluated independently). Use this script only for portfolio-level sanity checks,
+not as the primary input for sector floor decisions.
+
 Usage:
     cd /home/promenix/apex
     python -m backend.backtest.sector_sweep
@@ -27,7 +40,7 @@ from backend.backtest.engine_fast import precompute, run as backtest_run
 START       = "2021-01-01"
 END         = "2026-05-01"
 
-TARGET_SECTORS = ["ConsumerDisc", "ConsumerStaples", "Financials", "Utilities", "Semiconductors", "Defense"]
+TARGET_SECTORS = ["Homebuilders", "Transportation"]
 THRESHOLDS     = [0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90]
 MIN_TRADES     = 5   # below this, verdict is "insufficient data"
 

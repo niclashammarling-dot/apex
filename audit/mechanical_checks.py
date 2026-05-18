@@ -868,6 +868,12 @@ def check27():
         # Defense (ITA) — added 2026-05-17
         "LMT": "Defense", "RTX": "Defense", "NOC": "Defense",
         "GD": "Defense",  "HII": "Defense",
+        # Homebuilders (ITB) — added 2026-05-18; GICS: Consumer Discretionary sub-industry
+        "DHI": "Homebuilders", "LEN": "Homebuilders", "PHM": "Homebuilders",
+        "TOL": "Homebuilders", "NVR": "Homebuilders",
+        # Transportation (IYT) — added 2026-05-18; GICS: Industrials sub-industry
+        "UNP": "Transportation", "CSX": "Transportation", "FDX": "Transportation",
+        "UPS": "Transportation", "JBHT": "Transportation",
     }
 
     tickers_path = REPO / "data/tickers.json"
@@ -1832,6 +1838,55 @@ def check41():
              'Defense floor is not 0.75 — sweep-validated threshold changed')
 
 
+def check42():
+    """
+    New-sector integrity — Homebuilders and Transportation.
+
+    Three assertions:
+      A. "Homebuilders" in config.SECTORS with ETF=ITB.
+      B. "Transportation" in config.SECTORS with ETF=IYT.
+      C. Neither sector appears in EXCLUDED_SECTORS.
+
+    No SECTOR_THRESHOLD_FLOORS entries for either sector — both run at baseline
+    0.70. Isolated sweep (2026-05-18): Homebuilders PF 1.727 at 0.70 (126 trades,
+    5-year distributed edge); Transportation PF 1.47 at 0.70 (17 trades).
+    Portfolio sweep non-monotonicity confirmed as slot-competition artifact —
+    isolated sweep is the validated methodology for per-sector threshold decisions.
+    """
+    config_path = REPO / "backend/config.py"
+    config_text = config_path.read_text()
+
+    # A. Homebuilders present with correct ETF
+    if '"Homebuilders"' not in config_text:
+        flag(42, "New-sector integrity", "CRITICAL",
+             "backend/config.py",
+             '"Homebuilders" missing from config.SECTORS — sector removed or renamed')
+    elif '"ITB"' not in config_text:
+        flag(42, "New-sector integrity", "CRITICAL",
+             "backend/config.py",
+             'Homebuilders ETF is not ITB — regime signal will track wrong benchmark')
+
+    # B. Transportation present with correct ETF
+    if '"Transportation"' not in config_text:
+        flag(42, "New-sector integrity", "CRITICAL",
+             "backend/config.py",
+             '"Transportation" missing from config.SECTORS — sector removed or renamed')
+    elif '"IYT"' not in config_text:
+        flag(42, "New-sector integrity", "CRITICAL",
+             "backend/config.py",
+             'Transportation ETF is not IYT — regime signal will track wrong benchmark')
+
+    # C. Neither sector is excluded
+    excl_start = config_text.find("EXCLUDED_SECTORS")
+    excl_end   = config_text.find("}", excl_start)
+    excl_block = config_text[excl_start:excl_end] if excl_start >= 0 else ""
+    for sector in ("Homebuilders", "Transportation"):
+        if f'"{sector}"' in excl_block:
+            flag(42, "New-sector integrity", "CRITICAL",
+                 "backend/config.py",
+                 f'"{sector}" found in EXCLUDED_SECTORS — sweep-validated sector blocked at L1')
+
+
 if __name__ == "__main__":
     check3()
     check4()
@@ -1865,5 +1920,6 @@ if __name__ == "__main__":
     check39()
     check40()
     check41()
+    check42()
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])

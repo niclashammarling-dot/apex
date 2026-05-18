@@ -29,8 +29,9 @@ LOCK3_CONFIDENCE_MIN  = 0.60
 # Lock 1 (Eligibility) blocks these before any further evaluation.
 EXCLUDED_SECTORS: dict[str, str] = {
     "Financials":      "Rate-driven sector; momentum signal has no structural validity; PF 0.46 at baseline, no crossover at any threshold",
-    "Utilities":       "Rate-driven sector; PF never crosses 1.0 across 0.55–0.80 sweep; incompatible with momentum model",
+    "Utilities":       "Rate-driven sector; PF never crosses 1.0 across 0.55–0.80 sweep; incompatible with momentum model. Anti-correlation confirmed: post≥0.50 PF 0.690 (2026-05-18 conditioned sweep) — same defensive rotation mechanism as ConsumerStaples.",
     "ConsumerStaples": "Anti-correlated with regime posterior: post≥0.60 PF 0.554 (2026-05-17 conditioned sweep). High posterior = defensive rotation = momentum entry conditions worst. Exclusion revalidated. KO exception: PF 2.025 at post≥0.50 (4 trades), manual-only.",
+    "Metals":          "PF never crosses 1.0 at any threshold (0.55–0.75 sweep, isolated backtest, 2026-05-18). Best: PF 0.81 at 0.55. Commodity-driven momentum not captured by APEX signal stack. ETF: XME.",
 }
 
 # Minimum Lock 2 signal score floors per sector, applied above the calibrated
@@ -159,6 +160,14 @@ SECTORS = {
     "Defense": {
         "etf": "ITA",
         "tickers": ["LMT", "RTX", "NOC", "GD", "HII"],
+    },
+    "Homebuilders": {
+        "etf": "ITB",
+        "tickers": ["DHI", "LEN", "PHM", "TOL", "NVR"],
+    },
+    "Transportation": {
+        "etf": "IYT",
+        "tickers": ["UNP", "CSX", "FDX", "UPS", "JBHT"],
     },
 }
 

@@ -1,14 +1,13 @@
 """
-Regime-conditioned backtest for ConsumerStaples.
+Regime-conditioned backtest — any APEX sector.
 
-The 2021–2026 threshold sweep showed PF < 1.0 for ConsumerStaples across all
-viable L1 thresholds — that result is unconditional. This script asks a narrower
-question: what is the PF on ConsumerStaples entries filtered to days when the
-sector's Bayesian regime posterior was above a given floor?
+Asks a narrower question than the threshold sweep: what is the PF on entries
+filtered to days when the sector's Bayesian regime posterior was above a given
+floor?
 
 Posterior reconstruction uses OHLCV-derivable signals only:
   Signal 1 — ticker balance  (5d consecutive returns per ticker)
-  Signal 2 — XLP signed streak
+  Signal 2 — sector ETF signed streak
   Signal 5 — cross-sectional ETF return rank (10-day return)
   Signal 3 — neutral (1.0): leader RS divergence requires historical DB leadership chain
   Signal 4 — neutral (1/n): IPO share requires external IPO data
@@ -21,10 +20,13 @@ price on signal day. Exit follows TP/SL/time-stop from live config.
 
 Usage:
     cd /home/promenix/apex
-    python -m backend.backtest.regime_conditioned_cs
+    python -m backend.backtest.regime_conditioned_cs --sector ConsumerStaples
+    python -m backend.backtest.regime_conditioned_cs --sector Utilities
+    python -m backend.backtest.regime_conditioned_cs --sector Financials
 """
 from __future__ import annotations
 
+import argparse
 import math
 from datetime import date, timedelta
 
@@ -60,38 +62,35 @@ from backend.backtest.engine_fast import (
 START  = "2021-01-01"
 END    = "2026-05-01"
 
-CS_SECTOR  = "ConsumerStaples"
-CS_ETF     = "XLP"
-CS_TICKERS = SECTORS[CS_SECTOR]["tickers"]
-
 # Posterior thresholds to stratify results against
 POSTERIOR_LEVELS = [0.0, 0.40, 0.45, 0.50, 0.55, 0.60]
 
-# L1 threshold applied to CS ticker scores
+# L1 threshold applied to ticker scores
 L1 = LOCK1_THRESHOLD   # 0.70 — same gate as active sectors
 
 # Bayesian prior constants
-N_SECTORS   = len(SECTORS)          # uniform base prior denominator
-BASE_PRIOR  = 1.0 / N_SECTORS
-TICKER_RECOVERY_DAYS = 5            # same as regime_bayes.TICKER_RECOVERY_DAYS
-RS_RANK_DAYS         = 10           # n_days for cross-sectional rank (Signal 5)
+N_SECTORS            = len(SECTORS)
+BASE_PRIOR           = 1.0 / N_SECTORS
+TICKER_RECOVERY_DAYS = 5    # same as regime_bayes.TICKER_RECOVERY_DAYS
+RS_RANK_DAYS         = 10   # n_days for cross-sectional rank (Signal 5)
 
 W = 66
 
 
 # ── Posterior reconstruction ──────────────────────────────────────────────────
 
-def _compute_cs_posterior_series(
+def _compute_sector_posterior_series(
     raw_data: pd.DataFrame,
     trading_days: list[date],
+    sector_etf: str,
+    sector_tickers: list[str],
 ) -> dict[str, float]:
     """
-    Simulate ConsumerStaples Bayesian posterior day-by-day with decay.
+    Simulate sector Bayesian posterior day-by-day with decay.
 
     Returns {date_str: posterior} for every trading day in range.
     """
-    all_etfs    = {sector: cfg["etf"] for sector, cfg in SECTORS.items()}
-    cs_tickers  = CS_TICKERS
+    all_etfs = {sector: cfg["etf"] for sector, cfg in SECTORS.items()}
 
     persistent_prior = BASE_PRIOR
     posteriors: dict[str, float] = {}
@@ -107,7 +106,7 @@ def _compute_cs_posterior_series(
         recovering    = 0
         deteriorating = 0
         total         = 0
-        for ticker in cs_tickers:
+        for ticker in sector_tickers:
             try:
                 if ticker not in raw_data.columns.get_level_values(0):
                     continue
@@ -125,11 +124,11 @@ def _compute_cs_posterior_series(
                 continue
         lr_ticker = _lr_ticker_balance(recovering, deteriorating, total)
 
-        # Signal 2: XLP signed streak
+        # Signal 2: sector ETF signed streak
         etf_streak = 0
         try:
-            if CS_ETF in raw_data.columns.get_level_values(0):
-                closes = raw_data[CS_ETF]["Close"].dropna()
+            if sector_etf in raw_data.columns.get_level_values(0):
+                closes = raw_data[sector_etf]["Close"].dropna()
                 recent = closes[closes.index <= ts].tail(60)
                 if len(recent) >= 2:
                     rets = recent.pct_change().dropna().values
@@ -154,7 +153,9 @@ def _compute_cs_posterior_series(
         lr_ipo = _lr_ipo_cluster(BASE_PRIOR)
 
         # Signal 5: cross-sectional ETF return rank
-        lr_rank = _compute_rank_lrs_on(raw_data, all_etfs, today, n_days=RS_RANK_DAYS).get(CS_SECTOR, 1.0)
+        lr_rank = _compute_rank_lrs_on(raw_data, all_etfs, today, n_days=RS_RANK_DAYS).get(
+            next((s for s, cfg in SECTORS.items() if cfg["etf"] == sector_etf), ""), 1.0
+        )
 
         # Sequential Bayesian update
         p = decayed
@@ -215,22 +216,24 @@ def _compute_rank_lrs_on(
     return lrs
 
 
-# ── CS ticker scoring ─────────────────────────────────────────────────────────
+# ── Ticker scoring ─────────────────────────────────────────────────────────────
 
-def _score_cs_tickers_per_day(
+def _score_tickers_per_day(
     raw_data: pd.DataFrame,
     trading_days: list[date],
     spy_cache: dict[str, dict],
     price_cache: dict[tuple[str, str], float],
+    sector_tickers: list[str],
+    sector_etf: str,
 ) -> dict[tuple[str, str], dict]:
     """
     Returns {(ticker, date_str): {"signal_score", "entry_price"}} for all
-    ConsumerStaples tickers × trading days where score >= L1.
+    sector tickers × trading days where score >= L1.
     """
-    cs_etf_mult_cache: dict[str, float] = _build_cs_etf_mult(raw_data, trading_days)
+    etf_mult_cache: dict[str, float] = _build_etf_mult(raw_data, trading_days, sector_etf)
     cache: dict[tuple[str, str], dict] = {}
 
-    for ticker in CS_TICKERS:
+    for ticker in sector_tickers:
         if ticker not in raw_data.columns.get_level_values(0):
             continue
         df_full = raw_data[ticker].copy()
@@ -247,7 +250,7 @@ def _score_cs_tickers_per_day(
 
                 spy_ret20 = spy_cache.get(date_str, {}).get("return_20d", 0.0)
                 spy_reg   = spy_cache.get(date_str, {}).get("regime", 0.0)
-                etf_mult  = cs_etf_mult_cache.get(date_str, 1.0)
+                etf_mult  = etf_mult_cache.get(date_str, 1.0)
 
                 mom = momentum.compute(df)
                 if mom.get("rsi_blocked"):
@@ -280,11 +283,15 @@ def _score_cs_tickers_per_day(
     return cache
 
 
-def _build_cs_etf_mult(raw_data: pd.DataFrame, trading_days: list[date]) -> dict[str, float]:
-    """XLP ETF multiplier: 1.0 if price >= MA20, else 0.85."""
+def _build_etf_mult(
+    raw_data: pd.DataFrame,
+    trading_days: list[date],
+    sector_etf: str,
+) -> dict[str, float]:
+    """Sector ETF multiplier: 1.0 if price >= MA20, else 0.85."""
     cache: dict[str, float] = {}
     try:
-        closes = raw_data[CS_ETF]["Close"].dropna()
+        closes = raw_data[sector_etf]["Close"].dropna()
         ma20   = closes.rolling(20).mean()
         for d in trading_days:
             ts = pd.Timestamp(d)
@@ -352,14 +359,14 @@ def _simulate_trades(
                 break
 
         records.append({
-            "ticker":      ticker,
-            "entry_date":  entry_date_str,
-            "entry_price": round(entry_price, 4),
-            "exit_price":  round(exit_price, 4),
-            "pnl_pct":     round(pnl_pct, 4),
-            "outcome":     outcome,
-            "exit_reason": exit_reason,
-            "posterior":   posterior,
+            "ticker":       ticker,
+            "entry_date":   entry_date_str,
+            "entry_price":  round(entry_price, 4),
+            "exit_price":   round(exit_price, 4),
+            "pnl_pct":      round(pnl_pct, 4),
+            "outcome":      outcome,
+            "exit_reason":  exit_reason,
+            "posterior":    posterior,
             "signal_score": sig["signal_score"],
         })
 
@@ -372,7 +379,7 @@ def _stats(records: list[dict]) -> dict:
     wins   = [r for r in records if r["outcome"] == "WIN"]
     losses = [r for r in records if r["outcome"] in ("LOSS", "EXPIRED")]
     closed = wins + losses
-    gp = sum(r["pnl_pct"] for r in wins)   if wins   else 0.0
+    gp = sum(r["pnl_pct"] for r in wins)        if wins   else 0.0
     gl = abs(sum(r["pnl_pct"] for r in losses)) if losses else 0.0
     return {
         "n":        len(records),
@@ -394,9 +401,23 @@ def _bar(char="─", w=W) -> str:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    logger.info(f"Regime-conditioned CS backtest: {START} → {END}")
+    parser = argparse.ArgumentParser(description="Regime-conditioned sector backtest")
+    parser.add_argument(
+        "--sector",
+        default="ConsumerStaples",
+        help="Sector name as defined in config.py SECTORS (default: ConsumerStaples)",
+    )
+    args = parser.parse_args()
 
-    # Load OHLCV data (reuses Parquet cache from sector_sweep)
+    sector_name = args.sector
+    if sector_name not in SECTORS:
+        raise ValueError(f"Unknown sector '{sector_name}'. Valid: {list(SECTORS.keys())}")
+
+    sector_etf     = SECTORS[sector_name]["etf"]
+    sector_tickers = SECTORS[sector_name]["tickers"]
+
+    logger.info(f"Regime-conditioned backtest: {sector_name} ({sector_etf})  {START} → {END}")
+
     lookback_start = date.fromisoformat(START) - timedelta(days=130)
     end_date       = date.fromisoformat(END)
     etf_tickers    = [cfg["etf"] for cfg in SECTORS.values()]
@@ -417,8 +438,8 @@ def main() -> None:
     price_cache = _build_price_cache(raw_data, all_tickers, trading_days)
 
     # 1. Posterior series
-    logger.info("Computing ConsumerStaples regime posteriors…")
-    posteriors = _compute_cs_posterior_series(raw_data, trading_days)
+    logger.info(f"Computing {sector_name} regime posteriors…")
+    posteriors  = _compute_sector_posterior_series(raw_data, trading_days, sector_etf, sector_tickers)
     post_values = list(posteriors.values())
     logger.info(
         f"Posterior stats: min={min(post_values):.3f}  "
@@ -426,41 +447,40 @@ def main() -> None:
         f"max={max(post_values):.3f}"
     )
 
-    # 2. Score CS tickers
-    logger.info("Scoring ConsumerStaples tickers (this takes ~1–2 min)…")
-    entries = _score_cs_tickers_per_day(raw_data, trading_days, spy_cache, price_cache)
-    logger.info(f"{len(entries)} CS entry signals passing L1={L1}")
+    # 2. Score tickers
+    logger.info(f"Scoring {sector_name} tickers (this takes ~1–2 min)…")
+    entries = _score_tickers_per_day(raw_data, trading_days, spy_cache, price_cache, sector_tickers, sector_etf)
+    logger.info(f"{len(entries)} entry signals passing L1={L1}")
 
     # 3. Simulate trades
     logger.info("Simulating trades…")
     records = _simulate_trades(entries, price_cache, trading_days, posteriors)
     logger.info(f"{len(records)} trades simulated")
 
-    # 4. Posterior distribution of entry signals
+    # 4. Display
     entry_posts = [r["posterior"] for r in records]
     buckets = [0.40, 0.45, 0.50, 0.55, 0.60, 0.65]
     print()
     print("═" * W)
-    print(f"  REGIME-CONDITIONED BACKTEST — ConsumerStaples (XLP)")
+    print(f"  REGIME-CONDITIONED BACKTEST — {sector_name} ({sector_etf})")
     print(f"  {START} → {END}  |  L1 threshold = {L1}")
-    print(f"  Signals used: ticker balance, XLP streak, ETF rank (IPO/RS = neutral)")
+    print(f"  Signals used: ticker balance, {sector_etf} streak, ETF rank (IPO/RS = neutral)")
     print("═" * W)
 
-    # Posterior distribution of entry days
     print()
     print("  Posterior distribution at entry (days with ≥1 passing signal):")
     print(_bar())
     for lo, hi in zip(buckets, buckets[1:] + [1.01]):
         n = sum(1 for p in entry_posts if lo <= p < hi)
-        print(f"    [{lo:.2f}, {hi:.2f})  {n:>4} signals  {n/len(entry_posts)*100:.1f}%")
+        pct = n / len(entry_posts) * 100 if entry_posts else 0.0
+        print(f"    [{lo:.2f}, {hi:.2f})  {n:>4} signals  {pct:.1f}%")
     print()
 
-    # Stratified PF/win rate
     print(f"  {'Posterior floor':>18}  {'Trades':>6}  {'WinRate':>8}  {'PF':>6}  {'AvgWin':>8}  {'AvgLoss':>8}")
     print(_bar())
     for floor in POSTERIOR_LEVELS:
         subset = [r for r in records if r["posterior"] >= floor]
-        s = _stats(subset)
+        s      = _stats(subset)
         pf_str = f"{s['pf']:.3f}" if s["pf"] is not None else "  —"
         label  = "unconditional" if floor == 0.0 else f"post ≥ {floor:.2f}"
         marker = " *" if floor == 0.50 else "  "
@@ -476,7 +496,6 @@ def main() -> None:
     print()
     print("═" * W)
 
-    # Per-ticker breakdown at post >= 0.50
     subset_50 = [r for r in records if r["posterior"] >= 0.50]
     if subset_50:
         print()
@@ -484,11 +503,11 @@ def main() -> None:
         print(_bar())
         print(f"  {'Ticker':>8}  {'Trades':>6}  {'WinRate':>8}  {'PF':>6}")
         print(_bar())
-        for ticker in CS_TICKERS:
+        for ticker in sector_tickers:
             t_recs = [r for r in subset_50 if r["ticker"] == ticker]
             if not t_recs:
                 continue
-            s = _stats(t_recs)
+            s      = _stats(t_recs)
             pf_str = f"{s['pf']:.3f}" if s["pf"] is not None else "  —"
             print(
                 f"  {ticker:>8}  "

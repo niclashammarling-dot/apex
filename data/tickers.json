@@ -138,5 +138,25 @@
       "GD",
       "HII"
     ]
+  },
+  "Homebuilders": {
+    "etf": "ITB",
+    "tickers": [
+      "DHI",
+      "LEN",
+      "PHM",
+      "TOL",
+      "NVR"
+    ]
+  },
+  "Transportation": {
+    "etf": "IYT",
+    "tickers": [
+      "UNP",
+      "CSX",
+      "FDX",
+      "UPS",
+      "JBHT"
+    ]
   }
 }
