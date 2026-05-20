@@ -18,11 +18,29 @@ accumulates across days, matching the live regime engine's behaviour.
 Trade simulation is ticker-isolated (no portfolio-level caps). Entry = close
 price on signal day. Exit follows TP/SL/time-stop from live config.
 
+--matrix mode (posterior × signal_score interaction analysis):
+  Extends the standard run to capture sub-threshold signals (floor lowered to
+  MATRIX_MIN_SCORE=0.55). Outputs a 2D table: signal_score_band × posterior_band
+  → N / WR / PF. Answers whether a high posterior changes the predictive value
+  of a given signal score — the prerequisite for any posterior-conditioned
+  threshold change.
+
+  Also outputs signal-weighted PF for above-threshold trades (proxy for SIZED_UP
+  mode: trades sized proportionally to signal score within the sector/day).
+  Interpretation: if signal-weighted PF > equal-weighted PF, concentrating size
+  on the stronger signal is beneficial. If not, the Bayesian multiplier is noise.
+
+  Design context — mutual exclusion constraint:
+    WIDE_THRESHOLD mode: lower L2 bar, suppress Bayesian multiplier (multiplier=1.0)
+    SIZED_UP mode:       keep flat threshold, allow full Bayesian multiplier
+  These are the only correct modes at high posterior — using both simultaneously
+  is double leverage. The matrix tells you which mode is warranted.
+
 Usage:
     cd /home/promenix/apex
     python -m backend.backtest.regime_conditioned_cs --sector ConsumerStaples
+    python -m backend.backtest.regime_conditioned_cs --sector Energy --matrix
     python -m backend.backtest.regime_conditioned_cs --sector Utilities
-    python -m backend.backtest.regime_conditioned_cs --sector Financials
 """
 from __future__ import annotations
 
@@ -65,8 +83,13 @@ END    = "2026-05-01"
 # Posterior thresholds to stratify results against
 POSTERIOR_LEVELS = [0.0, 0.40, 0.45, 0.50, 0.55, 0.60]
 
-# L1 threshold applied to ticker scores
+# L1 threshold applied to ticker scores (standard run)
 L1 = LOCK1_THRESHOLD   # 0.70 — same gate as active sectors
+
+# --matrix mode: score floor and stratification bands
+MATRIX_MIN_SCORE   = 0.55
+SIGNAL_SCORE_BANDS = [(0.55, 0.60), (0.60, 0.65), (0.65, 0.70), (0.70, 1.01)]
+POSTERIOR_BANDS    = [(0.0, 0.50), (0.50, 0.70), (0.70, 0.85), (0.85, 1.01)]
 
 # Bayesian prior constants
 N_SECTORS            = len(SECTORS)
@@ -225,10 +248,12 @@ def _score_tickers_per_day(
     price_cache: dict[tuple[str, str], float],
     sector_tickers: list[str],
     sector_etf: str,
+    min_score: float = L1,
 ) -> dict[tuple[str, str], dict]:
     """
     Returns {(ticker, date_str): {"signal_score", "entry_price"}} for all
-    sector tickers × trading days where score >= L1.
+    sector tickers × trading days where score >= min_score.
+    min_score defaults to L1 (standard run). --matrix mode passes MATRIX_MIN_SCORE.
     """
     etf_mult_cache: dict[str, float] = _build_etf_mult(raw_data, trading_days, sector_etf)
     cache: dict[tuple[str, str], dict] = {}
@@ -269,7 +294,7 @@ def _score_tickers_per_day(
                 )
                 score = round(min(max(score * etf_mult, 0.0), 1.0), 4)
 
-                if score < L1:
+                if score < min_score:
                     continue
 
                 entry_price = price_cache.get((ticker, date_str))
@@ -398,6 +423,187 @@ def _bar(char="─", w=W) -> str:
     return char * w
 
 
+# ── Matrix analysis helpers ───────────────────────────────────────────────────
+
+def _attach_multipliers(
+    records: list[dict],
+    sector_threshold: float,
+) -> None:
+    """
+    Attach approximate Bayesian multiplier to each record (in-place).
+
+    Multiplier = n_qualifying × score / sum_qualifying_scores, computed from
+    same-day trades that would qualify in SIZED_UP mode (score ≥ sector_threshold).
+    Sub-threshold trades (WIDE_THRESHOLD candidates) receive multiplier=1.0 —
+    the multiplier is suppressed when the threshold is lowered.
+
+    The multiplier here is positional sizing information only — it does not
+    change PF in percentage terms. It represents how much larger (or smaller)
+    each trade would be under SIZED_UP mode relative to equal-weight baseline.
+    """
+    from collections import defaultdict
+    day_qualifying: dict[str, list[dict]] = defaultdict(list)
+    for r in records:
+        if r["signal_score"] >= sector_threshold:
+            day_qualifying[r["entry_date"]].append(r)
+
+    for r in records:
+        if r["signal_score"] < sector_threshold:
+            r["multiplier"] = 1.0   # suppressed in WIDE_THRESHOLD mode
+            continue
+        peers = day_qualifying[r["entry_date"]]
+        if len(peers) <= 1:
+            r["multiplier"] = 1.0
+            continue
+        total_score = sum(p["signal_score"] for p in peers)
+        if total_score <= 0:
+            r["multiplier"] = 1.0
+        else:
+            r["multiplier"] = round(len(peers) * r["signal_score"] / total_score, 4)
+
+
+def _signal_weighted_pf(records: list[dict]) -> float | None:
+    """
+    PF weighted by each trade's Bayesian multiplier.
+    Represents dollar-weighted outcome under SIZED_UP mode.
+    """
+    wins   = [r for r in records if r["outcome"] == "WIN"]
+    losses = [r for r in records if r["outcome"] in ("LOSS", "EXPIRED")]
+    gp = sum(r["pnl_pct"] * r["multiplier"] for r in wins)
+    gl = abs(sum(r["pnl_pct"] * r["multiplier"] for r in losses))
+    return round(gp / gl, 3) if gl > 0 else None
+
+
+def _signal_band(score: float) -> tuple[float, float] | None:
+    for lo, hi in SIGNAL_SCORE_BANDS:
+        if lo <= score < hi:
+            return (lo, hi)
+    return None
+
+
+def _count_episodes(records: list[dict], gap_days: int = 5) -> int:
+    """
+    Count distinct regime episodes among a set of trade records.
+
+    Episode: a run of entry dates where no consecutive gap exceeds gap_days
+    calendar days. One episode = one regime window (e.g., a single ETF streak).
+    Multiple episodes = independent regime periods.
+
+    Trade count (N) measures how many entries occurred.
+    Episode count (ep) measures how many independent regime events produced them.
+    When N >> ep, trades are time-clustered — the cell's PF reflects fewer
+    independent data points than N implies, and should be treated with more
+    scepticism regardless of the PF value.
+    """
+    if not records:
+        return 0
+    dates = sorted(date.fromisoformat(r["entry_date"]) for r in records)
+    episodes = 1
+    for i in range(1, len(dates)):
+        if (dates[i] - dates[i - 1]).days > gap_days:
+            episodes += 1
+    return episodes
+
+
+_MATRIX_W = 130   # matrix output width; wider than W to accommodate 4 posterior columns
+
+
+def _print_matrix(records: list[dict], sector_threshold: float, sector_name: str) -> None:
+    """
+    2D matrix: signal_score_band × posterior_band → N / ep / WR / PF (equal-weighted).
+
+    ep = distinct regime episodes (groups of entry dates ≤5 calendar days apart,
+    scoped to each cell). When N >> ep, trades cluster in time — PF reflects fewer
+    independent regime observations than N implies.
+
+    (sw-PF) on above-threshold rows = signal-weighted PF, the SIZED_UP proxy.
+
+    Reading the matrix:
+      Horizontal scan of a signal band: does PF improve as posterior rises?
+        Yes → posterior adds predictive value at that score level → WIDE_THRESHOLD warranted
+        No  → posterior irrelevant for entry decisions → keep flat threshold
+      Vertical scan of a posterior band: does score still matter within high-posterior?
+        Yes → signal quality still discriminates → threshold should remain above floor
+        No  → all scores equivalent at high posterior → threshold is redundant
+    """
+    col_w = 30
+    band_labels = [f"post [{lo:.2f},{hi:.2f})" for lo, hi in POSTERIOR_BANDS]
+
+    print()
+    print("═" * _MATRIX_W)
+    print(f"  SIGNAL × POSTERIOR MATRIX — {sector_name}")
+    print(f"  Calibrated sector threshold: {sector_threshold:.4f}  |  Sweep floor: {MATRIX_MIN_SCORE}")
+    print(f"  ↓ rows = WIDE_THRESHOLD candidates (sub-threshold, multiplier suppressed)")
+    print(f"  (sw-PF) = signal-weighted PF proxy for SIZED_UP mode (above-threshold rows only)")
+    print(f"  ep = distinct regime episodes per cell (N >> ep → time-clustered, fewer independent observations)")
+    print("═" * _MATRIX_W)
+
+    header = f"  {'Signal band':>14}  " + "  ".join(f"{lbl:>{col_w}}" for lbl in band_labels)
+    print()
+    print(header)
+    print("─" * _MATRIX_W)
+
+    for lo, hi in SIGNAL_SCORE_BANDS:
+        band_recs = [r for r in records if lo <= r["signal_score"] < hi]
+        cells = []
+        for plo, phi in POSTERIOR_BANDS:
+            cell_recs = [r for r in band_recs if plo <= r["posterior"] < phi]
+            s         = _stats(cell_recs)
+            ep        = _count_episodes(cell_recs)
+            pf_str    = f"{s['pf']:.3f}" if s["pf"] is not None else "  —  "
+            wr_str    = f"{s['win_rate']*100:.0f}%" if s["win_rate"] is not None else " — "
+            if lo >= sector_threshold and s["n"] > 0:
+                sw     = _signal_weighted_pf(cell_recs)
+                sw_str = f"({sw:.3f})" if sw is not None else "      "
+                cell   = f"N={s['n']:>3} ep={ep:>2} {wr_str:>4} PF={pf_str} {sw_str}"
+            else:
+                cell   = f"N={s['n']:>3} ep={ep:>2} {wr_str:>4} PF={pf_str}       "
+            cells.append(cell)
+        marker = "  " if lo >= sector_threshold else " ↓"
+        label  = f"[{lo:.2f},{hi if hi < 1.0 else '∞':>5})"
+        print(f"{marker} {label:>14}  " + "  ".join(f"{c:>{col_w}}" for c in cells))
+
+    print()
+    print("  ↓ sub-threshold  |  (sw-PF) signal-weighted PF  |  ep = regime episodes (N >> ep → clustered)")
+    print()
+
+    # Sub-threshold summary: the decisive block for the WIDE_THRESHOLD decision.
+    # Each row answers: at this posterior level, do sub-threshold entries have edge?
+    print("  Sub-threshold summary  [{:.2f}, {:.4f}):".format(MATRIX_MIN_SCORE, sector_threshold))
+    print("─" * _MATRIX_W)
+    sub = [r for r in records if r["signal_score"] < sector_threshold]
+    for plo, phi in POSTERIOR_BANDS:
+        cell_recs = [r for r in sub if plo <= r["posterior"] < phi]
+        s         = _stats(cell_recs)
+        ep        = _count_episodes(cell_recs)
+        pf_str    = f"{s['pf']:.3f}" if s["pf"] is not None else "  —  "
+        wr_str    = f"{s['win_rate']*100:.0f}%" if s["win_rate"] is not None else " — "
+        label     = f"post [{plo:.2f},{phi:.2f})"
+        print(f"    {label:>22}  N={s['n']:>3}  ep={ep:>2}  WR={wr_str:>4}  PF={pf_str}")
+
+    print()
+    print("  Interpretation:")
+    sub_high = [r for r in sub if r["posterior"] >= 0.85]
+    sub_low  = [r for r in sub if r["posterior"] <  0.50]
+    s_high   = _stats(sub_high)
+    s_low    = _stats(sub_low)
+    ep_high  = _count_episodes(sub_high)
+    if ep_high < 5:
+        print(f"    post ≥ 0.85 sub-threshold: ep={ep_high} — too few independent episodes to conclude")
+    elif s_high["pf"] is not None and s_low["pf"] is not None:
+        if s_high["pf"] > 1.0 and s_high["pf"] > s_low["pf"] * 1.10:
+            print("    Sub-threshold PF improves meaningfully at high posterior → WIDE_THRESHOLD warranted")
+        elif s_high["pf"] < 1.0:
+            print("    Sub-threshold PF < 1.0 even at high posterior → flat threshold correct; wait for arrival")
+        else:
+            print("    Sub-threshold PF marginally higher at high posterior → inconclusive; require ep ≥ 5 before acting")
+    elif s_high["n"] < 10:
+        print(f"    post ≥ 0.85 sub-threshold: N={s_high['n']} ep={ep_high} — insufficient data to conclude")
+
+    print()
+    print("═" * _MATRIX_W)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -407,16 +613,30 @@ def main() -> None:
         default="ConsumerStaples",
         help="Sector name as defined in config.py SECTORS (default: ConsumerStaples)",
     )
+    parser.add_argument(
+        "--matrix",
+        action="store_true",
+        help=(
+            "2D interaction analysis: signal_score_band × posterior_band → PF. "
+            "Lowers score floor to 0.55 to capture sub-threshold candidates. "
+            "Use to evaluate whether a posterior-conditioned threshold is warranted."
+        ),
+    )
     args = parser.parse_args()
 
     sector_name = args.sector
+    matrix_mode = args.matrix
     if sector_name not in SECTORS:
         raise ValueError(f"Unknown sector '{sector_name}'. Valid: {list(SECTORS.keys())}")
 
-    sector_etf     = SECTORS[sector_name]["etf"]
-    sector_tickers = SECTORS[sector_name]["tickers"]
+    sector_etf       = SECTORS[sector_name]["etf"]
+    sector_tickers   = SECTORS[sector_name]["tickers"]
+    effective_min    = MATRIX_MIN_SCORE if matrix_mode else L1
 
-    logger.info(f"Regime-conditioned backtest: {sector_name} ({sector_etf})  {START} → {END}")
+    logger.info(
+        f"Regime-conditioned backtest: {sector_name} ({sector_etf})  {START} → {END}"
+        + ("  [MATRIX MODE]" if matrix_mode else "")
+    )
 
     lookback_start = date.fromisoformat(START) - timedelta(days=130)
     end_date       = date.fromisoformat(END)
@@ -449,8 +669,11 @@ def main() -> None:
 
     # 2. Score tickers
     logger.info(f"Scoring {sector_name} tickers (this takes ~1–2 min)…")
-    entries = _score_tickers_per_day(raw_data, trading_days, spy_cache, price_cache, sector_tickers, sector_etf)
-    logger.info(f"{len(entries)} entry signals passing L1={L1}")
+    entries = _score_tickers_per_day(
+        raw_data, trading_days, spy_cache, price_cache,
+        sector_tickers, sector_etf, min_score=effective_min,
+    )
+    logger.info(f"{len(entries)} entry signals passing floor={effective_min}")
 
     # 3. Simulate trades
     logger.info("Simulating trades…")
@@ -458,13 +681,29 @@ def main() -> None:
     logger.info(f"{len(records)} trades simulated")
 
     # 4. Display
-    entry_posts = [r["posterior"] for r in records]
+    # Retrieve the per-sector calibrated threshold for matrix multiplier computation.
+    # Falls back to LOCK1_THRESHOLD if not in DB (e.g., during development runs).
+    try:
+        from backend.db import get_ticker_thresholds
+        sector_threshold = get_ticker_thresholds().get(sector_name, float(LOCK1_THRESHOLD))
+    except Exception:
+        sector_threshold = float(LOCK1_THRESHOLD)
+
+    if matrix_mode:
+        _attach_multipliers(records, sector_threshold)
+        _print_matrix(records, sector_threshold, sector_name)
+
+    entry_posts = [r["posterior"] for r in records if r["signal_score"] >= sector_threshold] \
+        if matrix_mode else [r["posterior"] for r in records]
     buckets = [0.40, 0.45, 0.50, 0.55, 0.60, 0.65]
     print()
     print("═" * W)
     print(f"  REGIME-CONDITIONED BACKTEST — {sector_name} ({sector_etf})")
-    print(f"  {START} → {END}  |  L1 threshold = {L1}")
+    print(f"  {START} → {END}  |  threshold = {sector_threshold:.4f}"
+          + (f"  (calibrated)  |  sweep floor = {MATRIX_MIN_SCORE}" if matrix_mode else f"  |  L1 = {L1}"))
     print(f"  Signals used: ticker balance, {sector_etf} streak, ETF rank (IPO/RS = neutral)")
+    if matrix_mode:
+        print(f"  Standard output below uses only trades at score ≥ {sector_threshold:.4f} (above-threshold comparison baseline)")
     print("═" * W)
 
     print()
@@ -476,10 +715,13 @@ def main() -> None:
         print(f"    [{lo:.2f}, {hi:.2f})  {n:>4} signals  {pct:.1f}%")
     print()
 
+    display_records = [r for r in records if r["signal_score"] >= sector_threshold] \
+        if matrix_mode else records
+
     print(f"  {'Posterior floor':>18}  {'Trades':>6}  {'WinRate':>8}  {'PF':>6}  {'AvgWin':>8}  {'AvgLoss':>8}")
     print(_bar())
     for floor in POSTERIOR_LEVELS:
-        subset = [r for r in records if r["posterior"] >= floor]
+        subset = [r for r in display_records if r["posterior"] >= floor]
         s      = _stats(subset)
         pf_str = f"{s['pf']:.3f}" if s["pf"] is not None else "  —"
         label  = "unconditional" if floor == 0.0 else f"post ≥ {floor:.2f}"
@@ -496,7 +738,7 @@ def main() -> None:
     print()
     print("═" * W)
 
-    subset_50 = [r for r in records if r["posterior"] >= 0.50]
+    subset_50 = [r for r in display_records if r["posterior"] >= 0.50]
     if subset_50:
         print()
         print("  Per-ticker breakdown (post ≥ 0.50):")
