@@ -1,9 +1,6 @@
 import React, { useState, useEffect, useMemo, Component } from "react";
 import RotationForecast  from "./components/RotationForecast.jsx";
-import SectorGrid        from "./components/SectorGrid.jsx";
 import SectorRotation    from "./components/SectorRotation.jsx";
-import SectorRegime      from "./components/SectorRegime.jsx";
-import LiveAccount       from "./components/LiveAccount.jsx";
 import ApexTerminal      from "./components/ApexTerminal.jsx";
 import ApexAtlas         from "./components/ApexAtlas.jsx";
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect, TweakColor } from "./components/TweaksPanel.jsx";
@@ -22,9 +19,8 @@ const CSS = `
 
   /* ── Supplemental panels ───────────────────────── */
   .supp-grid {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start;
   }
-  .supp-full { grid-column: 1 / -1; }
 
   /* ── Test overlay ──────────────────────────────── */
   .test-overlay {
@@ -817,12 +813,6 @@ export default function App() {
     <div className="supp-grid">
       <ErrorBoundary label="Rotation Forecast"><RotationForecast /></ErrorBoundary>
       <ErrorBoundary label="Sector Rotation"><SectorRotation /></ErrorBoundary>
-      <ErrorBoundary label="Sector Regime"><SectorRegime /></ErrorBoundary>
-      <div className="supp-full">
-        <ErrorBoundary label="Sector Grid"><SectorGrid sectors={sectors} /></ErrorBoundary>
-      </div>
-
-      <ErrorBoundary label="Live Account"><LiveAccount account={liveAccount} status={liveStatus} /></ErrorBoundary>
     </div>
   );
 

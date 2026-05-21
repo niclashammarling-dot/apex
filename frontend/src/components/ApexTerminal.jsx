@@ -621,10 +621,7 @@ export default function ApexTerminal({ tweaks = {}, data: D, onSettings, onPromo
             </div>
           </div>
           {supplemental && (
-            <div style={{ borderTop: "1px solid var(--t-border)", padding: "32px 24px", colorScheme: tweaks.theme === "light" ? "light" : "dark" }}>
-              <div style={{ fontFamily: "var(--mono)", fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--t-text-3)", marginBottom: 24 }}>
-                Analysis &amp; Tools
-              </div>
+            <div style={{ padding: "0 24px 24px" }}>
               {supplemental}
             </div>
           )}

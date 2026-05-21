@@ -4,65 +4,58 @@ import {
   ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-// Hues spread ~33° apart around the full wheel, all vivid on dark background.
-// strokeDash adds a second differentiator for sectors that share a hue quadrant.
 const SECTOR_COLORS = {
-  Financials:      "#ff3355",   //   0° red
-  Communication:   "#ff7722",   //  22° orange-red
-  Energy:          "#ffaa00",   //  40° golden amber
-  ConsumerStaples: "#aacc11",   //  75° chartreuse
-  Semiconductors:  "#77cc00",   // 115° lime — gap between ConsumerStaples and Utilities
-  Utilities:       "#22bb55",   // 145° green
-  Healthcare:      "#00ccaa",   // 168° teal
-  ConsumerDisc:    "#00aaee",   // 200° sky blue
-  Technology:      "#4477ff",   // 225° blue
-  Materials:       "#8844ff",   // 265° indigo
-  Industrials:     "#cc44ee",   // 290° violet
-  Defense:         "#ee44cc",   // 310° warm magenta
-  RealEstate:      "#ff44aa",   // 330° pink
+  Financials:      "#ff3355",
+  Communication:   "#ff7722",
+  Energy:          "#ffaa00",
+  ConsumerStaples: "#aacc11",
+  Semiconductors:  "#77cc00",
+  Utilities:       "#22bb55",
+  Healthcare:      "#00ccaa",
+  ConsumerDisc:    "#00aaee",
+  Technology:      "#4477ff",
+  Materials:       "#8844ff",
+  Industrials:     "#cc44ee",
+  Defense:         "#ee44cc",
+  RealEstate:      "#ff44aa",
 };
 
 const SECTOR_DASH = {
-  Communication:   "5 3",    // orange-red close to Energy amber — dash it
-  ConsumerDisc:    "5 3",    // sky blue close to Technology blue — dash it
-  Materials:       "5 3",    // indigo close to Industrials violet — dash it
-  Defense:         "5 3",    // warm magenta close to Industrials violet and RealEstate pink — dash it
+  Communication: "5 3",
+  ConsumerDisc:  "5 3",
+  Materials:     "5 3",
+  Defense:       "5 3",
 };
 
 const RANGES = [
-  { label: "7d",  days: 7    },
-  { label: "30d", days: 30   },
-  { label: "90d", days: 90   },
+  { label: "7D",  days: 7    },
+  { label: "30D", days: 30   },
+  { label: "90D", days: 90   },
   { label: "1Y",  days: 365  },
   { label: "2Y",  days: 730  },
   { label: "5Y",  days: 1825 },
-  { label: "All", days: 0    },
+  { label: "ALL", days: 0    },
 ];
 
 function formatTick(ts, days) {
   const d = new Date(ts);
   if (days === 0 || days > 365)
     return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
-  if (days > 90)
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function CustomTooltip({ active, payload, label }) {
+function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
-  const d = new Date(label);
-  const time = d.toLocaleString("en-US", {
-    month: "short", day: "numeric",
-    hour: "2-digit", minute: "2-digit",
+  const time = new Date(label).toLocaleString("en-US", {
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
   });
   const sorted = [...payload].sort((a, b) => b.value - a.value);
   return (
     <div style={{
-      background: "#1f1f1c", border: "1px solid #343434",
-      borderRadius: 6, padding: "10px 14px", fontSize: 12,
-      fontFamily: "'Inconsolata', monospace",
+      background: "var(--t-bg-3)", border: "1px solid var(--t-border)",
+      borderRadius: 4, padding: "10px 14px", fontFamily: "var(--mono)", fontSize: 12,
     }}>
-      <div style={{ color: "var(--text-3)", marginBottom: 6 }}>{time}</div>
+      <div className="t-meta" style={{ marginBottom: 6 }}>{time}</div>
       {sorted.map(p => (
         <div key={p.dataKey} style={{ color: p.color, marginBottom: 2 }}>
           {p.dataKey}: {p.value?.toFixed(3)}
@@ -73,11 +66,11 @@ function CustomTooltip({ active, payload, label }) {
 }
 
 export default function SectorRotation() {
-  const [days,          setDays]      = useState(30);
-  const [rawData,       setRawData]   = useState([]);
-  const [loading,       setLoading]   = useState(true);
-  const [error,         setError]     = useState(null);
-  const [hiddenSectors, setHidden]    = useState(() => {
+  const [days,          setDays]       = useState(30);
+  const [rawData,       setRawData]    = useState([]);
+  const [loading,       setLoading]    = useState(true);
+  const [error,         setError]      = useState(null);
+  const [hiddenSectors, setHidden]     = useState(() => {
     try {
       const saved = localStorage.getItem("apex_hidden_sectors");
       return saved ? new Set(JSON.parse(saved)) : new Set();
@@ -86,12 +79,10 @@ export default function SectorRotation() {
   const [normalized,    setNormalized] = useState(false);
   const [thresholds,    setThresholds] = useState({});
 
-  // Backfill state
   const [showBackfill, setShowBackfill] = useState(false);
   const [bfStart,      setBfStart]      = useState("2020-01-01");
   const [bfEnd,        setBfEnd]        = useState(new Date().toISOString().slice(0, 10));
-  const [bfJobId,      setBfJobId]      = useState(null);
-  const [bfStatus,     setBfStatus]     = useState(null);  // null | "running" | "done" | "error"
+  const [bfStatus,     setBfStatus]     = useState(null);
   const [bfInserted,   setBfInserted]   = useState(0);
   const [bfError,      setBfError]      = useState(null);
   const bfPollRef = React.useRef(null);
@@ -99,7 +90,7 @@ export default function SectorRotation() {
   useEffect(() => {
     fetch("/api/calibrate/ticker-thresholds")
       .then(r => r.ok ? r.json() : {})
-      .then(data => setThresholds(data.thresholds ?? {}))
+      .then(d => setThresholds(d.thresholds ?? {}))
       .catch(() => {});
   }, []);
 
@@ -108,17 +99,10 @@ export default function SectorRotation() {
     setError(null);
     fetch(`/api/sectors/history?days=${days}`)
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then(rows => {
-        setRawData(rows);
-        setLoading(false);
-      })
-      .catch(e => {
-        setError(`Failed to load sector history (${e})`);
-        setLoading(false);
-      });
+      .then(rows => { setRawData(rows); setLoading(false); })
+      .catch(e => { setError(`Failed to load sector history (${e})`); setLoading(false); });
   }, [days]);
 
-  // Pivot flat rows into [{timestamp, Sector1: score, Sector2: score, ...}]
   const FLAT_THRESHOLD = 0.55;
   const sectors = [...new Set(rawData.map(r => r.sector))].sort();
   const tsMap = {};
@@ -132,13 +116,9 @@ export default function SectorRotation() {
       tsMap[row.timestamp][row.sector] = score;
     }
   }
-  const chartData = Object.values(tsMap).sort((a, b) =>
-    new Date(a.timestamp) - new Date(b.timestamp)
-  );
-
-  // Thin out to max ~120 points for readability
-  const stride = Math.max(1, Math.floor(chartData.length / 120));
-  const thinned = chartData.filter((_, i) => i % stride === 0);
+  const chartData = Object.values(tsMap).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  const stride    = Math.max(1, Math.floor(chartData.length / 120));
+  const thinned   = chartData.filter((_, i) => i % stride === 0);
 
   function toggleSector(s) {
     setHidden(prev => {
@@ -158,16 +138,13 @@ export default function SectorRotation() {
     })
       .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e.detail)))
       .then(({ job_id }) => {
-        setBfJobId(job_id);
         bfPollRef.current = setInterval(() => {
           fetch(`/api/sectors/backfill/${job_id}`)
             .then(r => r.json())
             .then(job => {
               if (job.status === "done") {
                 clearInterval(bfPollRef.current);
-                setBfStatus("done");
-                setBfInserted(job.inserted);
-                // Reload chart data
+                setBfStatus("done"); setBfInserted(job.inserted);
                 setLoading(true);
                 fetch(`/api/sectors/history?days=${days}`)
                   .then(r => r.json()).then(setRawData).finally(() => setLoading(false));
@@ -182,195 +159,143 @@ export default function SectorRotation() {
   }
 
   return (
-    <div style={{
-      background: "var(--bg-card)", border: "1px solid var(--border)",
-      borderRadius: 8, padding: "20px 22px",
-    }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 500 }}>
-            Sector Rotation
-          </div>
+    <div className="t-card">
+      <div className="t-card-head">
+        <div className="t-card-title">SECTOR ROTATION</div>
+        <div className="t-row" style={{ gap: 4 }}>
           <button
-            onClick={() => setShowBackfill(v => !v)}
-            title="Backfill historical data"
-            style={{
-              fontFamily: "'Inconsolata', monospace", fontSize: 10,
-              padding: "2px 8px", borderRadius: 4, cursor: "pointer",
-              border: "1px solid var(--border)",
-              background: showBackfill ? "var(--accent)" : "transparent",
-              color: showBackfill ? "#fff" : "var(--text-3)",
-            }}
-          >⟳ backfill</button>
-        </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <button
+            className="t-btn"
             onClick={() => setNormalized(v => !v)}
             title={normalized ? "Show raw scores" : "Normalize by L1 threshold — makes sectors comparable"}
-            style={{
-              fontFamily: "'Inconsolata', monospace", fontSize: 10,
-              padding: "3px 10px", borderRadius: 4, cursor: "pointer",
-              border: `1px solid ${normalized ? "var(--accent)" : "var(--border)"}`,
-              background: normalized ? "var(--accent)" : "transparent",
-              color: normalized ? "#fff" : "var(--text-3)",
-              marginRight: 4,
-            }}
-          >normalized</button>
+            style={normalized ? { color: "var(--t-accent)", borderColor: "var(--t-accent)", marginRight: 8 } : { marginRight: 8 }}
+          >NORM</button>
           {RANGES.map(r => (
             <button
               key={r.days}
+              className={`t-tab${days === r.days ? " t-tab-on" : ""}`}
               onClick={() => setDays(r.days)}
-              style={{
-                fontFamily: "'Inconsolata', monospace", fontSize: 11,
-                padding: "3px 10px", borderRadius: 4, cursor: "pointer",
-                border: "1px solid var(--border)",
-                background: days === r.days ? "var(--accent)" : "transparent",
-                color: days === r.days ? "#fff" : "var(--text-3)",
-              }}
             >{r.label}</button>
           ))}
-        </div>
-      </div>
-
-      {showBackfill && (
-        <div style={{
-          background: "#282826", border: "1px solid var(--border)", borderRadius: 6,
-          padding: "12px 16px", marginBottom: 16,
-          display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
-        }}>
-          <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)" }}>
-            Backfill from
-          </span>
-          <input
-            type="date" value={bfStart} onChange={e => setBfStart(e.target.value)}
-            disabled={bfStatus === "running"}
-            style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, padding: "3px 6px",
-              background: "#1e1e1c", border: "1px solid var(--border)", borderRadius: 3,
-              color: "var(--text-1)", colorScheme: "dark" }}
-          />
-          <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)" }}>to</span>
-          <input
-            type="date" value={bfEnd} onChange={e => setBfEnd(e.target.value)}
-            disabled={bfStatus === "running"}
-            style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, padding: "3px 6px",
-              background: "#1e1e1c", border: "1px solid var(--border)", borderRadius: 3,
-              color: "var(--text-1)", colorScheme: "dark" }}
-          />
           <button
-            onClick={startBackfill}
-            disabled={bfStatus === "running"}
-            style={{
-              fontFamily: "'Inconsolata', monospace", fontSize: 11,
-              padding: "3px 12px", borderRadius: 4, cursor: bfStatus === "running" ? "default" : "pointer",
-              border: "1px solid var(--accent)", background: "var(--accent)", color: "#fff",
-              opacity: bfStatus === "running" ? 0.6 : 1,
-            }}
-          >{bfStatus === "running" ? "running…" : "Run"}</button>
-
-          {bfStatus === "running" && (
-            <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)" }}>
-              Computing signal scores — this may take a few minutes for long ranges…
-            </span>
-          )}
-          {bfStatus === "done" && (
-            <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--green)" }}>
-              ✓ {bfInserted} rows inserted
-            </span>
-          )}
-          {bfStatus === "error" && (
-            <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--red)" }}>
-              Error: {bfError}
-            </span>
-          )}
+            className="t-btn"
+            onClick={() => setShowBackfill(v => !v)}
+            style={{ marginLeft: 8, ...(showBackfill ? { color: "var(--t-accent)", borderColor: "var(--t-accent)" } : {}) }}
+          >↺</button>
         </div>
-      )}
-
-      {/* Sector legend / toggles */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
-        {sectors.map(s => {
-          const color  = SECTOR_COLORS[s] ?? "#888";
-          const dashed = !!SECTOR_DASH[s];
-          const hidden = hiddenSectors.has(s);
-          return (
-            <button
-              key={s}
-              onClick={() => toggleSector(s)}
-              style={{
-                fontFamily: "'Inconsolata', monospace", fontSize: 10,
-                padding: "2px 8px", borderRadius: 3, cursor: "pointer",
-                border: `1px ${dashed ? "dashed" : "solid"} ${color}`,
-                background: hidden ? "transparent" : color + "22",
-                color: hidden ? "var(--text-3)" : color,
-                opacity: hidden ? 0.45 : 1,
-              }}
-            >{s}</button>
-          );
-        })}
       </div>
 
-      {loading && (
-        <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 12, color: "var(--text-3)", padding: "32px 0", textAlign: "center" }}>
-          Loading…
-        </div>
-      )}
-
-      {error && (
-        <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 12, color: "var(--red)", padding: "16px 0" }}>
-          {error}
-        </div>
-      )}
-
-      {!loading && !error && thinned.length === 0 && (
-        <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 12, color: "var(--text-3)", padding: "32px 0", textAlign: "center" }}>
-          No rotation data yet — snapshots build up after the first poll cycle.
-        </div>
-      )}
-
-      {!loading && !error && thinned.length > 0 && (
-        <ResponsiveContainer width="100%" height={260}>
-          <LineChart data={thinned} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-            <XAxis
-              dataKey="timestamp"
-              tickFormatter={ts => formatTick(ts, days)}
-              tick={{ fontFamily: "'Inconsolata', monospace", fontSize: 10, fill: "var(--text-3)" }}
-              axisLine={false} tickLine={false}
-              interval="preserveStartEnd"
+      <div className="t-card-body">
+        {showBackfill && (
+          <div style={{
+            background: "var(--t-bg-3)", border: "1px solid var(--t-border)", borderRadius: 3,
+            padding: "10px 14px", marginBottom: 14,
+            display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+          }}>
+            <span className="t-meta">Backfill from</span>
+            <input
+              type="date" value={bfStart} onChange={e => setBfStart(e.target.value)}
+              disabled={bfStatus === "running"}
+              style={{
+                fontFamily: "var(--mono)", fontSize: 11, padding: "3px 6px",
+                background: "var(--t-bg)", border: "1px solid var(--t-border)", borderRadius: 3,
+                color: "var(--t-text-1)", colorScheme: "dark",
+              }}
             />
-            <YAxis
-              domain={normalized ? [0.5, 1.5] : [0, 1]}
-              tick={{ fontFamily: "'Inconsolata', monospace", fontSize: 10, fill: "var(--text-3)" }}
-              axisLine={false} tickLine={false}
-              tickFormatter={v => normalized ? `${v.toFixed(1)}×` : v.toFixed(1)}
+            <span className="t-meta">to</span>
+            <input
+              type="date" value={bfEnd} onChange={e => setBfEnd(e.target.value)}
+              disabled={bfStatus === "running"}
+              style={{
+                fontFamily: "var(--mono)", fontSize: 11, padding: "3px 6px",
+                background: "var(--t-bg)", border: "1px solid var(--t-border)", borderRadius: 3,
+                color: "var(--t-text-1)", colorScheme: "dark",
+              }}
             />
-            <Tooltip content={<CustomTooltip />} />
-            <ReferenceLine
-              y={normalized ? 1.0 : 0.55}
-              stroke="#343434" strokeDasharray="3 3"
-            />
-            {sectors
-              .filter(s => !hiddenSectors.has(s))
-              .map(s => (
-                <Line
-                  key={s}
-                  type="monotone"
-                  dataKey={s}
-                  stroke={SECTOR_COLORS[s] ?? "#888"}
-                  strokeWidth={1.5}
-                  strokeDasharray={SECTOR_DASH[s] ?? undefined}
-                  dot={false}
-                  connectNulls
-                />
-              ))
-            }
-          </LineChart>
-        </ResponsiveContainer>
-      )}
+            <button
+              className="t-btn"
+              onClick={startBackfill}
+              disabled={bfStatus === "running"}
+              style={{ color: "var(--t-accent)", borderColor: "var(--t-accent)", opacity: bfStatus === "running" ? 0.6 : 1 }}
+            >{bfStatus === "running" ? "RUNNING…" : "RUN"}</button>
+            {bfStatus === "running" && <span className="t-meta">Computing scores…</span>}
+            {bfStatus === "done"    && <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--t-accent)" }}>✓ {bfInserted} rows inserted</span>}
+            {bfStatus === "error"   && <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--t-red)" }}>Error: {bfError}</span>}
+          </div>
+        )}
 
-      <div style={{ fontFamily: "'Inconsolata', monospace", fontSize: 10, color: "var(--text-3)", marginTop: 8 }}>
-        {normalized
-          ? "Normalized: score ÷ per-sector L1 threshold. 1.0× = exactly at threshold. Sectors are directly comparable."
-          : "Raw scores. Dashed line = 0.55 (approximate). Use Normalized view for cross-sector comparison."
-        } Click sectors to toggle visibility.
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+          {sectors.map(s => {
+            const color  = SECTOR_COLORS[s] ?? "var(--t-text-3)";
+            const dashed = !!SECTOR_DASH[s];
+            const hidden = hiddenSectors.has(s);
+            return (
+              <button
+                key={s}
+                onClick={() => toggleSector(s)}
+                style={{
+                  fontFamily: "var(--mono)", fontSize: 10,
+                  padding: "2px 8px", borderRadius: 3, cursor: "pointer",
+                  border: `1px ${dashed ? "dashed" : "solid"} ${color}`,
+                  background: hidden ? "transparent" : `${color}22`,
+                  color: hidden ? "var(--t-text-3)" : color,
+                  opacity: hidden ? 0.45 : 1,
+                }}
+              >{s}</button>
+            );
+          })}
+        </div>
+
+        {loading && (
+          <div className="t-meta" style={{ padding: "24px 0", textAlign: "center" }}>Loading…</div>
+        )}
+        {error && (
+          <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--t-red)", padding: "12px 0" }}>{error}</div>
+        )}
+        {!loading && !error && thinned.length === 0 && (
+          <div className="t-meta" style={{ padding: "24px 0", textAlign: "center" }}>
+            No data yet — builds up after first poll cycle.
+          </div>
+        )}
+
+        {!loading && !error && thinned.length > 0 && (
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={thinned} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+              <XAxis
+                dataKey="timestamp"
+                tickFormatter={ts => formatTick(ts, days)}
+                tick={{ fontFamily: "var(--mono)", fontSize: 10, fill: "var(--t-text-3)" }}
+                axisLine={false} tickLine={false}
+                interval="preserveStartEnd"
+              />
+              <YAxis
+                domain={normalized ? [0.5, 1.5] : [0, 1]}
+                tick={{ fontFamily: "var(--mono)", fontSize: 10, fill: "var(--t-text-3)" }}
+                axisLine={false} tickLine={false}
+                tickFormatter={v => normalized ? `${v.toFixed(1)}×` : v.toFixed(1)}
+              />
+              <Tooltip content={<ChartTooltip />} />
+              <ReferenceLine y={normalized ? 1.0 : 0.55} stroke="var(--t-border)" strokeDasharray="3 3" />
+              {sectors
+                .filter(s => !hiddenSectors.has(s))
+                .map(s => (
+                  <Line
+                    key={s} type="monotone" dataKey={s}
+                    stroke={SECTOR_COLORS[s] ?? "var(--t-text-3)"}
+                    strokeWidth={1.5}
+                    strokeDasharray={SECTOR_DASH[s] ?? undefined}
+                    dot={false} connectNulls
+                  />
+                ))
+              }
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+
+        <div className="t-meta" style={{ marginTop: 8 }}>
+          {normalized
+            ? "Normalized: score ÷ per-sector L1 threshold. 1.0× = at threshold."
+            : "Raw scores. Dashed line = 0.55. Click sectors to toggle."}
+        </div>
       </div>
     </div>
   );
