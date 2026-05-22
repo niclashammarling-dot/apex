@@ -449,6 +449,17 @@ def get_lock1_candidates(threshold: float | None = None,
     Latest signal per ticker filtered by threshold.
     If sector_thresholds provided, each ticker is filtered against its sector's
     calibrated threshold (falling back to `threshold` for uncalibrated sectors).
+
+    NOTE — two-source threshold divergence: this pre-filter uses only the
+    ticker_thresholds DB table (no SECTOR_THRESHOLD_FLOORS). lock2_quant.
+    _sector_threshold() applies SECTOR_THRESHOLD_FLOORS as a floor on top of
+    the DB value. For calibrated sectors the difference is immaterial (DB value
+    ≥ floor by construction). For uncalibrated expansion sectors, `threshold`
+    (the live config fallback, currently 0.65) acts as the pre-filter, which
+    is likely above their eventual calibrated threshold — making this pre-filter
+    over-conservative until calibration runs. Tickers blocked here never reach
+    gate evaluation and produce no gate_history row, so CHECK 38 funnel counts
+    understate true candidate suppression during the calibration lag window.
     """
     from backend.config import LOCK1_THRESHOLD
     fallback = threshold if threshold is not None else LOCK1_THRESHOLD
