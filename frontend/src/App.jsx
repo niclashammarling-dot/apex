@@ -372,14 +372,16 @@ function adaptFunnel(funnel) {
 
 function adaptGateRows(rows) {
   return (rows || []).map(r => ({
-    ts:      new Date(r.timestamp).getTime(),
-    sym:     r.ticker,
-    sector:  SECTOR_META[r.sector]?.code ?? r.sector ?? "",
-    score:   r.signal_score ?? 0,
-    sent:    null,
-    conf:    null,
-    outcome: r.gate_decision ?? "",
-    reason:  r.lock3_reasoning || r.macro_reason || r.l2_summary || r.gate_decision || "",
+    ts:                  new Date(r.timestamp).getTime(),
+    sym:                 r.ticker,
+    sector:              SECTOR_META[r.sector]?.code ?? r.sector ?? "",
+    score:               r.signal_score ?? 0,
+    outcome:             r.gate_decision ?? "",
+    l1_threshold:        r.l1_threshold ?? null,
+    macro_reason:        r.macro_reason ?? null,
+    l2_summary:          r.l2_summary ?? null,
+    lock_leading_checks: r.lock_leading_checks ?? null,
+    lock3_reasoning:     r.lock3_reasoning ?? null,
   }));
 }
 

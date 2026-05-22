@@ -38,10 +38,10 @@ const OUTCOME_LABELS = {
 };
 
 const LEADING_CHECK_LABELS = {
-  relative_strength: "RS",
-  put_call_ratio:    "PC",
-  unusual_calls:     "UC",
-  insider_cluster:   "IN",
+  relative_strength:   "RS",
+  put_call_ratio:      "PC",
+  unusual_calls:       "UC",
+  volume_accumulation: "VA",
 };
 
 function fmtTime(iso) {

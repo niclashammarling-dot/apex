@@ -432,48 +432,169 @@ function Legend({ swatch, label, border }) {
   );
 }
 
+const GATE_OUTCOME = {
+  TRADE_EXECUTED:          { label: "EXECUTED",  cls: "t-gate-x"    },
+  TRADE_REJECTED:          { label: "REJECTED",  cls: "t-gate-filt" },
+  FILTERED_ELIGIBILITY:    { label: "L1 FAIL",   cls: "t-gate-filt" },
+  FILTERED_L1:             { label: "L2 FAIL",   cls: "t-gate-filt" },
+  FILTERED_L2:             { label: "L3 FAIL",   cls: "t-gate-filt" },
+  FILTERED_LEADING:        { label: "L4 FAIL",   cls: "t-gate-filt" },
+  FILTERED_L3:             { label: "L5 FAIL",   cls: "t-gate-filt" },
+  FILTERED_OVERFLOW_QUANT: { label: "OVERFLOW",  cls: "t-gate-skip" },
+  SKIPPED_OPEN:            { label: "HELD",      cls: "t-gate-skip" },
+  SKIPPED_COOLOFF:         { label: "COOLOFF",   cls: "t-gate-skip" },
+};
+
+const GATE_LEADING_LABELS = {
+  relative_strength:   "RS",
+  put_call_ratio:      "PC",
+  unusual_calls:       "UC",
+  volume_accumulation: "VA",
+};
+
+function getGateLockStates(decision) {
+  if (decision === "FILTERED_ELIGIBILITY") return [false, null,  null,  null,  null];
+  if (decision === "FILTERED_L1")          return [true,  false, null,  null,  null];
+  if (decision === "FILTERED_L2")          return [true,  true,  false, null,  null];
+  if (decision === "FILTERED_LEADING")     return [true,  true,  true,  false, null];
+  if (decision === "FILTERED_L3")          return [true,  true,  true,  true,  false];
+  return                                          [true,  true,  true,  true,  true ];
+}
+
 function GateFeed({ D, mode }) {
   const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState({});
   const rows = mode === "live" ? (D.liveGateRows || []) : (D.gateRows || []);
   if (rows.length === 0) return null;
+
+  const grouped = rows.reduce((acc, r) => {
+    const prev = acc[acc.length - 1];
+    if (prev && prev.sym === r.sym && prev.outcome === r.outcome) {
+      prev._count = (prev._count || 1) + 1;
+      prev._lastTs = r.ts;
+    } else {
+      acc.push({ ...r, _count: 1, _lastTs: r.ts });
+    }
+    return acc;
+  }, []);
+
+  const fmtTs = ts => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const lockColor = pass => pass === true ? "var(--t-accent)" : pass === false ? "var(--t-red)" : "var(--t-text-3)";
+  const lockIcon  = pass => pass === true ? "✓" : pass === false ? "✗" : "·";
+
   return (
     <div className="t-card">
       <div className="t-card-head" style={{ cursor: "pointer", userSelect: "none" }} onClick={() => setOpen(v => !v)}>
         <div className="t-card-title">GATE ACTIVITY</div>
         <div className="t-row" style={{ gap: 10 }}>
-          <span className="t-meta">LAST {rows.length} · {mode === "live" ? "LIVE" : "DEMO"}</span>
+          <span className="t-meta">LAST {grouped.length} · {mode === "live" ? "LIVE" : "DEMO"}</span>
           <span className="t-meta">{open ? "▲" : "▼"}</span>
         </div>
       </div>
       {open && (
-        <div className="t-card-body" style={{ padding: 0, maxHeight: 380, overflow: "auto" }}>
+        <div className="t-card-body" style={{ padding: 0, maxHeight: 400, overflow: "auto" }}>
           <table className="t-tbl t-tbl-pad t-tbl-feed">
             <thead>
               <tr>
-                <th>TIME</th><th>SYM</th><th>SEC</th><th>SCORE</th>
-                <th>SENT</th><th>CONF</th><th>OUTCOME</th><th>REASON</th>
+                <th>TIME</th>
+                <th>SYM</th>
+                <th>SCORE</th>
+                <th style={{ textAlign: "center" }}>L1</th>
+                <th style={{ textAlign: "center" }}>L2</th>
+                <th style={{ textAlign: "center" }}>L3</th>
+                <th style={{ textAlign: "center" }}>L4</th>
+                <th style={{ textAlign: "center" }}>L5</th>
+                <th>OUTCOME</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => {
-                const cls2 = r.outcome === "TRADE_EXECUTED" ? "t-gate-x"
-                  : r.outcome.startsWith("SKIPPED") ? "t-gate-skip"
-                  : "t-gate-filt";
-                const time = new Date(r.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-                return (
-                  <tr key={i}>
-                    <td className="t-meta">{time}</td>
-                    <td><strong>{r.sym}</strong></td>
-                    <td className="t-meta">{r.sector}</td>
-                    <td>{(r.score ?? 0).toFixed(2)}</td>
-                    <td className={(r.sent ?? 0) >= 0 ? "t-pos" : "t-neg"}>
-                      {r.sent != null ? `${r.sent >= 0 ? "+" : ""}${r.sent.toFixed(2)}` : "—"}
+              {grouped.map((r, i) => {
+                const outcome   = GATE_OUTCOME[r.outcome] ?? { label: r.outcome, cls: "t-gate-filt" };
+                const isSkipped = r.outcome === "SKIPPED_OPEN" || r.outcome === "SKIPPED_COOLOFF";
+                const locks     = getGateLockStates(r.outcome);
+                const hasDetail = !isSkipped && !!(r.lock3_reasoning || r.lock_leading_checks || r.l2_summary || r.macro_reason);
+                const isExpanded = expanded[i];
+                const time = r._count > 1 ? `${fmtTs(r.ts)}–${fmtTs(r._lastTs)}` : fmtTs(r.ts);
+                const scoreColor = r.l1_threshold == null ? "inherit"
+                  : r.score >= r.l1_threshold + 0.05 ? "var(--t-accent)"
+                  : r.score >= r.l1_threshold          ? "var(--t-amber)"
+                  : "var(--t-red)";
+                return [
+                  <tr
+                    key={i}
+                    style={{ cursor: hasDetail ? "pointer" : "default" }}
+                    onClick={() => hasDetail && setExpanded(e => ({ ...e, [i]: !e[i] }))}
+                  >
+                    <td className="t-meta" style={{ whiteSpace: "nowrap" }}>{time}</td>
+                    <td>
+                      <strong>{r.sym}</strong>
+                      {r._count > 1 && <span className="t-meta" style={{ marginLeft: 4 }}>×{r._count}</span>}
+                      {hasDetail && <span className="t-meta" style={{ marginLeft: 4 }}>{isExpanded ? "▲" : "▼"}</span>}
                     </td>
-                    <td>{r.conf != null ? r.conf.toFixed(2) : "—"}</td>
-                    <td><span className={cls("t-pill", cls2)}>{r.outcome.replace("FILTERED_","L").replace("SKIPPED_","SK·")}</span></td>
-                    <td className="t-meta">{r.reason}</td>
-                  </tr>
-                );
+                    <td style={{ fontFamily: "var(--mono)" }}>
+                      <span style={{ color: scoreColor, fontWeight: 600 }}>{r.score.toFixed(3)}</span>
+                      {r.l1_threshold != null && (
+                        <div style={{ fontSize: 9, color: "var(--t-text-3)" }}>/{r.l1_threshold.toFixed(3)}</div>
+                      )}
+                    </td>
+                    {locks.map((s, li) => (
+                      <td key={li} style={{ textAlign: "center", fontWeight: 700, fontSize: 13, color: isSkipped ? "var(--t-text-3)" : lockColor(s) }}>
+                        {isSkipped ? "·" : lockIcon(s)}
+                      </td>
+                    ))}
+                    <td>
+                      <span className={cls("t-pill", outcome.cls)}>{outcome.label}</span>
+                    </td>
+                  </tr>,
+                  isExpanded && hasDetail && (
+                    <tr key={`${i}-d`}>
+                      <td colSpan={9} style={{
+                        padding: "8px 16px 12px",
+                        background: "color-mix(in oklab, var(--t-bg) 60%, #000)",
+                        borderTop: "1px solid var(--t-border)",
+                        fontSize: 12,
+                        lineHeight: 1.7,
+                        fontFamily: "var(--mono)",
+                      }}>
+                        {r.macro_reason && (
+                          <div style={{ marginBottom: 6 }}>
+                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>L1:</span>
+                            <span style={{ color: "var(--t-text-2)" }}>{r.macro_reason}</span>
+                          </div>
+                        )}
+                        {r.l2_summary && (
+                          <div style={{ marginBottom: 6 }}>
+                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>L3:</span>
+                            <span style={{ color: "var(--t-text-2)" }}>{r.l2_summary}</span>
+                          </div>
+                        )}
+                        {r.lock_leading_checks && (
+                          <div style={{ marginBottom: 6 }}>
+                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>L4:</span>
+                            {Object.entries(GATE_LEADING_LABELS).map(([key, lbl]) => {
+                              const c = r.lock_leading_checks[key];
+                              if (!c) return null;
+                              return (
+                                <span key={key} style={{ marginRight: 12 }}>
+                                  <span style={{ color: c.pass ? "var(--t-accent)" : "var(--t-red)", fontWeight: 600 }}>
+                                    {c.pass ? "✓" : "✗"} {lbl}
+                                  </span>
+                                  {c.reason && <span style={{ color: "var(--t-text-3)", marginLeft: 4 }}>{c.reason}</span>}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {r.lock3_reasoning && (
+                          <div>
+                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>L5:</span>
+                            <span style={{ color: "var(--t-text-2)" }}>{r.lock3_reasoning}</span>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ),
+                ];
               })}
             </tbody>
           </table>
