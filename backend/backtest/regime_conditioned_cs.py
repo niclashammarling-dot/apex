@@ -622,6 +622,20 @@ def main() -> None:
             "Use to evaluate whether a posterior-conditioned threshold is warranted."
         ),
     )
+    parser.add_argument(
+        "--exclude",
+        nargs="+",
+        default=[],
+        metavar="TICKER",
+        help="Exclude one or more tickers from the sector sweep (e.g. --exclude AMZN).",
+    )
+    parser.add_argument(
+        "--floor",
+        type=float,
+        default=None,
+        metavar="FLOAT",
+        help="Override the L1 score floor (default: LOCK1_THRESHOLD=0.70).",
+    )
     args = parser.parse_args()
 
     sector_name = args.sector
@@ -630,8 +644,9 @@ def main() -> None:
         raise ValueError(f"Unknown sector '{sector_name}'. Valid: {list(SECTORS.keys())}")
 
     sector_etf       = SECTORS[sector_name]["etf"]
-    sector_tickers   = SECTORS[sector_name]["tickers"]
-    effective_min    = MATRIX_MIN_SCORE if matrix_mode else L1
+    sector_tickers   = [t for t in SECTORS[sector_name]["tickers"] if t not in args.exclude]
+    l1_floor         = args.floor if args.floor is not None else L1
+    effective_min    = MATRIX_MIN_SCORE if matrix_mode else l1_floor
 
     logger.info(
         f"Regime-conditioned backtest: {sector_name} ({sector_etf})  {START} → {END}"
@@ -700,7 +715,7 @@ def main() -> None:
     print("═" * W)
     print(f"  REGIME-CONDITIONED BACKTEST — {sector_name} ({sector_etf})")
     print(f"  {START} → {END}  |  threshold = {sector_threshold:.4f}"
-          + (f"  (calibrated)  |  sweep floor = {MATRIX_MIN_SCORE}" if matrix_mode else f"  |  L1 = {L1}"))
+          + (f"  (calibrated)  |  sweep floor = {MATRIX_MIN_SCORE}" if matrix_mode else f"  |  L1 = {l1_floor}"))
     print(f"  Signals used: ticker balance, {sector_etf} streak, ETF rank (IPO/RS = neutral)")
     if matrix_mode:
         print(f"  Standard output below uses only trades at score ≥ {sector_threshold:.4f} (above-threshold comparison baseline)")

@@ -37,7 +37,7 @@ EXCLUDED_SECTORS: dict[str, str] = {
 # Minimum Lock 2 signal score floors per sector, applied above the calibrated
 # threshold when calibration landed below a sweep-validated edge threshold.
 SECTOR_THRESHOLD_FLOORS: dict[str, float] = {
-    "ConsumerDisc": 0.75,  # Calibration at 0.70 local minimum; PF 1.64 at 0.75 (2026-05-07 sweep)
+    "ConsumerDisc": 0.75,  # Portfolio sweep floor; isolated sweep (AMZN excluded) at 0.75 → 9 trades (unreadable). Floor unvalidated — stay at global 0.70 until N accumulates. 2026-05-22.
     # Defense: floor removed 2026-05-18. Portfolio sweep PF 2.76 at 0.75 was contaminated.
     # Isolated sweep: 0.75 → 22 trades PF 3.504 (noise; cliff to 0 at 0.80); 0.70 → 80 trades PF 1.692.
     # Per-ticker drag from NOC (0.634) and GD (0.728) at baseline; LMT (6.696) and RTX (2.249) carry it.
@@ -134,7 +134,7 @@ SECTORS = {
     },
     "ConsumerDisc": {
         "etf": "XLY",
-        "tickers": ["AMZN", "TSLA", "NKE", "MCD", "HD"],
+        "tickers": ["TSLA", "NKE", "MCD", "HD"],
     },
     "ConsumerStaples": {
         "etf": "XLP",
