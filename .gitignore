@@ -19,8 +19,15 @@ env/
 
 # Data / database (runtime artefacts)
 data/apex.db
+data/*.db-shm
+data/*.db-wal
+data/*.parquet
 data/backtest_cache/
+backend/data/*.db
 logs/
+
+# WSL metadata
+*:Zone.Identifier
 
 # Node / frontend
 frontend/node_modules/

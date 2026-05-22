@@ -1,5 +1,6 @@
 # APEX Nightly Audit — 2026-05-17
-12 issues: 0 critical, 11 warnings, 1 info
+23 issues: 0 critical, 10 warnings, 2 info
+*(LLM checks 1, 2, 7, 8 appended below by llm_checks.py)*
 
 | Check | Status | Sev | File:line | Finding |
 |-------|--------|-----|-----------|---------|
@@ -20,7 +21,10 @@
 | 25 gate_decision string parity | ✓ | — | — | — |
 | 26 L1/L2 threshold-source parity | ✓ | — | — | — |
 | 28 EXCLUDED_SECTORS gate wiring | ✓ | — | — | — |
+| 37 Promote exclusion integrity | ✓ | — | — | — |
+| 9 Config value drift | ⚠ | INFO | data/*_config.json:— | config commit without per-value note: 4609bb3 fix: SVG dial fixed positions, config reversion guar |
 | 9 Config value drift | ⚠ | INFO | data/*_config.json:— | config commit without per-value note: ace44a5 catchup: frontend redesign, Bayesian sizing, sector  |
+| 13 Undisclosed config change | ⚠ | WARNING | data/demo_config.json:— | max_positions: 5 → 10 (in 4609bb3a: "fix: SVG dial fixed positions, config reversion gu") |
 | 13 Undisclosed config change | ⚠ | WARNING | data/live_config.json:— | max_hold_days: 40 → 25 (in ca6eb606: "fix(config): exclude account-size constants from P") |
 | 13 Undisclosed config change | ⚠ | WARNING | data/live_config.json:— | max_positions: 4 → 8 (in ca6eb606: "fix(config): exclude account-size constants from P") |
 | 13 Undisclosed config change | ⚠ | WARNING | data/live_config.json:— | max_sector_exposure: 0.15 → 0.2 (in ca6eb606: "fix(config): exclude account-size constants from P") |
@@ -36,21 +40,11 @@
 | 27 GICS sector classification parity | ⚠ | WARN | data/tickers.json | O has no GICS entry in the audit map — add it when onboarding new tickers |
 | 27 GICS sector classification parity | ⚠ | WARN | data/tickers.json | VTR has no GICS entry in the audit map — add it when onboarding new tickers |
 | 27 GICS sector classification parity | ⚠ | WARN | data/tickers.json | PSA has no GICS entry in the audit map — add it when onboarding new tickers |
-| 37 Promote exclusion integrity | ⚠ | WARNING | backend/live_config.py | Could not import demo_thresholds for runtime check: No module named 'loguru' |
-
-| check_1 result_dict_sync_hazard | ✓ | — | — | — |
-| check_num check_name | ⚠ | SEV | file:line | one-line description |
-| 2 Exception-catch coverage in tests | ⚠ | WARNING | test_gate_runners.py:— | Tests using side_effect=Exception do not assert DB insert mock call arguments. |
-| 2 Exception-catch coverage in tests | ⚠ | WARNING | test_wallet.py:— | Tests using side_effect=Exception do not assert DB insert mock call arguments. |
-| check_num check_name | ⚠ | SEV | file:line | one-line description |
-| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | `_persist_multiplier_stats` function exists in demo but has no equivalent in live, potentially missing logic for live multiplier stats persistence. |
-| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:100 | `_compute_bayesian_multipliers` function exists in demo but has no equivalent in live, potentially missing logic for live Bayesian multiplier computation. |
-| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:150 | `_log_summary` function in demo and live have identical logic, but potential differences in logging context or format are not covered by principles. |
-| 7 Demo/live gate runner parity | ✓ | — | — | — |
-| check_num check_name | ⚠ | SEV | file:line | one-line description |
-| 8a Bare except blocks | ✓ | — | — | — |
-| 8b TODO/FIXME/HACK comments | ✓ | — | — | — |
-| 8c Inconsistent return types | ⚠ | WARNING | gate_runner.py:65 | Function `_compute_bayesian_multipliers` returns `dict` or `{}` but not `None`, callers should guard against empty dict. |
+| 32 Git sync divergence | ⚠ | WARNING | .git/ | 1 uncommitted file(s) in working tree — changes will be lost or skipped on next nightly run |
+| 36 L4 sub-check pass rates | ⚠ | WARNING | data/apex.db:signals | L4 sub-check 'insider_cluster' passed 0/38 times (0.0%) over 30d — likely dead weight; review base-rate assumption for the APEX universe |
+| 38 Live entry absence-of-activity | ⚠ | WARNING | data/apex.db:live_gate_history | 19 active trading days with no TRADE_EXECUTED (last entry 2026-04-10); avg 23 assessments/day; dominant filters: FILTERED_ELIGIBILITY 82%, FILTERED_LEADING 12% |
+| 40 Config coverage audit | ⚠ | WARNING | backend/demo_config.py:_defaults | "trailing_stop_pct" defaults to None (feature disabled) — acknowledged in _NONE_DEFAULTS_ALLOWED; set a non-None value to enable |
+| 40 Config coverage audit | ⚠ | WARNING | backend/live_config.py:_defaults | "trailing_stop_pct" defaults to None (feature disabled) — acknowledged in _NONE_DEFAULTS_ALLOWED; set a non-None value to enable |
 
 ## Retirement Candidates
 None
