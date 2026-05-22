@@ -811,12 +811,16 @@ def insert_demo_gate_result(row: dict) -> None:
             INSERT INTO demo_gate_history
                 (timestamp, ticker, sector, signal_score,
                  lock1_pass, lock2_pass, lock_leading_pass, lock_leading_checks,
-                 lock3_pass, gate_decision, lock3_reasoning, l2_summary, macro_reason)
+                 lock3_pass, gate_decision, lock3_reasoning, l2_summary,
+                 lock3_sentiment_score, lock3_conviction, macro_reason)
             VALUES
                 (:timestamp, :ticker, :sector, :signal_score,
                  :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
-                 :lock3_pass, :gate_decision, :lock3_reasoning, :l2_summary, :macro_reason)
-        """, row)
+                 :lock3_pass, :gate_decision, :lock3_reasoning, :l2_summary,
+                 :lock3_sentiment_score, :lock3_conviction, :macro_reason)
+        """, {**row,
+              "lock3_sentiment_score": row.get("lock3_sentiment_score"),
+              "lock3_conviction":      row.get("lock3_conviction")})
         conn.commit()
     finally:
         conn.close()
@@ -829,7 +833,7 @@ def get_demo_gate_history(limit: int = 100) -> list[dict]:
             SELECT ticker, sector, timestamp, signal_score,
                    gate_decision, lock1_pass, lock2_pass, lock_leading_pass,
                    lock_leading_checks, lock3_pass, lock3_reasoning,
-                   l2_summary, macro_reason
+                   l2_summary, lock3_sentiment_score, lock3_conviction, macro_reason
             FROM demo_gate_history
             ORDER BY timestamp DESC
             LIMIT ?
@@ -1064,17 +1068,19 @@ def insert_live_gate_result(row: dict) -> int:
               (timestamp, ticker, sector, signal_score,
                lock1_pass, lock2_pass, lock_leading_pass, lock_leading_checks,
                lock3_pass, gate_decision, lock3_reasoning, alpaca_order_id,
-               l2_summary, macro_reason)
+               l2_summary, lock3_sentiment_score, lock3_conviction, macro_reason)
             VALUES
               (:timestamp, :ticker, :sector, :signal_score,
                :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
                :lock3_pass, :gate_decision, :lock3_reasoning, :alpaca_order_id,
-               :l2_summary, :macro_reason)
+               :l2_summary, :lock3_sentiment_score, :lock3_conviction, :macro_reason)
         """, {**row,
-              "lock_leading_pass":   row.get("lock_leading_pass", 0),
-              "lock_leading_checks": row.get("lock_leading_checks"),
-              "l2_summary":          row.get("l2_summary"),
-              "macro_reason":        row.get("macro_reason")})
+              "lock_leading_pass":      row.get("lock_leading_pass", 0),
+              "lock_leading_checks":    row.get("lock_leading_checks"),
+              "l2_summary":             row.get("l2_summary"),
+              "lock3_sentiment_score":  row.get("lock3_sentiment_score"),
+              "lock3_conviction":       row.get("lock3_conviction"),
+              "macro_reason":           row.get("macro_reason")})
         conn.commit()
         return cur.lastrowid
     finally:

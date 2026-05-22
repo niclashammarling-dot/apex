@@ -100,7 +100,7 @@ function GateRowSummary({ row, i, expanded, setExpanded }) {
   const [tip, setTip] = useState(null);
   const meta = OUTCOME_LABELS[row.gate_decision] || { label: row.gate_decision, cls: "gate-fail" };
   const isSkipped  = row.gate_decision === "SKIPPED_OPEN" || row.gate_decision === "SKIPPED_COOLOFF";
-  const hasDetail  = !isSkipped && !!(row.lock3_reasoning || row.lock_leading_checks || row.l2_summary || row.macro_reason);
+  const hasDetail  = !isSkipped && !!(row.lock3_reasoning || row.lock_leading_checks || row.l2_summary || row.lock3_sentiment_score != null || row.macro_reason);
   const isExpanded = expanded[i];
   const ts = row._count > 1
     ? `${fmtTime(row.timestamp)} – ${fmtTime(row._lastTs)}`
@@ -216,7 +216,7 @@ export default function GateFeed({ history, funnel, collapsed, onCollapse }) {
             <tbody>
               {grouped.map((row, i) => {
                 const isSkipped  = row.gate_decision === "SKIPPED_OPEN" || row.gate_decision === "SKIPPED_COOLOFF";
-                const hasDetail  = !isSkipped && !!(row.lock3_reasoning || row.lock_leading_checks || row.l2_summary || row.macro_reason);
+                const hasDetail  = !isSkipped && !!(row.lock3_reasoning || row.lock_leading_checks || row.l2_summary || row.lock3_sentiment_score != null || row.macro_reason);
                 const isExpanded = expanded[i];
                 const checks     = row.lock_leading_checks;
                 return (
@@ -237,10 +237,27 @@ export default function GateFeed({ history, funnel, collapsed, onCollapse }) {
                               <span style={{ color: "var(--text-2)" }}>{row.macro_reason}</span>
                             </div>
                           )}
-                          {row.l2_summary && (
+                          {(row.l2_summary || row.lock3_sentiment_score != null) && (
                             <div style={{ marginBottom: checks || row.lock3_reasoning ? 8 : 0 }}>
                               <span style={{ color: "var(--text-3)", marginRight: 8 }}>L3 (Sentiment):</span>
-                              <span style={{ color: "var(--text-2)" }}>{row.l2_summary}</span>
+                              {row.lock3_sentiment_score != null && (
+                                <span style={{ fontFamily: "'Inconsolata', monospace", marginRight: 12 }}>
+                                  <span style={{
+                                    color: row.lock3_sentiment_score > 0.1 ? "var(--green)" : row.lock3_sentiment_score < -0.1 ? "var(--red)" : "var(--text-3)",
+                                    fontWeight: 600,
+                                  }}>
+                                    {row.lock3_sentiment_score > 0 ? "+" : ""}{row.lock3_sentiment_score.toFixed(2)}
+                                  </span>
+                                  {row.lock3_conviction && (
+                                    <span style={{ color: "var(--text-3)", marginLeft: 6, fontSize: 11 }}>
+                                      {row.lock3_conviction}
+                                    </span>
+                                  )}
+                                </span>
+                              )}
+                              {row.l2_summary && (
+                                <span style={{ color: "var(--text-2)" }}>{row.l2_summary}</span>
+                              )}
                             </div>
                           )}
                           {checks && (

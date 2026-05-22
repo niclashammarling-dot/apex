@@ -291,20 +291,22 @@ def run() -> list[dict]:
                             result["outcome"] = "TRADE_FAILED"
 
         insert_live_gate_result({
-            "timestamp":           result["timestamp"],
-            "ticker":              ticker,
-            "sector":              signal["sector"],
-            "signal_score":        signal["signal_score"],
-            "lock1_pass":          result["lock1_pass"],
-            "lock2_pass":          result["lock2_pass"],
-            "lock_leading_pass":   result.get("lock_leading_pass", 0),
-            "lock_leading_checks": result.get("lock_leading_checks"),
-            "lock3_pass":          result["lock3_pass"],
-            "gate_decision":       result["outcome"],  # use final outcome — gate_decision is set early and not updated on TRADE_FAILED/REJECTED
-            "lock3_reasoning":     result.get("claude_reasoning"),
-            "alpaca_order_id":     order_id,
-            "l2_summary":          result.get("l2_summary"),
-            "macro_reason":        result.get("macro_reason"),
+            "timestamp":              result["timestamp"],
+            "ticker":                 ticker,
+            "sector":                 signal["sector"],
+            "signal_score":           signal["signal_score"],
+            "lock1_pass":             result["lock1_pass"],
+            "lock2_pass":             result["lock2_pass"],
+            "lock_leading_pass":      result.get("lock_leading_pass", 0),
+            "lock_leading_checks":    result.get("lock_leading_checks"),
+            "lock3_pass":             result["lock3_pass"],
+            "gate_decision":          result["outcome"],  # use final outcome — gate_decision is set early and not updated on TRADE_FAILED/REJECTED
+            "lock3_reasoning":        result.get("claude_reasoning"),
+            "alpaca_order_id":        order_id,
+            "l2_summary":             result.get("l2_summary"),
+            "lock3_sentiment_score":  result.get("lock3_sentiment_score"),
+            "lock3_conviction":       result.get("lock3_conviction"),
+            "macro_reason":           result.get("macro_reason"),
         })
 
         _log_summary(ticker, result)

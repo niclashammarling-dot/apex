@@ -212,19 +212,21 @@ def run() -> list[dict]:
         results.append(result)
         update_signal_gate(signal["id"], result)
         insert_demo_gate_result({
-            "timestamp":           result["timestamp"],
-            "ticker":              ticker,
-            "sector":              signal.get("sector", ""),
-            "signal_score":        signal["signal_score"],
-            "lock1_pass":          result["lock1_pass"],
-            "lock2_pass":          result["lock2_pass"],
-            "lock_leading_pass":   result.get("lock_leading_pass", 0),
-            "lock_leading_checks": result.get("lock_leading_checks"),
-            "lock3_pass":          result["lock3_pass"],
-            "gate_decision":       result["gate_decision"],
-            "lock3_reasoning":     result.get("claude_reasoning"),
-            "l2_summary":          result.get("l2_summary"),
-            "macro_reason":        result.get("macro_reason"),
+            "timestamp":              result["timestamp"],
+            "ticker":                 ticker,
+            "sector":                 signal.get("sector", ""),
+            "signal_score":           signal["signal_score"],
+            "lock1_pass":             result["lock1_pass"],
+            "lock2_pass":             result["lock2_pass"],
+            "lock_leading_pass":      result.get("lock_leading_pass", 0),
+            "lock_leading_checks":    result.get("lock_leading_checks"),
+            "lock3_pass":             result["lock3_pass"],
+            "gate_decision":          result["gate_decision"],
+            "lock3_reasoning":        result.get("claude_reasoning"),
+            "l2_summary":             result.get("l2_summary"),
+            "lock3_sentiment_score":  result.get("lock3_sentiment_score"),
+            "lock3_conviction":       result.get("lock3_conviction"),
+            "macro_reason":           result.get("macro_reason"),
         })
         _log_summary(ticker, result)
 
@@ -406,9 +408,11 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
         "gate_decision":       outcome if outcome != "TRADE_QUEUED" else "TRADE_EXECUTED",
         "claude_confidence":   l5_data.get("confidence"),
         "claude_reasoning":    l5_data.get("reasoning"),
-        "sentiment_score":     l3_data.get("score"),
-        "l2_summary":          l3_data.get("summary"),
-        "macro_reason":        l1.reason if (l1 and not l1.passed) else None,
+        "sentiment_score":        l3_data.get("score"),
+        "l2_summary":             l3_data.get("summary"),
+        "lock3_sentiment_score":  l3_data.get("score"),
+        "lock3_conviction":       l3_data.get("conviction"),
+        "macro_reason":           l1.reason if (l1 and not l1.passed) else None,
     }
 
 

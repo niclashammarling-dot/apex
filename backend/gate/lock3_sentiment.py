@@ -1,17 +1,13 @@
 """
 gate/lock3_sentiment.py — Lock 3: Sentiment
 
-Renamed and upgraded from gate/lock2_sentiment.py.
-Logic is identical — return type upgraded from plain dict to LockResult.
+Claude synthesizes quantitative signals (analyst consensus, short interest,
+recent analyst actions, news) fetched from yfinance into a sentiment score.
 
-Grok synthesizes quantitative signals (analyst consensus, short interest,
-recent analyst actions, news) fetched from yfinance, then supplements with
-a live X/web search for breaking catalysts.
-
-Fail-closed: if Grok is unreachable after retries, the lock fails.
+Fail-closed: if Claude is unreachable after retries, the lock fails.
 Cache TTL: GROK_CACHE_TTL minutes per ticker (config.py).
 Circuit breaker: after 3 consecutive API failures the circuit opens for
-  5 minutes, causing all subsequent calls to fail-fast without hitting the
+  25 minutes, causing all subsequent calls to fail-fast without hitting the
   network. Resets automatically once the cooldown expires.
 
 Public API:
@@ -25,19 +21,18 @@ import threading
 import time
 from datetime import datetime, timezone
 
-import httpx
+import anthropic
 from loguru import logger
 
-from backend.config import GROK_CACHE_TTL, LOCK2_SENTIMENT_MIN, XAI_API_KEY
+from backend.config import ANTHROPIC_API_KEY, GROK_CACHE_TTL, LOCK2_SENTIMENT_MIN
 from backend.data.fetcher_sentiment import fetch_market_signals
 from backend.gate.types import LockResult
 from backend.sentiment.sentiment_prefetch import (
     get_combined_content as get_prefetch_content,
 )
 
-LOCK_ID    = 3
-GROK_URL   = "https://api.x.ai/v1/chat/completions"
-GROK_MODEL = "grok-3"
+LOCK_ID       = 3
+CLAUDE_MODEL  = "claude-haiku-4-5-20251001"
 
 RETRY_WAITS = [5, 15, 30]
 
@@ -46,7 +41,7 @@ _cache: dict[str, dict] = {}
 
 # ── Circuit breaker ───────────────────────────────────────────────────────────
 _CB_THRESHOLD  = 3
-_CB_COOLDOWN   = 300
+_CB_COOLDOWN   = 1500   # 25 min — longer than 20-min gate interval so failed runs fail-fast
 _cb_failures   = 0
 _cb_open_until = 0.0
 _cb_lock       = threading.Lock()
@@ -78,7 +73,7 @@ def _record_failure() -> None:
         if _cb_failures >= _CB_THRESHOLD:
             _cb_open_until = time.time() + _CB_COOLDOWN
             logger.warning(
-                f"Lock 3 circuit breaker OPEN — Grok API unreachable after "
+                f"Lock 3 circuit breaker OPEN — Claude API unreachable after "
                 f"{_cb_failures} failures. Cooling down for {_CB_COOLDOWN}s."
             )
 
@@ -159,11 +154,9 @@ def _build_prompt(ticker: str, signals: dict, rss_headlines: list[str], prefetch
     if prefetch:
         blocks.append(f"PRE-FETCHED COMMUNITY & NEWS CONTENT:\n{prefetch}")
 
-    # ── Grok instruction ──────────────────────────────────────────────────────
+    # ── Claude instruction ────────────────────────────────────────────────────
     blocks.append(
-        "Also search X/Twitter and live web for any breaking news, unusual social "
-        "activity, or material catalysts about this ticker not captured above.\n\n"
-        "Synthesize all signals — analyst positioning, market structure, and social — "
+        "Synthesize all signals — analyst positioning, market structure, and recent news — "
         "into a sentiment assessment. "
         "Return a JSON object with exactly these keys:\n"
         "{\n"
@@ -181,40 +174,39 @@ def _build_prompt(ticker: str, signals: dict, rss_headlines: list[str], prefetch
     return "\n\n".join(blocks)
 
 
-def _call_grok(ticker: str, signals: dict, rss_headlines: list[str], prefetch: str = "") -> dict | None:
-    if not XAI_API_KEY:
-        logger.warning("Lock 3: XAI_API_KEY not set — failing closed")
+def _call_claude(ticker: str, signals: dict, rss_headlines: list[str], prefetch: str = "") -> dict | None:
+    if not ANTHROPIC_API_KEY:
+        logger.warning("Lock 3: ANTHROPIC_API_KEY not set — failing closed")
         return None
 
     if _circuit_open():
         logger.warning(f"Lock 3 [{ticker}]: circuit breaker open — failing fast")
         return None
 
-    payload = {
-        "model":           GROK_MODEL,
-        "messages":        [{"role": "user", "content": _build_prompt(ticker, signals, rss_headlines, prefetch)}],
-        "response_format": {"type": "json_object"},
-        "temperature":     0.1,
-    }
-    headers = {
-        "Authorization": f"Bearer {XAI_API_KEY}",
-        "Content-Type":  "application/json",
-    }
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    prompt = _build_prompt(ticker, signals, rss_headlines, prefetch)
 
     for attempt, wait in enumerate(RETRY_WAITS, start=1):
         try:
-            resp    = httpx.post(GROK_URL, headers=headers, json=payload, timeout=20)
-            resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"]
+            msg     = client.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=512,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            content = msg.content[0].text.strip()
+            if content.startswith("```"):
+                # strip markdown code fence
+                lines   = content.split("\n")
+                content = "\n".join(l for l in lines if not l.startswith("```")).strip()
             result  = json.loads(content)
             _record_success()
             return result
 
-        except httpx.HTTPStatusError as e:
-            logger.warning(f"Lock 3 [{ticker}] attempt {attempt}: HTTP {e.response.status_code}")
-        except httpx.RequestError as e:
+        except anthropic.APIStatusError as e:
+            logger.warning(f"Lock 3 [{ticker}] attempt {attempt}: HTTP {e.status_code}")
+        except anthropic.APIConnectionError as e:
             logger.warning(f"Lock 3 [{ticker}] attempt {attempt}: connection error — {e}")
-        except (json.JSONDecodeError, KeyError) as e:
+        except (json.JSONDecodeError, KeyError, IndexError) as e:
             logger.warning(f"Lock 3 [{ticker}] attempt {attempt}: bad response — {e}")
 
         if attempt < len(RETRY_WAITS):
@@ -233,7 +225,7 @@ def evaluate(ticker: str, sentiment_min: float | None = None) -> LockResult:
     Evaluate sentiment for a ticker.
 
     Collects quantitative signals (analyst, short interest, news) from yfinance,
-    then asks Grok to synthesize them alongside a live X/web search.
+    then asks Claude to synthesize them into a sentiment score.
 
     Pass condition: score > sentiment_min AND conviction != "low".
 
@@ -252,7 +244,7 @@ def evaluate(ticker: str, sentiment_min: float | None = None) -> LockResult:
     cached = _cache.get(ticker)
     if cached and now < cached["expires_at"]:
         logger.debug(f"Lock 3 [{ticker}]: cache hit")
-        grok = cached["result"]
+        response = cached["result"]
     else:
         signals       = fetch_market_signals(ticker)
         rss_headlines = _fetch_rss(ticker)
@@ -264,17 +256,17 @@ def evaluate(ticker: str, sentiment_min: float | None = None) -> LockResult:
             f"analyst={signals.get('analyst_label')}, "
             f"short={signals.get('short_pct_float')}"
         )
-        grok = _call_grok(ticker, signals, rss_headlines, prefetch)
-        if grok:
+        response = _call_claude(ticker, signals, rss_headlines, prefetch)
+        if response:
             _cache[ticker] = {
                 "expires_at": now + GROK_CACHE_TTL * 60,
-                "result":     grok,
+                "result":     response,
             }
 
-    if grok is None:
+    if response is None:
         return LockResult.fail(
             lock_id=LOCK_ID,
-            reason="Grok API unavailable — failing closed",
+            reason="Claude API unavailable — failing closed",
             data={
                 "score":      None,
                 "conviction": None,
@@ -283,8 +275,8 @@ def evaluate(ticker: str, sentiment_min: float | None = None) -> LockResult:
             },
         )
 
-    score      = float(grok.get("score", 0.0))
-    conviction = grok.get("conviction", "low")
+    score      = float(response.get("score", 0.0))
+    conviction = response.get("conviction", "low")
     passed     = score > effective_min and conviction != "low"
 
     reason = "pass" if passed else (
@@ -294,10 +286,10 @@ def evaluate(ticker: str, sentiment_min: float | None = None) -> LockResult:
 
     data = {
         "score":      score,
-        "sentiment":  grok.get("sentiment"),
+        "sentiment":  response.get("sentiment"),
         "conviction": conviction,
-        "key_themes": grok.get("key_themes", []),
-        "summary":    grok.get("summary"),
+        "key_themes": response.get("key_themes", []),
+        "summary":    response.get("summary"),
     }
 
     if not passed:
