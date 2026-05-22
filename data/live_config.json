@@ -14,9 +14,9 @@
   "max_hold_days": 25,
   "vix_threshold": 30,
   "macro_event_blackout_days": 1,
-  "macro_earnings_blackout_days": 3,
+  "macro_earnings_blackout_days": 2,
   "gate_cooloff_hours": 4,
-  "max_sector_exposure": 0.2,
+  "max_sector_exposure": 0.3,
   "lock_leading_min_pass": 2,
   "starting_balance": 100000,
   "max_drawdown_pct": 0.2
