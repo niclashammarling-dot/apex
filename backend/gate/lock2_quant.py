@@ -97,8 +97,18 @@ def _sector_threshold(sector: str) -> float:
     try:
         from backend.db import get_ticker_thresholds
         thresholds = get_ticker_thresholds()
+        if not thresholds:
+            logger.warning(
+                f"Lock 2 [{sector}]: get_ticker_thresholds() returned empty — "
+                f"falling back to LOCK1_THRESHOLD {LOCK1_THRESHOLD}. "
+                "Calibration race or DB read failure."
+            )
         base = float(thresholds.get(sector, LOCK1_THRESHOLD))
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            f"Lock 2 [{sector}]: get_ticker_thresholds() raised {exc!r} — "
+            f"falling back to LOCK1_THRESHOLD {LOCK1_THRESHOLD}."
+        )
         base = float(LOCK1_THRESHOLD)
     floor = SECTOR_THRESHOLD_FLOORS.get(sector)
     return max(base, floor) if floor is not None else base
