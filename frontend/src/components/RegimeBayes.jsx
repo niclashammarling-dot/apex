@@ -8,6 +8,7 @@ const EXCLUDED_SECTORS = new Set(["Financials", "ConsumerStaples", "Utilities"])
 const ACTIVE_SECTORS = [
   "Technology","Healthcare","Energy","Industrials","ConsumerDisc",
   "Communication","Materials","RealEstate","Semiconductors","Defense",
+  "Homebuilders","Transportation",
 ];
 
 const RANK_COLORS = ["var(--t-accent)", "#bcbcbb", "#a0a0a0", "#686868", "#686868"];

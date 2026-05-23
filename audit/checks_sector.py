@@ -1,8 +1,8 @@
 """
-Sector-domain mechanical checks — CHECKs 5, 27, 36, 41, 42.
+Sector-domain mechanical checks — CHECKs 5, 27, 36, 41, 42, 43.
 
 Covers: sector name string consistency, GICS classification parity,
-L4 sub-check pass rates, and new-sector integrity for all expansion sectors.
+L4 sub-check pass rates, new-sector integrity, and sector addition completeness.
 """
 import json
 import re
@@ -286,9 +286,96 @@ def check42():
                  f'"{sector}" found in EXCLUDED_SECTORS — sweep-validated sector blocked at L1')
 
 
+# ── CHECK 43 — Sector addition completeness ───────────────────────────────────
+
+def check43():
+    """
+    Verify that every sector added to config.SECTORS is fully wired into all
+    dependent systems. Two sub-checks:
+
+      A. Company names — every ticker in config.SECTORS has an entry in
+         frontend/src/companyNames.js. Missing names silently show blank/ticker-only
+         labels in the sector grid, trade log, watchlist, and positions views.
+
+      B. Regime classification — every sector in config.SECTORS appears in either
+         CYCLICAL or DEFENSIVE in backend/sector_regime.py. Unclassified sectors get
+         regime_alignment=0.1 (worst possible rotation score) in all market conditions
+         and are excluded from cyclical/defensive avg in regime detection.
+
+    Prevented by: 2026-05-23 incident where Homebuilders and Transportation were added
+    to SECTORS and the frontend grid but missed companyNames.js and CYCLICAL, causing
+    blank company labels and permanent regime_alignment=0.1 for both sectors.
+    """
+    import ast
+
+    # ── Sub-check A: company names ─────────────────────────────────────────────
+    config_path = REPO / "backend/config.py"
+    names_path  = REPO / "frontend/src/companyNames.js"
+
+    config_text = config_path.read_text()
+    # Extract SECTORS block — find the dict literal
+    sectors_match = re.search(r'SECTORS\s*=\s*\{', config_text)
+    if sectors_match:
+        # Collect all tickers from "tickers": [...] lines within SECTORS
+        tickers_in_sectors = set(re.findall(r'"([A-Z]{1,5})"', config_text[sectors_match.start():]))
+        # Remove sector names and ETF-looking values — keep only ticker-like uppercase strings
+        # Heuristic: ETFs are 2-4 chars; tickers can be 1-5 chars. We rely on the GICS map
+        # in check27 for sector assignment; here we just need all quoted uppercase strings
+        # that are actual tickers (not sector names or ETFs). Pull from tickers: arrays only.
+        tickers_in_sectors = set()
+        for m in re.finditer(r'"tickers"\s*:\s*\[([^\]]+)\]', config_text):
+            tickers_in_sectors.update(re.findall(r'"([A-Z]{1,5})"', m.group(1)))
+    else:
+        tickers_in_sectors = set()
+
+    if names_path.exists():
+        names_text = names_path.read_text()
+        for ticker in sorted(tickers_in_sectors):
+            if f"{ticker}:" not in names_text:
+                flag(43, "Sector addition completeness", "WARNING",
+                     "frontend/src/companyNames.js",
+                     f'ticker {ticker} has no company name entry — blank label in grid, trade log, and positions views')
+
+    # ── Sub-check B: regime classification ────────────────────────────────────
+    regime_path = REPO / "backend/sector_regime.py"
+    regime_text = regime_path.read_text()
+
+    cyclical_match  = re.search(r'CYCLICAL\s*=\s*\{([^}]+)\}',  regime_text)
+    defensive_match = re.search(r'DEFENSIVE\s*=\s*\{([^}]+)\}', regime_text)
+    cyclical  = set(re.findall(r'"([^"]+)"', cyclical_match.group(1)))  if cyclical_match  else set()
+    defensive = set(re.findall(r'"([^"]+)"', defensive_match.group(1))) if defensive_match else set()
+    classified = cyclical | defensive
+
+    # Extract sector names from the SECTORS = { ... } block only
+    # Slice from "SECTORS = {" to the matching closing brace (first "}" at column 0)
+    sectors_start = config_text.find("SECTORS = {")
+    sectors_block = ""
+    if sectors_start >= 0:
+        depth = 0
+        for i, ch in enumerate(config_text[sectors_start:], sectors_start):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    sectors_block = config_text[sectors_start:i + 1]
+                    break
+    sector_names = set(re.findall(r'^\s+"([A-Za-z]+)"\s*:', sectors_block, re.MULTILINE))
+    # SECTORS top-level keys are TitleCase words; inner keys are "etf" and "tickers" (lowercase)
+    sector_names = {s for s in sector_names if s[0].isupper()}
+
+    for sector in sorted(sector_names):
+        if sector not in classified:
+            flag(43, "Sector addition completeness", "CRITICAL",
+                 "backend/sector_regime.py",
+                 f'sector "{sector}" not in CYCLICAL or DEFENSIVE — regime_alignment=0.1 '
+                 f'in all non-neutral regimes; excluded from cyclical/defensive avg')
+
+
 def run() -> None:
     check5()
     check27()
     check36()
     check41()
     check42()
+    check43()

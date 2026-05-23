@@ -14,4 +14,6 @@ export const COMPANY_NAMES = {
   DLR: "Digital Realty", O: "Realty Income", VTR: "Ventas", PSA: "Public Storage",
   ASML: "ASML", AMAT: "Appl. Materials", LRCX: "Lam Research", KLAC: "KLA Corp", MU: "Micron",
   LMT: "Lockheed Martin", RTX: "RTX", NOC: "Northrop Grumman", GD: "General Dynamics", HII: "HII",
+  DHI: "D.R. Horton", LEN: "Lennar", PHM: "PulteGroup", TOL: "Toll Brothers", NVR: "NVR",
+  UNP: "Union Pacific", CSX: "CSX", FDX: "FedEx", UPS: "UPS", JBHT: "J.B. Hunt",
 };

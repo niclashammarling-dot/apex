@@ -10,7 +10,7 @@ Domain modules:
   checks_config  — CHECKs 4, 9, 11, 13, 21, 37, 40  (config parity, drift, coverage)
   checks_gate    — CHECKs 24, 25, 26, 28, 29, 38      (wiring, strings, silence)
   checks_data    — CHECKs 14, 15, 17, 22, 33, 35, 39  (DB state, freshness, peak price)
-  checks_sector  — CHECKs 5, 27, 36, 41, 42           (GICS, sub-check rates, expansion)
+  checks_sector  — CHECKs 5, 27, 36, 41, 42, 43        (GICS, sub-check rates, expansion, addition completeness)
   checks_code    — CHECKs 3, 6, 10, 12, 16, 30, 31    (broker, tests, yfinance, wiring)
   (CHECK 32 git sync lives directly here — it needs subprocess and is orchestrator-level)
 """

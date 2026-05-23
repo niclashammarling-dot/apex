@@ -18,7 +18,8 @@ from collections import defaultdict
 
 # Sector classification for regime detection
 CYCLICAL  = {"Technology", "Financials", "Industrials", "ConsumerDisc",
-             "Energy", "Materials", "Communication", "Semiconductors", "Defense"}
+             "Energy", "Materials", "Communication", "Semiconductors", "Defense",
+             "Homebuilders", "Transportation"}
 DEFENSIVE = {"Utilities", "Healthcare", "ConsumerStaples", "RealEstate"}
 
 # Sector-level threshold — lower than individual ticker L1 (0.55) because
