@@ -40,6 +40,7 @@ def _build_sector_etf() -> dict[str, str]:
         from backend.ticker_config import get_sectors
         return {s: cfg["etf"] for s, cfg in get_sectors().items()}
     except Exception:
+        logger.warning("lock4_leading: ticker_config load failed — using hardcoded fallback ETF map")
         return {
             "Technology":      "XLK",
             "Energy":          "XLE",
@@ -54,6 +55,8 @@ def _build_sector_etf() -> dict[str, str]:
             "Communication":   "XLC",
             "Semiconductors":  "SOXX",
             "Defense":         "ITA",
+            "Homebuilders":    "ITB",
+            "Transportation":  "IYT",
         }
 
 

@@ -170,6 +170,8 @@ const SECTOR_META = {
   RealEstate:      { code: "REIT",  etf: "XLRE", displayName: "Real Estate",    excluded: false },
   Semiconductors:  { code: "SEMI",  etf: "SOXX", displayName: "Semiconductors", excluded: false },
   Defense:         { code: "DEF",   etf: "ITA",  displayName: "Defense",        excluded: false },
+  Homebuilders:    { code: "HOME",  etf: "ITB",  displayName: "Homebuilders",   excluded: false },
+  Transportation:  { code: "TRAN",  etf: "IYT",  displayName: "Transportation", excluded: false },
 };
 
 const EXCLUDED_CODES = new Set(
