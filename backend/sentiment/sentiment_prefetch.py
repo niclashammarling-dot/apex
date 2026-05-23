@@ -5,11 +5,11 @@ Runs once at market open via scheduler. Queries the watchlist table for all
 active tickers, fetches Reddit posts and expanded RSS content for each,
 and writes to the sentiment_cache table in apex.db.
 
-Lock 2 reads from this cache during the trading day, combining cached content
-with fresh X posts (via Grok native) before scoring sentiment 0-1.
+Lock 3 reads from this cache during the trading day. The cached Reddit/RSS
+content supplements Grok's native X/Twitter search — Grok receives both.
 
-If cache is missing for a ticker (new watchlist addition mid-day), Lock 2
-falls back gracefully to X-only scoring.
+If cache is missing for a ticker (new watchlist addition mid-day), Lock 3
+falls back gracefully to Grok's live X/web search only.
 
 Pipeline:
   1. Query watchlist table for active tickers
@@ -92,7 +92,7 @@ REQUEST_TIMEOUT  = 10
 REQUEST_DELAY    = 0.2    # seconds between requests — polite crawling
 MAX_RSS_CHARS    = 3000   # max chars per RSS feed before truncation
 MAX_REDDIT_CHARS = 4000   # max chars from Reddit per ticker
-MAX_TOTAL_CHARS  = 15000  # max total raw content passed to Grok per ticker
+MAX_TOTAL_CHARS  = 15000  # max total pre-fetched content passed to Grok per ticker
 
 # Reddit search settings
 REDDIT_RESULTS = 10     # number of Reddit posts to fetch per ticker
@@ -362,8 +362,8 @@ def run() -> dict:
 def get_combined_content(ticker: str) -> str:
     """
     Return cached Reddit + RSS content for a ticker as a single string,
-    ready to include in the Grok prompt.
-    Returns empty string if no cache exists — Lock 2 falls back gracefully.
+    ready to include in the Grok prompt as pre-fetched context.
+    Returns empty string if no cache exists — Lock 3 falls back to Grok's live search only.
     """
     try:
         conn = get_db()

@@ -1,10 +1,11 @@
 """
 gate/lock3_sentiment.py — Lock 3: Sentiment
 
-Claude synthesizes quantitative signals (analyst consensus, short interest,
-recent analyst actions, news) fetched from yfinance into a sentiment score.
+Grok synthesizes quantitative signals (analyst consensus, short interest,
+recent analyst actions, news) fetched from yfinance, pre-fetched Reddit/RSS
+content, and a live X/Twitter search for breaking catalysts.
 
-Fail-closed: if Claude is unreachable after retries, the lock fails.
+Fail-closed: if Grok is unreachable after retries, the lock fails.
 Cache TTL: GROK_CACHE_TTL minutes per ticker (config.py).
 Circuit breaker: after 3 consecutive API failures the circuit opens for
   25 minutes, causing all subsequent calls to fail-fast without hitting the
@@ -21,18 +22,19 @@ import threading
 import time
 from datetime import datetime, timezone
 
-import anthropic
+import httpx
 from loguru import logger
 
-from backend.config import ANTHROPIC_API_KEY, GROK_CACHE_TTL, LOCK2_SENTIMENT_MIN
+from backend.config import GROK_CACHE_TTL, LOCK2_SENTIMENT_MIN, XAI_API_KEY
 from backend.data.fetcher_sentiment import fetch_market_signals
 from backend.gate.types import LockResult
 from backend.sentiment.sentiment_prefetch import (
     get_combined_content as get_prefetch_content,
 )
 
-LOCK_ID       = 3
-CLAUDE_MODEL  = "claude-haiku-4-5-20251001"
+LOCK_ID    = 3
+GROK_URL   = "https://api.x.ai/v1/chat/completions"
+GROK_MODEL = "grok-3"
 
 RETRY_WAITS = [5, 15, 30]
 
@@ -41,7 +43,7 @@ _cache: dict[str, dict] = {}
 
 # ── Circuit breaker ───────────────────────────────────────────────────────────
 _CB_THRESHOLD  = 3
-_CB_COOLDOWN   = 1500   # 25 min — longer than 20-min gate interval so failed runs fail-fast
+_CB_COOLDOWN   = 1500   # 25 min — must exceed the 20-min gate interval; 300s was the original bug
 _cb_failures   = 0
 _cb_open_until = 0.0
 _cb_lock       = threading.Lock()
@@ -73,7 +75,7 @@ def _record_failure() -> None:
         if _cb_failures >= _CB_THRESHOLD:
             _cb_open_until = time.time() + _CB_COOLDOWN
             logger.warning(
-                f"Lock 3 circuit breaker OPEN — Claude API unreachable after "
+                f"Lock 3 circuit breaker OPEN — Grok API unreachable after "
                 f"{_cb_failures} failures. Cooling down for {_CB_COOLDOWN}s."
             )
 
@@ -154,10 +156,13 @@ def _build_prompt(ticker: str, signals: dict, rss_headlines: list[str], prefetch
     if prefetch:
         blocks.append(f"PRE-FETCHED COMMUNITY & NEWS CONTENT:\n{prefetch}")
 
-    # ── Claude instruction ────────────────────────────────────────────────────
+    # ── Grok instruction ──────────────────────────────────────────────────────
     blocks.append(
-        "Synthesize all signals — analyst positioning, market structure, and recent news — "
-        "into a sentiment assessment. "
+        "Also search X/Twitter and live web for any breaking news, unusual social "
+        "activity, or material catalysts about this ticker not captured above.\n\n"
+        "Synthesize all signals — analyst positioning, market structure, pre-fetched "
+        "Reddit/RSS content (above), and your live X/Twitter search — into a sentiment "
+        "assessment. "
         "Return a JSON object with exactly these keys:\n"
         "{\n"
         '  "sentiment": "positive" | "neutral" | "negative",\n'
@@ -166,47 +171,51 @@ def _build_prompt(ticker: str, signals: dict, rss_headlines: list[str], prefetch
         '  "key_themes": [list of 3 short strings],\n'
         '  "summary": "one sentence"\n'
         "}\n"
-        "conviction = how aligned and consistent are the signals across all sources. "
-        "high = strong multi-source agreement. low = mixed, divergent, or very thin signal. "
+        "conviction = cross-source alignment: assess whether analyst data, Reddit/RSS "
+        "(pre-fetched above), and X/Twitter are pointing in the same direction. "
+        "high = strong agreement across multiple independent sources. "
+        "medium = partial alignment or one source diverges. "
+        "low = conflicting signals, source-limited data, or X/Twitter contradicts analyst consensus. "
         "Only return the JSON. No preamble."
     )
 
     return "\n\n".join(blocks)
 
 
-def _call_claude(ticker: str, signals: dict, rss_headlines: list[str], prefetch: str = "") -> dict | None:
-    if not ANTHROPIC_API_KEY:
-        logger.warning("Lock 3: ANTHROPIC_API_KEY not set — failing closed")
+def _call_grok(ticker: str, signals: dict, rss_headlines: list[str], prefetch: str = "") -> dict | None:
+    if not XAI_API_KEY:
+        logger.warning("Lock 3: XAI_API_KEY not set — failing closed")
         return None
 
     if _circuit_open():
         logger.warning(f"Lock 3 [{ticker}]: circuit breaker open — failing fast")
         return None
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    prompt = _build_prompt(ticker, signals, rss_headlines, prefetch)
+    payload = {
+        "model":           GROK_MODEL,
+        "messages":        [{"role": "user", "content": _build_prompt(ticker, signals, rss_headlines, prefetch)}],
+        "response_format": {"type": "json_object"},
+        "temperature":     0.1,
+    }
+    headers = {
+        "Authorization": f"Bearer {XAI_API_KEY}",
+        "Content-Type":  "application/json",
+    }
 
     for attempt, wait in enumerate(RETRY_WAITS, start=1):
         try:
-            msg     = client.messages.create(
-                model=CLAUDE_MODEL,
-                max_tokens=512,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            content = msg.content[0].text.strip()
-            if content.startswith("```"):
-                # strip markdown code fence
-                lines   = content.split("\n")
-                content = "\n".join(l for l in lines if not l.startswith("```")).strip()
+            resp    = httpx.post(GROK_URL, headers=headers, json=payload, timeout=20)
+            resp.raise_for_status()
+            content = resp.json()["choices"][0]["message"]["content"]
             result  = json.loads(content)
             _record_success()
             return result
 
-        except anthropic.APIStatusError as e:
-            logger.warning(f"Lock 3 [{ticker}] attempt {attempt}: HTTP {e.status_code}")
-        except anthropic.APIConnectionError as e:
+        except httpx.HTTPStatusError as e:
+            logger.warning(f"Lock 3 [{ticker}] attempt {attempt}: HTTP {e.response.status_code}")
+        except httpx.RequestError as e:
             logger.warning(f"Lock 3 [{ticker}] attempt {attempt}: connection error — {e}")
-        except (json.JSONDecodeError, KeyError, IndexError) as e:
+        except (json.JSONDecodeError, KeyError) as e:
             logger.warning(f"Lock 3 [{ticker}] attempt {attempt}: bad response — {e}")
 
         if attempt < len(RETRY_WAITS):
@@ -225,7 +234,8 @@ def evaluate(ticker: str, sentiment_min: float | None = None) -> LockResult:
     Evaluate sentiment for a ticker.
 
     Collects quantitative signals (analyst, short interest, news) from yfinance,
-    then asks Claude to synthesize them into a sentiment score.
+    pre-fetched Reddit/RSS content, then asks Grok to synthesize alongside a live
+    X/Twitter search for breaking catalysts.
 
     Pass condition: score > sentiment_min AND conviction != "low".
 
@@ -244,7 +254,7 @@ def evaluate(ticker: str, sentiment_min: float | None = None) -> LockResult:
     cached = _cache.get(ticker)
     if cached and now < cached["expires_at"]:
         logger.debug(f"Lock 3 [{ticker}]: cache hit")
-        response = cached["result"]
+        grok = cached["result"]
     else:
         signals       = fetch_market_signals(ticker)
         rss_headlines = _fetch_rss(ticker)
@@ -256,17 +266,17 @@ def evaluate(ticker: str, sentiment_min: float | None = None) -> LockResult:
             f"analyst={signals.get('analyst_label')}, "
             f"short={signals.get('short_pct_float')}"
         )
-        response = _call_claude(ticker, signals, rss_headlines, prefetch)
-        if response:
+        grok = _call_grok(ticker, signals, rss_headlines, prefetch)
+        if grok:
             _cache[ticker] = {
                 "expires_at": now + GROK_CACHE_TTL * 60,
-                "result":     response,
+                "result":     grok,
             }
 
-    if response is None:
+    if grok is None:
         return LockResult.fail(
             lock_id=LOCK_ID,
-            reason="Claude API unavailable — failing closed",
+            reason="Grok API unavailable — failing closed",
             data={
                 "score":      None,
                 "conviction": None,
@@ -275,8 +285,8 @@ def evaluate(ticker: str, sentiment_min: float | None = None) -> LockResult:
             },
         )
 
-    score      = float(response.get("score", 0.0))
-    conviction = response.get("conviction", "low")
+    score      = float(grok.get("score", 0.0))
+    conviction = grok.get("conviction", "low")
     passed     = score > effective_min and conviction != "low"
 
     reason = "pass" if passed else (
@@ -286,10 +296,10 @@ def evaluate(ticker: str, sentiment_min: float | None = None) -> LockResult:
 
     data = {
         "score":      score,
-        "sentiment":  response.get("sentiment"),
+        "sentiment":  grok.get("sentiment"),
         "conviction": conviction,
-        "key_themes": response.get("key_themes", []),
-        "summary":    response.get("summary"),
+        "key_themes": grok.get("key_themes", []),
+        "summary":    grok.get("summary"),
     }
 
     if not passed:
