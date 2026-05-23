@@ -115,13 +115,14 @@ def run() -> list[dict]:
 
     # Compute sector regime + rotation scores + Bayesian regime once per gate cycle
     from backend.scheduler import _get_regime_bayes
-    from backend.sector_regime import compute_sector_regime
+    from backend.sector_regime import compute_sector_regime, compute_ticker_signals
     from backend.sector_transitions import (
         compute_ticker_rotation_scores,
         get_rotation_forecast,
     )
     sector_regime       = compute_sector_regime()
     rotation_scores     = compute_ticker_rotation_scores()
+    ticker_signals      = compute_ticker_signals()
     regime_bayes_result = _get_regime_bayes().last_result()
 
     sector_exposure_live: dict[str, float] = dict(_sector_exposure)
@@ -159,7 +160,7 @@ def run() -> list[dict]:
     with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(candidates))) as pool:
         future_to_signal = {
             pool.submit(_evaluate, signal, wallet_ctx, cfg, sector_regime, sector_thresholds,
-                        rotation_scores, regime_bayes_result): signal
+                        rotation_scores, regime_bayes_result, ticker_signals): signal
             for signal in candidates
         }
         for future in as_completed(future_to_signal):
@@ -319,11 +320,15 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
               sector_regime: dict | None = None,
               sector_thresholds: dict | None = None,
               rotation_scores: dict | None = None,
-              regime_bayes_result=None) -> dict:
+              regime_bayes_result=None,
+              ticker_signals: dict | None = None) -> dict:
     ticker       = signal["ticker"]
     sector       = signal.get("sector", "")
     signal_score = signal["signal_score"]
     on_watchlist = signal.get("pre_rotation", False)
+
+    signal = dict(signal)
+    signal["ticker_signal"] = (ticker_signals or {}).get(ticker, {}).get("signal")
 
     context = _build_base_context(signal, wallet_ctx, cfg, sector_regime,
                                   rotation_scores, regime_bayes_result)

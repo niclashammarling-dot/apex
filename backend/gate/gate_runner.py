@@ -92,7 +92,7 @@ def run() -> list[dict]:
     from backend.config import MAX_SECTOR_EXPOSURE
     from backend.scheduler import _get_regime_bayes
     from backend.sector_caps import compute_dynamic_caps
-    from backend.sector_regime import compute_sector_regime
+    from backend.sector_regime import compute_sector_regime, compute_ticker_signals
     from backend.sector_transitions import (
         compute_ticker_rotation_scores,
         get_rotation_forecast,
@@ -102,6 +102,7 @@ def run() -> list[dict]:
                                            regime_result=regime_bayes_result)
     sector_regime   = compute_sector_regime()
     rotation_scores = compute_ticker_rotation_scores()
+    ticker_signals  = compute_ticker_signals()
 
     # Pre-rotation promotion — pull tickers from "watching" sectors at a discounted
     # L1 threshold so early-stage setups enter the pipeline before they clear the
@@ -138,7 +139,7 @@ def run() -> list[dict]:
     with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(candidates))) as pool:
         future_to_signal = {
             pool.submit(_evaluate, signal, wallet_ctx, cfg, sector_regime, sector_thresholds,
-                        rotation_scores, regime_bayes_result): signal
+                        rotation_scores, regime_bayes_result, ticker_signals): signal
             for signal in candidates
         }
         for future in as_completed(future_to_signal):
@@ -238,12 +239,16 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
               sector_regime: dict | None = None,
               sector_thresholds: dict | None = None,
               rotation_scores: dict | None = None,
-              regime_bayes_result=None) -> dict:
+              regime_bayes_result=None,
+              ticker_signals: dict | None = None) -> dict:
     ticker       = signal["ticker"]
     sector       = signal.get("sector", "")
     signal_score = signal["signal_score"]
     # Pre-rotation tickers use the watchlist 15% discount in Lock 2 — same as PRE_ROTATION_FLOOR
     on_watchlist = signal.get("pre_rotation", False)
+
+    signal = dict(signal)
+    signal["ticker_signal"] = (ticker_signals or {}).get(ticker, {}).get("signal")
 
     context = _build_base_context(signal, wallet_ctx, cfg, sector_regime,
                                   rotation_scores, regime_bayes_result)
@@ -388,10 +393,11 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
     lock1_compat = l2.to_dict() if l2 else (l1.to_dict() if l1 else {"passed": False, "score": 0.0})
 
     return {
-        "ticker":       signal["ticker"],
-        "sector":       signal.get("sector", ""),
-        "signal_id":    signal["id"],
-        "pre_rotation": signal.get("pre_rotation", False),
+        "ticker":        signal["ticker"],
+        "sector":        signal.get("sector", ""),
+        "signal_id":     signal["id"],
+        "pre_rotation":  signal.get("pre_rotation", False),
+        "ticker_signal": signal.get("ticker_signal"),
         "timestamp":    datetime.now(timezone.utc).isoformat(),
         "outcome":      outcome,
         # Named lock dicts (used by _log_summary and wallet.execute_trade)

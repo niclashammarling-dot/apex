@@ -256,6 +256,11 @@ def init_db() -> None:
         _add_column_if_missing(conn, "live_gate_history", "l2_summary",   "TEXT")
         _add_column_if_missing(conn, "live_gate_history", "macro_reason", "TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_demo_gate_ts ON demo_gate_history(timestamp DESC)")
+        # Ticker signal state — per-ticker regime signal at gate evaluation time
+        # Values: breakout | extended | trending | rising | breakdown | recovering | weak
+        # NULL on pre-existing rows: historical rows predate signal state tracking
+        _add_column_if_missing(conn, "demo_gate_history", "ticker_signal", "TEXT")
+        _add_column_if_missing(conn, "live_gate_history", "ticker_signal", "TEXT")
 
         # Migrate old gate_decision values to canonical FILTERED_* form
         conn.executescript("""
@@ -812,15 +817,16 @@ def insert_demo_gate_result(row: dict) -> None:
                 (timestamp, ticker, sector, signal_score,
                  lock1_pass, lock2_pass, lock_leading_pass, lock_leading_checks,
                  lock3_pass, gate_decision, lock3_reasoning, l2_summary,
-                 lock3_sentiment_score, lock3_conviction, macro_reason)
+                 lock3_sentiment_score, lock3_conviction, macro_reason, ticker_signal)
             VALUES
                 (:timestamp, :ticker, :sector, :signal_score,
                  :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
                  :lock3_pass, :gate_decision, :lock3_reasoning, :l2_summary,
-                 :lock3_sentiment_score, :lock3_conviction, :macro_reason)
+                 :lock3_sentiment_score, :lock3_conviction, :macro_reason, :ticker_signal)
         """, {**row,
               "lock3_sentiment_score": row.get("lock3_sentiment_score"),
-              "lock3_conviction":      row.get("lock3_conviction")})
+              "lock3_conviction":      row.get("lock3_conviction"),
+              "ticker_signal":         row.get("ticker_signal")})
         conn.commit()
     finally:
         conn.close()
@@ -833,7 +839,8 @@ def get_demo_gate_history(limit: int = 100) -> list[dict]:
             SELECT ticker, sector, timestamp, signal_score,
                    gate_decision, lock1_pass, lock2_pass, lock_leading_pass,
                    lock_leading_checks, lock3_pass, lock3_reasoning,
-                   l2_summary, lock3_sentiment_score, lock3_conviction, macro_reason
+                   l2_summary, lock3_sentiment_score, lock3_conviction, macro_reason,
+                   ticker_signal
             FROM demo_gate_history
             ORDER BY timestamp DESC
             LIMIT ?
@@ -1068,19 +1075,22 @@ def insert_live_gate_result(row: dict) -> int:
               (timestamp, ticker, sector, signal_score,
                lock1_pass, lock2_pass, lock_leading_pass, lock_leading_checks,
                lock3_pass, gate_decision, lock3_reasoning, alpaca_order_id,
-               l2_summary, lock3_sentiment_score, lock3_conviction, macro_reason)
+               l2_summary, lock3_sentiment_score, lock3_conviction, macro_reason,
+               ticker_signal)
             VALUES
               (:timestamp, :ticker, :sector, :signal_score,
                :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
                :lock3_pass, :gate_decision, :lock3_reasoning, :alpaca_order_id,
-               :l2_summary, :lock3_sentiment_score, :lock3_conviction, :macro_reason)
+               :l2_summary, :lock3_sentiment_score, :lock3_conviction, :macro_reason,
+               :ticker_signal)
         """, {**row,
               "lock_leading_pass":      row.get("lock_leading_pass", 0),
               "lock_leading_checks":    row.get("lock_leading_checks"),
               "l2_summary":             row.get("l2_summary"),
               "lock3_sentiment_score":  row.get("lock3_sentiment_score"),
               "lock3_conviction":       row.get("lock3_conviction"),
-              "macro_reason":           row.get("macro_reason")})
+              "macro_reason":           row.get("macro_reason"),
+              "ticker_signal":          row.get("ticker_signal")})
         conn.commit()
         return cur.lastrowid
     finally:
