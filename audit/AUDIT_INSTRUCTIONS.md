@@ -68,6 +68,7 @@ Flag any value outside these bounds:
 - `vix_threshold`: >= 30.
 - `take_profit_pct`: <= 0.08.
 - `max_positions` demo: <= 15. This is user-controlled; do not revert it.
+- `backend/signals/momentum.py` RSI discount: the 70-80 linear discount was removed 2026-05-24. The absence of `RSI_DISCOUNT_START` and the discount branch is intentional — 2023-2026 backtest showed 70-80 band PF 1.57 vs 60-70 PF 1.36; the discount was inverting the signal. Do not restore it. The hard cap at RSI >= 80 (`RSI_HARD_CAP`) is intentional and should remain.
 - Check git log: `git log --oneline -10 -- data/demo_config.json data/live_config.json`. Flag any config change in the last 7 days without a per-value justification in the commit message.
 
 ### CHECK 10 — Ticker signal data coverage (silent degradation canary)

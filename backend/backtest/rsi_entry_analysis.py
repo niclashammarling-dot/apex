@@ -2,8 +2,8 @@
 RSI-at-entry performance analysis.
 
 Runs two passes over 2023-01-01 → 2026-01-01 using the same precomputed cache:
-  Pass 1 — baseline (current behaviour)
-  Pass 2 — RSI filter applied: hard cap at >=80, linear discount 70-80
+  Pass 1 — baseline (no RSI filter)
+  Pass 2 — RSI hard cap at >=80 only (discount removed 2026-05-24)
 
 Usage:
     cd /home/promenix/apex
@@ -51,8 +51,7 @@ RSI_BUCKETS = [
     (80, 101, ">80  (overbought)"),
 ]
 
-RSI_DISCOUNT_START = 70
-RSI_HARD_CAP       = 80
+RSI_HARD_CAP = 80
 
 
 def _build_rsi_cache(
@@ -96,14 +95,8 @@ def _rsi_blocked(rsi: float | None) -> bool:
 
 
 def _rsi_score_discounted(rsi: float | None, base_signal_score: float) -> float:
-    """Apply linear discount to signal_score for RSI in discount zone."""
-    if rsi is None or rsi < RSI_DISCOUNT_START:
-        return base_signal_score
-    discount = 1.0 - (rsi - RSI_DISCOUNT_START) / (RSI_HARD_CAP - RSI_DISCOUNT_START)
-    discount = max(0.0, discount)
-    # Discount only the RSI contribution (≈10% of signal_score = 0.4 * 0.25)
-    # Approximate: scale the full score proportionally by the discount factor
-    return round(base_signal_score * (0.9 + 0.1 * discount), 4)
+    """RSI discount removed 2026-05-24 — 70-80 band outperforms 60-70 (PF 1.57 vs 1.36)."""
+    return base_signal_score
 
 
 def _simulate(
