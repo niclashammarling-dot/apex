@@ -224,14 +224,16 @@ function buildSECTORS(sectors) {
     scoresBySector[meta.code]  = s.avg_signal ?? null;
     trendBySector[meta.code]   = s.trend ?? "flat";
   });
-  return Object.entries(SECTOR_META).map(([, meta]) => ({
-    code:      meta.code,
-    name:      meta.displayName,
-    etf:       meta.etf,
-    tickers:   tickersBySector[meta.code] || [],
-    avgSignal: scoresBySector[meta.code] ?? null,
-    trend:     trendBySector[meta.code]  ?? "flat",
-  }));
+  return Object.entries(SECTOR_META)
+    .filter(([, meta]) => !meta.excluded)
+    .map(([, meta]) => ({
+      code:      meta.code,
+      name:      meta.displayName,
+      etf:       meta.etf,
+      tickers:   tickersBySector[meta.code] || [],
+      avgSignal: scoresBySector[meta.code] ?? null,
+      trend:     trendBySector[meta.code]  ?? "flat",
+    }));
 }
 
 function adaptRegime(regimeData) {
