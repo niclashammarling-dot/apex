@@ -183,8 +183,7 @@ def run() -> list[dict]:
                 overflow_level   = open_count - max_positions + 1
                 overflow_threshold = round(base_threshold * (1 + overflow_level * overflow_increment), 4)
                 if signal["signal_score"] < overflow_threshold:
-                    result["outcome"]       = "TRADE_REJECTED"
-                    result["gate_decision"] = "FILTERED_OVERFLOW_QUANT"
+                    result["outcome"] = "FILTERED_OVERFLOW_QUANT"
                     logger.info(
                         f"Gate runner [{ticker}]: overflow slot {overflow_level} rejected — "
                         f"score {signal['signal_score']:.4f} below {overflow_threshold:.4f} "
@@ -194,9 +193,7 @@ def run() -> list[dict]:
                     trade = wallet.execute_trade(result, signal["price"], dynamic_caps=dynamic_caps,
                                                  overflow=True)
                     result["outcome"] = "TRADE_EXECUTED" if trade else "TRADE_REJECTED"
-                    if result["outcome"] == "TRADE_REJECTED":
-                        result["gate_decision"] = "TRADE_REJECTED"
-                    else:
+                    if result["outcome"] == "TRADE_EXECUTED":
                         open_count += 1
                         logger.info(
                             f"Gate runner [{ticker}]: overflow slot {overflow_level} executed — "
@@ -205,11 +202,10 @@ def run() -> list[dict]:
             else:
                 trade = wallet.execute_trade(result, signal["price"], dynamic_caps=dynamic_caps)
                 result["outcome"] = "TRADE_EXECUTED" if trade else "TRADE_REJECTED"
-                if result["outcome"] == "TRADE_REJECTED":
-                    result["gate_decision"] = "TRADE_REJECTED"
-                else:
+                if result["outcome"] == "TRADE_EXECUTED":
                     open_count += 1
 
+        result["gate_decision"] = result["outcome"]
         results.append(result)
         update_signal_gate(signal["id"], result)
         insert_demo_gate_result({
@@ -222,7 +218,7 @@ def run() -> list[dict]:
             "lock_leading_pass":      result.get("lock_leading_pass", 0),
             "lock_leading_checks":    result.get("lock_leading_checks"),
             "lock3_pass":             result["lock3_pass"],
-            "gate_decision":          result["gate_decision"],
+            "gate_decision":          result["outcome"],
             "lock3_reasoning":        result.get("claude_reasoning"),
             "l2_summary":             result.get("l2_summary"),
             "lock3_sentiment_score":  result.get("lock3_sentiment_score"),

@@ -36,7 +36,8 @@ LOCK_ID    = 3
 GROK_URL   = "https://api.x.ai/v1/chat/completions"
 GROK_MODEL = "grok-3"
 
-RETRY_WAITS = [5, 15, 30]
+MAX_ATTEMPTS = 3
+RETRY_WAITS  = [5, 15]   # waits between attempts; length must be MAX_ATTEMPTS - 1
 
 # ── In-memory cache ───────────────────────────────────────────────────────────
 _cache: dict[str, dict] = {}
@@ -202,7 +203,7 @@ def _call_grok(ticker: str, signals: dict, rss_headlines: list[str], prefetch: s
         "Content-Type":  "application/json",
     }
 
-    for attempt, wait in enumerate(RETRY_WAITS, start=1):
+    for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             resp    = httpx.post(GROK_URL, headers=headers, json=payload, timeout=20)
             resp.raise_for_status()
@@ -218,7 +219,8 @@ def _call_grok(ticker: str, signals: dict, rss_headlines: list[str], prefetch: s
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning(f"Lock 3 [{ticker}] attempt {attempt}: bad response — {e}")
 
-        if attempt < len(RETRY_WAITS):
+        if attempt < MAX_ATTEMPTS:
+            wait = RETRY_WAITS[attempt - 1]
             logger.debug(f"Lock 3 [{ticker}]: retrying in {wait}s…")
             time.sleep(wait)
 
