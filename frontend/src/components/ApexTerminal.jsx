@@ -303,7 +303,7 @@ function TickerTooltip({ t }) {
       <TipRow label="Price"  value={t.price ? `$${t.price.toFixed(2)}` : "—"} />
       <TipRow label="Chg"    value={`${t.chg >= 0 ? "+" : ""}${t.chg.toFixed(2)}%`} color={t.chg >= 0 ? TIP_GREEN : TIP_RED} />
       <TipRow label="VOL"    value={t.volume != null ? t.volume.toFixed(3) : "—"} color={t.volume >= 0.6 ? TIP_GREEN : t.volume >= 0.35 ? TIP_AMBER : TIP_DIM} />
-      <TipRow label="RSI"    value={t.rsi != null ? Math.round(t.rsi).toString() : "—"} color={t.rsi >= 70 ? TIP_RED : t.rsi <= 30 ? TIP_AMBER : TIP_GREEN} />
+      <TipRow label="RSI"    value={t.rsi != null ? Math.round(t.rsi).toString() : "—"} color={t.rsi >= 80 ? TIP_AMBER : t.rsi >= 60 ? TIP_GREEN : TIP_DIM} />
       <TipRow label="MOM"    value={t.momentum != null ? t.momentum.toFixed(3) : "—"} color={t.momentum >= 0.55 ? TIP_GREEN : t.momentum >= 0.40 ? TIP_AMBER : TIP_RED} />
     </>
   );
@@ -313,7 +313,7 @@ function Tile({ t }) {
   const [tip, setTip] = useState(null);
   const c    = t.score >= 0.7 ? "t-accent" : t.score >= 0.55 ? "t-amber" : "t-text-3";
   const volC = t.volume >= 0.6 ? "var(--t-accent)" : t.volume >= 0.35 ? "var(--t-amber)" : "var(--t-text-3)";
-  const rsiC = t.rsi >= 70 ? "var(--t-neg)" : t.rsi <= 30 ? "var(--t-amber)" : "var(--t-accent)";
+  const rsiC = t.rsi >= 80 ? "var(--t-amber)" : t.rsi >= 60 ? "var(--t-accent)" : "var(--t-text-3)";
   const momC = t.momentum >= 0.55 ? "var(--t-accent)" : t.momentum >= 0.40 ? "var(--t-amber)" : "var(--t-neg)";
   return (
     <div
