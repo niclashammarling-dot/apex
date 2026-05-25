@@ -77,8 +77,6 @@ _MACRO_DATES = _FOMC_DATES | _CPI_DATES | _NFP_DATES
 # CPI and NFP are single-day releases; their window comes from macro_event_blackout_days (cfg).
 _FOMC_PRE_EVENT_DAYS = 2
 
-_calendar_expiry_checked = False
-
 # ── Earnings cache ────────────────────────────────────────────────────────────
 _earnings_cache: dict[str, dict] = {}
 _EARNINGS_TTL = 6 * 3600
@@ -170,10 +168,6 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
         )
 
     # ── B. Macro filter ───────────────────────────────────────────────────────
-    global _calendar_expiry_checked
-    if not _calendar_expiry_checked:
-        _check_calendar_expiry()
-        _calendar_expiry_checked = True
     _vt = cfg.get("vix_threshold");          vix_threshold     = 25.0 if _vt is None else _vt
     _eb = cfg.get("macro_event_blackout_days");    event_blackout    = 1    if _eb is None else _eb
     _ea = cfg.get("macro_earnings_blackout_days"); earnings_blackout = 3    if _ea is None else _ea
@@ -335,6 +329,7 @@ def _check_calendar_expiry() -> None:
             "— update _FOMC_DATES/_CPI_DATES/_nfp_dates before it runs dry"
         )
 
+_check_calendar_expiry()
 
 # ── Earnings helpers ──────────────────────────────────────────────────────────
 
