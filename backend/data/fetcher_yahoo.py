@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import yfinance as yf
 from loguru import logger
 
-from backend.config import SPY_TICKER
+from backend.config import EXCLUDED_SECTORS, SPY_TICKER
 from backend.db import get_rolling_win_rate
 from backend.signals import (
     aggregator,
@@ -214,6 +214,8 @@ def fetch_all_sectors() -> list[dict]:
 
     all_signals = []
     for sector_name, cfg in get_sectors().items():
+        if sector_name in EXCLUDED_SECTORS:
+            continue
         etf_mult = _etf_regime(cfg["etf"])
         for symbol in cfg["tickers"]:
             row = _score_ticker(

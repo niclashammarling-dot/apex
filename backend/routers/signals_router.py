@@ -18,7 +18,12 @@ from backend.db import (
 )
 from backend.gate import gate_runner
 from backend.ticker_config import add_ticker, remove_ticker
+from backend.config import EXCLUDED_SECTORS
 from backend.ticker_config import get_sectors as _get_sectors
+
+
+def _active_sectors() -> dict:
+    return {k: v for k, v in _get_sectors().items() if k not in EXCLUDED_SECTORS}
 
 # ── Backfill job tracking ──────────────────────────────────────────────────────
 # Simple in-memory store — only one backfill should run at a time.
@@ -89,7 +94,7 @@ def sectors_summary():
         sector_map.setdefault(s["sector"], []).append(s)
 
     result = []
-    for sector_name, cfg in _get_sectors().items():
+    for sector_name, cfg in _active_sectors().items():
         active = set(cfg["tickers"])
         rows = [r for r in sector_map.get(sector_name, []) if r["ticker"] in active]
         if not rows:
@@ -447,7 +452,7 @@ class BacktestRequest(BaseModel):
 @router.get("/tickers")
 def get_tickers():
     """Return all sectors with their current ticker lists."""
-    sectors = _get_sectors()
+    sectors = _active_sectors()
     return {
         name: {"etf": cfg["etf"], "tickers": cfg["tickers"]}
         for name, cfg in sectors.items()

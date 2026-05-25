@@ -37,8 +37,9 @@ PCR_THRESHOLD = 0.85
 
 def _build_sector_etf() -> dict[str, str]:
     try:
+        from backend.config import EXCLUDED_SECTORS
         from backend.ticker_config import get_sectors
-        return {s: cfg["etf"] for s, cfg in get_sectors().items()}
+        return {s: cfg["etf"] for s, cfg in get_sectors().items() if s not in EXCLUDED_SECTORS}
     except Exception:
         logger.warning("lock4_leading: ticker_config load failed — using hardcoded fallback ETF map")
         return {

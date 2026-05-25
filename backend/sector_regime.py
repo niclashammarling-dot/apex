@@ -133,8 +133,12 @@ def compute_ticker_signals() -> dict[str, dict]:
     if not rows:
         return {}
 
+    from backend.config import EXCLUDED_SECTORS
     active_tickers: set[str] = {
-        t for cfg in get_sectors().values() for t in cfg["tickers"]
+        t
+        for sector, cfg in get_sectors().items()
+        if sector not in EXCLUDED_SECTORS
+        for t in cfg["tickers"]
     }
 
     by_ticker: dict[str, list] = defaultdict(list)

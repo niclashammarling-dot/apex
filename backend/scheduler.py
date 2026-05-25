@@ -180,6 +180,7 @@ def _sync_watchlist() -> None:
     from backend.db import prune_watchlist_auto, upsert_watchlist
     from backend.sector_regime import compute_ticker_signals
     from backend.ticker_config import get_sectors
+    from backend.config import EXCLUDED_SECTORS
 
     ticker_sector = {
         ticker: sector
@@ -188,7 +189,10 @@ def _sync_watchlist() -> None:
     }
 
     signals = compute_ticker_signals()
-    recovering = {t for t, v in signals.items() if v["signal"] == "recovering"}
+    recovering = {
+        t for t, v in signals.items()
+        if v["signal"] == "recovering" and ticker_sector.get(t) not in EXCLUDED_SECTORS
+    }
 
     for ticker in recovering:
         sector = ticker_sector.get(ticker, "Unknown")

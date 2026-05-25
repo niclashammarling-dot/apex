@@ -34,9 +34,9 @@ def check_sector_names() -> list[str]:
     A missing sector causes Lock 4 to fail all checks for that sector's
     tickers with no error — just a silent 'no ETF mapped' log line.
     """
-    from backend.config import SECTORS
+    from backend.config import EXCLUDED_SECTORS, SECTORS
     from backend.gate.lock4_leading import SECTOR_ETF
-    config_sectors = set(SECTORS.keys())
+    config_sectors = set(SECTORS.keys()) - set(EXCLUDED_SECTORS.keys())
     etf_sectors    = set(SECTOR_ETF.keys())
     issues = []
     missing = config_sectors - etf_sectors
