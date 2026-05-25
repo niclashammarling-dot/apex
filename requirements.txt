@@ -2,6 +2,7 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 yfinance>=0.2.40
 pandas>=1.5.0
+pandas-market-calendars>=4.0.0
 pyarrow>=14.0.0
 feedparser>=6.0.11
 apscheduler>=3.10.4

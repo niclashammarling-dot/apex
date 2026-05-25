@@ -1,4 +1,5 @@
 from datetime import datetime, time
+from functools import lru_cache
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -53,9 +54,19 @@ def _get_regime_bayes():
     return _regime_bayes
 
 
+@lru_cache(maxsize=32)
+def _nyse_sessions_for_date(date_str: str) -> int:
+    """Return number of NYSE trading sessions on date_str (YYYY-MM-DD). Cached per date."""
+    import pandas_market_calendars as mcal
+    nyse = mcal.get_calendar("NYSE")
+    return len(nyse.schedule(start_date=date_str, end_date=date_str))
+
+
 def is_market_open() -> bool:
     now = datetime.now(NY)
     if now.weekday() >= 5:
+        return False
+    if not _nyse_sessions_for_date(now.strftime("%Y-%m-%d")):
         return False
     return time(9, 30) <= now.time() <= time(16, 0)
 

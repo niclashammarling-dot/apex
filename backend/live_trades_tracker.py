@@ -155,6 +155,14 @@ def check_live_exits() -> list[dict]:
         #   - TP/SL fills on brackets placed with DAY TIF (legs expired; fill
         #     is not visible on the original order but position is gone)
         elif alpaca_positions is not None and ticker not in alpaca_positions:
+            # Parent order buy leg not yet filled (e.g. placed on a market holiday,
+            # pending next session). Position will appear once the order fills.
+            _terminal_statuses = {"cancelled", "expired", "replaced", "done_for_day"}
+            if (order is not None
+                    and (order.get("filled_qty") or 0) == 0
+                    and not any(s in (order.get("status") or "").lower() for s in _terminal_statuses)):
+                logger.debug(f"Live exit check [{ticker}]: buy order pending (status={order.get('status')}) — waiting for fill")
+                continue
             exit_price, exit_reason, exited_at = _find_exit_from_orders(ticker, broker)
             if exit_price is None:
                 logger.warning(f"Live exit reconciliation [{ticker}]: position gone but no filled order found — skipping")
