@@ -5,6 +5,8 @@ Each check returns a list of issue strings (empty = OK). This lets them be
 used both by the scheduler (run_structural_checks) and as pytest assertions
 in tests/test_structural.py without any test framework dependency.
 """
+import re
+
 from loguru import logger
 
 # ── Individual checks ─────────────────────────────────────────────────────────
@@ -108,13 +110,70 @@ def check_context_parity() -> list[str]:
     return issues
 
 
+def check_gate_insert_fields() -> list[str]:
+    """
+    Every column in demo_gate_history and live_gate_history must appear in
+    the corresponding INSERT SQL in db.py.
+
+    Failure mode: a column added via ADD COLUMN + schema migration is silently
+    never written because the INSERT statement wasn't updated. Call-site drift
+    (correct INSERT SQL but incomplete dict at the call site) is caught at
+    runtime by _assert_insert_fields(), which fires every gate cycle.
+    """
+    import inspect
+
+    from backend import db
+
+    issues = []
+
+    for table, insert_fn in [
+        ("demo_gate_history", db.insert_demo_gate_result),
+        ("live_gate_history", db.insert_live_gate_result),
+    ]:
+        fn_name = insert_fn.__name__
+
+        # Extract INSERT SQL from function source
+        src = inspect.getsource(insert_fn)
+        sql_match = re.search(r'_SQL\s*=\s*"""(.*?)"""', src, re.DOTALL)
+        if not sql_match:
+            issues.append(f"{fn_name}: could not locate _SQL in source — check is unmaintainable")
+            continue
+        sql_params = set(re.findall(r":(\w+)", sql_match.group(1)))
+
+        # Schema columns (excluding auto-increment id)
+        conn = db.get_db()
+        try:
+            pragma = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        finally:
+            conn.close()
+        schema_cols = {row[1] for row in pragma} - {"id"}
+
+        # Schema columns absent from INSERT SQL → column will never be written
+        missing_from_sql = schema_cols - sql_params
+        if missing_from_sql:
+            issues.append(
+                f"{fn_name}: schema columns not in INSERT SQL "
+                f"(will never be written): {sorted(missing_from_sql)}"
+            )
+
+        # INSERT SQL names a phantom column not in schema → INSERT will error
+        phantom = sql_params - schema_cols
+        if phantom:
+            issues.append(
+                f"{fn_name}: INSERT SQL names columns not in schema: {sorted(phantom)}"
+            )
+
+    return issues
+
+
 # ── Scheduler entry point ─────────────────────────────────────────────────────
 
 _CHECKS = [
-    ("config_parity",      check_config_parity),
-    ("sector_names",       check_sector_names),
-    ("context_parity",     check_context_parity),
-    ("promote_exclusions", check_promote_exclusions),
+    ("config_parity",        check_config_parity),
+    ("sector_names",         check_sector_names),
+    ("context_parity",       check_context_parity),
+    ("promote_exclusions",   check_promote_exclusions),
+    ("gate_insert_fields",   check_gate_insert_fields),
 ]
 
 

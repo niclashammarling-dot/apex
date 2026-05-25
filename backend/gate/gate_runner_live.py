@@ -308,6 +308,7 @@ def run() -> list[dict]:
             "lock3_sentiment_score":  result.get("lock3_sentiment_score"),
             "lock3_conviction":       result.get("lock3_conviction"),
             "macro_reason":           result.get("macro_reason"),
+            "ticker_signal":          result.get("ticker_signal"),
         })
 
         _log_summary(ticker, result)

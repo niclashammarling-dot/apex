@@ -1,7 +1,23 @@
+import re
 import sqlite3
 from pathlib import Path
 
 from loguru import logger
+
+
+def _assert_insert_fields(fn_name: str, sql: str, row: dict) -> None:
+    """
+    Extract named params from INSERT SQL and error-log any missing from row.
+    Uses row.get() fallback so nothing raises at the call site — but the
+    missing field will write NULL silently without this guard.
+    """
+    required = set(re.findall(r":(\w+)", sql))
+    missing  = required - row.keys()
+    if missing:
+        logger.error(
+            f"{fn_name}: call site missing fields {sorted(missing)} — "
+            "these will write NULL; update the insert dict at the call site"
+        )
 
 BASE_DIR = Path(__file__).parent.parent
 DB_PATH  = BASE_DIR / "data" / "apex.db"
@@ -256,6 +272,11 @@ def init_db() -> None:
         _add_column_if_missing(conn, "live_gate_history", "l2_summary",   "TEXT")
         _add_column_if_missing(conn, "live_gate_history", "macro_reason", "TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_demo_gate_ts ON demo_gate_history(timestamp DESC)")
+        # Lock 3 (Grok sentiment) score and conviction — added alongside L3 gate
+        _add_column_if_missing(conn, "demo_gate_history", "lock3_sentiment_score", "REAL")
+        _add_column_if_missing(conn, "demo_gate_history", "lock3_conviction",      "TEXT")
+        _add_column_if_missing(conn, "live_gate_history", "lock3_sentiment_score", "REAL")
+        _add_column_if_missing(conn, "live_gate_history", "lock3_conviction",      "TEXT")
         # Ticker signal state — per-ticker regime signal at gate evaluation time
         # Values: breakout | extended | trending | rising | breakdown | recovering | weak
         # NULL on pre-existing rows: historical rows predate signal state tracking
@@ -812,7 +833,7 @@ def get_gate_history(limit: int = 30) -> list[dict]:
 def insert_demo_gate_result(row: dict) -> None:
     conn = get_db()
     try:
-        conn.execute("""
+        _SQL = """
             INSERT INTO demo_gate_history
                 (timestamp, ticker, sector, signal_score,
                  lock1_pass, lock2_pass, lock_leading_pass, lock_leading_checks,
@@ -823,7 +844,9 @@ def insert_demo_gate_result(row: dict) -> None:
                  :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
                  :lock3_pass, :gate_decision, :lock3_reasoning, :l2_summary,
                  :lock3_sentiment_score, :lock3_conviction, :macro_reason, :ticker_signal)
-        """, {**row,
+        """
+        _assert_insert_fields("insert_demo_gate_result", _SQL, row)
+        conn.execute(_SQL, {**row,
               "lock3_sentiment_score": row.get("lock3_sentiment_score"),
               "lock3_conviction":      row.get("lock3_conviction"),
               "ticker_signal":         row.get("ticker_signal")})
@@ -1070,7 +1093,7 @@ def get_portfolio_summary() -> dict:
 def insert_live_gate_result(row: dict) -> int:
     conn = get_db()
     try:
-        cur = conn.execute("""
+        _SQL = """
             INSERT INTO live_gate_history
               (timestamp, ticker, sector, signal_score,
                lock1_pass, lock2_pass, lock_leading_pass, lock_leading_checks,
@@ -1083,7 +1106,9 @@ def insert_live_gate_result(row: dict) -> int:
                :lock3_pass, :gate_decision, :lock3_reasoning, :alpaca_order_id,
                :l2_summary, :lock3_sentiment_score, :lock3_conviction, :macro_reason,
                :ticker_signal)
-        """, {**row,
+        """
+        _assert_insert_fields("insert_live_gate_result", _SQL, row)
+        cur = conn.execute(_SQL, {**row,
               "lock_leading_pass":      row.get("lock_leading_pass", 0),
               "lock_leading_checks":    row.get("lock_leading_checks"),
               "l2_summary":             row.get("l2_summary"),

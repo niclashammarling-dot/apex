@@ -8,6 +8,7 @@ Run automatically on Saturdays via the scheduler; also part of CI.
 from backend.maintenance import (
     check_config_parity,
     check_context_parity,
+    check_gate_insert_fields,
     check_promote_exclusions,
     check_sector_names,
 )
@@ -31,3 +32,13 @@ def test_lock3_context_parity():
 def test_promote_exclusions():
     """starting_balance and daily_loss_cap must never appear in the promotable set."""
     assert check_promote_exclusions() == []
+
+
+def test_gate_insert_fields():
+    """
+    Every gate history schema column must appear in the corresponding INSERT SQL.
+    Call-site drift is caught at runtime by _assert_insert_fields in db.py.
+    """
+    from backend.db import init_db
+    init_db()  # ensure tables exist in the test DB
+    assert check_gate_insert_fields() == []
