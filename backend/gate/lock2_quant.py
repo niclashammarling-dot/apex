@@ -27,10 +27,11 @@ WATCHLIST_DISCOUNT = 0.15   # 15% lower threshold for watchlist tickers
 
 
 def evaluate(
-    ticker:       str,
-    sector:       str,
-    signal_score: float,
-    on_watchlist: bool = False,
+    ticker:            str,
+    sector:            str,
+    signal_score:      float,
+    on_watchlist:      bool       = False,
+    sector_thresholds: dict | None = None,
 ) -> LockResult:
     """
     Evaluate whether the ticker's signal score clears the quant threshold.
@@ -44,7 +45,7 @@ def evaluate(
     Returns:
         LockResult with lock_id=2
     """
-    threshold = _sector_threshold(sector)
+    threshold = _sector_threshold(sector, sector_thresholds)
 
     if on_watchlist:
         effective_threshold = round(threshold * (1.0 - WATCHLIST_DISCOUNT), 4)
@@ -87,28 +88,34 @@ def evaluate(
 
 # ── Private helpers ───────────────────────────────────────────────────────────
 
-def _sector_threshold(sector: str) -> float:
+def _sector_threshold(sector: str, sector_thresholds: dict | None = None) -> float:
     """
     Return the sector-specific Lock 2 threshold. Uses the calibrated
     ticker_thresholds table as the base, then applies SECTOR_THRESHOLD_FLOORS
     as a floor so sweep-validated minimums survive recalibration runs.
     Falls back to LOCK1_THRESHOLD if the sector has no calibrated entry.
+
+    sector_thresholds: pre-fetched dict from the runner (eliminates a DB read
+    per ticker per cycle). Falls back to a live DB fetch when None.
     """
-    try:
-        from backend.db import get_ticker_thresholds
-        thresholds = get_ticker_thresholds()
-        if not thresholds:
+    if sector_thresholds is not None:
+        base = float(sector_thresholds.get(sector, LOCK1_THRESHOLD))
+    else:
+        try:
+            from backend.db import get_ticker_thresholds
+            thresholds = get_ticker_thresholds()
+            if not thresholds:
+                logger.warning(
+                    f"Lock 2 [{sector}]: get_ticker_thresholds() returned empty — "
+                    f"falling back to LOCK1_THRESHOLD {LOCK1_THRESHOLD}. "
+                    "Calibration race or DB read failure."
+                )
+            base = float(thresholds.get(sector, LOCK1_THRESHOLD))
+        except Exception as exc:
             logger.warning(
-                f"Lock 2 [{sector}]: get_ticker_thresholds() returned empty — "
-                f"falling back to LOCK1_THRESHOLD {LOCK1_THRESHOLD}. "
-                "Calibration race or DB read failure."
+                f"Lock 2 [{sector}]: get_ticker_thresholds() raised {exc!r} — "
+                f"falling back to LOCK1_THRESHOLD {LOCK1_THRESHOLD}."
             )
-        base = float(thresholds.get(sector, LOCK1_THRESHOLD))
-    except Exception as exc:
-        logger.warning(
-            f"Lock 2 [{sector}]: get_ticker_thresholds() raised {exc!r} — "
-            f"falling back to LOCK1_THRESHOLD {LOCK1_THRESHOLD}."
-        )
-        base = float(LOCK1_THRESHOLD)
+            base = float(LOCK1_THRESHOLD)
     floor = SECTOR_THRESHOLD_FLOORS.get(sector)
     return max(base, floor) if floor is not None else base

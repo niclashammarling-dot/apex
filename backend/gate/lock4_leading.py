@@ -92,12 +92,18 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS) -> LockResult:
     Returns:
         LockResult with lock_id=4
     """
+    try:
+        options_chains = _fetch_options_chains(ticker)
+    except Exception as e:
+        logger.warning(f"Lock 4 [{ticker}] options fetch: {e}")
+        options_chains = []
+
     checks = {}
     for name, fn, args in [
-        ("relative_strength", _check_relative_strength, (ticker, sector)),
-        ("put_call_ratio",    _check_put_call_ratio,    (ticker,)),
-        ("unusual_calls",     _check_unusual_call_volume, (ticker,)),
-        ("volume_accumulation", _check_volume_accumulation, (ticker,)),
+        ("relative_strength",   _check_relative_strength,  (ticker, sector)),
+        ("put_call_ratio",      _check_put_call_ratio,     (options_chains,)),
+        ("unusual_calls",       _check_unusual_call_volume,(options_chains,)),
+        ("volume_accumulation", _check_volume_accumulation,(ticker,)),
     ]:
         try:
             checks[name] = fn(*args)
@@ -139,6 +145,26 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS) -> LockResult:
 
 # ── Sub-checks ────────────────────────────────────────────────────────────────
 
+def _fetch_options_chains(ticker: str) -> list[tuple]:
+    """
+    Fetch near-term options chains once per ticker per Lock 4 evaluation.
+    Returns [(calls_df, puts_df), ...] for the first 2 expiries.
+    Both put_call_ratio and unusual_calls consume this shared list.
+    """
+    t        = yf.Ticker(ticker)
+    expiries = t.options
+    if not expiries:
+        return []
+    chains = []
+    for exp in expiries[:2]:
+        try:
+            chain = t.option_chain(exp)
+            chains.append((chain.calls, chain.puts))
+        except Exception as e:
+            logger.warning(f"Lock 4 [{ticker}] chain fetch {exp}: {e}")
+    return chains
+
+
 def _check_relative_strength(ticker: str, sector: str) -> dict:
     """Ticker 5-day return exceeds its sector ETF return."""
     etf = SECTOR_ETF.get(sector)
@@ -167,18 +193,15 @@ def _check_relative_strength(ticker: str, sector: str) -> dict:
     }
 
 
-def _check_put_call_ratio(ticker: str) -> dict:
-    """Near-term put/call open-interest ratio < 0.7 (calls dominant)."""
-    t        = yf.Ticker(ticker)
-    expiries = t.options
-    if not expiries:
+def _check_put_call_ratio(chains: list[tuple]) -> dict:
+    """Near-term put/call open-interest ratio < PCR_THRESHOLD (calls dominant)."""
+    if not chains:
         return {"pass": False, "reason": "no options data"}
 
     call_oi = put_oi = 0
-    for exp in expiries[:2]:
-        chain    = t.option_chain(exp)
-        call_oi += int(chain.calls["openInterest"].fillna(0).sum())
-        put_oi  += int(chain.puts["openInterest"].fillna(0).sum())
+    for calls, puts in chains:
+        call_oi += int(calls["openInterest"].fillna(0).sum())
+        put_oi  += int(puts["openInterest"].fillna(0).sum())
 
     if call_oi + put_oi == 0:
         return {"pass": False, "reason": "zero open interest"}
@@ -196,18 +219,15 @@ def _check_put_call_ratio(ticker: str) -> dict:
     }
 
 
-def _check_unusual_call_volume(ticker: str) -> dict:
+def _check_unusual_call_volume(chains: list[tuple]) -> dict:
     """Call volume >= 2x put volume across near-term expiries."""
-    t        = yf.Ticker(ticker)
-    expiries = t.options
-    if not expiries:
+    if not chains:
         return {"pass": False, "reason": "no options data"}
 
     call_vol = put_vol = 0
-    for exp in expiries[:2]:
-        chain     = t.option_chain(exp)
-        call_vol += int(chain.calls["volume"].fillna(0).sum())
-        put_vol  += int(chain.puts["volume"].fillna(0).sum())
+    for calls, puts in chains:
+        call_vol += int(calls["volume"].fillna(0).sum())
+        put_vol  += int(puts["volume"].fillna(0).sum())
 
     if call_vol + put_vol == 0:
         return {"pass": False, "reason": "no volume today"}

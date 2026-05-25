@@ -254,7 +254,8 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
     context = _build_base_context(signal, wallet_ctx, cfg, sector_regime,
                                   rotation_scores, regime_bayes_result)
     chain   = evaluate_chain(ticker, sector, signal_score, context, cfg,
-                             on_watchlist=on_watchlist)
+                             on_watchlist=on_watchlist,
+                             sector_thresholds=sector_thresholds)
     return _chain_to_gate_result(signal, chain)
 
 
@@ -359,7 +360,11 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
         4: "FILTERED_LEADING",
         5: "FILTERED_L3",
     }
-    outcome = "TRADE_QUEUED" if chain.approved else _OUTCOMES.get(chain.exit_lock, "FILTERED_UNKNOWN")
+    outcome = (
+        "TRADE_QUEUED"          if chain.approved    else
+        "TRADE_QUEUED_PENDING_L5" if chain.l5_pending else
+        _OUTCOMES.get(chain.exit_lock, "FILTERED_UNKNOWN")
+    )
 
     # Lock 5 (Claude) — backward compat with result["lock3"]["position_size_pct"] in wallet.py
     l5_data = l5.data if l5 else {}
@@ -505,7 +510,7 @@ def _compute_bayesian_multipliers(
 
     sector_queued: dict[str, list[tuple[str, float]]] = defaultdict(list)
     for signal, result in evaluated:
-        if result["outcome"] == "TRADE_QUEUED":
+        if result["outcome"] in ("TRADE_QUEUED", "TRADE_QUEUED_PENDING_L5"):
             sector_queued[signal.get("sector", "")].append(
                 (signal["ticker"], signal["signal_score"])
             )

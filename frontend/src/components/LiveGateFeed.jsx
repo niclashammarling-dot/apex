@@ -9,7 +9,8 @@ function getLockStates(decision) {
   if (decision === "FILTERED_L2")             return [true,  true,  false, null,  null ];
   if (decision === "FILTERED_LEADING")        return [true,  true,  true,  false, null ];
   if (decision === "FILTERED_L3")             return [true,  true,  true,  true,  false];
-  // TRADE_EXECUTED, TRADE_REJECTED (overflow/cap), FILTERED_OVERFLOW_QUANT — all 5 passed
+  if (decision === "FILTERED_OVERFLOW_QUANT") return [true,  true,  true,  true,  null ];
+  // TRADE_EXECUTED, TRADE_REJECTED (post-chain: notional/sector cap) — all 5 passed
   return                                             [true,  true,  true,  true,  true ];
 }
 
@@ -77,7 +78,7 @@ const LEADING_CHECK_LABELS = {
 
 function decisionBadge(decision) {
   if (decision === "TRADE_EXECUTED")          return { cls: "gate-executed", label: "EXECUTED"  };
-  if (decision === "TRADE_REJECTED")          return { cls: "gate-fail",     label: "REJECTED"  };
+  if (decision === "TRADE_REJECTED")          return { cls: "gate-fail",     label: "BLOCKED"   };
   if (decision === "TRADE_FAILED")            return { cls: "gate-rejected", label: "FAILED"    };
   if (decision === "FILTERED_ELIGIBILITY")    return { cls: "gate-macro",    label: "L1 FAIL"   };
   if (decision === "FILTERED_L1")             return { cls: "gate-fail",     label: "L2 FAIL"   };

@@ -57,6 +57,7 @@ class ChainResult:
     lock_results: dict[int, LockResult] = field(default_factory=dict)
     final_score:  float = 0.0
     summary:      str   = ""
+    l5_pending:   bool  = False  # L1-L4 passed; L5 deferred to serial execution phase
 
     def to_dict(self) -> dict:
         return {
@@ -71,12 +72,14 @@ class ChainResult:
 
 
 def evaluate_chain(
-    ticker:       str,
-    sector:       str,
-    signal_score: float,
-    context:      dict[str, Any],
-    cfg:          dict,
-    on_watchlist: bool = False,
+    ticker:            str,
+    sector:            str,
+    signal_score:      float,
+    context:           dict[str, Any],
+    cfg:               dict,
+    on_watchlist:      bool        = False,
+    stop_after_lock:   int | None  = None,
+    sector_thresholds: dict | None = None,
 ) -> ChainResult:
     """
     Run all five locks in sequence for one ticker.
@@ -104,7 +107,8 @@ def evaluate_chain(
         return _chain_fail(ticker, sector, lock_results, exit_lock=1)
 
     # ── Lock 2: Quant ─────────────────────────────────────────────────────────
-    l2 = lock2_evaluate(ticker, sector, signal_score, on_watchlist=on_watchlist)
+    l2 = lock2_evaluate(ticker, sector, signal_score, on_watchlist=on_watchlist,
+                        sector_thresholds=sector_thresholds)
     lock_results[2] = l2
     if not l2.passed:
         return _chain_fail(ticker, sector, lock_results, exit_lock=2)
@@ -120,6 +124,18 @@ def evaluate_chain(
     lock_results[4] = l4
     if not l4.passed:
         return _chain_fail(ticker, sector, lock_results, exit_lock=4)
+
+    # Deferred L5 mode — live gate stops here so the serial executor runs L5
+    # only for candidates that actually have a slot, avoiding wasted Claude API calls.
+    if stop_after_lock == 4:
+        return ChainResult(
+            ticker=ticker, sector=sector,
+            approved=False, exit_lock=None,
+            l5_pending=True,
+            lock_results=lock_results,
+            final_score=l4.score,
+            summary=f"{ticker} L1-L4 passed — L5 deferred to execution phase",
+        )
 
     # ── Lock 5: Claude ────────────────────────────────────────────────────────
     l5 = lock5_evaluate(

@@ -187,6 +187,31 @@ def run() -> list[dict]:
         ticker   = signal["ticker"]
         order_id = None
 
+        # L5 deferred path — run Claude only when a slot is confirmed available.
+        if result["outcome"] == "TRADE_QUEUED_PENDING_L5":
+            sector         = signal.get("sector", "")
+            base_threshold = (sector_thresholds or {}).get(sector, cfg["lock1_threshold"])
+            if ticker in open_tickers:
+                logger.info(f"Live trade skipped [{ticker}]: position already open (pre-L5)")
+                result["outcome"] = "TRADE_REJECTED"
+                result.pop("_l5_lock_results", None)
+                result.pop("_l5_context", None)
+            elif open_count >= max_positions:
+                overflow_level     = open_count - max_positions + 1
+                overflow_threshold = round(base_threshold * (1 + overflow_level * overflow_increment), 4)
+                if signal["signal_score"] < overflow_threshold:
+                    logger.warning(
+                        f"Live gate [{ticker}]: overflow slot {overflow_level} rejected pre-L5 — "
+                        f"score {signal['signal_score']:.4f} below {overflow_threshold:.4f}"
+                    )
+                    result["outcome"] = "FILTERED_OVERFLOW_QUANT"
+                    result.pop("_l5_lock_results", None)
+                    result.pop("_l5_context", None)
+                else:
+                    _run_l5_for_result(signal, result, cfg)
+            else:
+                _run_l5_for_result(signal, result, cfg)
+
         # Apply Bayesian sector sizing before notional is computed.
         if result["outcome"] == "TRADE_QUEUED" and result.get("lock3"):
             _scale = bayesian_multipliers.get(ticker, 1.0)
@@ -317,6 +342,34 @@ def run() -> list[dict]:
     return results
 
 
+def _run_l5_for_result(signal: dict, result: dict, cfg: dict) -> None:
+    """
+    Run Lock 5 (Claude) in the serial execution phase using stashed inputs.
+    Mutates result in-place: sets outcome, lock3, lock3_pass, claude_reasoning.
+    """
+    from backend.gate.lock5_claude import evaluate as lock5_evaluate
+    ticker       = signal["ticker"]
+    sector       = signal.get("sector", "")
+    lock_results = result.pop("_l5_lock_results")
+    context      = result.pop("_l5_context")
+
+    l5      = lock5_evaluate(ticker, sector, lock_results, context,
+                             confidence_min=cfg.get("lock3_confidence_min"))
+    l5_data = l5.data if l5 else {}
+
+    result["lock3"] = {
+        "passed":            l5.passed,
+        "decision":          l5_data.get("decision"),
+        "confidence":        l5_data.get("confidence", 0.0),
+        "position_size_pct": l5_data.get("position_size_pct", 0.0),
+        "reasoning":         l5_data.get("reasoning"),
+        "model":             l5_data.get("model"),
+    }
+    result["lock3_pass"]      = int(l5.passed)
+    result["claude_reasoning"] = l5_data.get("reasoning")
+    result["outcome"]         = "TRADE_QUEUED" if l5.passed else "FILTERED_L3"
+
+
 def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
               sector_regime: dict | None = None,
               sector_thresholds: dict | None = None,
@@ -334,8 +387,14 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
     context = _build_base_context(signal, wallet_ctx, cfg, sector_regime,
                                   rotation_scores, regime_bayes_result)
     chain   = evaluate_chain(ticker, sector, signal_score, context, cfg,
-                             on_watchlist=on_watchlist)
-    return _chain_to_gate_result(signal, chain)
+                             on_watchlist=on_watchlist, stop_after_lock=4,
+                             sector_thresholds=sector_thresholds)
+    result  = _chain_to_gate_result(signal, chain)
+    # Stash L5 inputs so the serial executor can run L5 only when a slot is available.
+    if chain.l5_pending:
+        result["_l5_lock_results"] = chain.lock_results
+        result["_l5_context"]      = context
+    return result
 
 
 def _build_base_context(signal: dict, wallet_ctx: dict, cfg: dict,
