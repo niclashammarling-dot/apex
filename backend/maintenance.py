@@ -83,8 +83,9 @@ def check_context_parity() -> list[str]:
     Lock 3 context. A missing key means Claude gets null for that constraint
     and has to guess.
     """
+    from backend.db import get_live_ticker_gate_fails, get_ticker_gate_fails
     from backend.demo_config import get_demo_config
-    from backend.gate import gate_runner, gate_runner_live
+    from backend.gate.chain import build_base_context
     from backend.live_config import get_live_config
 
     signal    = {"ticker": "_CHECK", "sector": "Technology", "signal_score": 0.5}
@@ -94,8 +95,13 @@ def check_context_parity() -> list[str]:
     demo_wallet = {"balance": 2000, "open_positions": 0, "sector_exposure": {}}
     live_wallet = {**demo_wallet, "starting_balance": live_cfg["starting_balance"]}
 
-    demo_ctx = gate_runner._build_base_context(signal, demo_wallet, demo_cfg)
-    live_ctx = gate_runner_live._build_base_context(signal, live_wallet, live_cfg)
+    demo_ctx = build_base_context(signal, demo_wallet, demo_cfg,
+                                  starting_balance=demo_cfg["starting_balance"],
+                                  gate_history_fn=get_ticker_gate_fails)
+    live_ctx = build_base_context(signal, live_wallet, live_cfg,
+                                  starting_balance=live_wallet["starting_balance"],
+                                  gate_history_fn=get_live_ticker_gate_fails,
+                                  mode_label="LIVE — real money")
 
     demo_keys = set(demo_ctx.get("risk_limits", {}).keys())
     live_keys = set(live_ctx.get("risk_limits", {}).keys())

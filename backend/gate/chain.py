@@ -24,7 +24,7 @@ Usage:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from loguru import logger
 
@@ -189,3 +189,97 @@ def _chain_fail(
         final_score=failed.score,
         summary=summary,
     )
+
+
+def build_base_context(
+    signal:              dict,
+    wallet_ctx:          dict,
+    cfg:                 dict,
+    starting_balance:    float,
+    gate_history_fn:     Callable,
+    sector_regime:       dict | None = None,
+    rotation_scores:     dict | None = None,
+    regime_bayes_result: Any        = None,
+    mode_label:          str | None  = None,
+) -> dict:
+    """
+    Build the context dict passed to evaluate_chain() and ultimately Lock 5 (Claude).
+
+    Injectable differences between demo and live:
+        starting_balance  — cfg["starting_balance"] (demo) vs wallet_ctx["starting_balance"] (live)
+        gate_history_fn   — get_ticker_gate_fails (demo) vs get_live_ticker_gate_fails (live)
+        mode_label        — None (demo) vs "LIVE — real money" (live)
+    """
+    ctx: dict[str, Any] = {
+        "wallet_balance":  wallet_ctx["balance"],
+        "open_positions":  wallet_ctx["open_positions"],
+        "sector_exposure": wallet_ctx["sector_exposure"],
+        "risk_limits": {
+            "starting_balance":    starting_balance,
+            "max_positions":       cfg["max_positions"],
+            "max_sector_exposure": cfg["max_sector_exposure"],
+            "max_position_size":   cfg["max_position_size"],
+            "daily_loss_cap":      cfg["daily_loss_cap"],
+            "max_drawdown_pct":    cfg.get("max_drawdown_pct", 0.20),
+        },
+    }
+    if mode_label is not None:
+        ctx["mode"] = mode_label
+
+    if sector_regime and sector_regime.get("available"):
+        sector_detail = sector_regime.get("sectors", {}).get(signal["sector"], {})
+        ctx.update({
+            "market_regime":      sector_regime["regime"],
+            "regime_confidence":  sector_regime.get("regime_confidence"),
+            "sector_signal":      sector_detail.get("signal"),
+            "sector_streak_days": sector_detail.get("streak_days"),
+            "market_leader":      sector_regime.get("leader"),
+            "sector_velocity":    sector_detail.get("velocity"),
+            "sector_velocity_5d": sector_detail.get("velocity_5d"),
+            "sector_accel":       sector_detail.get("accel"),
+        })
+
+    try:
+        from backend.sector_transitions import get_rotation_forecast
+        forecast = get_rotation_forecast()
+        if forecast.get("available"):
+            next_prob = next(
+                (item["probability"] for item in forecast.get("likely_next", [])
+                 if item["sector"] == signal["sector"]),
+                None,
+            )
+            confirmed = forecast.get("confirmed_transition")
+            ctx.update({
+                "rotation_leader":             forecast["leader"],
+                "rotation_predecessor":        forecast.get("predecessor"),
+                "sector_next_probability":     next_prob,
+                "rotation_confirmed":          confirmed is not None,
+                "rotation_transition_prob":    confirmed["probability"] if confirmed else None,
+                "rotation_regime_conditioned": forecast.get("regime_conditioned"),
+                "rotation_regime_sample_size": forecast.get("regime_sample_size"),
+            })
+    except Exception as e:
+        logger.debug(f"[{signal['ticker']}]: rotation forecast unavailable — {e}")
+
+    if rotation_scores is not None:
+        ctx["ticker_rotation_score"] = rotation_scores.get(signal["ticker"])
+
+    if regime_bayes_result is not None:
+        sector = signal.get("sector", "")
+        alloc  = regime_bayes_result.allocation.get(sector, 0.0)
+        entry  = next((e for e in regime_bayes_result.leaderboard if e.sector == sector), None)
+        ctx["regime_bayes_allocation"]     = alloc
+        ctx["regime_bayes_posterior"]      = entry.posterior      if entry else None
+        ctx["regime_bayes_adjusted_score"] = entry.adjusted_score if entry else None
+        ctx["regime_bayes_rank"]           = entry.rank           if entry else None
+        ctx["regime_bayes_qualified"]      = alloc > 0
+        ctx["regime_bayes_leader"]         = regime_bayes_result.leader
+
+    try:
+        fails = gate_history_fn(signal["ticker"], limit=5)
+        if fails:
+            ctx["ticker_gate_history"] = fails
+    except Exception as e:
+        logger.debug(f"[{signal['ticker']}]: gate fail history unavailable — {e}")
+
+    return ctx

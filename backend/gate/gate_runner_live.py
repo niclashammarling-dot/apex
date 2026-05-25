@@ -15,13 +15,14 @@ from loguru import logger
 
 from backend.config import LIVE_ENABLED, SECTORS
 from backend.db import (
+    get_live_ticker_gate_fails,
     get_lock1_candidates,
     get_open_live_tickers,
     get_recently_failed_live_tickers,
     insert_live_gate_result,
     insert_live_trade,
 )
-from backend.gate.chain import evaluate_chain
+from backend.gate.chain import build_base_context, evaluate_chain
 from backend.gate.gate_runner import PRE_ROTATION_FLOOR, _chain_to_gate_result, _compute_bayesian_multipliers
 from backend.sector_caps import compute_dynamic_caps
 
@@ -384,8 +385,15 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
     signal = dict(signal)
     signal["ticker_signal"] = (ticker_signals or {}).get(ticker, {}).get("signal")
 
-    context = _build_base_context(signal, wallet_ctx, cfg, sector_regime,
-                                  rotation_scores, regime_bayes_result)
+    context = build_base_context(
+        signal, wallet_ctx, cfg,
+        starting_balance=wallet_ctx["starting_balance"],
+        gate_history_fn=get_live_ticker_gate_fails,
+        sector_regime=sector_regime,
+        rotation_scores=rotation_scores,
+        regime_bayes_result=regime_bayes_result,
+        mode_label="LIVE — real money",
+    )
     chain   = evaluate_chain(ticker, sector, signal_score, context, cfg,
                              on_watchlist=on_watchlist, stop_after_lock=4,
                              sector_thresholds=sector_thresholds)
@@ -395,86 +403,6 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
         result["_l5_lock_results"] = chain.lock_results
         result["_l5_context"]      = context
     return result
-
-
-def _build_base_context(signal: dict, wallet_ctx: dict, cfg: dict,
-                        sector_regime: dict | None = None,
-                        rotation_scores: dict | None = None,
-                        regime_bayes_result=None) -> dict:
-    """
-    Build the base context dict for evaluate_chain() and ultimately Lock 5 (Claude).
-    Live version: adds mode flag, reads starting_balance from wallet_ctx.
-    """
-    ctx = {
-        "mode":            "LIVE — real money",
-        "wallet_balance":  wallet_ctx["balance"],
-        "open_positions":  wallet_ctx["open_positions"],
-        "sector_exposure": wallet_ctx["sector_exposure"],
-        "risk_limits": {
-            "starting_balance":    wallet_ctx["starting_balance"],
-            "max_positions":       cfg["max_positions"],
-            "max_sector_exposure": cfg["max_sector_exposure"],
-            "max_position_size":   cfg["max_position_size"],
-            "daily_loss_cap":      cfg["daily_loss_cap"],
-            "max_drawdown_pct":    cfg.get("max_drawdown_pct", 0.20),
-        },
-    }
-
-    if sector_regime and sector_regime.get("available"):
-        sector_detail = sector_regime.get("sectors", {}).get(signal["sector"], {})
-        ctx.update({
-            "market_regime":      sector_regime["regime"],
-            "regime_confidence":  sector_regime.get("regime_confidence"),
-            "sector_signal":      sector_detail.get("signal"),
-            "sector_streak_days": sector_detail.get("streak_days"),
-            "market_leader":      sector_regime.get("leader"),
-            "sector_velocity":    sector_detail.get("velocity"),
-            "sector_velocity_5d": sector_detail.get("velocity_5d"),
-            "sector_accel":       sector_detail.get("accel"),
-        })
-
-    try:
-        from backend.sector_transitions import get_rotation_forecast
-        forecast = get_rotation_forecast()
-        if forecast.get("available"):
-            next_prob = next((item["probability"] for item in forecast.get("likely_next", [])
-                              if item["sector"] == signal["sector"]), None)
-            confirmed = forecast.get("confirmed_transition")
-            ctx.update({
-                "rotation_leader":             forecast["leader"],
-                "rotation_predecessor":        forecast.get("predecessor"),
-                "sector_next_probability":     next_prob,
-                "rotation_confirmed":          confirmed is not None,
-                "rotation_transition_prob":    confirmed["probability"] if confirmed else None,
-                "rotation_regime_conditioned": forecast.get("regime_conditioned"),
-                "rotation_regime_sample_size": forecast.get("regime_sample_size"),
-            })
-    except Exception as e:
-        logger.debug(f"Live gate [{signal['ticker']}]: rotation forecast unavailable — {e}")
-
-    if rotation_scores is not None:
-        ctx["ticker_rotation_score"] = rotation_scores.get(signal["ticker"])
-
-    if regime_bayes_result is not None:
-        sector = signal.get("sector", "")
-        alloc  = regime_bayes_result.allocation.get(sector, 0.0)
-        entry  = next((e for e in regime_bayes_result.leaderboard if e.sector == sector), None)
-        ctx["regime_bayes_allocation"]     = alloc
-        ctx["regime_bayes_posterior"]      = entry.posterior      if entry else None
-        ctx["regime_bayes_adjusted_score"] = entry.adjusted_score if entry else None
-        ctx["regime_bayes_rank"]           = entry.rank           if entry else None
-        ctx["regime_bayes_qualified"]      = alloc > 0
-        ctx["regime_bayes_leader"]         = regime_bayes_result.leader
-
-    try:
-        from backend.db import get_live_ticker_gate_fails
-        fails = get_live_ticker_gate_fails(signal["ticker"], limit=5)
-        if fails:
-            ctx["ticker_gate_history"] = fails
-    except Exception as e:
-        logger.debug(f"Live gate [{signal['ticker']}]: gate fail history unavailable — {e}")
-
-    return ctx
 
 
 def _daily_loss_exceeded(current_equity: float, cap: float) -> bool:
