@@ -262,6 +262,15 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
     return _chain_to_gate_result(signal, chain)
 
 
+_OUTCOMES = {
+    1: "FILTERED_ELIGIBILITY",
+    2: "FILTERED_L1",
+    3: "FILTERED_L2",
+    4: "FILTERED_LEADING",
+    5: "FILTERED_L3",
+}
+
+
 def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
     """Translate ChainResult into the flat result dict expected by run() and DB writers.
 
@@ -277,13 +286,6 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
     l4 = lr.get(4)   # Leading
     l5 = lr.get(5)   # Claude     → DB lock3_pass
 
-    _OUTCOMES = {
-        1: "FILTERED_ELIGIBILITY",
-        2: "FILTERED_L1",
-        3: "FILTERED_L2",
-        4: "FILTERED_LEADING",
-        5: "FILTERED_L3",
-    }
     outcome = (
         "TRADE_QUEUED"          if chain.approved    else
         "TRADE_QUEUED_PENDING_L5" if chain.l5_pending else
