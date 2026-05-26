@@ -3,11 +3,11 @@ import { COMPANY_NAMES } from "../companyNames.js";
 import HoverTooltip, { TipRow, TipHeader } from "./HoverTooltip";
 
 const REASON_COLOR = {
-  TP:   "var(--green)",
-  SL:   "var(--red)",
+  TP:   "#faff69",
+  SL:   "#ff7575",
   TSL:  "#e8a020",
-  TIME: "var(--text-3)",
-  END_OF_BACKTEST: "var(--text-3)",
+  TIME: "#76766f",
+  END_OF_BACKTEST: "#76766f",
 };
 
 const COLS = [
@@ -25,7 +25,7 @@ function TradeRow({ t, i, sort }) {
   const [tip, setTip] = useState(null);
   const win  = t.outcome === "WIN";
   const loss = t.outcome === "LOSS";
-  const pnlColor = win ? "var(--green)" : loss ? "var(--red)" : "var(--text-3)";
+  const pnlColor = win ? "#4ade80" : loss ? "#ff7575" : "#76766f";
   return (
     <tr
       onMouseMove={e => setTip({ x: e.clientX, y: e.clientY })}
@@ -37,7 +37,7 @@ function TradeRow({ t, i, sort }) {
         <TipRow label="Sector"       value={t.sector ?? "—"} />
         <TipRow label="Entry"        value={t.entry_date ?? "—"} />
         <TipRow label="Exit"         value={t.exit_date ?? "—"} />
-        <TipRow label="Exit Reason"  value={t.exit_reason ?? "—"} color={REASON_COLOR[t.exit_reason] ?? "var(--text-3)"} />
+        <TipRow label="Exit Reason"  value={t.exit_reason ?? "—"} color={REASON_COLOR[t.exit_reason] ?? "#76766f"} />
         <TipRow label="P&L %"        value={t.pnl_pct != null ? `${t.pnl_pct >= 0 ? "+" : ""}${(t.pnl_pct * 100).toFixed(2)}%` : "—"} color={pnlColor} />
         <TipRow label="P&L $"        value={t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}$${Math.abs(t.pnl).toFixed(2)}` : "—"} color={pnlColor} />
         <TipRow label="Signal Score" value={t.signal_score?.toFixed(3) ?? "—"} />

@@ -3,13 +3,13 @@ import { COMPANY_NAMES } from "../companyNames.js";
 import HoverTooltip, { TipRow, TipHeader } from "./HoverTooltip";
 
 const SIGNAL_META = {
-  recovering: { label: "RECOVERING", color: "var(--t-accent)" },
-  breakout:   { label: "BREAKOUT",   color: "var(--t-accent)" },
+  recovering: { label: "RECOVERING", color: "#faff69" },
+  breakout:   { label: "BREAKOUT",   color: "#faff69" },
   trending:   { label: "TRENDING",   color: "#6aa0f0" },
   rising:     { label: "RISING",     color: "#7ab8ff" },
-  extended:   { label: "EXTENDED",   color: "var(--t-amber)" },
-  breakdown:  { label: "BREAKDOWN",  color: "var(--t-red)" },
-  weak:       { label: "WEAK",       color: "var(--t-text-3)" },
+  extended:   { label: "EXTENDED",   color: "#e8a020" },
+  breakdown:  { label: "BREAKDOWN",  color: "#ff7575" },
+  weak:       { label: "WEAK",       color: "#76766f" },
 };
 
 const cls = (...a) => a.filter(Boolean).join(" ");
@@ -43,7 +43,7 @@ function WatchlistRow({ item, onRemove }) {
         <TipRow label="Signal"       value={`${sm.label}${streak ? ` · ${streak}` : ""}`} color={sm.color} />
         <TipRow label="Sector"       value={item.sector ?? "—"} />
         <TipRow label="Score"        value={score?.toFixed(3) ?? "—"} />
-        <TipRow label="Pre-rotation" value={item.pre_rotation ? "YES" : "NO"} color={item.pre_rotation ? "var(--t-accent)" : "var(--t-text-3)"} />
+        <TipRow label="Pre-rotation" value={item.pre_rotation ? "YES" : "NO"} color={item.pre_rotation ? "#faff69" : "#76766f"} />
         <TipRow label="Source"       value={item.source ?? "—"} />
       </HoverTooltip>
 
