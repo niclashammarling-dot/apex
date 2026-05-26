@@ -2,10 +2,13 @@ import { useState, useMemo } from "react";
 import { COMPANY_NAMES } from "../companyNames.js";
 import HoverTooltip, { TipRow, TipHeader } from "./HoverTooltip";
 
+const WIN_COLOR  = "#4ade80";
+const LOSS_COLOR = "#ff7575";
+
 const REASON_COLOR = {
-  TP:     "var(--t-accent)",
-  SL:     "var(--t-red)",
-  TSL:    "var(--t-amber)",
+  TP:     "#faff69",
+  SL:     "#ff7575",
+  TSL:    "#e8a020",
   REGIME: "#6aa0f0",
 };
 
@@ -19,7 +22,7 @@ function TradeRow({ t }) {
   const win    = t.outcome === "WIN";
   const loss   = t.outcome === "LOSS";
   const isOpen = !t.outcome || t.outcome === "OPEN";
-  const pnlColor = win ? "var(--t-accent)" : loss ? "var(--t-red)" : "var(--t-text-3)";
+  const pnlColor = win ? WIN_COLOR : loss ? LOSS_COLOR : "#76766f";
   const pnlPct = t.price_exit && t.price ? (t.price_exit - t.price) / t.price : null;
 
   return (
@@ -35,8 +38,9 @@ function TradeRow({ t }) {
         <TipRow label="Exit"        value={t.timestamp_exit ? fmtDate(t.timestamp_exit) : isOpen ? "open" : "—"} />
         <TipRow label="Entry Price" value={t.price != null ? `$${t.price.toFixed(2)}` : "—"} />
         <TipRow label="Exit Price"  value={t.price_exit != null ? `$${t.price_exit.toFixed(2)}` : "—"} />
-        {t.exit_reason && <TipRow label="Exit Reason" value={t.exit_reason} color={REASON_COLOR[t.exit_reason] ?? "var(--t-text-3)"} />}
+        {t.exit_reason && <TipRow label="Exit Reason" value={t.exit_reason} color={REASON_COLOR[t.exit_reason] ?? "#76766f"} />}
         <TipRow label="P&L %" value={pnlPct != null ? `${pnlPct >= 0 ? "+" : ""}${(pnlPct * 100).toFixed(2)}%` : isOpen ? "open" : "—"} color={pnlColor} />
+        <TipRow label="P&L $" value={t.pnl != null ? `${t.pnl >= 0 ? "+" : "-"}$${Math.abs(t.pnl).toFixed(2)}` : isOpen ? "open" : "—"} color={pnlColor} />
       </HoverTooltip>
 
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -57,9 +61,16 @@ function TradeRow({ t }) {
         {isOpen ? (
           <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--t-text-3)" }}>OPEN</span>
         ) : (
-          <span style={{ fontFamily: "var(--mono)", fontSize: 13, color: pnlColor, fontWeight: 700 }}>
-            {pnlPct != null ? `${pnlPct >= 0 ? "+" : ""}${(pnlPct * 100).toFixed(2)}%` : "—"}
-          </span>
+          <>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 13, color: pnlColor, fontWeight: 700 }}>
+              {pnlPct != null ? `${pnlPct >= 0 ? "+" : ""}${(pnlPct * 100).toFixed(2)}%` : "—"}
+            </span>
+            {t.pnl != null && (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: pnlColor, marginTop: 1 }}>
+                {t.pnl >= 0 ? "+" : "-"}${Math.abs(t.pnl).toFixed(2)}
+              </div>
+            )}
+          </>
         )}
         <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--t-text-3)", marginTop: 2 }}>
           {t.price != null ? `$${t.price.toFixed(2)}` : "—"}

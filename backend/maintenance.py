@@ -172,6 +172,24 @@ def check_gate_insert_fields() -> list[str]:
     return issues
 
 
+def check_exit_behavior_parity() -> list[str]:
+    """
+    Exit behavior config keys referenced in wallet.py must all appear in
+    live_trades_tracker.py. config_parity only checks key existence in both
+    configs — this checks that the live implementation actually uses them.
+    """
+    import pathlib
+    EXIT_KEYS = ["trailing_stop_pct", "profit_lock_trigger_pct", "profit_lock_trail_pct", "max_hold_days"]
+    root = pathlib.Path(__file__).parent
+    demo_src = (root / "wallet.py").read_text()
+    live_src = (root / "live_trades_tracker.py").read_text()
+    issues = []
+    for key in EXIT_KEYS:
+        if key in demo_src and key not in live_src:
+            issues.append(f"Exit config key '{key}' used in wallet.py but missing from live_trades_tracker.py")
+    return issues
+
+
 # ── Scheduler entry point ─────────────────────────────────────────────────────
 
 _CHECKS = [
@@ -180,6 +198,7 @@ _CHECKS = [
     ("context_parity",       check_context_parity),
     ("promote_exclusions",   check_promote_exclusions),
     ("gate_insert_fields",   check_gate_insert_fields),
+    ("exit_behavior_parity", check_exit_behavior_parity),
 ]
 
 

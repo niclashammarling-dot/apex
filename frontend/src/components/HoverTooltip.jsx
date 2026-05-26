@@ -3,7 +3,7 @@ import ReactDOM from "react-dom";
 export function TipRow({ label, value, color = "#b0b0a8" }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", gap: 32, marginTop: 4 }}>
-      <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 20, color: "#666" }}>{label}</span>
+      <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 20, color: "#888" }}>{label}</span>
       <span style={{ fontFamily: "'Inconsolata', monospace", fontSize: 20, color, fontWeight: 600 }}>{value}</span>
     </div>
   );

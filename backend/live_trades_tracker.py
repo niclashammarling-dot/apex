@@ -54,6 +54,16 @@ def _ticker_consecutive_down_days(ticker: str, n: int) -> bool:
         return False
 
 
+def _effective_trail_pct(peak: float, entry_price: float, cfg: dict) -> float:
+    trail_pct   = cfg.get("trailing_stop_pct")
+    trigger_pct = cfg.get("profit_lock_trigger_pct")
+    lock_trail  = cfg.get("profit_lock_trail_pct")
+    if trail_pct is not None and trigger_pct and lock_trail:
+        if (peak - entry_price) / entry_price >= trigger_pct:
+            return lock_trail
+    return trail_pct
+
+
 def check_live_exits() -> list[dict]:
     """
     For each open live trade:
@@ -77,7 +87,7 @@ def check_live_exits() -> list[dict]:
     from backend.live_config import get_live_config
     cfg           = get_live_config()
     max_hold_days = cfg["max_hold_days"]
-    trail_pct     = cfg.get("trailing_stop_pct")  # None = disabled
+    trail_pct     = cfg.get("trailing_stop_pct")
 
     # Snapshot of tickers currently held in Alpaca — used for reconciliation fallback.
     try:
@@ -119,7 +129,7 @@ def check_live_exits() -> list[dict]:
             exited_at   = filled_leg["filled_at"] or datetime.now(timezone.utc).isoformat()
 
         # ── Software trailing stop ──────────────────────────────────────────
-        elif trail_pct is not None and current is not None and (peak - current) / peak >= trail_pct:
+        elif trail_pct is not None and current is not None and (peak - current) / peak >= _effective_trail_pct(peak, entry_price, cfg):
             logger.info(
                 f"Live trailing stop [{ticker}]: drawdown {(peak - current)/peak:.1%} "
                 f"from peak ${peak:.2f} — closing"
