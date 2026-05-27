@@ -100,6 +100,8 @@ def run(
     vix_threshold:      float | None = None,
     use_leading_rs:     bool        = False,
     max_positions:      int   | None = None,
+    sl_cooldown_days:   int         = 5,
+    tp_cooldown_days:   int         = 0,
 ) -> BacktestResult:
     """
     Run a historical backtest from start_date to end_date.
@@ -175,7 +177,8 @@ def run(
         earnings_dates = _fetch_earnings_dates(stock_tickers, start, end)
         logger.info(f"Backtest: loaded earnings dates for {len(earnings_dates)} tickers")
 
-    SL_COOLDOWN_DAYS = 5  # days to block re-entry after a stop-loss hit
+    SL_COOLDOWN_DAYS = sl_cooldown_days
+    TP_COOLDOWN_DAYS = tp_cooldown_days
 
     # Simulate day by day
     balance      = initial_balance
@@ -199,8 +202,10 @@ def run(
             balance += trade["amount"] + (record["pnl"] or 0)
             if record["outcome"] in ("LOSS", "EXPIRED") and (record["pnl"] or 0) < 0:
                 daily_losses[today_str] = daily_losses.get(today_str, 0) + abs(record["pnl"] or 0)
-            if record["exit_reason"] in ("SL", "TSL"):
+            if record["exit_reason"] in ("SL", "TSL") and SL_COOLDOWN_DAYS > 0:
                 sl_cooldown[trade["ticker"]] = today + timedelta(days=SL_COOLDOWN_DAYS)
+            elif record["exit_reason"] == "TP" and TP_COOLDOWN_DAYS > 0:
+                sl_cooldown[trade["ticker"]] = today + timedelta(days=TP_COOLDOWN_DAYS)
 
         # 2. Generate signals for today
         spy       = _spy_data_on(raw_data, today)
