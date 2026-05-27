@@ -69,6 +69,7 @@ Flag any value outside these bounds:
 - `take_profit_pct`: <= 0.08.
 - `max_positions` demo: <= 15. This is user-controlled; do not revert it.
 - `backend/signals/momentum.py` RSI discount: the 70-80 linear discount was removed 2026-05-24. The absence of `RSI_DISCOUNT_START` and the discount branch is intentional — 2023-2026 backtest showed 70-80 band PF 1.57 vs 60-70 PF 1.36; the discount was inverting the signal. Do not restore it. The hard cap at RSI >= 80 (`RSI_HARD_CAP`) is intentional and should remain.
+- `backend/signals/momentum.py` momentum vs RSI sub-weight split (0.6/0.4): survivor-set invariant (2026-05-27, N=184, momentum_weight_analysis.py) — momentum_clipped and rsi_score co-move post-L1 (L1 selects momentum names; both components are positive in the survivor set); 0.25 aggregator weight buries any divergence; max signal_score delta ~0.015 across the full 0.3–0.7 split range; parameter has no detectable effect on trade selection. Do not treat the split as a calibration target — it is structurally inert in this configuration. Architectural question (whether the sub-weight split is worth maintaining) deferred to future session.
 - Check git log: `git log --oneline -10 -- data/demo_config.json data/live_config.json`. Flag any config change in the last 7 days without a per-value justification in the commit message.
 
 ### CHECK 10 — Ticker signal data coverage (silent degradation canary)
