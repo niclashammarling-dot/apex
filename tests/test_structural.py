@@ -8,6 +8,7 @@ Run automatically on Saturdays via the scheduler; also part of CI.
 from backend.maintenance import (
     check_config_parity,
     check_context_parity,
+    check_engine_fast_exit_parity,
     check_exit_behavior_parity,
     check_gate_insert_fields,
     check_promote_exclusions,
@@ -33,6 +34,11 @@ def test_lock3_context_parity():
 def test_promote_exclusions():
     """starting_balance and daily_loss_cap must never appear in the promotable set."""
     assert check_promote_exclusions() == []
+
+
+def test_engine_fast_exit_parity():
+    """engine_fast.py must implement the same exit params as engine.py — divergence produces sweep results that don't transfer to production."""
+    assert check_engine_fast_exit_parity() == [], check_engine_fast_exit_parity()
 
 
 def test_exit_behavior_parity():

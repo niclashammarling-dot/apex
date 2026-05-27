@@ -172,6 +172,26 @@ def check_gate_insert_fields() -> list[str]:
     return issues
 
 
+def check_engine_fast_exit_parity() -> list[str]:
+    """
+    engine_fast.py must implement the same exit config keys as engine.py.
+    Sweeps run on engine.py; engine_fast.py is used by sector_sweep_isolated.py
+    and other tools. Divergence produces calibration results that don't transfer
+    to production. Fails until engine_fast._check_exits_fast is updated to
+    accept profit_lock_trigger_pct and profit_lock_trail_pct.
+    """
+    import pathlib
+    EXIT_KEYS = ["profit_lock_trigger_pct", "profit_lock_trail_pct"]
+    root = pathlib.Path(__file__).parent / "backtest"
+    engine_src      = (root / "engine.py").read_text()
+    engine_fast_src = (root / "engine_fast.py").read_text()
+    issues = []
+    for key in EXIT_KEYS:
+        if key in engine_src and key not in engine_fast_src:
+            issues.append(f"Exit param '{key}' in engine.py but missing from engine_fast.py")
+    return issues
+
+
 def check_exit_behavior_parity() -> list[str]:
     """
     Exit behavior config keys referenced in wallet.py must all appear in
@@ -197,8 +217,9 @@ _CHECKS = [
     ("sector_names",         check_sector_names),
     ("context_parity",       check_context_parity),
     ("promote_exclusions",   check_promote_exclusions),
-    ("gate_insert_fields",   check_gate_insert_fields),
-    ("exit_behavior_parity", check_exit_behavior_parity),
+    ("gate_insert_fields",          check_gate_insert_fields),
+    ("exit_behavior_parity",        check_exit_behavior_parity),
+    ("engine_fast_exit_parity",     check_engine_fast_exit_parity),
 ]
 
 
