@@ -67,8 +67,8 @@ STOP_LOSS_PCT           = 0.05
 AVG_WIN_PCT   = 0.077   # realized avg win  (nominal TP = 0.06)
 AVG_LOSS_PCT  = 0.057   # realized avg loss (nominal SL = 0.05)
 TIME_STOP_DAYS          = 40
-PROFIT_LOCK_TRIGGER_PCT = 0.02   # peak gain that activates tighter TSL
-PROFIT_LOCK_TRAIL_PCT   = 0.015  # drawdown from peak once profit-lock activates
+PROFIT_LOCK_TRIGGER_PCT = 0.04   # peak gain that activates tighter TSL — sweep-validated 2026-05-27
+PROFIT_LOCK_TRAIL_PCT   = 0.01   # drawdown from peak once profit-lock activates — sweep-validated 2026-05-27
 
 # --- Macro filter (Lock 1.5) ---
 MACRO_VIX_THRESHOLD           = 30.0
