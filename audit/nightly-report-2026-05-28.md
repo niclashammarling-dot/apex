@@ -1,9 +1,7 @@
 # APEX Nightly Audit — 2026-05-28
-5 issues: 1 critical, 4 warnings, 0 info
-*(LLM checks 1, 2, 7, 8 appended below by llm_checks.py)*
+15 issues: 0 critical, 12 warnings, 3 info
 
 | Check | Status | Sev | File:line | Finding |
-|-------|--------|-----|-----------|---------|
 | 3 Fractional qty | ✓ | — | — | — |
 | 4 Config parity | ✓ | — | — | — |
 | 5 Sector name strings | ✓ | — | — | — |
@@ -27,18 +25,32 @@
 | 29 Live sector exposure cap wiring | ✓ | — | — | — |
 | 30 Startup live regime exit reconciliation | ✓ | — | — | — |
 | 31 Live bracket TIF and exit reconciliation | ✓ | — | — | — |
+| 32 Git sync divergence | ✓ | — | — | — |
 | 33 Bayesian multiplier health | ✓ | — | — | — |
 | 35 PCR collection freshness | ✓ | — | — | — |
+| 36 L4 sub-check pass rates | ✓ | — | — | — |
 | 37 Promote exclusion integrity | ✓ | — | — | — |
 | 38 Live entry absence-of-activity | ✓ | — | — | — |
 | 39 Live peak_price integrity | ✓ | — | — | — |
 | 41 New-sector integrity | ✓ | — | — | — |
 | 42 New-sector integrity | ✓ | — | — | — |
-| 32 Git sync divergence | ⚠ | WARNING | .git/ | 2 uncommitted file(s) in working tree — changes will be lost or skipped on next nightly run |
-| 36 L4 sub-check pass rates | ⚠ | WARNING | data/apex.db:signals | L4 sub-check 'unusual_calls' passed 2/60 times (3.3%) over 30d — likely dead weight; review base-rate assumption for the APEX universe |
 | 40 Config coverage audit | ⚠ | WARNING | backend/demo_config.py:_defaults | "trailing_stop_pct" defaults to None (feature disabled) — acknowledged in _NONE_DEFAULTS_ALLOWED; set a non-None value to enable |
 | 40 Config coverage audit | ⚠ | WARNING | backend/live_config.py:_defaults | "trailing_stop_pct" defaults to None (feature disabled) — acknowledged in _NONE_DEFAULTS_ALLOWED; set a non-None value to enable |
-| 44 Regime-conditioned aggregator weight validation | ⚠ | CRITICAL | data/apex.db:sector_posterior_history | sector_posterior_history table missing — insert_sector_posterior_history never ran; regime-conditioned weights have no validation data accumulating |
+
+| check_2 exception-catch coverage in tests | ⚠ | WARNING | test_wallet.py:None | Test does not assert DB insert mock call arguments when using side_effect=Exception. |
+| check_2 exception-catch coverage in tests | ⚠ | WARNING | test_gate_runners.py:None | Test does not assert DB insert mock call arguments when using side_effect=Exception. |
+| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_daily_loss_exceeded` equivalent, missing loss cap logic. [UNVERIFIED: IDENTIFIER NOT FOUND: '_daily_loss_exceeded' not in gate_runner.py] |
+| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_record_live_trade` equivalent, missing trade record logic. [UNVERIFIED: IDENTIFIER NOT FOUND: '_record_live_trade' not in gate_runner.py] |
+| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_fire_trade_alert` equivalent, missing trade alert logic. [UNVERIFIED: IDENTIFIER NOT FOUND: '_fire_trade_alert' not in gate_runner.py] |
+| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_evaluate` lock logic for L5, potential logic divergence. |
+| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_log_summary` logic for L5, potential logging divergence. |
+| 8 General code health | ⚠ | WARNING | gate_runner.py:43 | Bare except block in risk path without logging in `_compute_bayesian_multipliers`. |
+| 8 General code health | ⚠ | WARNING | gate_runner_live.py:63 | Bare except block in risk path without logging in `_record_live_trade`. |
+| 8 General code health | ⚠ | WARNING | gate_runner_live.py:92 | Bare except block in risk path without logging in `_daily_loss_exceeded`. |
+| 8 General code health | ⚠ | INFO | gate_runner.py:43 | TODO/FIXME/HACK comment found. |
+| 8 General code health | ⚠ | INFO | gate_runner_live.py:63 | TODO/FIXME/HACK comment found. |
+| 8 General code health | ⚠ | INFO | gate_runner_live.py:92 | TODO/FIXME/HACK comment found. |
+| 8 General code health | ✓ | — | — | — |
 
 ## Retirement Candidates
 None
