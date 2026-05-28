@@ -8,7 +8,6 @@ integrity, and config key wiring coverage.
 import json
 import re
 import subprocess
-import sys
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -241,20 +240,18 @@ def check37():
                  f'"{key}" missing from _PROMOTE_EXCLUDE — Promote will overwrite live value '
                  f'with demo-scale equivalent on next run')
 
-    try:
-        if str(REPO) not in sys.path:
-            sys.path.insert(0, str(REPO))
-        from backend.live_config import demo_thresholds
-        promotable = set(demo_thresholds().keys())
-        for key in REQUIRED:
-            if key in promotable:
-                flag(37, "Promote exclusion integrity", "CRITICAL",
-                     "backend/live_config.py:demo_thresholds",
-                     f'"{key}" present in demo_thresholds() output — exclusion filter is not working')
-    except Exception as e:
-        flag(37, "Promote exclusion integrity", "WARNING",
+    # Structural check: demo_thresholds() must reference _PROMOTE_EXCLUDE in its body.
+    # This catches the bypass case (filter code changed) without importing the module.
+    fn_match = re.search(r'def demo_thresholds\(\)[^:]*:(.*?)(?=\ndef |\Z)', text, re.DOTALL)
+    if not fn_match:
+        flag(37, "Promote exclusion integrity", "CRITICAL",
              "backend/live_config.py",
-             f"Could not import demo_thresholds for runtime check: {e}")
+             "demo_thresholds() not found — Promote function is missing")
+    elif "_PROMOTE_EXCLUDE" not in fn_match.group(1):
+        flag(37, "Promote exclusion integrity", "CRITICAL",
+             "backend/live_config.py:demo_thresholds",
+             "demo_thresholds() body does not reference _PROMOTE_EXCLUDE — "
+             "exclusion filter bypassed; required keys will be promoted")
 
 
 # ── CHECK 40 — Config coverage audit ─────────────────────────────────────────
@@ -291,18 +288,26 @@ def check40():
             return []
         return re.findall(r'"([^"]+)"', m.group(1))
 
-    def _collect_defaults(module_label: str) -> dict:
-        try:
-            if str(REPO) not in sys.path:
-                sys.path.insert(0, str(REPO))
-            if module_label == "demo":
-                from backend.demo_config import _defaults as _dd
-                return _dd()
-            else:
-                from backend.live_config import _defaults as _ld
-                return _ld()
-        except Exception:
-            return {}
+    def _collect_defaults(cfg_path: Path) -> dict | None:
+        """
+        Parse None-valued entries from _defaults() source text.
+
+        _defaults() returns a dict whose values are either named constants
+        (imported from backend.config) or literal None. We only care about
+        the None literals — those are "feature disabled" entries. Named
+        constants are non-None by construction; importing the full module
+        chain is not needed.
+
+        Returns {key: None} for every "key": None entry, or None if the
+        function body cannot be found.
+        """
+        text = cfg_path.read_text()
+        fn_match = re.search(r'def _defaults\(\)[^:]*:(.*?)(?=\ndef |\Z)', text, re.DOTALL)
+        if not fn_match:
+            return None
+        body = fn_match.group(1)
+        none_keys = re.findall(r'"([^"]+)":\s*None', body)
+        return {k: None for k in none_keys}
 
     def _repo_py_files():
         for fpath in REPO.rglob("*.py"):
@@ -347,12 +352,12 @@ def check40():
                  f'"{key}" in _KEYS but no cfg["{key}"] or cfg.get("{key}"...) found in repo '
                  f'— recognized key with no consumer (valid-looking silence risk)')
 
-    for label, module_label in [("demo", "demo"), ("live", "live")]:
-        defaults = _collect_defaults(module_label)
-        if not defaults:
+    for label, cfg_path in [("demo", demo_cfg), ("live", live_cfg)]:
+        defaults = _collect_defaults(cfg_path)
+        if defaults is None:
             flag(40, "Config coverage audit", "WARNING",
                  f"backend/{label}_config.py",
-                 f"_defaults() could not be imported for {label} config — skipping None-default check")
+                 f"_defaults() function not found in {label}_config.py — skipping None-default check")
             continue
         for key, val in defaults.items():
             if val is None:

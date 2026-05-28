@@ -1,7 +1,9 @@
 # APEX Nightly Audit — 2026-05-28
-13 issues: 0 critical, 11 warnings, 2 info
+5 issues: 1 critical, 4 warnings, 0 info
+*(LLM checks 1, 2, 7, 8 appended below by llm_checks.py)*
 
 | Check | Status | Sev | File:line | Finding |
+|-------|--------|-----|-----------|---------|
 | 3 Fractional qty | ✓ | — | — | — |
 | 4 Config parity | ✓ | — | — | — |
 | 5 Sector name strings | ✓ | — | — | — |
@@ -25,30 +27,18 @@
 | 29 Live sector exposure cap wiring | ✓ | — | — | — |
 | 30 Startup live regime exit reconciliation | ✓ | — | — | — |
 | 31 Live bracket TIF and exit reconciliation | ✓ | — | — | — |
-| 32 Git sync divergence | ✓ | — | — | — |
 | 33 Bayesian multiplier health | ✓ | — | — | — |
 | 35 PCR collection freshness | ✓ | — | — | — |
-| 36 L4 sub-check pass rates | ✓ | — | — | — |
+| 37 Promote exclusion integrity | ✓ | — | — | — |
 | 38 Live entry absence-of-activity | ✓ | — | — | — |
 | 39 Live peak_price integrity | ✓ | — | — | — |
 | 41 New-sector integrity | ✓ | — | — | — |
 | 42 New-sector integrity | ✓ | — | — | — |
-| 37 Promote exclusion integrity | ⚠ | WARNING | backend/live_config.py | Could not import demo_thresholds for runtime check: No module named 'dotenv' |
-| 40 Config coverage audit | ⚠ | WARNING | backend/demo_config.py | _defaults() could not be imported for demo config — skipping None-default check |
-| 40 Config coverage audit | ⚠ | WARNING | backend/live_config.py | _defaults() could not be imported for live config — skipping None-default check |
-
-| check_2_exception_catch_coverage_in_tests | ⚠ | WARNING | test_wallet.py:TEST 1 | Test only checks return value, not DB insert mock call args. |
-| check_2_exception_catch_coverage_in_tests | ✓ | — | — | — |
-| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_daily_loss_exceeded` equivalent, risking unbounded losses in simulation. [UNVERIFIED: IDENTIFIER NOT FOUND: '_daily_loss_exceeded' not in gate_runner.py] |
-| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_record_live_trade` equivalent, missing trade record simulation. [UNVERIFIED: IDENTIFIER NOT FOUND: '_record_live_trade' not in gate_runner.py] |
-| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_fire_trade_alert` equivalent, missing alert simulation. [UNVERIFIED: IDENTIFIER NOT FOUND: '_fire_trade_alert' not in gate_runner.py] |
-| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner's `_evaluate` function lacks L5 lock logic present in live runner. |
-| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner's `_log_summary` function does not log L5 lock results, unlike live runner. |
-| 8 General code health | ⚠ | WARNING | gate_runner.py:47 | Bare except block in risk path without logging in `_compute_bayesian_multipliers`. |
-| 8 General code health | ⚠ | WARNING | gate_runner_live.py:63 | Bare except block in risk path without logging in `_record_live_trade`. |
-| 8 General code health | ⚠ | INFO | gate_runner.py:47 | Inconsistent return types in `_compute_bayesian_multipliers`, returns `dict` or `{}`. |
-| 8 General code health | ⚠ | INFO | gate_runner_live.py:63 | Inconsistent return types in `_record_live_trade`, returns `None` or logs warning. |
-| 8 General code health | ✓ | — | — | — |
+| 32 Git sync divergence | ⚠ | WARNING | .git/ | 2 uncommitted file(s) in working tree — changes will be lost or skipped on next nightly run |
+| 36 L4 sub-check pass rates | ⚠ | WARNING | data/apex.db:signals | L4 sub-check 'unusual_calls' passed 2/60 times (3.3%) over 30d — likely dead weight; review base-rate assumption for the APEX universe |
+| 40 Config coverage audit | ⚠ | WARNING | backend/demo_config.py:_defaults | "trailing_stop_pct" defaults to None (feature disabled) — acknowledged in _NONE_DEFAULTS_ALLOWED; set a non-None value to enable |
+| 40 Config coverage audit | ⚠ | WARNING | backend/live_config.py:_defaults | "trailing_stop_pct" defaults to None (feature disabled) — acknowledged in _NONE_DEFAULTS_ALLOWED; set a non-None value to enable |
+| 44 Regime-conditioned aggregator weight validation | ⚠ | CRITICAL | data/apex.db:sector_posterior_history | sector_posterior_history table missing — insert_sector_posterior_history never ran; regime-conditioned weights have no validation data accumulating |
 
 ## Retirement Candidates
 None
