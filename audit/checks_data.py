@@ -1,9 +1,10 @@
 """
-Data-integrity mechanical checks — CHECKs 14, 15, 17, 22, 33, 35, 39.
+Data-integrity mechanical checks — CHECKs 14, 15, 17, 22, 33, 35, 39, 44.
 
 Covers: EOD regime freshness, calibration freshness, sentiment cache,
 Yahoo data pipeline health, Bayesian multiplier health, PCR collection
-freshness, and live peak_price integrity.
+freshness, live peak_price integrity, and regime-conditioned aggregator
+weight validation.
 """
 import json
 import sqlite3
@@ -340,6 +341,111 @@ def check39():
              f"trailing stop silently disabled: {detail}")
 
 
+# ── CHECK 44 — Regime-conditioned aggregator weight validation ────────────────
+
+def check44():
+    """
+    Sub-check A: sector_posterior_history must have entries for ≥ 7 of the last
+    10 trading days — persistence is confirmed accumulating.
+
+    Sub-check B: once 20+ trading days of history exist, verify at least two
+    distinct regime buckets have appeared (bull ≥ 0.75, bear < 0.60, neutral
+    between). Monotone bucket state means regime-conditioned weights never switch.
+
+    Bucket thresholds from CHECK 9 annotation (2026-05-28, single-snapshot).
+    Do not adjust thresholds until sub-check B fails — that is the empirical
+    validation signal.
+    """
+    db = REPO / "data/apex.db"
+    if not db.exists():
+        return
+
+    try:
+        conn = sqlite3.connect(db)
+    except Exception as e:
+        flag(44, "Regime-conditioned aggregator weight validation", "CRITICAL",
+             "data/apex.db:sector_posterior_history",
+             f"could not open DB: {e}")
+        return
+
+    # Sub-check A — persistence accumulation
+    try:
+        rows_a = conn.execute("""
+            SELECT COUNT(DISTINCT date) AS n
+            FROM sector_posterior_history
+            WHERE date >= DATE('now', '-14 days')
+        """).fetchone()
+        distinct_dates = rows_a[0] if rows_a else 0
+    except sqlite3.OperationalError:
+        conn.close()
+        flag(44, "Regime-conditioned aggregator weight validation", "CRITICAL",
+             "data/apex.db:sector_posterior_history",
+             "sector_posterior_history table missing — insert_sector_posterior_history "
+             "never ran; regime-conditioned weights have no validation data accumulating")
+        return
+    except Exception as e:
+        conn.close()
+        flag(44, "Regime-conditioned aggregator weight validation", "WARNING",
+             "data/apex.db:sector_posterior_history",
+             f"could not query posterior history: {e}")
+        return
+
+    if distinct_dates < 7:
+        flag(44, "Regime-conditioned aggregator weight validation", "CRITICAL",
+             "data/apex.db:sector_posterior_history",
+             f"only {distinct_dates} distinct date(s) in last 14 calendar days — "
+             "persistence not accumulating; validation window cannot be built; "
+             "check insert_sector_posterior_history call in EOD regime runner")
+        conn.close()
+        return
+
+    # Sub-check B — bucket switching (only once 20+ dates exist)
+    try:
+        all_dates = conn.execute(
+            "SELECT DISTINCT date FROM sector_posterior_history ORDER BY date DESC LIMIT 20"
+        ).fetchall()
+    except Exception as e:
+        conn.close()
+        flag(44, "Regime-conditioned aggregator weight validation", "WARNING",
+             "data/apex.db:sector_posterior_history",
+             f"could not query date list for bucket check: {e}")
+        return
+
+    conn.close()
+
+    if len(all_dates) < 20:
+        return  # not enough history yet; sub-check B deferred
+
+    buckets = set()
+    for (d,) in all_dates:
+        try:
+            conn2 = sqlite3.connect(db)
+            top3 = conn2.execute(
+                "SELECT posterior FROM sector_posterior_history "
+                "WHERE date = ? ORDER BY posterior DESC LIMIT 3", (d,)
+            ).fetchall()
+            conn2.close()
+        except Exception:
+            continue
+        if not top3:
+            continue
+        mean_top3 = sum(r[0] for r in top3) / len(top3)
+        if mean_top3 >= 0.75:
+            buckets.add("bull")
+        elif mean_top3 < 0.60:
+            buckets.add("bear")
+        else:
+            buckets.add("neutral")
+
+    if len(buckets) == 1:
+        flag(44, "Regime-conditioned aggregator weight validation", "WARNING",
+             "data/apex.db:sector_posterior_history",
+             f"last 20 trading days all in bucket '{next(iter(buckets))}' — "
+             "regime-conditioned weights have never switched; bucket thresholds "
+             "(bull≥0.75, bear<0.60) may be misplaced relative to actual posterior "
+             "distribution; run retrospective bucket analysis")
+
+
 def run() -> None:
     check14()
     check15()
@@ -348,3 +454,4 @@ def run() -> None:
     check33()
     check35()
     check39()
+    check44()
