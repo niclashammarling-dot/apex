@@ -34,8 +34,8 @@
 | 39 Live peak_price integrity | ✓ | — | — | — |
 | 41 New-sector integrity | ✓ | — | — | — |
 | 42 New-sector integrity | ✓ | — | — | — |
-| 32 Git sync divergence | ⚠ | WARNING | .git/ | 9 uncommitted file(s) in working tree — changes will be lost or skipped on next nightly run |
-| 36 L4 sub-check pass rates | ⚠ | WARNING | data/apex.db:signals | L4 sub-check 'unusual_calls' passed 2/57 times (3.5%) over 30d — likely dead weight; review base-rate assumption for the APEX universe |
+| 32 Git sync divergence | ⚠ | WARNING | .git/ | 2 uncommitted file(s) in working tree — changes will be lost or skipped on next nightly run |
+| 36 L4 sub-check pass rates | ⚠ | WARNING | data/apex.db:signals | L4 sub-check 'unusual_calls' passed 2/60 times (3.3%) over 30d — likely dead weight; review base-rate assumption for the APEX universe |
 | 40 Config coverage audit | ⚠ | WARNING | backend/demo_config.py:_defaults | "trailing_stop_pct" defaults to None (feature disabled) — acknowledged in _NONE_DEFAULTS_ALLOWED; set a non-None value to enable |
 | 40 Config coverage audit | ⚠ | WARNING | backend/live_config.py:_defaults | "trailing_stop_pct" defaults to None (feature disabled) — acknowledged in _NONE_DEFAULTS_ALLOWED; set a non-None value to enable |
 | 44 Regime-conditioned aggregator weight validation | ⚠ | CRITICAL | data/apex.db:sector_posterior_history | sector_posterior_history table missing — insert_sector_posterior_history never ran; regime-conditioned weights have no validation data accumulating |

@@ -298,7 +298,14 @@ def check39():
     Threshold: > 2 trading days open with peak_price IS NULL OR peak_price = entry_price.
     Severity: WARNING (does not prevent entries, but live protection is degraded).
     """
-    import pandas as pd
+    def _business_days_between(start: date, end: date) -> int:
+        """Count Mon–Fri days in (start, end] exclusive of start."""
+        n, cur = 0, start + timedelta(days=1)
+        while cur <= end:
+            if cur.weekday() < 5:
+                n += 1
+            cur += timedelta(days=1)
+        return n
 
     db = REPO / "data/apex.db"
     if not db.exists():
@@ -323,8 +330,8 @@ def check39():
     stale = []
     for r in rows:
         try:
-            entry_date    = datetime.fromisoformat(r["timestamp"]).date()
-            trading_days  = len(pd.bdate_range(entry_date, date.today())) - 1
+            entry_date   = datetime.fromisoformat(r["timestamp"]).date()
+            trading_days = _business_days_between(entry_date, date.today())
         except Exception:
             trading_days = 0
         if trading_days > 2:
