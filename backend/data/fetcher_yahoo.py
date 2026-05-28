@@ -10,6 +10,7 @@ from loguru import logger
 
 from backend.config import EXCLUDED_SECTORS, SPY_TICKER
 from backend.db import get_rolling_win_rate
+from backend.regime.regime_bayes import load_regime_state
 from backend.signals import (
     aggregator,
     ev_kelly,
@@ -80,6 +81,7 @@ def _score_ticker(
     rolling_win_rate: float | None,
     etf_mult: float = 1.0,
     poll_ts: str | None = None,
+    regime_state: str = "neutral",
 ) -> dict | None:
     try:
         df = yf.Ticker(symbol).history(period="90d", auto_adjust=True)
@@ -113,6 +115,7 @@ def _score_ticker(
             vol["volume_score"],
             trd["trend_score"],
             rs["rs_score"],
+            regime_state=regime_state,
         )
 
         # Sector ETF regime: down-weight score if ETF is below its 20d MA
@@ -189,6 +192,7 @@ def fetch_sector(sector_name: str) -> list[dict]:
     rolling_win_rate = get_rolling_win_rate()
     etf_mult         = _etf_regime(cfg["etf"])
     poll_ts          = datetime.now(timezone.utc).isoformat()
+    regime_state     = load_regime_state()
 
     results = []
     for symbol in tickers:
@@ -197,6 +201,7 @@ def fetch_sector(sector_name: str) -> list[dict]:
             spy["regime"], spy["return_20d"],
             rolling_win_rate, etf_mult,
             poll_ts=poll_ts,
+            regime_state=regime_state,
         )
         if row:
             results.append(row)
@@ -210,6 +215,7 @@ def fetch_all_sectors() -> list[dict]:
     spy              = _spy_data()
     rolling_win_rate = get_rolling_win_rate()
     poll_ts          = datetime.now(timezone.utc).isoformat()
+    regime_state     = load_regime_state()
 
     all_signals = []
     for sector_name, cfg in get_sectors().items():
@@ -222,6 +228,7 @@ def fetch_all_sectors() -> list[dict]:
                 spy["regime"], spy["return_20d"],
                 rolling_win_rate, etf_mult,
                 poll_ts=poll_ts,
+                regime_state=regime_state,
             )
             if row:
                 all_signals.append(row)

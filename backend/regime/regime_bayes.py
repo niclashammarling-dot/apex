@@ -420,6 +420,7 @@ class RegimeBayes:
 
         # Persist posteriors and full result — both survive restarts
         self._save_posteriors()
+        self._save_posterior_history(today_str)
         self._save_result(result)
 
         logger.info(
@@ -488,6 +489,14 @@ class RegimeBayes:
             upsert_sector_posteriors(self._posteriors)
         except Exception as e:
             logger.warning(f"Regime: failed to persist posteriors: {e}")
+
+    def _save_posterior_history(self, date_str: str) -> None:
+        """Append today's posteriors to history table. Idempotent — safe to call on restart."""
+        try:
+            from backend.db import insert_sector_posterior_history
+            insert_sector_posterior_history(date_str, self._posteriors)
+        except Exception as e:
+            logger.warning(f"Regime: failed to persist posterior history: {e}")
 
     def _save_result(self, result: RegimeResult) -> None:
         """Persist last RegimeResult to disk so it survives restarts."""
@@ -733,3 +742,68 @@ def regime_context_for_claude(result: RegimeResult) -> str:
         if entry.allocation > 0:
             lines.append(f"  {entry.sector:<20} {entry.allocation:.1%}")
     return "\n".join(lines)
+
+
+# ── Regime scalar for aggregator weight conditioning ─────────────────────────
+
+# Thresholds constructed from 2026-05-28 snapshot analysis (compressed market
+# reads 0.725 → neutral; bull requires sustained broad conviction above 0.75).
+# Validation gate: recalibrate once sector_posterior_history has ≥ 4 weeks of
+# data — compare bucket hit rates against Q2 training/held-out period dates.
+_REGIME_BULL_THRESHOLD  = 0.75
+_REGIME_BEAR_THRESHOLD  = 0.60
+_REGIME_TOP_N           = 3
+
+
+def market_regime_state(result: RegimeResult) -> str:
+    """
+    Derive a market-state bucket from the top-N leaderboard posteriors.
+
+    Returns "bull", "neutral", or "bear".
+    Top-N is by leaderboard rank (adjusted_score order) — the sectors whose
+    tickers are actually being evaluated by the aggregator.
+    Falls back to "neutral" if the leaderboard has fewer than _REGIME_TOP_N entries.
+    """
+    top = result.leaderboard[:_REGIME_TOP_N]
+    if len(top) < _REGIME_TOP_N:
+        return "neutral"
+    mean_posterior = sum(e.posterior for e in top) / len(top)
+    if mean_posterior >= _REGIME_BULL_THRESHOLD:
+        return "bull"
+    if mean_posterior < _REGIME_BEAR_THRESHOLD:
+        return "bear"
+    return "neutral"
+
+
+def load_regime_state() -> str:
+    """
+    Load the most recent cached RegimeResult from disk and return the regime bucket.
+    Falls back to "neutral" on any read failure — aggregator uses current weights.
+    """
+    try:
+        if not RESULT_CACHE_PATH.exists():
+            return "neutral"
+        with open(RESULT_CACHE_PATH) as f:
+            import json as _json
+            p = _json.load(f)
+        leaderboard = [
+            SectorEntry(
+                sector=e["sector"],
+                rank=e["rank"],
+                aggregate_score=e["aggregate_score"],
+                posterior=e["posterior"],
+                adjusted_score=e["adjusted_score"],
+                allocation=e["allocation"],
+            )
+            for e in p.get("leaderboard", [])
+        ]
+        result = RegimeResult(
+            date=p["date"],
+            leaderboard=leaderboard,
+            allocation=p["allocation"],
+            leader=p["leader"],
+            qualifiers=p["qualifiers"],
+        )
+        return market_regime_state(result)
+    except Exception:
+        return "neutral"

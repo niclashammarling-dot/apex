@@ -221,6 +221,13 @@ def init_db() -> None:
                 updated_at  TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS sector_posterior_history (
+                date        TEXT NOT NULL,
+                sector      TEXT NOT NULL,
+                posterior   REAL NOT NULL,
+                PRIMARY KEY (date, sector)
+            );
+
             CREATE TABLE IF NOT EXISTS lock4_pcr_history (
                 id             INTEGER PRIMARY KEY AUTOINCREMENT,
                 ticker         TEXT    NOT NULL,
@@ -1806,5 +1813,23 @@ def upsert_sector_posteriors(posteriors: dict[str, float]) -> None:
         conn.commit()
     except Exception as e:
         logger.warning(f"upsert_sector_posteriors: {e}")
+    finally:
+        conn.close()
+
+
+def insert_sector_posterior_history(date_str: str, posteriors: dict[str, float]) -> None:
+    """Append daily posterior snapshot. Idempotent on (date, sector) key."""
+    conn = get_db()
+    try:
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO sector_posterior_history (date, sector, posterior)
+            VALUES (?, ?, ?)
+            """,
+            [(date_str, sector, posterior) for sector, posterior in posteriors.items()],
+        )
+        conn.commit()
+    except Exception as e:
+        logger.warning(f"insert_sector_posterior_history: {e}")
     finally:
         conn.close()

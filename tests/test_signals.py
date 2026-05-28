@@ -92,6 +92,25 @@ check("score = 0 for zero inputs", score_zero == 0.0)
 score_one = aggregator.compute(1.0, 1.0, 1.0, 1.0)
 check("score = 1 for max inputs",  score_one == 1.0)
 
+# Regime-conditioned weights: inputs with higher trend/rs should score higher in bull,
+# higher momentum/volume should score higher in bear.
+# Use asymmetric inputs: high trend+rs (0.9/0.9), low momentum+volume (0.2/0.2)
+score_bull    = aggregator.compute(0.2, 0.2, 0.9, 0.9, regime_state="bull")
+score_neutral = aggregator.compute(0.2, 0.2, 0.9, 0.9, regime_state="neutral")
+score_bear    = aggregator.compute(0.2, 0.2, 0.9, 0.9, regime_state="bear")
+check("bull > neutral for high trend/rs inputs",    score_bull > score_neutral)
+check("neutral > bear for high trend/rs inputs",    score_neutral > score_bear)
+
+score_bull_m    = aggregator.compute(0.9, 0.9, 0.2, 0.2, regime_state="bull")
+score_neutral_m = aggregator.compute(0.9, 0.9, 0.2, 0.2, regime_state="neutral")
+score_bear_m    = aggregator.compute(0.9, 0.9, 0.2, 0.2, regime_state="bear")
+check("bear > neutral for high momentum/volume inputs",    score_bear_m > score_neutral_m)
+check("neutral > bull for high momentum/volume inputs",    score_neutral_m > score_bull_m)
+
+check("unknown regime_state falls back to neutral",
+      aggregator.compute(0.5, 0.5, 0.5, 0.5, regime_state="unknown") ==
+      aggregator.compute(0.5, 0.5, 0.5, 0.5, regime_state="neutral"))
+
 
 # ── TEST 3: EV / Kelly ────────────────────────────────────────────────────────
 print("\nTEST 3: EV / Kelly")
