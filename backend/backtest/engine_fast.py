@@ -87,7 +87,9 @@ def run(
     initial_balance: float = 10_000.0,
     take_profit_pct:    float | None = None,
     stop_loss_pct:      float | None = None,
-    trailing_stop_pct:  float | None = None,
+    trailing_stop_pct:       float | None = None,
+    profit_lock_trigger_pct: float | None = None,
+    profit_lock_trail_pct:   float | None = None,
     atr_exits:          bool        = False,
     earnings_filter_days: int | None = None,
     time_stop_days:     int   | None = None,
@@ -101,6 +103,8 @@ def run(
     tp       = take_profit_pct    if take_profit_pct    is not None else TAKE_PROFIT_PCT
     sl       = stop_loss_pct      if stop_loss_pct      is not None else STOP_LOSS_PCT
     tsl      = trailing_stop_pct
+    pl_trig  = profit_lock_trigger_pct
+    pl_trail = profit_lock_trail_pct
     tdays    = time_stop_days     if time_stop_days     is not None else TIME_STOP_DAYS
     l1       = lock1_threshold    if lock1_threshold    is not None else LOCK1_THRESHOLD
     max_epd  = max_entries_per_day
@@ -177,7 +181,7 @@ def run(
 
         # 1. Check exits
         closed_today = _check_exits_fast(
-            open_trades, price_cache, today, today_str, tp, sl, tdays, tsl
+            open_trades, price_cache, today, today_str, tp, sl, tdays, tsl, pl_trig, pl_trail
         )
         for ct in closed_today:
             trade  = ct["_trade"]
@@ -689,7 +693,9 @@ def _check_exits_fast(
     take_profit_pct: float,
     stop_loss_pct: float,
     time_stop_days: int,
-    trailing_stop_pct: float | None = None,
+    trailing_stop_pct:       float | None = None,
+    profit_lock_trigger_pct: float | None = None,
+    profit_lock_trail_pct:   float | None = None,
 ) -> list[dict]:
     closed = []
     for trade in list(open_trades):
@@ -711,7 +717,11 @@ def _check_exits_fast(
             # Trailing stop replaces fixed SL (matches wallet.py check_exits logic)
             peak      = trade.get("peak_price", trade["entry_price"])
             trail_pct = (peak - current) / peak
-            if trail_pct >= trailing_stop_pct:
+            eff_tsl   = trailing_stop_pct
+            if profit_lock_trigger_pct and profit_lock_trail_pct:
+                if (peak - trade["entry_price"]) / trade["entry_price"] >= profit_lock_trigger_pct:
+                    eff_tsl = profit_lock_trail_pct
+            if trail_pct >= eff_tsl:
                 reason, outcome = "TSL", "WIN" if pnl_pct >= 0 else "LOSS"
             elif days_held >= time_stop_days:
                 reason, outcome = "TIME", "EXPIRED"
