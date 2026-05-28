@@ -82,14 +82,14 @@ check("momentum_clipped >= -0.20 for extreme bear",
 # ── TEST 2: Aggregator output ─────────────────────────────────────────────────
 print("\nTEST 2: Aggregator output")
 
-score = aggregator.compute(0.70, 0.80, 0.60, 0.65, 0.55)
+score = aggregator.compute(0.70, 0.80, 0.65, 0.55)
 check("score ∈ [0, 1]",        0.0 <= score <= 1.0, f"score={score:.4f}")
 check("score > 0 for positive inputs", score > 0)
 
-score_zero = aggregator.compute(0.0, 0.0, 0.0, 0.0, 0.0)
+score_zero = aggregator.compute(0.0, 0.0, 0.0, 0.0)
 check("score = 0 for zero inputs", score_zero == 0.0)
 
-score_one = aggregator.compute(1.0, 1.0, 1.0, 1.0, 1.0)
+score_one = aggregator.compute(1.0, 1.0, 1.0, 1.0)
 check("score = 1 for max inputs",  score_one == 1.0)
 
 

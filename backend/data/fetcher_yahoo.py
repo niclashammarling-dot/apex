@@ -111,7 +111,6 @@ def _score_ticker(
         score = aggregator.compute(
             mom["momentum_score"],
             vol["volume_score"],
-            evk["ev_norm"],
             trd["trend_score"],
             rs["rs_score"],
         )

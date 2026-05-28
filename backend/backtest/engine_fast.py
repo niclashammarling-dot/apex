@@ -622,7 +622,7 @@ def _build_signal_cache(
 
                     evk   = ev_kelly_compute(spy_reg, rolling_win_rate=None, atr_pct=atr_pct)
                     score = aggregator.compute(
-                        mom["momentum_score"], vol["volume_score"], evk["ev_norm"],
+                        mom["momentum_score"], vol["volume_score"],
                         trd["trend_score"], rs["rs_score"],
                     )
                     score = round(min(max(score * etf_mult, 0.0), 1.0), 4)

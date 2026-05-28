@@ -383,7 +383,7 @@ def _score_ticker(
             atr_pct = 0.0
         evk   = ev_kelly_compute(spy_regime, rolling_win_rate=rolling_win_rate, atr_pct=atr_pct)
         score = aggregator.compute(
-            mom["momentum_score"], vol["volume_score"], evk["ev_norm"],
+            mom["momentum_score"], vol["volume_score"],
             trd["trend_score"], rs["rs_score"],
         )
         # Apply sector ETF regime multiplier

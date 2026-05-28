@@ -278,8 +278,8 @@ def _check_volume_accumulation(ticker: str) -> dict:
     if raw.empty:
         return {"pass": False, "reason": "price/volume data unavailable"}
 
-    close = raw["Close"].squeeze()
-    vol   = raw["Volume"].squeeze()
+    close = raw[("Close", ticker)]
+    vol   = raw[("Volume", ticker)]
     idx   = close.index.intersection(vol.index)
     close = close[idx].dropna()
     vol   = vol[idx].dropna()

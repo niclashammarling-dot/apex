@@ -39,7 +39,8 @@ def compute(spy_regime: float, rolling_win_rate: float | None = None, atr_pct: f
     ev     = p * effective_tp - (1 - p) * effective_sl
     f_star = (p * B - (1 - p)) / B
     kelly  = max(0.0, f_star * 0.50)
-    ev_norm = max(0.0, min(1.0, ev / effective_tp))
+    ev_max  = 0.75 * effective_tp - 0.25 * effective_sl
+    ev_norm = max(0.0, min(1.0, ev / ev_max)) if ev_max > 0 else 0.0
 
     return {
         "p_win":        round(p, 4),
