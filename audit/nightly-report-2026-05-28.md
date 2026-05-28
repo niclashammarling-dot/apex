@@ -1,6 +1,5 @@
 # APEX Nightly Audit — 2026-05-28
-5 issues: 1 critical, 4 warnings, 0 info
-*(LLM checks 1, 2, 7, 8 appended below by llm_checks.py)*
+14 issues: 0 critical, 12 warnings, 2 info
 
 | Check | Status | Sev | File:line | Finding |
 |-------|--------|-----|-----------|---------|
@@ -27,18 +26,35 @@
 | 29 Live sector exposure cap wiring | ✓ | — | — | — |
 | 30 Startup live regime exit reconciliation | ✓ | — | — | — |
 | 31 Live bracket TIF and exit reconciliation | ✓ | — | — | — |
+| 32 Git sync divergence | ✓ | — | — | — |
 | 33 Bayesian multiplier health | ✓ | — | — | — |
 | 35 PCR collection freshness | ✓ | — | — | — |
-| 37 Promote exclusion integrity | ✓ | — | — | — |
+| 36 L4 sub-check pass rates | ✓ | — | — | — |
 | 38 Live entry absence-of-activity | ✓ | — | — | — |
 | 39 Live peak_price integrity | ✓ | — | — | — |
 | 41 New-sector integrity | ✓ | — | — | — |
 | 42 New-sector integrity | ✓ | — | — | — |
-| 32 Git sync divergence | ⚠ | WARNING | .git/ | 2 uncommitted file(s) in working tree — changes will be lost or skipped on next nightly run |
-| 36 L4 sub-check pass rates | ⚠ | WARNING | data/apex.db:signals | L4 sub-check 'unusual_calls' passed 2/60 times (3.3%) over 30d — likely dead weight; review base-rate assumption for the APEX universe |
-| 40 Config coverage audit | ⚠ | WARNING | backend/demo_config.py:_defaults | "trailing_stop_pct" defaults to None (feature disabled) — acknowledged in _NONE_DEFAULTS_ALLOWED; set a non-None value to enable |
-| 40 Config coverage audit | ⚠ | WARNING | backend/live_config.py:_defaults | "trailing_stop_pct" defaults to None (feature disabled) — acknowledged in _NONE_DEFAULTS_ALLOWED; set a non-None value to enable |
-| 44 Regime-conditioned aggregator weight validation | ⚠ | CRITICAL | data/apex.db:sector_posterior_history | sector_posterior_history table missing — insert_sector_posterior_history never ran; regime-conditioned weights have no validation data accumulating |
+| 37 Promote exclusion integrity | ⚠ | WARNING | backend/live_config.py | Could not import demo_thresholds for runtime check: No module named 'loguru' |
+| 40 Config coverage audit | ⚠ | WARNING | backend/demo_config.py | _defaults() could not be imported for demo config — skipping None-default check |
+| 40 Config coverage audit | ⚠ | WARNING | backend/live_config.py | _defaults() could not be imported for live config — skipping None-default check |
+
+| check_num check_name | ✓ | — | — | — |
+| check_num check_name | ⚠ | SEV | file:line | one-line description |
+| --------------------- | --- | --- | -------- | -------------------- |
+| check_2 exception-catch coverage in tests | ⚠ | WARNING | test_wallet.py:100 | Test does not assert DB insert mock call arguments when using side_effect=Exception. |
+| check_2 exception-catch coverage in tests | ⚠ | WARNING | test_gate_runners.py:100 | Test does not assert DB insert mock call arguments when using side_effect=Exception. |
+| check_num check_name | ⚠ | SEV | file:line | one-line description |
+| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_daily_loss_exceeded` equivalent, missing loss cap logic. |
+| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_record_live_trade` equivalent, missing trade record logic. |
+| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_fire_trade_alert` equivalent, missing trade alert logic. |
+| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_evaluate` function's L5 logic, missing lock logic. |
+| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_log_summary` equivalent for L5, missing logging logic. |
+| check_num check_name | ⚠ | SEV | file:line | one-line description |
+| 8 General code health | ⚠ | WARNING | gate_runner.py:43 | Bare except block in risk path without logging in `_compute_bayesian_multipliers`. |
+| 8 General code health | ⚠ | WARNING | gate_runner_live.py:63 | Bare except block in risk path without logging in `_record_live_trade`. |
+| 8 General code health | ⚠ | INFO | gate_runner.py:72 | TODO/FIXME/HACK comment found. |
+| 8 General code health | ⚠ | INFO | gate_runner_live.py:102 | Function `_daily_loss_exceeded` returns inconsistent types without caller guard. |
+| 8 General code health | ✓ | — | — | — |
 
 ## Retirement Candidates
 None
