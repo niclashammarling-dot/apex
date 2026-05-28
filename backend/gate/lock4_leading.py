@@ -18,10 +18,19 @@ Public API:
 """
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import yfinance as yf
 from loguru import logger
 
 from backend.gate.types import LockResult
+
+# Shared semaphore across all outer gate-runner threads.
+# Caps concurrent yfinance requests at 8 to stay below Yahoo rate-limit threshold.
+# Current worst case: 5 outer threads × 3 inner fetches = 15 theoretical max;
+# semaphore reduces peak to 8. Tune this constant if 429s appear.
+_YF_SEMAPHORE = threading.Semaphore(8)
 
 LOCK_ID  = 4
 MIN_PASS = 2
@@ -92,24 +101,39 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS) -> LockResult:
     Returns:
         LockResult with lock_id=4
     """
-    try:
-        options_chains = _fetch_options_chains(ticker)
-    except Exception as e:
-        logger.warning(f"Lock 4 [{ticker}] options fetch: {e}")
-        options_chains = []
+    # Run the three independent I/O fetches in parallel.
+    # put_call_ratio and unusual_calls are pure computation on options_chains — no I/O.
+    # _YF_SEMAPHORE (module-level) caps total concurrent yfinance requests across all
+    # outer gate-runner threads; inner pool size of 3 matches the fetch count.
+    with ThreadPoolExecutor(max_workers=3) as inner_pool:
+        fut_options = inner_pool.submit(_fetch_options_chains, ticker)
+        fut_rs      = inner_pool.submit(_check_relative_strength, ticker, sector)
+        fut_va      = inner_pool.submit(_check_volume_accumulation, ticker)
 
-    checks = {}
-    for name, fn, args in [
-        ("relative_strength",   _check_relative_strength,  (ticker, sector)),
-        ("put_call_ratio",      _check_put_call_ratio,     (options_chains,)),
-        ("unusual_calls",       _check_unusual_call_volume,(options_chains,)),
-        ("volume_accumulation", _check_volume_accumulation,(ticker,)),
-    ]:
         try:
-            checks[name] = fn(*args)
+            options_chains = fut_options.result()
         except Exception as e:
-            logger.warning(f"Lock 4 [{ticker}] {name}: {e}")
-            checks[name] = {"pass": False, "reason": f"error: {e}"}
+            logger.warning(f"Lock 4 [{ticker}] options fetch: {e}")
+            options_chains = []
+
+        try:
+            rs_result = fut_rs.result()
+        except Exception as e:
+            logger.warning(f"Lock 4 [{ticker}] relative_strength: {e}")
+            rs_result = {"pass": False, "reason": f"error: {e}"}
+
+        try:
+            va_result = fut_va.result()
+        except Exception as e:
+            logger.warning(f"Lock 4 [{ticker}] volume_accumulation: {e}")
+            va_result = {"pass": False, "reason": f"error: {e}"}
+
+    checks = {
+        "relative_strength":   rs_result,
+        "put_call_ratio":      _check_put_call_ratio(options_chains),
+        "unusual_calls":       _check_unusual_call_volume(options_chains),
+        "volume_accumulation": va_result,
+    }
 
     pass_count    = sum(1 for v in checks.values() if v["pass"])
     failed_checks = [k for k, v in checks.items() if not v["pass"]]
@@ -151,18 +175,19 @@ def _fetch_options_chains(ticker: str) -> list[tuple]:
     Returns [(calls_df, puts_df), ...] for the first 2 expiries.
     Both put_call_ratio and unusual_calls consume this shared list.
     """
-    t        = yf.Ticker(ticker)
-    expiries = t.options
-    if not expiries:
-        return []
-    chains = []
-    for exp in expiries[:2]:
-        try:
-            chain = t.option_chain(exp)
-            chains.append((chain.calls, chain.puts))
-        except Exception as e:
-            logger.warning(f"Lock 4 [{ticker}] chain fetch {exp}: {e}")
-    return chains
+    with _YF_SEMAPHORE:
+        t        = yf.Ticker(ticker)
+        expiries = t.options
+        if not expiries:
+            return []
+        chains = []
+        for exp in expiries[:2]:
+            try:
+                chain = t.option_chain(exp)
+                chains.append((chain.calls, chain.puts))
+            except Exception as e:
+                logger.warning(f"Lock 4 [{ticker}] chain fetch {exp}: {e}")
+        return chains
 
 
 def _check_relative_strength(ticker: str, sector: str) -> dict:
@@ -171,8 +196,9 @@ def _check_relative_strength(ticker: str, sector: str) -> dict:
     if not etf:
         return {"pass": False, "reason": f"no ETF mapped for sector '{sector}'"}
 
-    data = yf.download([ticker, etf], period="8d", progress=False,
-                       auto_adjust=True)["Close"]
+    with _YF_SEMAPHORE:
+        data = yf.download([ticker, etf], period="8d", progress=False,
+                           auto_adjust=True)["Close"]
     if data.empty:
         return {"pass": False, "reason": "price data unavailable"}
 
@@ -247,7 +273,8 @@ def _check_unusual_call_volume(chains: list[tuple]) -> dict:
 def _check_volume_accumulation(ticker: str) -> dict:
     """Up/down volume ratio over 20 days > 1.2 (accumulation dominates distribution)."""
     # Need ~30 calendar days to guarantee 20 trading days after weekends/holidays
-    raw = yf.download(ticker, period="30d", progress=False, auto_adjust=True)
+    with _YF_SEMAPHORE:
+        raw = yf.download(ticker, period="30d", progress=False, auto_adjust=True)
     if raw.empty:
         return {"pass": False, "reason": "price/volume data unavailable"}
 
