@@ -782,6 +782,7 @@ def load_regime_state() -> str:
     """
     try:
         if not RESULT_CACHE_PATH.exists():
+            logger.warning("load_regime_state: cache file missing — falling back to neutral")
             return "neutral"
         with open(RESULT_CACHE_PATH) as f:
             import json as _json
@@ -805,5 +806,6 @@ def load_regime_state() -> str:
             qualifiers=p["qualifiers"],
         )
         return market_regime_state(result)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"load_regime_state: read/parse failure ({e}) — falling back to neutral")
         return "neutral"
