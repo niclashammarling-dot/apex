@@ -121,8 +121,8 @@ def is_template_row(parts: list[str]) -> bool:
     file_lc = parts[4].strip()
     finding = parts[5].strip()
 
-    # All-separator rows
-    if all(p.strip() in ("---", "") for p in parts[1:6]):
+    # Separator rows — any cell that is all dashes (length ≥ 3)
+    if all(re.fullmatch(r'-+', p.strip()) or p.strip() == "" for p in parts[1:6]):
         return True
 
     # Explicit template placeholders

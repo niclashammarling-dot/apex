@@ -26,7 +26,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install openai
+        run: pip install openai loguru
 
       - name: Run mechanical checks
         run: python -m audit.mechanical_checks
@@ -36,6 +36,9 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python audit/llm_checks.py
 
+      - name: Verify LLM findings
+        run: python audit/verify_llm_findings.py
+
       - name: Commit audit report
         run: |
           git config user.name "APEX Audit Bot"
@@ -44,9 +47,6 @@ jobs:
           git diff --cached --quiet && echo "Nothing to commit" || \
             git commit -m "audit: nightly report $(date +%Y-%m-%d)"
           git push
-
-      - name: Verify LLM findings
-        run: python audit/verify_llm_findings.py
 
       - name: Alert on CRITICAL findings
         env:

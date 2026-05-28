@@ -2,7 +2,6 @@
 14 issues: 0 critical, 12 warnings, 2 info
 
 | Check | Status | Sev | File:line | Finding |
-|-------|--------|-----|-----------|---------|
 | 3 Fractional qty | ✓ | — | — | — |
 | 4 Config parity | ✓ | — | — | — |
 | 5 Sector name strings | ✓ | — | — | — |
@@ -38,18 +37,13 @@
 | 40 Config coverage audit | ⚠ | WARNING | backend/demo_config.py | _defaults() could not be imported for demo config — skipping None-default check |
 | 40 Config coverage audit | ⚠ | WARNING | backend/live_config.py | _defaults() could not be imported for live config — skipping None-default check |
 
-| check_num check_name | ✓ | — | — | — |
-| check_num check_name | ⚠ | SEV | file:line | one-line description |
-| --------------------- | --- | --- | -------- | -------------------- |
 | check_2 exception-catch coverage in tests | ⚠ | WARNING | test_wallet.py:100 | Test does not assert DB insert mock call arguments when using side_effect=Exception. |
 | check_2 exception-catch coverage in tests | ⚠ | WARNING | test_gate_runners.py:100 | Test does not assert DB insert mock call arguments when using side_effect=Exception. |
-| check_num check_name | ⚠ | SEV | file:line | one-line description |
-| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_daily_loss_exceeded` equivalent, missing loss cap logic. |
-| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_record_live_trade` equivalent, missing trade record logic. |
-| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_fire_trade_alert` equivalent, missing trade alert logic. |
+| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_daily_loss_exceeded` equivalent, missing loss cap logic. [UNVERIFIED: IDENTIFIER NOT FOUND: '_daily_loss_exceeded' not in gate_runner.py] |
+| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_record_live_trade` equivalent, missing trade record logic. [UNVERIFIED: IDENTIFIER NOT FOUND: '_record_live_trade' not in gate_runner.py] |
+| 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_fire_trade_alert` equivalent, missing trade alert logic. [UNVERIFIED: IDENTIFIER NOT FOUND: '_fire_trade_alert' not in gate_runner.py] |
 | 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_evaluate` function's L5 logic, missing lock logic. |
 | 7 Demo/live gate runner parity | ⚠ | WARNING | gate_runner.py:50 | Demo runner lacks `_log_summary` equivalent for L5, missing logging logic. |
-| check_num check_name | ⚠ | SEV | file:line | one-line description |
 | 8 General code health | ⚠ | WARNING | gate_runner.py:43 | Bare except block in risk path without logging in `_compute_bayesian_multipliers`. |
 | 8 General code health | ⚠ | WARNING | gate_runner_live.py:63 | Bare except block in risk path without logging in `_record_live_trade`. |
 | 8 General code health | ⚠ | INFO | gate_runner.py:72 | TODO/FIXME/HACK comment found. |
