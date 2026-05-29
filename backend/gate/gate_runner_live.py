@@ -18,6 +18,7 @@ from backend.db import (
     get_live_ticker_gate_fails,
     get_lock1_candidates,
     get_open_live_tickers,
+    get_recently_exited_live_tickers,
     get_recently_failed_live_tickers,
     insert_live_gate_result,
     insert_live_trade,
@@ -69,11 +70,13 @@ def run() -> list[dict]:
         logger.info("Live gate runner: no Lock 1 candidates this cycle")
         return []
 
-    # Skip tickers already held or in cooloff — record in live_gate_history so funnel is complete
+    # Skip tickers already held, in gate cooloff, or in exit cooloff
     open_tickers   = get_open_live_tickers()
     failed_tickers = get_recently_failed_live_tickers(cfg.get("gate_cooloff_hours", 4))
-    skipped = [c for c in candidates if c["ticker"] in (open_tickers | failed_tickers)]
-    candidates = [c for c in candidates if c["ticker"] not in (open_tickers | failed_tickers)]
+    exited_tickers = get_recently_exited_live_tickers(cfg.get("exit_cooloff_hours", 4))
+    blocked = open_tickers | failed_tickers | exited_tickers
+    skipped = [c for c in candidates if c["ticker"] in blocked]
+    candidates = [c for c in candidates if c["ticker"] not in blocked]
 
     ts = datetime.now(timezone.utc).isoformat()
     for c in skipped:
@@ -86,9 +89,11 @@ def run() -> list[dict]:
         })
 
     if skipped:
+        skipped_set = {c["ticker"] for c in skipped}
         logger.info(f"Live gate runner: skipped {len(skipped)} ticker(s) "
-                    f"(open={len(open_tickers & {c['ticker'] for c in skipped})}, "
-                    f"cooloff={len(failed_tickers & {c['ticker'] for c in skipped})})")
+                    f"(open={len(open_tickers & skipped_set)}, "
+                    f"cooloff={len(failed_tickers & skipped_set)}, "
+                    f"exit_cooloff={len(exited_tickers & skipped_set)})")
 
     if not candidates:
         logger.info("Live gate runner: all candidates skipped (open positions / cooloff)")

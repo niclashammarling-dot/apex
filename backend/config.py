@@ -75,6 +75,7 @@ MACRO_VIX_THRESHOLD           = 30.0
 MACRO_EVENT_BLACKOUT_DAYS     = 1     # days before/after FOMC, CPI, NFP
 MACRO_EARNINGS_BLACKOUT_DAYS  = 3     # days before a ticker's earnings
 GATE_COOLOFF_HOURS            = 4     # hours before re-evaluating a ticker that failed L2/L3/MACRO
+EXIT_COOLOFF_HOURS            = 24    # hours before a recently-exited ticker can re-enter the gate
 
 # --- Lock Leading ---
 LOCK_LEADING_MIN_PASS = 2      # checks that must pass (out of 4) to advance

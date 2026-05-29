@@ -687,6 +687,23 @@ def get_recently_failed_tickers(hours: float) -> set[str]:
         conn.close()
 
 
+def get_recently_exited_tickers(hours: float) -> set[str]:
+    """Return tickers whose demo position closed within the last N hours."""
+    from datetime import datetime, timedelta, timezone
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT DISTINCT ticker FROM trades
+            WHERE outcome IN ('WIN', 'LOSS', 'EXPIRED')
+            AND exited_at IS NOT NULL
+            AND exited_at > ?
+        """, (cutoff,)).fetchall()
+        return {r[0] for r in rows}
+    finally:
+        conn.close()
+
+
 def get_open_live_tickers() -> set[str]:
     """Return set of ticker symbols that currently have an open live position."""
     conn = get_db()
@@ -802,6 +819,23 @@ def get_recently_failed_live_tickers(hours: float) -> set[str]:
             SELECT DISTINCT ticker FROM live_gate_history
             WHERE gate_decision IN ('FILTERED_L2', 'FILTERED_L3')
             AND timestamp > ?
+        """, (cutoff,)).fetchall()
+        return {r[0] for r in rows}
+    finally:
+        conn.close()
+
+
+def get_recently_exited_live_tickers(hours: float) -> set[str]:
+    """Return tickers whose live position closed within the last N hours."""
+    from datetime import datetime, timedelta, timezone
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT DISTINCT ticker FROM live_trades
+            WHERE outcome IN ('WIN', 'LOSS', 'EXPIRED')
+            AND exited_at IS NOT NULL
+            AND exited_at > ?
         """, (cutoff,)).fetchall()
         return {r[0] for r in rows}
     finally:
