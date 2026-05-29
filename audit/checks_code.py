@@ -1,9 +1,10 @@
 """
-Code-health mechanical checks — CHECKs 3, 6, 10, 12, 16, 30, 31.
+Code-health mechanical checks — CHECKs 3, 6, 10, 12, 16, 30, 31, 45.
 
 Covers: fractional qty in broker, test DB isolation, ticker signal data
 coverage, Lock3 context key parity, yfinance scalar extraction pattern,
-startup live regime exit reconciliation, and live bracket TIF/exit fallback.
+startup live regime exit reconciliation, live bracket TIF/exit fallback,
+and static code analysis (ruff + connection-leak patterns).
 """
 import re
 
@@ -262,6 +263,70 @@ def check31():
              "position-reconciliation snapshot (alpaca_positions) missing from check_live_exits")
 
 
+# ── CHECK 45 — Static code analysis ─────────────────────────────────────────
+
+def check45():
+    """
+    Two sub-checks run on production backend (excludes backtest/).
+
+    Sub-check A — ruff (E, F, W rules, ignore E501):
+      Any finding in backend/ outside of backtest/ is WARNING. Catches unused
+      imports, undefined names, unused variables, and f-string issues that
+      slip through review. Backtest scripts are excluded — they are analysis
+      tooling, not runtime code.
+
+    Sub-check B — Connection leak pattern:
+      `with get_db() as conn:` in any .py file outside tests/. sqlite3's
+      context manager only manages transactions — it never closes the connection.
+      Only the try/finally conn.close() pattern is safe. Each match is WARNING.
+
+    Prompted by: 2026-05-29 manual audit found two leaked connections in
+    scheduler.py (_check_missed_eod_regime, _check_missed_sentiment_prefetch).
+    """
+    import subprocess
+
+    # Sub-check A — ruff
+    try:
+        result = subprocess.run(
+            ["python3", "-m", "ruff", "check", "backend/",
+             "--select", "E,F,W", "--ignore", "E501",
+             "--output-format", "concise"],
+            cwd=REPO, capture_output=True, text=True, timeout=30,
+        )
+        for line in result.stdout.splitlines():
+            # Skip backtest/ — analysis scripts, not runtime code
+            if "/backtest/" in line or "\\backtest\\" in line:
+                continue
+            # ruff concise format: path:line:col: CODE message
+            if re.match(r"^backend/.*\.py:\d+:\d+:", line):
+                parts = line.split(":", 3)
+                file_line = f"{parts[0]}:{parts[1]}"
+                detail    = parts[3].strip() if len(parts) > 3 else line
+                flag(45, "Static code analysis", "WARNING", file_line,
+                     f"ruff: {detail}")
+    except FileNotFoundError:
+        flag(45, "Static code analysis", "WARNING", "audit/checks_code.py",
+             "ruff not found — install via pip install ruff")
+    except Exception as e:
+        flag(45, "Static code analysis", "WARNING", "audit/checks_code.py",
+             f"ruff sub-check failed: {e}")
+
+    # Sub-check B — connection leak pattern
+    _LEAK = re.compile(r"\bwith\s+get_db\(\)\s+as\b")
+    for fpath in REPO.rglob("*.py"):
+        if any(skip in str(fpath) for skip in ["node_modules", "venv", ".git", "__pycache__", "tests/", "/audit/"]):
+            continue
+        try:
+            for i, line in enumerate(fpath.read_text(errors="ignore").splitlines(), 1):
+                if _LEAK.search(line) and not line.strip().startswith("#"):
+                    rel = str(fpath.relative_to(REPO))
+                    flag(45, "Static code analysis", "WARNING", f"{rel}:{i}",
+                         "`with get_db() as conn` — sqlite3 context manager never closes "
+                         "the connection; use try/finally conn.close()")
+        except Exception:
+            continue
+
+
 def run() -> None:
     check3()
     check6()
@@ -270,3 +335,4 @@ def run() -> None:
     check16()
     check30()
     check31()
+    check45()

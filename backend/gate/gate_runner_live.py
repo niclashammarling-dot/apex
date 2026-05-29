@@ -57,10 +57,10 @@ def run() -> list[dict]:
         return []
 
     # Daily loss cap check
-    if _daily_loss_exceeded(acct["equity"], cfg["daily_loss_cap"]):
-        logger.warning("Live gate: daily loss cap hit — skipping cycle")
+    day_loss = abs(min(acct["day_pnl"], 0))
+    if day_loss >= cfg["daily_loss_cap"]:
+        logger.warning(f"Live gate: daily loss cap hit — day loss ${day_loss:.2f} >= cap ${cfg['daily_loss_cap']:.2f}")
         from backend.alerts import alert_daily_loss_cap
-        day_loss = abs(min(acct["day_pnl"], 0))
         alert_daily_loss_cap(day_loss, cfg["daily_loss_cap"])
         return []
 
@@ -409,23 +409,6 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
         result["_l5_context"]      = context
     return result
 
-
-def _daily_loss_exceeded(current_equity: float, cap: float) -> bool:
-    """
-    Rough daily loss check: compare Alpaca's day P&L against LIVE_DAILY_LOSS_CAP.
-    Returns True if losses today already exceed the cap.
-    """
-    from backend.brokers import alpaca as broker
-    try:
-        acct     = broker.get_account()
-        day_loss = abs(min(acct["day_pnl"], 0))
-        if day_loss >= cap:
-            logger.warning(f"Live gate: day loss ${day_loss:.2f} >= cap ${cap:.2f}")
-            return True
-    except Exception as e:
-        logger.warning(f"Live gate: daily loss cap check failed — blocking new entries: {e}")
-        return True
-    return False
 
 
 def _record_live_trade(signal: dict, notional: float, order_id: str, cfg: dict) -> None:

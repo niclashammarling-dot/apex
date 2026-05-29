@@ -1,4 +1,4 @@
-from backend.config import AVG_LOSS_PCT, AVG_WIN_PCT, BASE_WIN_RATE, STOP_LOSS_PCT, TAKE_PROFIT_PCT
+from backend.config import AVG_LOSS_PCT, AVG_WIN_PCT, BASE_WIN_RATE
 
 
 def compute(spy_regime: float, rolling_win_rate: float | None = None, atr_pct: float = 0.0) -> dict:
@@ -14,7 +14,7 @@ def compute(spy_regime: float, rolling_win_rate: float | None = None, atr_pct: f
     Dynamic reward-to-risk (B):
       - Uses ATR(14) as % of price to set a realistic stop loss floor.
       - If ATR is wide (volatile stock), the effective stop is wider, lowering B.
-      - effective_sl = max(STOP_LOSS_PCT, 1.5 * atr_pct)
+      - effective_sl = max(AVG_LOSS_PCT, 1.5 * atr_pct)
       - This prevents Kelly from over-sizing into high-volatility names.
 
     EV  = p * effective_tp - (1-p) * effective_sl

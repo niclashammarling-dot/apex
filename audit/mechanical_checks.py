@@ -11,7 +11,7 @@ Domain modules:
   checks_gate    — CHECKs 24, 25, 26, 28, 29, 38      (wiring, strings, silence)
   checks_data    — CHECKs 14, 15, 17, 22, 33, 35, 39, 44  (DB state, freshness, peak price, regime weight validation)
   checks_sector  — CHECKs 5, 27, 36, 41, 42, 43        (GICS, sub-check rates, expansion, addition completeness)
-  checks_code    — CHECKs 3, 6, 10, 12, 16, 30, 31    (broker, tests, yfinance, wiring)
+  checks_code    — CHECKs 3, 6, 10, 12, 16, 30, 31, 45  (broker, tests, yfinance, wiring, static analysis)
   (CHECK 32 git sync lives directly here — it needs subprocess and is orchestrator-level)
 """
 import subprocess
@@ -127,7 +127,7 @@ def update_registry():
 _ALL_CHECKS = {
     3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17,
     21, 22, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
-    35, 36, 37, 38, 39, 40, 41, 42,
+    35, 36, 37, 38, 39, 40, 41, 42, 45,
 }
 
 _CHECK_NAMES = {
@@ -164,6 +164,7 @@ _CHECK_NAMES = {
     40: "Config coverage audit",
     41: "New-sector integrity",
     42: "New-sector integrity",
+    45: "Static code analysis",
 }
 
 

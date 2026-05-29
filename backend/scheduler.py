@@ -376,8 +376,11 @@ def _check_missed_eod_regime() -> None:
         expected = today - timedelta(days=1)
 
     try:
-        with get_db() as conn:
+        conn = get_db()
+        try:
             row = conn.execute("SELECT MAX(updated_at) FROM sector_posteriors").fetchone()
+        finally:
+            conn.close()
         last_updated_str = row[0] if row and row[0] else None
     except Exception as e:
         logger.warning(f"EOD regime catch-up: DB check failed — {e}")
@@ -420,8 +423,11 @@ def _check_missed_sentiment_prefetch() -> None:
         return
 
     try:
-        with get_db() as conn:
+        conn = get_db()
+        try:
             row = conn.execute("SELECT MAX(fetched_at) FROM sentiment_cache").fetchone()
+        finally:
+            conn.close()
         last_str = row[0] if row and row[0] else None
     except Exception:
         last_str = None

@@ -324,26 +324,33 @@ def _find_exit_from_orders(ticker: str, broker) -> tuple[float | None, str, str]
     Returns (exit_price, exit_reason, exited_at). exit_price is None if not found.
     """
     try:
-        orders = broker.get_orders(limit=100)
+        orders = broker.get_orders(limit=100, nested=True)
     except Exception as e:
         logger.warning(f"_find_exit_from_orders [{ticker}]: get_orders failed — {e}")
         return None, "MANUAL", datetime.now(timezone.utc).isoformat()
 
+    # Flatten: include top-level orders + nested bracket legs so TP/SL fills are visible
+    flat: list[dict] = []
+    for o in orders:
+        flat.append(o)
+        for leg in (o.get("legs") or []):
+            flat.append({**leg, "ticker": o["ticker"]})
+
     filled_sells = [
-        o for o in orders
-        if o["ticker"] == ticker
+        o for o in flat
+        if o.get("ticker") == ticker
         and "sell" in (o.get("side") or "").lower()
-        and o.get("filled_price")
+        and (o.get("filled_price") or o.get("filled_avg_price"))
     ]
     if not filled_sells:
         return None, "MANUAL", datetime.now(timezone.utc).isoformat()
 
     # Most recent by filled_at, falling back to submitted_at
     best = max(filled_sells, key=lambda o: o.get("filled_at") or o.get("submitted_at") or "")
-    exit_price = best["filled_price"]
+    exit_price = best.get("filled_price") or best.get("filled_avg_price")
     exited_at  = best.get("filled_at") or datetime.now(timezone.utc).isoformat()
 
-    order_type = (best.get("type") or "").lower()
+    order_type = (best.get("type") or best.get("order_type") or "").lower()
     if "limit" in order_type:
         exit_reason = "TP"
     elif "stop" in order_type:

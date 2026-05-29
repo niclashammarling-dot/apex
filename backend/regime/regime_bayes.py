@@ -184,8 +184,6 @@ def _compute_rank_lrs(
     Ties resolved by average rank (symmetric, no hand-tuning).
     Sectors whose ETF has insufficient data are excluded from ranking and receive LR=1.0.
     """
-    import math
-
     returns: dict[str, float] = {}
     for sector, etf in sector_etf_map.items():
         try:

@@ -178,6 +178,16 @@ Queries `data/apex.db:live_trades`. Trigger condition: any open live position wh
 
 A new position on its first or second trading day will legitimately show `peak = entry` if price hasn't yet exceeded entry — the 2-day grace window prevents false positives on fresh entries.
 
+### CHECK 45 — Static code analysis
+
+Run as part of `python3 audit/mechanical_checks.py` (no separate invocation needed).
+
+**Sub-check A — ruff (E, F, W, ignore E501):** Runs `ruff check backend/ --select E,F,W --ignore E501` and flags any finding outside `backtest/` as WARNING. Catches unused imports, undefined names, unused variables, and bare f-strings in production runtime code.
+
+**Sub-check B — Connection leak pattern:** Greps for `with get_db() as conn` in all `.py` files outside `tests/`. The sqlite3 context manager manages transactions only — it never closes the connection. Safe pattern is `try/finally conn.close()`. Each match is WARNING.
+
+Prompted by: 2026-05-29 manual audit found two leaked connections in `scheduler.py` (`_check_missed_eod_regime`, `_check_missed_sentiment_prefetch`).
+
 ### CHECK 44 — Regime-conditioned aggregator weight validation
 
 Run as part of `python3 audit/mechanical_checks.py` (no separate invocation needed).

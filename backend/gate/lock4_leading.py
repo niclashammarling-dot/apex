@@ -19,7 +19,7 @@ Public API:
 from __future__ import annotations
 
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
 import yfinance as yf
 from loguru import logger

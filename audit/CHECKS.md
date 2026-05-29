@@ -54,6 +54,8 @@ Columns: `last_triggered` = most recent date the check found an issue. `last_cle
 | 43 | Sector addition completeness | 2026-05-23 | Homebuilders and Transportation added to SECTORS and sector grid but missed companyNames.js (blank labels in all views) and CYCLICAL classification (regime_alignment=0.1 in all non-neutral regimes). Sub-check A: every ticker in SECTORS has a companyNames.js entry. Sub-check B: every sector in SECTORS is in CYCLICAL or DEFENSIVE | backend/config.py,backend/sector_regime.py,frontend/src/companyNames.js | 2026-05-23 | 2026-05-29 |
 | 44 | Regime-conditioned aggregator weight validation | 2026-05-28 | Bucket thresholds (bull≥0.75, bear<0.60) constructed from a single snapshot; empirical validation deferred until sector_posterior_history accumulates ≥4 weeks of data. Sub-check A: sector_posterior_history has entries for the last N trading days (gap = persistence broke). Sub-check B: at least two distinct regime_state values have appeared in the live history window (monotone state = buckets never switching = thresholds misplaced). | data/apex.db:sector_posterior_history,backend/signals/aggregator.py | 2026-05-28 | 2026-05-29 |
 
+| 45 | Static code analysis | 2026-05-29 | Two leaked connections found in scheduler.py; ruff clean on production backend is a fast nightly canary for import/undefined-name regressions | backend/,audit/checks_code.py | — | 2026-05-29 |
+
 ## Retired Checks
 
 None yet.

@@ -73,12 +73,12 @@ def get_positions() -> list[dict]:
 
 # ── Orders ────────────────────────────────────────────────────────────────────
 
-def get_orders(limit: int = 50) -> list[dict]:
-    """Return recent orders (all statuses)."""
+def get_orders(limit: int = 50, nested: bool = False) -> list[dict]:
+    """Return recent orders (all statuses). Pass nested=True to include bracket legs."""
     try:
         from alpaca.trading.enums import QueryOrderStatus
         from alpaca.trading.requests import GetOrdersRequest
-        req = GetOrdersRequest(status=QueryOrderStatus.ALL, limit=limit)
+        req = GetOrdersRequest(status=QueryOrderStatus.ALL, limit=limit, nested=nested)
         orders = _client().get_orders(filter=req)
         return [
             {
@@ -92,6 +92,17 @@ def get_orders(limit: int = 50) -> list[dict]:
                 "status":       str(o.status),
                 "submitted_at": o.submitted_at.isoformat() if o.submitted_at else None,
                 "filled_at":    o.filled_at.isoformat() if o.filled_at else None,
+                "legs": [
+                    {
+                        "id":               str(leg.id),
+                        "side":             str(leg.side),
+                        "order_type":       str(leg.order_type),
+                        "status":           str(leg.status),
+                        "filled_avg_price": float(leg.filled_avg_price) if leg.filled_avg_price else None,
+                        "filled_at":        leg.filled_at.isoformat() if leg.filled_at else None,
+                    }
+                    for leg in (o.legs or [])
+                ] if nested else [],
             }
             for o in orders
         ]
@@ -152,27 +163,31 @@ def place_bracket_order(
 def get_order_by_id(order_id: str) -> dict:
     """Return a single order with its bracket legs."""
     import uuid
-    order = _client().get_order_by_id(uuid.UUID(order_id))
-    legs = []
-    for leg in (order.legs or []):
-        legs.append({
-            "id":               str(leg.id),
-            "side":             str(leg.side),
-            "order_type":       str(leg.order_type),
-            "status":           str(leg.status),
-            "limit_price":      float(leg.limit_price)      if leg.limit_price      else None,
-            "stop_price":       float(leg.stop_price)       if leg.stop_price       else None,
-            "filled_avg_price": float(leg.filled_avg_price) if leg.filled_avg_price else None,
-            "filled_at":        leg.filled_at.isoformat()   if leg.filled_at        else None,
-        })
-    return {
-        "id":               str(order.id),
-        "ticker":           order.symbol,
-        "status":           str(order.status),
-        "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
-        "filled_qty":       float(order.filled_qty)       if order.filled_qty       else None,
-        "legs":             legs,
-    }
+    try:
+        order = _client().get_order_by_id(uuid.UUID(order_id))
+        legs = []
+        for leg in (order.legs or []):
+            legs.append({
+                "id":               str(leg.id),
+                "side":             str(leg.side),
+                "order_type":       str(leg.order_type),
+                "status":           str(leg.status),
+                "limit_price":      float(leg.limit_price)      if leg.limit_price      else None,
+                "stop_price":       float(leg.stop_price)       if leg.stop_price       else None,
+                "filled_avg_price": float(leg.filled_avg_price) if leg.filled_avg_price else None,
+                "filled_at":        leg.filled_at.isoformat()   if leg.filled_at        else None,
+            })
+        return {
+            "id":               str(order.id),
+            "ticker":           order.symbol,
+            "status":           str(order.status),
+            "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
+            "filled_qty":       float(order.filled_qty)       if order.filled_qty       else None,
+            "legs":             legs,
+        }
+    except Exception as e:
+        logger.error(f"Alpaca get_order_by_id [{order_id}] failed: {e}")
+        raise
 
 
 def get_portfolio_history(period: str = "1M") -> list[dict]:
@@ -202,8 +217,31 @@ def get_portfolio_history(period: str = "1M") -> list[dict]:
         raise
 
 
+def cancel_open_orders(ticker: str) -> int:
+    """Cancel all open orders for ticker. Returns count cancelled."""
+    from alpaca.trading.enums import QueryOrderStatus
+    from alpaca.trading.requests import GetOrdersRequest
+    try:
+        req = GetOrdersRequest(status=QueryOrderStatus.OPEN, symbols=[ticker])
+        orders = _client().get_orders(filter=req)
+        count = 0
+        for o in orders:
+            try:
+                _client().cancel_order_by_id(o.id)
+                count += 1
+            except Exception as e:
+                logger.warning(f"Alpaca cancel_order [{ticker}] order_id={o.id} failed: {e}")
+        if count:
+            logger.info(f"Alpaca cancel_open_orders [{ticker}]: cancelled {count} order(s)")
+        return count
+    except Exception as e:
+        logger.error(f"Alpaca cancel_open_orders [{ticker}] failed: {e}")
+        raise
+
+
 def close_position(ticker: str) -> dict:
-    """Close the entire position for a ticker. Returns the closing order dict."""
+    """Cancel open bracket legs then close the entire position for ticker."""
+    cancel_open_orders(ticker)
     try:
         order = _client().close_position(ticker)
         logger.info(f"Alpaca close_position [{ticker}]: order_id={order.id}")
