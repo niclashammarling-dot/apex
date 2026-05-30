@@ -141,7 +141,7 @@ function KV({ k, v }) {
   );
 }
 
-const DIAL_ORDER = ["TECH","HLTH","ENER","INDU","FIN","CDIS","CSTP","COMM","UTIL","MATR","REIT","SEMI","DEF"];
+const DIAL_ORDER = ["TECH","HLTH","ENER","INDU","CDIS","COMM","MATR","REIT","SEMI","DEF","HOME","TRAN"];
 
 function RegimeDial({ D }) {
   if (!D.regime || D.regime.length === 0) return null;
@@ -159,9 +159,11 @@ function RegimeDial({ D }) {
           ))}
           <circle cx={cx} cy={cy} r={R * 0.5} fill="none" stroke="var(--t-accent)" strokeOpacity="0.35" strokeDasharray="3 3" />
           {D.regime.filter(s => !s.excluded).map((s, i) => {
-            const slot = DIAL_ORDER.indexOf(s.code);
-            const ang = ((slot >= 0 ? slot : i) / DIAL_ORDER.length) * Math.PI * 2 - Math.PI / 2;
-            const rr = R * s.posterior;
+            const slot  = DIAL_ORDER.indexOf(s.code);
+            const ang   = ((slot >= 0 ? slot : i) / DIAL_ORDER.length) * Math.PI * 2 - Math.PI / 2;
+            const rr    = R * s.posterior;
+            const above = s.posterior >= 0.5;
+            const col   = above ? "var(--t-accent)" : "var(--t-text-3)";
             const x2 = cx + Math.cos(ang) * R;
             const y2 = cy + Math.sin(ang) * R;
             const xp = cx + Math.cos(ang) * rr;
@@ -171,14 +173,12 @@ function RegimeDial({ D }) {
             return (
               <g key={s.code}>
                 <line x1={cx} y1={cy} x2={x2} y2={y2} stroke="var(--t-grid)" />
-                <line x1={cx} y1={cy} x2={xp} y2={yp} stroke={s.excluded ? "var(--t-text-3)" : "var(--t-accent)"} strokeWidth="2" opacity={s.excluded ? 0.35 : 1} />
-                <circle cx={xp} cy={yp} r="3" fill={s.excluded ? "var(--t-text-3)" : "var(--t-accent)"} />
-                <text x={lx} y={ly} fill="var(--t-text-3)" fontFamily="var(--mono)" fontSize="9" textAnchor="middle" dominantBaseline="middle">{s.code}</text>
+                <line x1={cx} y1={cy} x2={xp} y2={yp} stroke={col} strokeWidth="2" opacity={above ? 1 : 0.45} />
+                <circle cx={xp} cy={yp} r="3" fill={col} opacity={above ? 1 : 0.45} />
+                <text x={lx} y={ly} fill={above ? "var(--t-text-2)" : "var(--t-text-3)"} fontFamily="var(--mono)" fontSize="9" textAnchor="middle" dominantBaseline="middle">{s.code}</text>
               </g>
             );
           })}
-          <text x={cx} y={cy - 6} fill="var(--t-text-3)" fontFamily="var(--mono)" fontSize="9" textAnchor="middle">FLOOR</text>
-          <text x={cx} y={cy + 8} fill="var(--t-text-2)" fontFamily="var(--mono)" fontSize="12" textAnchor="middle">0.50</text>
         </svg>
         <div>
           <table className="t-tbl">
