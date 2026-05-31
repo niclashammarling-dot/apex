@@ -1,10 +1,10 @@
 """
-Data-integrity mechanical checks — CHECKs 14, 15, 17, 22, 33, 35, 39, 44.
+Data-integrity mechanical checks — CHECKs 14, 15, 17, 22, 33, 35, 39, 44, 46.
 
 Covers: EOD regime freshness, calibration freshness, sentiment cache,
 Yahoo data pipeline health, Bayesian multiplier health, PCR collection
-freshness, live peak_price integrity, and regime-conditioned aggregator
-weight validation.
+freshness, live peak_price integrity, regime-conditioned aggregator
+weight validation, and profit-lock ratchet wiring integrity.
 """
 import json
 import sqlite3
@@ -453,6 +453,73 @@ def check44():
              "distribution; run retrospective bucket analysis")
 
 
+# ── CHECK 46 — Profit-lock ratchet wiring integrity ──────────────────────────
+
+def check46():
+    """
+    Any open live trade where peak gain >= profit_lock_trigger_pct and
+    profit_lock_activated = 0 is a wiring failure: the ratchet should have
+    fired and set the flag on the cycle that first crossed the trigger.
+
+    Freshness guard: trades entered within the last 10 minutes are excluded.
+    The exit-check loop runs every 5 minutes — a brand-new position may not
+    have had a cycle run yet and should not trip the check before that window.
+
+    The flag is one-way: once set it is never cleared within a trade's lifetime.
+    A CRITICAL here means _maybe_ratchet_bracket_sl() either was not called,
+    raised and suppressed its own error, or replace_stop_leg failed every cycle
+    since trigger was crossed. Cross-reference gate 4/6 log warnings for the
+    trade_id and parent_order_id to determine which path failed.
+
+    Severity: CRITICAL — a position in profit-lock territory without the
+    bracket SL ratcheted is exposed to a wide-stop exit on a fast move.
+    """
+    db = REPO / "data/apex.db"
+    if not db.exists():
+        return
+
+    try:
+        conn = sqlite3.connect(db)
+        conn.row_factory = sqlite3.Row
+        # profit_lock_trigger_pct from live_config.json; fall back to 0.02
+        cfg_path = REPO / "data/live_config.json"
+        trigger_pct = 0.02
+        if cfg_path.exists():
+            try:
+                import json as _json
+                trigger_pct = _json.loads(cfg_path.read_text()).get(
+                    "profit_lock_trigger_pct", 0.02
+                )
+            except Exception:
+                pass
+
+        rows = conn.execute("""
+            SELECT id, ticker, alpaca_order_id, entry_price, peak_price,
+                   profit_lock_activated, timestamp
+            FROM live_trades
+            WHERE outcome = 'OPEN'
+              AND profit_lock_activated = 0
+              AND peak_price IS NOT NULL
+              AND (peak_price - entry_price) / entry_price >= :trigger
+              AND datetime(timestamp) < datetime('now', '-10 minutes')
+        """, {"trigger": trigger_pct}).fetchall()
+        conn.close()
+    except Exception as e:
+        flag(46, "Profit-lock ratchet wiring", "WARNING",
+             "data/apex.db:live_trades",
+             f"could not query live_trades: {e}")
+        return
+
+    for r in rows:
+        peak_gain = (r["peak_price"] - r["entry_price"]) / r["entry_price"]
+        flag(46, "Profit-lock ratchet wiring", "CRITICAL",
+             "data/apex.db:live_trades",
+             f"{r['ticker']} trade_id={r['id']} parent={r['alpaca_order_id']}: "
+             f"peak_gain={peak_gain:.1%} >= trigger={trigger_pct:.1%} "
+             f"but profit_lock_activated=0 — bracket SL not ratcheted; "
+             f"check gate-4/6 log warnings for this trade_id")
+
+
 def run() -> None:
     check14()
     check15()
@@ -462,3 +529,4 @@ def run() -> None:
     check35()
     check39()
     check44()
+    check46()

@@ -15,7 +15,12 @@ import yfinance as yf
 from loguru import logger
 
 from backend.config import LIVE_ENABLED
-from backend.db import close_live_trade, get_open_live_trades, update_live_trade_peak_price
+from backend.db import (
+    close_live_trade,
+    get_open_live_trades,
+    set_live_trade_profit_lock_activated,
+    update_live_trade_peak_price,
+)
 
 
 def _trading_days_since(iso_timestamp: str) -> int:
@@ -62,6 +67,90 @@ def _effective_trail_pct(peak: float, entry_price: float, cfg: dict) -> float:
         if (peak - entry_price) / entry_price >= trigger_pct:
             return lock_trail
     return trail_pct
+
+
+def _maybe_ratchet_bracket_sl(trade: dict, peak: float, cfg: dict, broker) -> None:
+    """
+    If profit-lock territory has been reached for the first time, move the bracket
+    SL stop leg up to `peak * (1 - profit_lock_trail_pct)`.
+
+    Gates (cheapest first — network call deferred until gate 3 passes):
+    1. Idempotency: skip if profit_lock_activated already set.
+    2. Config guard: skip if trigger_pct or lock_trail missing from config.
+    3. Territory: skip if peak gain < trigger_pct.
+    4. Leg fetch: find the open STOP leg on the bracket; warn and skip if absent.
+    5. Direction: skip if the computed new_sl would not move the stop upward.
+    6. Execute: PATCH the leg via replace_stop_leg; set profit_lock_activated only
+       on confirmed success. A failed attempt leaves the flag unset so the next
+       cycle retries.
+    """
+    # Gate 1 — idempotency
+    if trade.get("profit_lock_activated"):
+        return
+
+    # Gate 2 — config guard
+    trigger_pct = cfg.get("profit_lock_trigger_pct")
+    lock_trail  = cfg.get("profit_lock_trail_pct")
+    if not trigger_pct or not lock_trail:
+        return
+
+    # Gate 3 — territory check (no network call before this passes)
+    entry_price = trade["entry_price"]
+    if (peak - entry_price) / entry_price < trigger_pct:
+        return
+
+    # Gate 4 — fetch bracket legs, find the open STOP leg
+    ticker    = trade["ticker"]
+    trade_id  = trade["id"]
+    parent_id = trade["alpaca_order_id"]
+    try:
+        order = broker.get_order_by_id(parent_id)
+    except Exception as e:
+        logger.warning(
+            f"Profit-lock ratchet [{ticker}] trade_id={trade_id} parent={parent_id}: "
+            f"could not fetch bracket order — {e}"
+        )
+        return
+
+    sl_leg = next(
+        (
+            leg for leg in (order.get("legs") or [])
+            if "stop" in (leg.get("order_type") or "").lower()
+            and leg.get("status") not in ("filled", "cancelled", "replaced", "expired")
+        ),
+        None,
+    )
+    if sl_leg is None:
+        logger.warning(
+            f"Profit-lock ratchet [{ticker}] trade_id={trade_id} parent={parent_id}: "
+            f"no open STOP leg found — position may be exiting or bracket partially filled"
+        )
+        return
+
+    # Gate 5 — direction check (ratchet only moves stop upward)
+    current_sl = sl_leg.get("stop_price") or 0.0
+    new_sl     = round(peak * (1 - lock_trail), 2)
+    if new_sl <= current_sl:
+        return
+
+    # Gate 6 — execute; set flag only on confirmed success
+    leg_id = sl_leg["id"]
+    qty    = int(trade["qty"])
+    try:
+        broker.replace_stop_leg(leg_id, new_sl, qty, ticker)
+    except Exception as e:
+        logger.error(
+            f"Profit-lock ratchet [{ticker}] trade_id={trade_id} parent={parent_id}: "
+            f"replace_stop_leg failed — {e}; will retry next cycle"
+        )
+        return
+
+    set_live_trade_profit_lock_activated(trade_id)
+    logger.info(
+        f"Profit-lock ratchet [{ticker}] trade_id={trade_id}: "
+        f"SL moved ${current_sl:.2f} → ${new_sl:.2f} "
+        f"(peak={peak:.2f} trigger={trigger_pct:.1%} trail={lock_trail:.1%})"
+    )
 
 
 def check_live_exits() -> list[dict]:
@@ -118,6 +207,9 @@ def check_live_exits() -> list[dict]:
                 update_live_trade_peak_price(trade["id"], peak)
         else:
             peak = trade.get("peak_price") or entry_price
+
+        # ── Profit-lock ratchet ─────────────────────────────────────────────
+        _maybe_ratchet_bracket_sl(trade, peak, cfg, broker)
 
         # ── Check TP/SL bracket legs ────────────────────────────────────────
         filled_leg = _find_filled_sell_leg(order) if order else None

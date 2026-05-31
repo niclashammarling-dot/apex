@@ -239,6 +239,72 @@ def cancel_open_orders(ticker: str) -> int:
         raise
 
 
+def replace_stop_leg(leg_id: str, new_stop_price: float, qty: int, ticker: str) -> str:
+    """
+    Move a bracket SL stop leg to a higher stop price. Returns the new order ID.
+
+    Primary path: PATCH (replace_order_by_id). On Alpaca's side this is a single
+    server-side operation — the old leg transitions directly to REPLACED and the
+    new leg appears as HELD in one round-trip with no observable gap state.
+    Confirmed against paper trading on 2026-05-31: HELD stop leg, PATCH issued,
+    old_id → OrderStatus.REPLACED, new_id → OrderStatus.HELD atomically.
+
+    Fallback: cancel old leg + place a new standalone GTC stop order. Used only
+    when PATCH is rejected (e.g. leg already in a terminal state). This path has
+    an explicit gap window: cancel succeeds, then place is a second API call. A
+    failure on the place step raises, leaving the position without a stop until the
+    next check cycle. The two paths are not equivalent — PATCH is safer. Do not
+    promote the fallback to primary without re-confirming PATCH behaviour on the
+    target account type (paper vs live).
+    """
+    import uuid as _uuid
+    from alpaca.trading.requests import ReplaceOrderRequest
+
+    try:
+        result = _client().replace_order_by_id(
+            order_id=_uuid.UUID(leg_id),
+            order_data=ReplaceOrderRequest(stop_price=new_stop_price),
+        )
+        new_id = str(result.id)
+        logger.info(
+            f"Alpaca replace_stop_leg [{ticker}]: {leg_id[:8]} → {new_id[:8]} "
+            f"stop=${new_stop_price:.2f} (PATCH)"
+        )
+        return new_id
+    except Exception as patch_err:
+        logger.warning(
+            f"Alpaca replace_stop_leg [{ticker}]: PATCH failed ({patch_err}) "
+            f"— falling back to cancel + new stop"
+        )
+
+    # Fallback: cancel the old leg, place a standalone GTC stop sell order.
+    from alpaca.trading.enums import OrderSide, TimeInForce
+    from alpaca.trading.requests import StopOrderRequest
+
+    try:
+        _client().cancel_order_by_id(_uuid.UUID(leg_id))
+    except Exception as cancel_err:
+        logger.error(
+            f"Alpaca replace_stop_leg [{ticker}] fallback: cancel {leg_id[:8]} failed — {cancel_err}"
+        )
+        raise
+
+    req = StopOrderRequest(
+        symbol=ticker,
+        qty=qty,
+        side=OrderSide.SELL,
+        time_in_force=TimeInForce.GTC,
+        stop_price=new_stop_price,
+    )
+    result = _client().submit_order(req)
+    new_id = str(result.id)
+    logger.info(
+        f"Alpaca replace_stop_leg [{ticker}] fallback: new stop order {new_id[:8]} "
+        f"stop=${new_stop_price:.2f} (cancel+new)"
+    )
+    return new_id
+
+
 def close_position(ticker: str) -> dict:
     """Cancel open bracket legs then close the entire position for ticker."""
     cancel_open_orders(ticker)

@@ -55,6 +55,7 @@ Columns: `last_triggered` = most recent date the check found an issue. `last_cle
 | 44 | Regime-conditioned aggregator weight validation | 2026-05-28 | Bucket thresholds (bull≥0.75, bear<0.60) constructed from a single snapshot; empirical validation deferred until sector_posterior_history accumulates ≥4 weeks of data. Sub-check A: sector_posterior_history has entries for the last N trading days (gap = persistence broke). Sub-check B: at least two distinct regime_state values have appeared in the live history window (monotone state = buckets never switching = thresholds misplaced). | data/apex.db:sector_posterior_history,backend/signals/aggregator.py | 2026-05-28 | 2026-05-31 |
 
 | 45 | Static code analysis | 2026-05-29 | Two leaked connections found in scheduler.py; ruff clean on production backend is a fast nightly canary for import/undefined-name regressions | backend/,audit/checks_code.py | — | 2026-05-31 |
+| 46 | Profit-lock ratchet wiring | 2026-05-31 | bracket SL must be moved to peak*(1-trail) the first cycle peak gain >= trigger; profit_lock_activated=0 after trigger crossed = _maybe_ratchet_bracket_sl not called, raised silently, or replace_stop_leg failed every cycle; cross-reference gate-4/6 log warnings by trade_id. Threshold is config-driven: reads profit_lock_trigger_pct from data/live_config.json at runtime — no audit change needed when parameter decision lands | data/apex.db:live_trades,backend/live_trades_tracker.py,backend/brokers/alpaca.py | — | 2026-05-31 |
 
 ## Retired Checks
 

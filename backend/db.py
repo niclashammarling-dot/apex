@@ -301,6 +301,12 @@ def init_db() -> None:
             UPDATE live_gate_history SET gate_decision = 'FILTERED_L3'    WHERE gate_decision = 'HOLD';
             UPDATE live_gate_history SET gate_decision = 'FILTERED_L3'    WHERE gate_decision = 'SELL';
         """)
+        # Profit-lock ratchet tracking — one-way flag per live trade.
+        # True means the bracket SL leg has been moved up to the profit-lock
+        # trail level. Never reset within a trade's lifetime: regime changes,
+        # price updates, and position events do not clear it. Once the ratchet
+        # fires, subsequent cycles skip the check entirely via this flag.
+        _add_column_if_missing(conn, "live_trades", "profit_lock_activated", "INTEGER DEFAULT 0")
         conn.commit()
     finally:
         conn.close()
@@ -627,6 +633,15 @@ def update_live_trade_peak_price(trade_id: int, peak_price: float) -> None:
     conn = get_db()
     try:
         conn.execute("UPDATE live_trades SET peak_price = ? WHERE id = ?", (peak_price, trade_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_live_trade_profit_lock_activated(trade_id: int) -> None:
+    conn = get_db()
+    try:
+        conn.execute("UPDATE live_trades SET profit_lock_activated = 1 WHERE id = ?", (trade_id,))
         conn.commit()
     finally:
         conn.close()
