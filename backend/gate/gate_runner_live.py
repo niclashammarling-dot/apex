@@ -356,8 +356,8 @@ def _run_l5_for_result(signal: dict, result: dict, cfg: dict) -> None:
     from backend.gate.lock5_claude import evaluate as lock5_evaluate
     ticker       = signal["ticker"]
     sector       = signal.get("sector", "")
-    lock_results = result.pop("_l5_lock_results")
-    context      = result.pop("_l5_context")
+    lock_results = result.pop("_l5_lock_results", {})
+    context      = result.pop("_l5_context", {})
 
     l5      = lock5_evaluate(ticker, sector, lock_results, context,
                              confidence_min=cfg.get("lock3_confidence_min"))

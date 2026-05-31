@@ -19,13 +19,17 @@ from backend.gate.lock4_leading import (
 )
 
 
-def _make_price_data(closes: list[float], volumes: list[int]) -> MagicMock:
-    """Build a yf.download()-shaped DataFrame mock."""
+def _make_price_data(closes: list[float], volumes: list[int], ticker: str = "NVDA") -> pd.DataFrame:
+    """Build a yf.download()-shaped DataFrame (multi-level columns, yfinance >= 0.2.x)."""
     idx = pd.date_range("2026-01-01", periods=len(closes), freq="B")
+    arrays = [["Close", "Volume"], [ticker, ticker]]
+    cols = pd.MultiIndex.from_arrays(arrays)
     df = pd.DataFrame(
-        {"Close": closes, "Volume": volumes},
+        list(zip(closes, volumes)),
         index=idx,
+        columns=cols,
     )
+    df.columns.names = ["Price", "Ticker"]
     return df
 
 
@@ -37,7 +41,7 @@ def test_accumulation_pass(mock_dl):
     # 20 alternating days: 10 up (large vol), 10 down (small vol) → ratio = 3.0
     closes  = [100.0] + [101.0, 99.0] * 10
     volumes = [1_000_000] + [3_000_000, 1_000_000] * 10
-    mock_dl.return_value = _make_price_data(closes[:21], volumes[:21])
+    mock_dl.return_value = _make_price_data(closes[:21], volumes[:21], "NVDA")
 
     result = _check_volume_accumulation("NVDA")
     assert result["pass"] is True
@@ -49,7 +53,7 @@ def test_distribution_fail(mock_dl):
     """Heavy volume on down days → ratio < 1.2 → fail."""
     closes  = [100.0] + [99.0, 101.0] * 10
     volumes = [1_000_000] + [3_000_000, 1_000_000] * 10
-    mock_dl.return_value = _make_price_data(closes[:21], volumes[:21])
+    mock_dl.return_value = _make_price_data(closes[:21], volumes[:21], "NFLX")
 
     result = _check_volume_accumulation("NFLX")
     assert result["pass"] is False
@@ -61,7 +65,7 @@ def test_neutral_fail(mock_dl):
     """Roughly equal volume on up/down days → ratio near 1.0 → fail."""
     closes  = [100.0] + [101.0, 99.0] * 10
     volumes = [1_000_000] + [2_000_000, 2_000_000] * 10
-    mock_dl.return_value = _make_price_data(closes[:21], volumes[:21])
+    mock_dl.return_value = _make_price_data(closes[:21], volumes[:21], "MCD")
 
     result = _check_volume_accumulation("MCD")
     assert result["pass"] is False
@@ -73,7 +77,7 @@ def test_all_up_days_passes(mock_dl):
     """All up days (zero down volume) → ratio = inf → pass."""
     closes  = list(range(100, 122))        # 22 strictly rising values
     volumes = [1_000_000] * 22
-    mock_dl.return_value = _make_price_data(closes, volumes)
+    mock_dl.return_value = _make_price_data(closes, volumes, "AAPL")
 
     result = _check_volume_accumulation("AAPL")
     assert result["pass"] is True
@@ -88,7 +92,7 @@ def test_at_threshold_boundary_fails(mock_dl):
     up_v    = 12_000_000
     down_v  = 10_000_000
     volumes = [1_000_000] + [up_v, down_v] * 10
-    mock_dl.return_value = _make_price_data(closes[:21], volumes[:21])
+    mock_dl.return_value = _make_price_data(closes[:21], volumes[:21], "TEST")
 
     result = _check_volume_accumulation("TEST")
     # ratio = sum(up_v * 10) / sum(down_v * 10) = 1.2 exactly
@@ -100,7 +104,7 @@ def test_insufficient_history_fails(mock_dl):
     """Fewer than 20 trading days → fail with reason."""
     closes  = [100.0, 101.0, 99.0]
     volumes = [1_000_000, 2_000_000, 1_500_000]
-    mock_dl.return_value = _make_price_data(closes, volumes)
+    mock_dl.return_value = _make_price_data(closes, volumes, "AMD")
 
     result = _check_volume_accumulation("AMD")
     assert result["pass"] is False
