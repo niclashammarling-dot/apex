@@ -82,10 +82,23 @@ def run() -> list[dict]:
     for c in skipped:
         decision = "SKIPPED_OPEN" if c["ticker"] in open_tickers else "SKIPPED_COOLOFF"
         insert_live_gate_result({
-            "timestamp": ts, "ticker": c["ticker"], "sector": c.get("sector", ""),
-            "signal_score": c["signal_score"],
-            "lock1_pass": 1, "lock2_pass": 0, "lock3_pass": 0,
-            "gate_decision": decision, "lock3_reasoning": None, "alpaca_order_id": None,
+            "timestamp":             ts,
+            "ticker":                c["ticker"],
+            "sector":                c.get("sector", ""),
+            "signal_score":          c["signal_score"],
+            "lock1_pass":            1,
+            "lock2_pass":            0,
+            "lock_leading_pass":     0,
+            "lock_leading_checks":   None,
+            "lock3_pass":            0,
+            "gate_decision":         decision,
+            "lock3_reasoning":       None,
+            "alpaca_order_id":       None,
+            "l2_summary":            None,
+            "lock3_sentiment_score": None,
+            "lock3_conviction":      None,
+            "macro_reason":          None,
+            "ticker_signal":         None,
         })
 
     if skipped:

@@ -19,6 +19,7 @@ Public API:
 from __future__ import annotations
 
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import yfinance as yf
@@ -27,10 +28,12 @@ from loguru import logger
 from backend.gate.types import LockResult
 
 # Shared semaphore across all outer gate-runner threads.
-# Caps concurrent yfinance requests at 8 to stay below Yahoo rate-limit threshold.
-# Current worst case: 5 outer threads × 3 inner fetches = 15 theoretical max;
-# semaphore reduces peak to 8. Tune this constant if 429s appear.
-_YF_SEMAPHORE = threading.Semaphore(8)
+# Caps concurrent yfinance requests to stay below Yahoo rate-limit threshold.
+# Current worst case: 5 outer threads × 3 inner fetches = 15 theoretical max.
+# Set to 4: curl-cffi (used by yfinance ≥0.2.31) is a shared BoringSSL singleton;
+# running >4 TLS handshakes simultaneously in WSL2 produces intermittent
+# "curl:(35) TLS connect error" failures. Tune upward only on bare-metal Linux.
+_YF_SEMAPHORE = threading.Semaphore(4)
 
 LOCK_ID  = 4
 MIN_PASS = 2
@@ -110,11 +113,20 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS) -> LockResult:
         fut_rs      = inner_pool.submit(_check_relative_strength, ticker, sector)
         fut_va      = inner_pool.submit(_check_volume_accumulation, ticker)
 
+        options_fetch_err: str | None = None
         try:
             options_chains = fut_options.result()
         except Exception as e:
             logger.warning(f"Lock 4 [{ticker}] options fetch: {e}")
             options_chains = []
+            # Condense the error to a short tag for the sub-check reason field.
+            msg = str(e)
+            if "curl" in msg.lower() or "tls" in msg.lower():
+                options_fetch_err = "curl TLS error"
+            elif "429" in msg or "rate" in msg.lower():
+                options_fetch_err = "Yahoo 429 rate limit"
+            else:
+                options_fetch_err = f"fetch error: {msg[:60]}"
 
         try:
             rs_result = fut_rs.result()
@@ -130,8 +142,8 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS) -> LockResult:
 
     checks = {
         "relative_strength":   rs_result,
-        "put_call_ratio":      _check_put_call_ratio(options_chains),
-        "unusual_calls":       _check_unusual_call_volume(options_chains),
+        "put_call_ratio":      _check_put_call_ratio(options_chains, options_fetch_err),
+        "unusual_calls":       _check_unusual_call_volume(options_chains, options_fetch_err),
         "volume_accumulation": va_result,
     }
 
@@ -174,20 +186,33 @@ def _fetch_options_chains(ticker: str) -> list[tuple]:
     Fetch near-term options chains once per ticker per Lock 4 evaluation.
     Returns [(calls_df, puts_df), ...] for the first 2 expiries.
     Both put_call_ratio and unusual_calls consume this shared list.
+
+    Retries once on curl TLS errors — intermittent in WSL2 with the curl-cffi
+    BoringSSL singleton under concurrent load.
     """
-    with _YF_SEMAPHORE:
-        t        = yf.Ticker(ticker)
-        expiries = t.options
-        if not expiries:
-            return []
-        chains = []
-        for exp in expiries[:2]:
-            try:
-                chain = t.option_chain(exp)
-                chains.append((chain.calls, chain.puts))
-            except Exception as e:
-                logger.warning(f"Lock 4 [{ticker}] chain fetch {exp}: {e}")
-        return chains
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        if attempt > 0:
+            time.sleep(0.5)
+        try:
+            with _YF_SEMAPHORE:
+                t        = yf.Ticker(ticker)
+                expiries = t.options
+                if not expiries:
+                    return []
+                chains = []
+                for exp in expiries[:2]:
+                    try:
+                        chain = t.option_chain(exp)
+                        chains.append((chain.calls, chain.puts))
+                    except Exception as e:
+                        logger.warning(f"Lock 4 [{ticker}] chain fetch {exp}: {e}")
+                return chains
+        except Exception as e:
+            last_exc = e
+            if attempt == 0:
+                logger.warning(f"Lock 4 [{ticker}] options attempt 1 failed ({e}), retrying")
+    raise last_exc  # type: ignore[misc]
 
 
 def _check_relative_strength(ticker: str, sector: str) -> dict:
@@ -196,16 +221,30 @@ def _check_relative_strength(ticker: str, sector: str) -> dict:
     if not etf:
         return {"pass": False, "reason": f"no ETF mapped for sector '{sector}'"}
 
-    with _YF_SEMAPHORE:
-        data = yf.download([ticker, etf], period="8d", progress=False,
-                           auto_adjust=True)["Close"]
-    if data.empty or ticker not in data.columns or etf not in data.columns:
-        return {"pass": False, "reason": "price data unavailable"}
+    try:
+        with _YF_SEMAPHORE:
+            raw = yf.download([ticker, etf], period="8d", progress=False,
+                               auto_adjust=True)
+    except yf.exceptions.YFRateLimitError:
+        return {"pass": False, "reason": "Yahoo 429 rate limit"}
+    except Exception as e:
+        return {"pass": False, "reason": f"download error: {e}"}
+
+    try:
+        data = raw["Close"]
+    except KeyError:
+        return {"pass": False, "reason": f"no Close column — got {list(raw.columns[:4])}"}
+
+    if data.empty:
+        return {"pass": False, "reason": "empty download (429 or delisted)"}
+    missing = [t for t in [ticker, etf] if t not in data.columns]
+    if missing:
+        return {"pass": False, "reason": f"missing from download: {missing}"}
 
     try:
         data = data[[ticker, etf]].dropna()
-    except (KeyError, ValueError):
-        return {"pass": False, "reason": "price data unavailable"}
+    except (KeyError, ValueError) as e:
+        return {"pass": False, "reason": f"column select failed: {e}"}
     if len(data) < 2:
         return {"pass": False, "reason": "insufficient price history"}
 
@@ -222,10 +261,11 @@ def _check_relative_strength(ticker: str, sector: str) -> dict:
     }
 
 
-def _check_put_call_ratio(chains: list[tuple]) -> dict:
+def _check_put_call_ratio(chains: list[tuple], fetch_err: str | None = None) -> dict:
     """Near-term put/call open-interest ratio < PCR_THRESHOLD (calls dominant)."""
     if not chains:
-        return {"pass": False, "reason": "no options data"}
+        reason = f"no options data ({fetch_err})" if fetch_err else "no options data (no listed expiries)"
+        return {"pass": False, "reason": reason}
 
     call_oi = put_oi = 0
     for calls, puts in chains:
@@ -248,10 +288,11 @@ def _check_put_call_ratio(chains: list[tuple]) -> dict:
     }
 
 
-def _check_unusual_call_volume(chains: list[tuple]) -> dict:
+def _check_unusual_call_volume(chains: list[tuple], fetch_err: str | None = None) -> dict:
     """Call volume >= 2x put volume across near-term expiries."""
     if not chains:
-        return {"pass": False, "reason": "no options data"}
+        reason = f"no options data ({fetch_err})" if fetch_err else "no options data (no listed expiries)"
+        return {"pass": False, "reason": reason}
 
     call_vol = put_vol = 0
     for calls, puts in chains:
@@ -276,16 +317,23 @@ def _check_unusual_call_volume(chains: list[tuple]) -> dict:
 def _check_volume_accumulation(ticker: str) -> dict:
     """Up/down volume ratio over 20 days > 1.2 (accumulation dominates distribution)."""
     # Need ~30 calendar days to guarantee 20 trading days after weekends/holidays
-    with _YF_SEMAPHORE:
-        raw = yf.download(ticker, period="30d", progress=False, auto_adjust=True)
+    try:
+        with _YF_SEMAPHORE:
+            raw = yf.download(ticker, period="30d", progress=False, auto_adjust=True)
+    except yf.exceptions.YFRateLimitError:
+        return {"pass": False, "reason": "Yahoo 429 rate limit"}
+    except Exception as e:
+        return {"pass": False, "reason": f"download error: {e}"}
+
     if raw.empty:
-        return {"pass": False, "reason": "price/volume data unavailable"}
+        return {"pass": False, "reason": "empty download (429 or delisted)"}
 
     try:
         close = raw[("Close", ticker)]
         vol   = raw[("Volume", ticker)]
     except KeyError:
-        return {"pass": False, "reason": "price data unavailable"}
+        got = [str(c) for c in raw.columns[:4]]
+        return {"pass": False, "reason": f"unexpected column format: {got}"}
     idx   = close.index.intersection(vol.index)
     close = close[idx].dropna()
     vol   = vol[idx].dropna()
