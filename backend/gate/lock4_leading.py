@@ -202,7 +202,10 @@ def _check_relative_strength(ticker: str, sector: str) -> dict:
     if data.empty or ticker not in data.columns or etf not in data.columns:
         return {"pass": False, "reason": "price data unavailable"}
 
-    data = data[[ticker, etf]].dropna()
+    try:
+        data = data[[ticker, etf]].dropna()
+    except (KeyError, ValueError):
+        return {"pass": False, "reason": "price data unavailable"}
     if len(data) < 2:
         return {"pass": False, "reason": "insufficient price history"}
 
