@@ -251,7 +251,7 @@ def run() -> list[dict]:
                     result["outcome"] = "TRADE_REJECTED"
                 else:
                     position_pct = result["lock3"]["position_size_pct"] if result.get("lock3") else cfg["max_position_size"]
-                    notional     = acct["buying_power"] * min(position_pct, cfg["max_position_size"])
+                    notional     = acct["equity"] * min(position_pct, cfg["max_position_size"])
                     if notional < 10:
                         logger.warning(f"Live trade rejected [{ticker}]: notional too small (${notional:.2f})")
                         result["outcome"] = "TRADE_REJECTED"
@@ -289,7 +289,7 @@ def run() -> list[dict]:
                                 result["outcome"] = "TRADE_FAILED"
             else:
                 position_pct = result["lock3"]["position_size_pct"] if result.get("lock3") else cfg["max_position_size"]
-                notional     = acct["buying_power"] * min(position_pct, cfg["max_position_size"])
+                notional     = acct["equity"] * min(position_pct, cfg["max_position_size"])
                 if notional < 10:
                     logger.warning(f"Live trade rejected [{ticker}]: notional too small (${notional:.2f})")
                     result["outcome"] = "TRADE_REJECTED"
