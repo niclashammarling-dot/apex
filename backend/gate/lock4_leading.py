@@ -199,7 +199,7 @@ def _check_relative_strength(ticker: str, sector: str) -> dict:
     with _YF_SEMAPHORE:
         data = yf.download([ticker, etf], period="8d", progress=False,
                            auto_adjust=True)["Close"]
-    if data.empty:
+    if data.empty or ticker not in data.columns or etf not in data.columns:
         return {"pass": False, "reason": "price data unavailable"}
 
     data = data[[ticker, etf]].dropna()
@@ -278,8 +278,11 @@ def _check_volume_accumulation(ticker: str) -> dict:
     if raw.empty:
         return {"pass": False, "reason": "price/volume data unavailable"}
 
-    close = raw[("Close", ticker)]
-    vol   = raw[("Volume", ticker)]
+    try:
+        close = raw[("Close", ticker)]
+        vol   = raw[("Volume", ticker)]
+    except KeyError:
+        return {"pass": False, "reason": "price data unavailable"}
     idx   = close.index.intersection(vol.index)
     close = close[idx].dropna()
     vol   = vol[idx].dropna()
