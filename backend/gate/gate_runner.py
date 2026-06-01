@@ -89,6 +89,13 @@ def run() -> list[dict]:
         _persist_multiplier_stats({}, None, [])
         return []
 
+    from backend.config import EXCLUDED_SECTORS
+    candidates = [c for c in candidates if c.get("sector", "") not in EXCLUDED_SECTORS]
+    if not candidates:
+        logger.info("Gate runner: all candidates in excluded sectors")
+        _persist_multiplier_stats({}, None, [])
+        return []
+
     logger.info(f"Gate runner: {len(candidates)} candidate(s) — {[c['ticker'] for c in candidates]}")
 
     wallet_ctx = get_wallet_context()

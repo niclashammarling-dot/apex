@@ -99,6 +99,12 @@ def run() -> list[dict]:
         logger.info("Live gate runner: all candidates skipped (open positions / cooloff)")
         return []
 
+    from backend.config import EXCLUDED_SECTORS
+    candidates = [c for c in candidates if c.get("sector", "") not in EXCLUDED_SECTORS]
+    if not candidates:
+        logger.info("Live gate runner: all candidates in excluded sectors")
+        return []
+
     logger.info(f"Live gate runner: {len(candidates)} candidate(s) — {[c['ticker'] for c in candidates]}")
 
     _ticker_sector = {t: s for s, data in SECTORS.items() for t in data["tickers"]}
