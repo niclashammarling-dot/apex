@@ -153,16 +153,16 @@ def _build_prompt(ticker: str, signals: dict, rss_headlines: list[str], prefetch
         headline_block = "\n".join(f"- {h}" for h in all_headlines)
         blocks.append(f"RECENT NEWS:\n{headline_block}")
 
-    # ── Pre-fetched Reddit / RSS content ─────────────────────────────────────
+    # ── Pre-fetched RSS content ───────────────────────────────────────────────
     if prefetch:
-        blocks.append(f"PRE-FETCHED COMMUNITY & NEWS CONTENT:\n{prefetch}")
+        blocks.append(f"PRE-FETCHED RSS CONTENT:\n{prefetch}")
 
     # ── Grok instruction ──────────────────────────────────────────────────────
     blocks.append(
         "Also search X/Twitter and live web for any breaking news, unusual social "
         "activity, or material catalysts about this ticker not captured above.\n\n"
         "Synthesize all signals — analyst positioning, market structure, pre-fetched "
-        "Reddit/RSS content (above), and your live X/Twitter search — into a sentiment "
+        "RSS content (above), and your live X/Twitter search — into a sentiment "
         "assessment. "
         "Return a JSON object with exactly these keys:\n"
         "{\n"
@@ -172,7 +172,7 @@ def _build_prompt(ticker: str, signals: dict, rss_headlines: list[str], prefetch
         '  "key_themes": [list of 3 short strings],\n'
         '  "summary": "one sentence"\n'
         "}\n"
-        "conviction = cross-source alignment: assess whether analyst data, Reddit/RSS "
+        "conviction = cross-source alignment: assess whether analyst data, RSS "
         "(pre-fetched above), and X/Twitter are pointing in the same direction. "
         "high = strong agreement across multiple independent sources. "
         "medium = partial alignment or one source diverges. "

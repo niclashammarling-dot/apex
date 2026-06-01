@@ -1,27 +1,29 @@
 """
-sentiment_prefetch.py — Morning pre-fetch of Reddit and RSS sentiment data.
+sentiment_prefetch.py — Morning pre-fetch of RSS sentiment data.
 
 Runs once at market open via scheduler. Queries the watchlist table for all
-active tickers, fetches Reddit posts and expanded RSS content for each,
-and writes to the sentiment_cache table in apex.db.
+active tickers, fetches RSS content via Jina Reader for each, and writes to
+the sentiment_cache table in apex.db.
 
-Lock 3 reads from this cache during the trading day. The cached Reddit/RSS
-content supplements Grok's native X/Twitter search — Grok receives both.
+Lock 3 reads from this cache during the trading day. The cached RSS content
+supplements Grok's native X/Twitter search — Grok receives both.
 
 If cache is missing for a ticker (new watchlist addition mid-day), Lock 3
 falls back gracefully to Grok's live X/web search only.
 
 Pipeline:
   1. Query watchlist table for active tickers
-  2. For each ticker:
-     a. Fetch Reddit posts via rdt-cli (subprocess)
-     b. Fetch RSS feeds via Jina Reader (requests)
+  2. For each ticker: fetch RSS feeds via Jina Reader (requests)
   3. Write to sentiment_cache table
   4. Log summary
+
+Note: Reddit was removed — Reddit API access requires commercial approval
+(reddit.com/prefs/apps now redirects to Responsible Builder Policy), and
+Jina is blocked by Reddit's network security. Grok's live X/Twitter search
+covers the real-time social signal gap.
 """
 from __future__ import annotations
 
-import subprocess
 import time
 from datetime import date, datetime, timezone
 
@@ -36,7 +38,6 @@ from backend.db import get_db
 # Feeds without {ticker} provide general financial news as broader context.
 
 RSS_FEEDS: list[dict] = [
-    # Ticker-specific feeds
     {
         "name":   "Seeking Alpha",
         "url":    "https://seekingalpha.com/api/sa/combined/{ticker}.xml",
@@ -50,16 +51,6 @@ RSS_FEEDS: list[dict] = [
     {
         "name":   "MarketWatch",
         "url":    "https://feeds.marketwatch.com/marketwatch/marketpulse/",
-        "ticker": False,
-    },
-    {
-        "name":   "Reuters Business",
-        "url":    "https://feeds.reuters.com/reuters/businessNews",
-        "ticker": False,
-    },
-    {
-        "name":   "Reuters Markets",
-        "url":    "https://feeds.reuters.com/reuters/FinanceNews",
         "ticker": False,
     },
     {
@@ -88,21 +79,15 @@ RSS_FEEDS: list[dict] = [
 JINA_BASE = "https://r.jina.ai/"
 
 # Request settings
-REQUEST_TIMEOUT  = 10
-REQUEST_DELAY    = 0.2    # seconds between requests — polite crawling
-MAX_RSS_CHARS    = 3000   # max chars per RSS feed before truncation
-MAX_REDDIT_CHARS = 4000   # max chars from Reddit per ticker
-MAX_TOTAL_CHARS  = 15000  # max total pre-fetched content passed to Grok per ticker
-
-# Reddit search settings
-REDDIT_RESULTS = 10     # number of Reddit posts to fetch per ticker
-REDDIT_TIME    = "week" # time filter: hour, day, week, month, year, all
+REQUEST_TIMEOUT = 10
+REQUEST_DELAY   = 0.2   # seconds between requests — polite crawling
+MAX_RSS_CHARS   = 3000  # max chars per RSS feed before truncation
+MAX_TOTAL_CHARS = 15000 # max total pre-fetched content passed to Grok per ticker
 
 
 # ── Database helpers ──────────────────────────────────────────────────────────
 
 def _ensure_cache_table() -> None:
-    """Create sentiment_cache table if it doesn't exist."""
     conn = get_db()
     try:
         conn.execute("""
@@ -121,7 +106,6 @@ def _ensure_cache_table() -> None:
 
 
 def _get_watchlist_tickers() -> list[str]:
-    """Return all tickers currently on the watchlist."""
     try:
         conn = get_db()
         try:
@@ -136,123 +120,28 @@ def _get_watchlist_tickers() -> list[str]:
         return []
 
 
-def _write_cache(
-    ticker: str,
-    reddit_raw: str,
-    rss_raw: str,
-    feed_count: int,
-    reddit_posts: int,
-) -> None:
+def _write_cache(ticker: str, rss_raw: str, feed_count: int) -> None:
     now  = datetime.now(timezone.utc).isoformat()
     conn = get_db()
     try:
         conn.execute("""
             INSERT INTO sentiment_cache (ticker, fetched_at, reddit_raw, rss_raw, feed_count, reddit_posts)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, '', ?, ?, 0)
             ON CONFLICT(ticker) DO UPDATE SET
                 fetched_at   = excluded.fetched_at,
-                reddit_raw   = excluded.reddit_raw,
+                reddit_raw   = '',
                 rss_raw      = excluded.rss_raw,
                 feed_count   = excluded.feed_count,
-                reddit_posts = excluded.reddit_posts
-        """, (ticker, now, reddit_raw, rss_raw, feed_count, reddit_posts))
+                reddit_posts = 0
+        """, (ticker, now, rss_raw, feed_count))
         conn.commit()
     finally:
         conn.close()
 
 
-# ── Reddit fetching ───────────────────────────────────────────────────────────
-
-def _parse_reddit_yaml(raw: str) -> tuple[str, int]:
-    """
-    Parse rdt-cli YAML output into clean post summaries.
-    Extracts: subreddit, title, body (selftext), score, upvote_ratio, num_comments.
-    Returns (formatted_text, post_count).
-    """
-    try:
-        import yaml
-        doc      = yaml.safe_load(raw)
-        children = doc["data"]["data"]["children"]
-    except Exception:
-        return "", 0
-
-    lines      = []
-    post_count = 0
-
-    for child in children:
-        d = child.get("data", {})
-        title    = (d.get("title") or "").strip()
-        body     = (d.get("selftext") or "").strip()
-        sub      = d.get("subreddit", "")
-        score    = d.get("score", 0)
-        ratio    = d.get("upvote_ratio", 0)
-        comments = d.get("num_comments", 0)
-
-        if not title:
-            continue
-
-        # Trim long bodies
-        if len(body) > 500:
-            body = body[:500] + "…"
-
-        block = f"[r/{sub} | ↑{score} ({int(ratio*100)}%) | {comments} comments]\n{title}"
-        if body:
-            block += f"\n{body}"
-
-        lines.append(block)
-        post_count += 1
-
-    return "\n\n".join(lines), post_count
-
-
-def _fetch_reddit(ticker: str) -> tuple[str, int]:
-    """
-    Fetch Reddit posts for a ticker using rdt-cli.
-    Parses the YAML output into clean post summaries.
-    Returns (formatted_text, post_count).
-    Falls back to empty string if rdt-cli is not installed.
-    """
-    try:
-        result = subprocess.run(
-            ["rdt", "search", ticker, "--limit", str(REDDIT_RESULTS), "--time", REDDIT_TIME],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        if result.returncode != 0:
-            logger.debug(f"SentimentPrefetch: rdt-cli error for {ticker}: {result.stderr[:200]}")
-            return "", 0
-
-        raw = result.stdout.strip()
-        if not raw:
-            return "", 0
-
-        text, post_count = _parse_reddit_yaml(raw)
-
-        if len(text) > MAX_REDDIT_CHARS:
-            text = text[:MAX_REDDIT_CHARS] + "… [truncated]"
-
-        return text, post_count
-
-    except FileNotFoundError:
-        logger.warning("SentimentPrefetch: rdt-cli not found — Reddit fetch skipped")
-        return "", 0
-    except subprocess.TimeoutExpired:
-        logger.debug(f"SentimentPrefetch: rdt-cli timeout for {ticker}")
-        return "", 0
-    except Exception as e:
-        logger.debug(f"SentimentPrefetch: Reddit fetch failed for {ticker}: {e}")
-        return "", 0
-
-
 # ── RSS fetching ──────────────────────────────────────────────────────────────
 
 def _fetch_rss_feed(feed: dict, ticker: str) -> str:
-    """
-    Fetch a single RSS feed via Jina Reader.
-    Jina converts the RSS/HTML to clean readable text.
-    Returns raw text or empty string on failure.
-    """
     url      = feed["url"].format(ticker=ticker) if feed["ticker"] else feed["url"]
     jina_url = JINA_BASE + url
 
@@ -280,10 +169,6 @@ def _fetch_rss_feed(feed: dict, ticker: str) -> str:
 
 
 def _fetch_all_rss(ticker: str) -> tuple[str, int]:
-    """
-    Fetch all RSS feeds for a ticker.
-    Returns (combined_raw_text, successful_feed_count).
-    """
     parts = []
     count = 0
 
@@ -295,9 +180,8 @@ def _fetch_all_rss(ticker: str) -> tuple[str, int]:
         time.sleep(REQUEST_DELAY)
 
     combined = "\n\n".join(parts)
-
-    if len(combined) > MAX_RSS_CHARS * len(RSS_FEEDS):
-        combined = combined[:MAX_RSS_CHARS * len(RSS_FEEDS)]
+    if len(combined) > MAX_TOTAL_CHARS:
+        combined = combined[:MAX_TOTAL_CHARS]
 
     return combined, count
 
@@ -327,20 +211,12 @@ def run() -> dict:
         try:
             logger.debug(f"SentimentPrefetch: [{i}/{len(tickers)}] {ticker}")
 
-            reddit_raw, reddit_posts = _fetch_reddit(ticker)
-            rss_raw, feed_count      = _fetch_all_rss(ticker)
+            rss_raw, feed_count = _fetch_all_rss(ticker)
 
-            # Trim RSS first if over total limit (Reddit is higher signal)
-            if len(reddit_raw) + len(rss_raw) > MAX_TOTAL_CHARS:
-                rss_raw = rss_raw[:MAX_TOTAL_CHARS - len(reddit_raw)]
-
-            _write_cache(ticker, reddit_raw, rss_raw, feed_count, reddit_posts)
+            _write_cache(ticker, rss_raw, feed_count)
             success += 1
 
-            logger.debug(
-                f"SentimentPrefetch: {ticker} — "
-                f"Reddit={reddit_posts} posts, RSS={feed_count} feeds"
-            )
+            logger.debug(f"SentimentPrefetch: {ticker} — RSS={feed_count} feeds")
 
         except Exception as e:
             logger.warning(f"SentimentPrefetch: failed for {ticker}: {e}")
@@ -361,7 +237,7 @@ def run() -> dict:
 
 def get_combined_content(ticker: str) -> str:
     """
-    Return cached Reddit + RSS content for a ticker as a single string,
+    Return cached RSS content for a ticker as a single string,
     ready to include in the Grok prompt as pre-fetched context.
     Returns empty string if no cache exists — Lock 3 falls back to Grok's live search only.
     """
@@ -369,7 +245,7 @@ def get_combined_content(ticker: str) -> str:
         conn = get_db()
         try:
             row = conn.execute("""
-                SELECT reddit_raw, rss_raw, feed_count, reddit_posts
+                SELECT rss_raw, feed_count
                 FROM sentiment_cache
                 WHERE ticker = ?
             """, (ticker,)).fetchone()
@@ -379,14 +255,8 @@ def get_combined_content(ticker: str) -> str:
         logger.debug(f"SentimentPrefetch: cache read failed for {ticker}: {e}")
         return ""
 
-    if not row:
+    if not row or not row["rss_raw"]:
         logger.debug(f"SentimentPrefetch: no cache for {ticker} — falling back to live-only")
         return ""
 
-    parts = []
-    if row["reddit_raw"]:
-        parts.append(f"=== Reddit ({row['reddit_posts']} posts) ===\n{row['reddit_raw']}")
-    if row["rss_raw"]:
-        parts.append(f"=== RSS Feeds ({row['feed_count']} sources) ===\n{row['rss_raw']}")
-
-    return "\n\n".join(parts)
+    return f"=== RSS Feeds ({row['feed_count']} sources) ===\n{row['rss_raw']}"
