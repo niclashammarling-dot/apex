@@ -911,41 +911,47 @@ def insert_demo_gate_result(row: dict) -> None:
         conn.close()
 
 
-def get_demo_gate_history(limit: int = 100) -> list[dict]:
+def get_demo_gate_history(since: str | None = None) -> list[dict]:
     conn = get_db()
     try:
-        rows = conn.execute("""
+        where = "WHERE timestamp >= ?" if since else ""
+        params = (since,) if since else ()
+        rows = conn.execute(f"""
             SELECT ticker, sector, timestamp, signal_score,
                    gate_decision, lock1_pass, lock2_pass, lock_leading_pass,
                    lock_leading_checks, lock3_pass, lock3_reasoning,
                    l2_summary, lock3_sentiment_score, lock3_conviction, macro_reason,
                    ticker_signal
             FROM demo_gate_history
+            {where}
             ORDER BY timestamp DESC
-            LIMIT ?
-        """, (limit,)).fetchall()
+        """, params).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 
-def get_demo_gate_funnel_counts() -> dict:
+def get_demo_gate_funnel_counts(since: str | None = None) -> dict:
     conn = get_db()
     try:
-        row = conn.execute("""
+        where = "WHERE timestamp >= ?" if since else ""
+        params = (since,) if since else ()
+        row = conn.execute(f"""
             SELECT
                 count(*)                                                         AS total_candidates,
                 sum(gate_decision = 'SKIPPED_OPEN')                              AS skipped_open,
                 sum(gate_decision = 'SKIPPED_COOLOFF')                           AS skipped_cooloff,
                 sum(gate_decision NOT IN ('SKIPPED_OPEN','SKIPPED_COOLOFF'))     AS evaluated,
                 sum(gate_decision = 'FILTERED_ELIGIBILITY')                      AS eligibility_fail,
+                sum(gate_decision = 'FILTERED_L1')                               AS l1_fail,
                 sum(gate_decision = 'FILTERED_L2')                               AS l2_fail,
                 sum(gate_decision = 'FILTERED_LEADING')                          AS leading_fail,
                 sum(gate_decision = 'FILTERED_L3')                               AS l3_fail,
                 sum(gate_decision = 'FILTERED_OVERFLOW_QUANT')                   AS overflow_fail,
                 sum(gate_decision IN ('TRADE_EXECUTED','TRADE_REJECTED'))         AS executed
             FROM demo_gate_history
-        """).fetchone()
+            {where}
+        """, params).fetchone()
         return dict(row) if row else {}
     finally:
         conn.close()
@@ -1178,14 +1184,16 @@ def insert_live_gate_result(row: dict) -> int:
         conn.close()
 
 
-def get_live_gate_history(limit: int = 30) -> list[dict]:
+def get_live_gate_history(since: str | None = None) -> list[dict]:
     conn = get_db()
     try:
-        rows = conn.execute("""
+        where = "WHERE timestamp >= ?" if since else ""
+        params = (since,) if since else ()
+        rows = conn.execute(f"""
             SELECT * FROM live_gate_history
+            {where}
             ORDER BY timestamp DESC
-            LIMIT ?
-        """, (limit,)).fetchall()
+        """, params).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()

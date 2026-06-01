@@ -106,8 +106,10 @@ def live_trades():
 
 
 @router.get("/gate/history")
-def live_gate_history(limit: int = 100):
+def live_gate_history():
     import json as _json
+    from datetime import datetime, time
+    from zoneinfo import ZoneInfo
 
     from backend.db import (
         get_live_gate_funnel_counts,
@@ -115,7 +117,12 @@ def live_gate_history(limit: int = 100):
         get_ticker_thresholds,
     )
     from backend.live_config import get_live_config
-    rows = get_live_gate_history(limit)
+
+    ET = ZoneInfo("America/New_York")
+    today_et = datetime.now(ET).date()
+    market_open = datetime.combine(today_et, time(9, 30), tzinfo=ET).isoformat()
+
+    rows = get_live_gate_history(since=market_open)
     thresholds = get_ticker_thresholds()
     flat = get_live_config().get("lock1_threshold", 0.5)
     for row in rows:
@@ -125,7 +132,7 @@ def live_gate_history(limit: int = 100):
                 row["lock_leading_checks"] = _json.loads(row["lock_leading_checks"])
             except Exception:
                 row["lock_leading_checks"] = None
-    funnel = get_live_gate_funnel_counts()
+    funnel = get_live_gate_funnel_counts(since=market_open)
     return {"rows": rows, "funnel": funnel}
 
 

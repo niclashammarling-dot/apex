@@ -345,8 +345,10 @@ def get_wallet():
 
 
 @router.get("/gate/history")
-def gate_history(limit: int = 100):
+def gate_history():
     import json as _json
+    from datetime import datetime, time
+    from zoneinfo import ZoneInfo
 
     from backend.db import (
         get_demo_gate_funnel_counts,
@@ -354,7 +356,12 @@ def gate_history(limit: int = 100):
         get_ticker_thresholds,
     )
     from backend.demo_config import get_demo_config
-    rows = get_demo_gate_history(limit)
+
+    ET = ZoneInfo("America/New_York")
+    today_et = datetime.now(ET).date()
+    market_open = datetime.combine(today_et, time(9, 30), tzinfo=ET).isoformat()
+
+    rows = get_demo_gate_history(since=market_open)
     thresholds = get_ticker_thresholds()
     flat = get_demo_config().get("lock1_threshold", 0.5)
     for row in rows:
@@ -364,7 +371,7 @@ def gate_history(limit: int = 100):
                 row["lock_leading_checks"] = _json.loads(row["lock_leading_checks"])
             except Exception:
                 row["lock_leading_checks"] = None
-    return {"rows": rows, "funnel": get_demo_gate_funnel_counts()}
+    return {"rows": rows, "funnel": get_demo_gate_funnel_counts(since=market_open)}
 
 
 @router.get("/demo/trades")
@@ -617,9 +624,12 @@ def get_watchlist():
         score   = latest.get(ticker)
         prev    = prev_tk.get(ticker)
         if score is not None and prev is not None:
-            if score - prev > 0.01:   trend = "up"
-            elif prev - score > 0.01: trend = "down"
-            else:                     trend = "flat"
+            if score - prev > 0.01:
+                trend = "up"
+            elif prev - score > 0.01:
+                trend = "down"
+            else:
+                trend = "flat"
         else:
             trend = "flat"
         result.append({

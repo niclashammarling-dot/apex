@@ -487,7 +487,7 @@ function GateFeed({ D, mode }) {
       <div className="t-card-head" style={{ cursor: "pointer", userSelect: "none" }} onClick={() => setOpen(v => !v)}>
         <div className="t-card-title">GATE ACTIVITY</div>
         <div className="t-row" style={{ gap: 10 }}>
-          <span className="t-meta">LAST {grouped.length} · {mode === "live" ? "LIVE" : "DEMO"}</span>
+          <span className="t-meta">TODAY · {grouped.length} · {mode === "live" ? "LIVE" : "DEMO"}</span>
           <span className="t-meta">{open ? "▲" : "▼"}</span>
         </div>
       </div>

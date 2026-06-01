@@ -507,13 +507,13 @@ class IpoSentiment:
                 "context":    result.context,
                 "listings": [
                     {
-                        "ticker":    l.ticker,
-                        "company":   l.company,
-                        "sector":    l.sector,
-                        "sic_code":  l.sic_code,
-                        "list_date": l.list_date.isoformat(),
+                        "ticker":    listing.ticker,
+                        "company":   listing.company,
+                        "sector":    listing.sector,
+                        "sic_code":  listing.sic_code,
+                        "list_date": listing.list_date.isoformat(),
                     }
-                    for l in result.listings
+                    for listing in result.listings
                 ],
             }
             with open(CACHE_PATH, "w") as f:
@@ -531,14 +531,14 @@ class IpoSentiment:
                 return None
             listings = [
                 IpoListing(
-                    ticker=l["ticker"],
-                    company=l["company"],
+                    ticker=entry["ticker"],
+                    company=entry["company"],
                     cik="",
-                    sic_code=l["sic_code"],
-                    sector=l["sector"],
-                    list_date=date.fromisoformat(l["list_date"]),
+                    sic_code=entry["sic_code"],
+                    sector=entry["sector"],
+                    list_date=date.fromisoformat(entry["list_date"]),
                 )
-                for l in data.get("listings", [])
+                for entry in data.get("listings", [])
             ]
             return IpoSentimentResult(
                 date=data["date"],
