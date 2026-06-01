@@ -103,6 +103,9 @@ def run() -> list[dict]:
 
     _ticker_sector = {t: s for s, data in SECTORS.items() for t in data["tickers"]}
     _positions = broker.get_positions()
+    # Exposure ratios: all numerators and denominators must use equity scale.
+    # Do not substitute buying_power here — on margin accounts it is 2-4x equity
+    # and will inflate projected exposure past every sector cap.
     _starting_balance = cfg["starting_balance"]
     _sector_exposure: dict[str, float] = {}
     for _p in _positions:
@@ -248,7 +251,7 @@ def run() -> list[dict]:
                         f"score {signal['signal_score']:.4f} below {overflow_threshold:.4f} "
                         f"(base {base_threshold:.4f} ×{1 + overflow_level * overflow_increment:.2f})"
                     )
-                    result["outcome"] = "TRADE_REJECTED"
+                    result["outcome"] = "FILTERED_OVERFLOW_QUANT"
                 else:
                     position_pct = result["lock3"]["position_size_pct"] if result.get("lock3") else cfg["max_position_size"]
                     notional     = acct["equity"] * min(position_pct, cfg["max_position_size"])

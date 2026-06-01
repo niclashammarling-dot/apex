@@ -158,6 +158,7 @@ def _demo_patches(candidates, open_tickers=None, failed_tickers=None,
       12 get_rotation_forecast
       13 _get_regime_bayes
       14 get_wallet_context
+      15 get_recently_exited_tickers
     """
     cfg = _demo_cfg(**(cfg_overrides or {}))
     # Default chain: all pass
@@ -189,6 +190,8 @@ def _demo_patches(candidates, open_tickers=None, failed_tickers=None,
               return_value=MagicMock(last_result=MagicMock(return_value=None))),          # 13
         patch("backend.gate.gate_runner.get_wallet_context",
               return_value=wallet_ctx),                                                    # 14
+        patch("backend.gate.gate_runner.get_recently_exited_tickers",
+              return_value=set()),                                                          # 15
     ]
 
 
@@ -354,6 +357,7 @@ def _live_patches(candidates, open_tickers=None, failed_tickers=None,
       15 compute_ticker_rotation_scores
       16 get_rotation_forecast
       17 _get_regime_bayes
+      18 get_recently_exited_live_tickers
     """
     cfg       = _live_cfg(**(cfg_overrides or {}))
     acct      = account  or _account()
@@ -390,6 +394,8 @@ def _live_patches(candidates, open_tickers=None, failed_tickers=None,
               return_value={"available": False, "watching": [], "likely_next": []}),    # 16
         patch("backend.scheduler._get_regime_bayes",
               return_value=MagicMock(last_result=MagicMock(return_value=None))),        # 17
+        patch("backend.gate.gate_runner_live.get_recently_exited_live_tickers",
+              return_value=set()),                                                       # 18
     ]
 
 
@@ -520,10 +526,10 @@ class TestLiveGateRunner:
 
     def test_max_positions_reached_rejects_trade(self):
         positions = [{"ticker": f"T{i}"} for i in range(5)]
-        # score=0.50 < overflow_threshold=0.525 (base 0.50 × 1.05) → rejected
+        # score=0.50 < overflow_threshold=0.525 (base 0.50 × 1.05) → overflow rejection
         results, mocks = _run_live(candidates=[_signal(score=0.50)], positions=positions,
                                    cfg_overrides={"max_positions": 5})
-        assert results[0]["outcome"] == "TRADE_REJECTED"
+        assert results[0]["outcome"] == "FILTERED_OVERFLOW_QUANT"
         mocks[12].assert_not_called()
 
     def test_ticker_already_open_at_execution_rejected(self):
@@ -558,11 +564,11 @@ class TestLiveGateRunner:
 
     def test_max_positions_gate_decision_in_db(self):
         positions = [{"ticker": f"T{i}"} for i in range(5)]
-        # score=0.50 < overflow_threshold → rejected, gate_decision should be TRADE_REJECTED
+        # score=0.50 < overflow_threshold → FILTERED_OVERFLOW_QUANT, counted in overflow_fail funnel
         results, mocks = _run_live(candidates=[_signal(score=0.50)], positions=positions,
                                    cfg_overrides={"max_positions": 5})
         saved = mocks[7].call_args[0][0]
-        assert saved["gate_decision"] == "TRADE_REJECTED"
+        assert saved["gate_decision"] == "FILTERED_OVERFLOW_QUANT"
 
     def test_gate_decision_not_buy_for_executed_trade(self):
         results, _ = _run_live(candidates=[_signal()])
