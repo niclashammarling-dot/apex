@@ -520,6 +520,91 @@ def check46():
              f"check gate-4/6 log warnings for this trade_id")
 
 
+# ── CHECK 47 — Profit-lock SL trail vs peak ───────────────────────────────────
+
+def check47():
+    """
+    Continuous ratchet integrity: if profit_lock_activated fired, the SL was
+    supposed to trail peak*(1-trail). A closed SL exit where exit_price < entry
+    means the ratchet set a floor but stopped following the peak — one-shot bug
+    recurrence or replace_stop_leg failures across multiple cycles.
+
+    Sub-check A: open trades with profit_lock_activated=True and peak_price
+    materially above the ratchet floor — flagged when peak gain exceeds trigger
+    by more than 2× and profit_lock_activated has been set for >30 min. This is
+    a proxy for "ratchet should have moved SL further but may not have."
+
+    Sub-check B: closed SL exits where profit_lock_activated=True but
+    exit_price < entry_price — the ratcheted SL fired below entry, which means
+    the trail was set but didn't protect the gain at all.
+    """
+    db = REPO / "data/apex.db"
+    if not db.exists():
+        return
+
+    try:
+        conn = sqlite3.connect(db)
+        conn.row_factory = sqlite3.Row
+        cfg_path = REPO / "data/live_config.json"
+        trigger_pct = 0.04
+        trail_pct   = 0.01
+        if cfg_path.exists():
+            try:
+                import json as _json
+                cfg = _json.loads(cfg_path.read_text())
+                trigger_pct = cfg.get("profit_lock_trigger_pct", trigger_pct)
+                trail_pct   = cfg.get("profit_lock_trail_pct",   trail_pct)
+            except Exception:
+                pass
+
+        # Sub-check A: open trades where peak gain >> trigger but flag set >30 min ago
+        open_rows = conn.execute("""
+            SELECT id, ticker, entry_price, peak_price, profit_lock_activated
+            FROM live_trades
+            WHERE outcome = 'OPEN'
+              AND profit_lock_activated = 1
+              AND peak_price IS NOT NULL
+              AND (peak_price - entry_price) / entry_price >= :double_trigger
+              AND datetime(timestamp) < datetime('now', '-30 minutes')
+        """, {"double_trigger": trigger_pct * 2}).fetchall()
+
+        for r in open_rows:
+            peak_gain    = (r["peak_price"] - r["entry_price"]) / r["entry_price"]
+            ratchet_floor = r["peak_price"] * (1 - trail_pct)
+            flag(47, "Profit-lock SL trail vs peak", "WARNING",
+                 "data/apex.db:live_trades",
+                 f"{r['ticker']} trade_id={r['id']}: peak_gain={peak_gain:.1%} "
+                 f"(>2x trigger={trigger_pct:.1%}), ratchet floor should be ~${ratchet_floor:.2f} — "
+                 f"verify Alpaca SL leg is tracking peak, not frozen at initial ratchet price")
+
+        # Sub-check B: closed SL exits where ratchet was set but exit below entry
+        closed_rows = conn.execute("""
+            SELECT id, ticker, entry_price, exit_price, peak_price
+            FROM live_trades
+            WHERE outcome != 'OPEN'
+              AND exit_reason = 'SL'
+              AND profit_lock_activated = 1
+              AND exit_price IS NOT NULL
+              AND exit_price < entry_price
+              AND datetime(exited_at) > datetime('now', '-7 days')
+        """).fetchall()
+
+        for r in closed_rows:
+            peak_gain = (r["peak_price"] - r["entry_price"]) / r["entry_price"] if r["peak_price"] else None
+            flag(47, "Profit-lock SL trail vs peak", "CRITICAL",
+                 "data/apex.db:live_trades",
+                 f"{r['ticker']} trade_id={r['id']}: SL exit at ${r['exit_price']:.2f} "
+                 f"< entry ${r['entry_price']:.2f} despite profit_lock_activated=True "
+                 f"(peak_gain={peak_gain:.1%} if peak_gain else '?') — "
+                 f"ratchet set a floor but trail did not follow peak; check replace_stop_leg log errors")
+
+        conn.close()
+    except Exception as e:
+        flag(47, "Profit-lock SL trail vs peak", "WARNING",
+             "data/apex.db:live_trades",
+             f"could not query live_trades: {e}")
+
+
 def run() -> None:
     check14()
     check15()
@@ -530,3 +615,4 @@ def run() -> None:
     check39()
     check44()
     check46()
+    check47()

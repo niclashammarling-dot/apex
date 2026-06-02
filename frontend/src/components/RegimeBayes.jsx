@@ -67,13 +67,6 @@ function LeaderboardRow({ entry, i, isOpen, onToggle }) {
           {entry.sector}
         </span>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-          <div style={{ background: "var(--t-grid)", borderRadius: 2, height: 3, width: 36 }}>
-            <div style={{ width: `${postPct}%`, height: "100%", borderRadius: 2, background: postPct >= 60 ? "var(--t-text-2)" : postPct >= 40 ? "var(--t-text-3)" : "#404040" }} />
-          </div>
-          <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--t-text-3)", minWidth: 28 }}>{postPct}%</span>
-        </div>
-
         <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--t-text-2)", minWidth: 38, textAlign: "right", flexShrink: 0 }}>
           {entry.adjusted_score.toFixed(3)}
         </span>

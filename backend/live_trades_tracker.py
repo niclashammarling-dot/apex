@@ -71,30 +71,25 @@ def _effective_trail_pct(peak: float, entry_price: float, cfg: dict) -> float:
 
 def _maybe_ratchet_bracket_sl(trade: dict, peak: float, cfg: dict, broker) -> None:
     """
-    If profit-lock territory has been reached for the first time, move the bracket
-    SL stop leg up to `peak * (1 - profit_lock_trail_pct)`.
+    When peak gain >= profit_lock_trigger_pct, trail the bracket SL up to
+    peak * (1 - profit_lock_trail_pct) on every cycle.
 
     Gates (cheapest first — network call deferred until gate 3 passes):
-    1. Idempotency: skip if profit_lock_activated already set.
-    2. Config guard: skip if trigger_pct or lock_trail missing from config.
-    3. Territory: skip if peak gain < trigger_pct.
-    4. Leg fetch: find the open STOP leg on the bracket; warn and skip if absent.
-    5. Direction: skip if the computed new_sl would not move the stop upward.
-    6. Execute: PATCH the leg via replace_stop_leg; set profit_lock_activated only
-       on confirmed success. A failed attempt leaves the flag unset so the next
-       cycle retries.
+    1. Config guard: skip if trigger_pct or lock_trail missing from config.
+    2. Territory: skip if peak gain < trigger_pct.
+    3. Leg fetch: find the open STOP leg on the bracket; warn and skip if absent.
+    4. Direction: skip if the computed new_sl would not move the stop upward.
+       This is the idempotency gate — no broker call when SL is already current.
+    5. Execute: PATCH the leg via replace_stop_leg; set profit_lock_activated on
+       first confirmed success (used for audit/display only, not as a gate).
     """
-    # Gate 1 — idempotency
-    if trade.get("profit_lock_activated"):
-        return
-
-    # Gate 2 — config guard
+    # Gate 1 — config guard
     trigger_pct = cfg.get("profit_lock_trigger_pct")
     lock_trail  = cfg.get("profit_lock_trail_pct")
     if not trigger_pct or not lock_trail:
         return
 
-    # Gate 3 — territory check (no network call before this passes)
+    # Gate 2 — territory check (no network call before this passes)
     entry_price = trade["entry_price"]
     if (peak - entry_price) / entry_price < trigger_pct:
         return
@@ -127,13 +122,13 @@ def _maybe_ratchet_bracket_sl(trade: dict, peak: float, cfg: dict, broker) -> No
         )
         return
 
-    # Gate 5 — direction check (ratchet only moves stop upward)
+    # Gate 4 (direction) — ratchet only moves stop upward; no broker call if already current
     current_sl = sl_leg.get("stop_price") or 0.0
     new_sl     = round(peak * (1 - lock_trail), 2)
     if new_sl <= current_sl:
         return
 
-    # Gate 6 — execute; set flag only on confirmed success
+    # Gate 5 — execute; set profit_lock_activated on first move (audit/display only)
     leg_id = sl_leg["id"]
     qty    = int(trade["qty"])
     try:
@@ -229,7 +224,32 @@ def check_live_exits() -> list[dict]:
             try:
                 result = broker.close_position(ticker)
                 exit_price = float(result.get("filled_avg_price") or current or entry_price)
+                exit_reason = "TRAILING_STOP"
             except Exception as e:
+                if "position not found" in str(e).lower() or "40410000" in str(e):
+                    logger.warning(f"Live trailing stop [{ticker}]: position not found on broker — reconciling")
+                    exit_price, exit_reason, exited_at = _find_exit_from_orders(ticker, broker)
+                    if exit_price is None:
+                        logger.warning(f"Live trailing stop [{ticker}]: position gone but no filled order — skipping")
+                        continue
+                    pnl     = round((exit_price - entry_price) * trade["qty"], 2)
+                    outcome = "WIN" if exit_price > entry_price else "LOSS"
+                    logger.info(f"Live exit reconciliation [{ticker}]: trailing stop found position gone externally, exit=${exit_price:.2f}")
+                    close_live_trade(
+                        trade_id    = trade["id"],
+                        exit_price  = exit_price,
+                        pnl         = pnl,
+                        outcome     = outcome,
+                        exit_reason = exit_reason,
+                        exited_at   = exited_at,
+                    )
+                    logger.info(
+                        f"Live exit [{ticker}]: {exit_reason} "
+                        f"entry=${trade['entry_price']:.2f} exit=${exit_price:.2f} "
+                        f"pnl={pnl:+.2f} → {outcome}"
+                    )
+                    closed.append({"ticker": ticker, "outcome": outcome, "exit_reason": exit_reason, "pnl": pnl})
+                    continue
                 logger.warning(f"Live trailing stop [{ticker}]: close_position failed — {e}")
                 continue
             exit_reason = "TRAILING_STOP"
@@ -244,6 +264,30 @@ def check_live_exits() -> list[dict]:
                 result = broker.close_position(ticker)
                 exit_price = float(result.get("filled_avg_price") or current or entry_price)
             except Exception as e:
+                if "position not found" in str(e).lower() or "40410000" in str(e):
+                    logger.warning(f"Live time-stop [{ticker}]: position not found on broker — reconciling")
+                    exit_price, exit_reason, exited_at = _find_exit_from_orders(ticker, broker)
+                    if exit_price is None:
+                        logger.warning(f"Live time-stop [{ticker}]: position gone but no filled order — skipping")
+                        continue
+                    pnl     = round((exit_price - entry_price) * trade["qty"], 2)
+                    outcome = "WIN" if pnl > 0 else "LOSS"
+                    logger.info(f"Live exit reconciliation [{ticker}]: time-stop found position gone externally, exit=${exit_price:.2f}")
+                    close_live_trade(
+                        trade_id    = trade["id"],
+                        exit_price  = exit_price,
+                        pnl         = pnl,
+                        outcome     = outcome,
+                        exit_reason = exit_reason,
+                        exited_at   = exited_at,
+                    )
+                    logger.info(
+                        f"Live exit [{ticker}]: {exit_reason} "
+                        f"entry=${trade['entry_price']:.2f} exit=${exit_price:.2f} "
+                        f"pnl={pnl:+.2f} → {outcome}"
+                    )
+                    closed.append({"ticker": ticker, "outcome": outcome, "exit_reason": exit_reason, "pnl": pnl})
+                    continue
                 logger.warning(f"Live time-stop [{ticker}]: close_position failed — {e}")
                 continue
             exit_reason = "TIME"
