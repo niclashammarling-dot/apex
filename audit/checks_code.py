@@ -1,10 +1,11 @@
 """
-Code-health mechanical checks — CHECKs 3, 6, 10, 12, 16, 30, 31, 45.
+Code-health mechanical checks — CHECKs 3, 6, 10, 12, 16, 30, 31, 45, 48.
 
 Covers: fractional qty in broker, test DB isolation, ticker signal data
 coverage, Lock3 context key parity, yfinance scalar extraction pattern,
 startup live regime exit reconciliation, live bracket TIF/exit fallback,
-and static code analysis (ruff + connection-leak patterns).
+static code analysis (ruff + connection-leak patterns), and L4 yfinance
+retry coverage.
 """
 import re
 
@@ -327,6 +328,60 @@ def check45():
             continue
 
 
+def check48():
+    """
+    Verify that all three yfinance fetch paths in lock4_leading.py have retry
+    loops to handle silently-broken responses from the shared curl_cffi session.
+
+    Three paths must each show `for attempt in range(2)`:
+      1. _fetch_options_chains  — silent empty t.options under concurrent load
+      2. _check_relative_strength — partial batch response (ticker column absent)
+      3. _check_volume_accumulation — wrong-ticker columns (curl_cffi session collision)
+
+    Prevented by: 2026-06-02 incident where AVGO failed all four L4 sub-checks
+    repeatedly. Root cause: shared BoringSSL TLS singleton returns stale/partial
+    data under concurrent yfinance load. Retry paths close the false-negative loop.
+    """
+    lock4 = REPO / "backend/gate/lock4_leading.py"
+    if not lock4.exists():
+        flag(48, "L4 yfinance retry coverage", "CRITICAL", str(lock4),
+             "lock4_leading.py not found")
+        return
+
+    src = lock4.read_text()
+
+    # Each function must contain its own retry loop
+    import ast
+    try:
+        tree = ast.parse(src)
+    except SyntaxError as e:
+        flag(48, "L4 yfinance retry coverage", "CRITICAL", str(lock4),
+             f"syntax error parsing lock4_leading.py: {e}")
+        return
+
+    # Extract function bodies as source slices by line range
+    funcs: dict[str, str] = {}
+    lines = src.splitlines()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            end = getattr(node, "end_lineno", None)
+            if end:
+                funcs[node.name] = "\n".join(lines[node.lineno - 1: end])
+
+    retry_pattern = re.compile(r"for attempt in range\(2\)")
+    missing = []
+    for fn in ("_fetch_options_chains", "_check_relative_strength", "_check_volume_accumulation"):
+        body = funcs.get(fn, "")
+        if not retry_pattern.search(body):
+            missing.append(fn)
+
+    if missing:
+        flag(48, "L4 yfinance retry coverage", "CRITICAL",
+             "backend/gate/lock4_leading.py",
+             f"retry loop missing from: {', '.join(missing)} — "
+             "silent yfinance failures under concurrent load will surface as permanent sub-check failures")
+
+
 def run() -> None:
     check3()
     check6()
@@ -336,3 +391,4 @@ def run() -> None:
     check30()
     check31()
     check45()
+    check48()
