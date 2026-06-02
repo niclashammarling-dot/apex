@@ -28,6 +28,7 @@ from backend.gate.gate_runner import PRE_ROTATION_FLOOR, _chain_to_gate_result, 
 from backend.sector_caps import compute_dynamic_caps
 
 _MAX_WORKERS = 5
+_loss_cap_alerted: set[str] = set()  # dates (YYYY-MM-DD) for which the alert was already sent
 
 
 def run() -> list[dict]:
@@ -59,9 +60,13 @@ def run() -> list[dict]:
     # Daily loss cap check
     day_loss = abs(min(acct["day_pnl"], 0))
     if day_loss >= cfg["daily_loss_cap"]:
+        from datetime import date
+        today = date.today().isoformat()
         logger.warning(f"Live gate: daily loss cap hit — day loss ${day_loss:.2f} >= cap ${cfg['daily_loss_cap']:.2f}")
-        from backend.alerts import alert_daily_loss_cap
-        alert_daily_loss_cap(day_loss, cfg["daily_loss_cap"])
+        if today not in _loss_cap_alerted:
+            _loss_cap_alerted.add(today)
+            from backend.alerts import alert_daily_loss_cap
+            alert_daily_loss_cap(day_loss, cfg["daily_loss_cap"])
         return []
 
     candidates = get_lock1_candidates(threshold=cfg["lock1_threshold"],

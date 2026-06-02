@@ -302,7 +302,23 @@ function SectorTable({ D }) {
 
 function GateLog({ D, mode }) {
   const rows = mode === "live" ? (D.liveGateRows || []) : (D.gateRows || []);
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    if (mode === "live" && D.liveGateBlocked) {
+      return (
+        <section className="a-section">
+          <header className="a-section-head">
+            <div>
+              <div className="a-eyebrow">Gate ledger</div>
+              <h2 className="a-title">Activity</h2>
+            </div>
+            <span className="a-meta">live · blocked</span>
+          </header>
+          <p className="a-meta" style={{ padding: "12px 0", color: "var(--a-red, #c0392b)" }}>{D.liveGateBlocked}</p>
+        </section>
+      );
+    }
+    return null;
+  }
   return (
     <section className="a-section">
       <header className="a-section-head">

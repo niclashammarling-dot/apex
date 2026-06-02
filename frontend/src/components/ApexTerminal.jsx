@@ -465,7 +465,22 @@ function GateFeed({ D, mode }) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState({});
   const rows = mode === "live" ? (D.liveGateRows || []) : (D.gateRows || []);
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    if (mode === "live" && D.liveGateBlocked) {
+      return (
+        <div className="t-card">
+          <div className="t-card-head">
+            <div className="t-card-title">GATE ACTIVITY</div>
+            <span className="t-meta">LIVE · BLOCKED</span>
+          </div>
+          <div className="t-card-body" style={{ padding: "10px 14px" }}>
+            <span className="t-meta" style={{ color: "var(--t-red)" }}>{D.liveGateBlocked}</span>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  }
 
   const grouped = rows.reduce((acc, r) => {
     const prev = acc[acc.length - 1];

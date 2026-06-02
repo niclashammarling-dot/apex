@@ -133,7 +133,22 @@ def live_gate_history():
             except Exception:
                 row["lock_leading_checks"] = None
     funnel = get_live_gate_funnel_counts(since=market_open)
-    return {"rows": rows, "funnel": funnel}
+
+    blocked_reason = None
+    if LIVE_ENABLED:
+        try:
+            from backend.brokers import alpaca as broker
+            acct = broker.get_account()
+            day_loss = abs(min(acct["day_pnl"], 0))
+            cfg = get_live_config()
+            if day_loss >= cfg.get("daily_loss_cap", 1000):
+                blocked_reason = f"daily loss cap — ${day_loss:,.0f} loss vs ${cfg['daily_loss_cap']:,.0f} cap"
+            elif acct.get("trading_blocked") or acct.get("account_blocked"):
+                blocked_reason = "Alpaca account blocked"
+        except Exception:
+            pass
+
+    return {"rows": rows, "funnel": funnel, "blocked_reason": blocked_reason}
 
 
 @router.get("/compare")
