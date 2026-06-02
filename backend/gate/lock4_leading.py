@@ -187,8 +187,8 @@ def _fetch_options_chains(ticker: str) -> list[tuple]:
     Returns [(calls_df, puts_df), ...] for the first 2 expiries.
     Both put_call_ratio and unusual_calls consume this shared list.
 
-    Retries once on curl TLS errors — intermittent in WSL2 with the curl-cffi
-    BoringSSL singleton under concurrent load.
+    Retries once on curl TLS errors and on silently-empty t.options — both are
+    intermittent under concurrent load via the shared curl_cffi BoringSSL singleton.
     """
     last_exc: Exception | None = None
     for attempt in range(2):
@@ -199,6 +199,9 @@ def _fetch_options_chains(ticker: str) -> list[tuple]:
                 t        = yf.Ticker(ticker)
                 expiries = t.options
                 if not expiries:
+                    if attempt == 0:
+                        logger.warning(f"Lock 4 [{ticker}] options empty on attempt 1, retrying")
+                        continue
                     return []
                 chains = []
                 for exp in expiries[:2]:
@@ -221,24 +224,32 @@ def _check_relative_strength(ticker: str, sector: str) -> dict:
     if not etf:
         return {"pass": False, "reason": f"no ETF mapped for sector '{sector}'"}
 
-    try:
-        with _YF_SEMAPHORE:
-            raw = yf.download([ticker, etf], period="8d", progress=False,
-                               auto_adjust=True)
-    except yf.exceptions.YFRateLimitError:
-        return {"pass": False, "reason": "Yahoo 429 rate limit"}
-    except Exception as e:
-        return {"pass": False, "reason": f"download error: {e}"}
+    data = None
+    for attempt in range(2):
+        if attempt > 0:
+            time.sleep(0.5)
+        try:
+            with _YF_SEMAPHORE:
+                raw = yf.download([ticker, etf], period="8d", progress=False,
+                                   auto_adjust=True)
+        except yf.exceptions.YFRateLimitError:
+            return {"pass": False, "reason": "Yahoo 429 rate limit"}
+        except Exception as e:
+            return {"pass": False, "reason": f"download error: {e}"}
 
-    try:
-        data = raw["Close"]
-    except KeyError:
-        return {"pass": False, "reason": f"no Close column — got {list(raw.columns[:4])}"}
+        try:
+            data = raw["Close"]
+        except KeyError:
+            return {"pass": False, "reason": f"no Close column — got {list(raw.columns[:4])}"}
 
-    if data.empty:
-        return {"pass": False, "reason": "empty download (429 or delisted)"}
-    missing = [t for t in [ticker, etf] if t not in data.columns]
-    if missing:
+        if data.empty:
+            return {"pass": False, "reason": "empty download (429 or delisted)"}
+        missing = [t for t in [ticker, etf] if t not in data.columns]
+        if not missing:
+            break
+        if attempt == 0:
+            logger.warning(f"Lock 4 [{ticker}] RS partial download {missing}, retrying")
+            continue
         return {"pass": False, "reason": f"missing from download: {missing}"}
 
     try:
@@ -317,23 +328,31 @@ def _check_unusual_call_volume(chains: list[tuple], fetch_err: str | None = None
 def _check_volume_accumulation(ticker: str) -> dict:
     """Up/down volume ratio over 20 days > 1.2 (accumulation dominates distribution)."""
     # Need ~30 calendar days to guarantee 20 trading days after weekends/holidays
-    try:
-        with _YF_SEMAPHORE:
-            raw = yf.download(ticker, period="30d", progress=False, auto_adjust=True)
-    except yf.exceptions.YFRateLimitError:
-        return {"pass": False, "reason": "Yahoo 429 rate limit"}
-    except Exception as e:
-        return {"pass": False, "reason": f"download error: {e}"}
+    close = vol = None
+    for attempt in range(2):
+        if attempt > 0:
+            time.sleep(0.5)
+        try:
+            with _YF_SEMAPHORE:
+                raw = yf.download(ticker, period="30d", progress=False, auto_adjust=True)
+        except yf.exceptions.YFRateLimitError:
+            return {"pass": False, "reason": "Yahoo 429 rate limit"}
+        except Exception as e:
+            return {"pass": False, "reason": f"download error: {e}"}
 
-    if raw.empty:
-        return {"pass": False, "reason": "empty download (429 or delisted)"}
+        if raw.empty:
+            return {"pass": False, "reason": "empty download (429 or delisted)"}
 
-    try:
-        close = raw[("Close", ticker)]
-        vol   = raw[("Volume", ticker)]
-    except KeyError:
-        got = [str(c) for c in raw.columns[:4]]
-        return {"pass": False, "reason": f"unexpected column format: {got}"}
+        try:
+            close = raw[("Close", ticker)]
+            vol   = raw[("Volume", ticker)]
+            break
+        except KeyError:
+            got = [str(c) for c in raw.columns[:4]]
+            if attempt == 0:
+                logger.warning(f"Lock 4 [{ticker}] VA unexpected columns {got}, retrying")
+                continue
+            return {"pass": False, "reason": f"unexpected column format: {got}"}
     idx   = close.index.intersection(vol.index)
     close = close[idx].dropna()
     vol   = vol[idx].dropna()

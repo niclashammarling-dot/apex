@@ -118,7 +118,7 @@ def test_empty_data_fails(mock_dl):
 
     result = _check_volume_accumulation("MSFT")
     assert result["pass"] is False
-    assert "unavailable" in result["reason"]
+    assert "empty download" in result["reason"]
 
 
 # ── Integration: evaluate() includes volume_accumulation ─────────────────────
