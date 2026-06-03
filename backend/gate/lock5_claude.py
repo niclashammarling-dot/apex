@@ -11,12 +11,16 @@ By the time a ticker reaches here it has passed:
 Claude's role is synthesis — does everything together make sense
 given the current portfolio state?
 
-Model cascade:
-    Primary:   claude-opus-4-6   (best reasoning)
-    Secondary: claude-sonnet-4-6 (fast fallback)
-    Tertiary:  gpt-4o            (provider fallback)
+Model: claude-sonnet-4-6 only. No fallback to any other provider.
 
-Fails closed only if all three providers fail.
+Rationale: L5 is a synthesis judge. A judge that hallucinates context produces
+confident wrong output that is invisible to everything downstream — strictly worse
+than no judge. When Anthropic is unavailable the gate fails closed; a missed trade
+has a bounded cost, an invalid entry approved by a hallucinating fallback does not.
+(June 2026 post-mortem: GPT-4o invoked as fallback fabricated "repeated L4 pass"
+reasoning when L4 had passed exactly once, on the executing run.)
+
+Do NOT add a provider fallback here. Do NOT change the model to Opus.
 
 Public API:
     from gate.lock5_claude import evaluate
@@ -30,17 +34,14 @@ from typing import Any
 import anthropic
 from loguru import logger
 
-from backend.config import ANTHROPIC_API_KEY, LOCK3_CONFIDENCE_MIN, OPENAI_API_KEY
+from backend.config import ANTHROPIC_API_KEY, LOCK3_CONFIDENCE_MIN
 from backend.gate.types import LockResult
 
 LOCK_ID = 5
 
-_OPUS_MODEL   = "claude-opus-4-6"
 _SONNET_MODEL = "claude-sonnet-4-6"
-_GPT_MODEL    = "gpt-4o"
 
 _anthropic_client: anthropic.Anthropic | None = None
-_openai_client = None
 
 
 def _get_anthropic() -> anthropic.Anthropic:
@@ -48,14 +49,6 @@ def _get_anthropic() -> anthropic.Anthropic:
     if _anthropic_client is None:
         _anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY or None)
     return _anthropic_client
-
-
-def _get_openai():
-    global _openai_client
-    if _openai_client is None:
-        from openai import OpenAI
-        _openai_client = OpenAI(api_key=OPENAI_API_KEY)
-    return _openai_client
 
 
 SYSTEM_PROMPT = """You are the final decision layer in an automated stock trading system.
@@ -106,36 +99,24 @@ def evaluate(
     effective_min = confidence_min if confidence_min is not None else LOCK3_CONFIDENCE_MIN
     payload       = _build_context_payload(ticker, sector, lock_results, context)
 
-    # Primary: claude-opus-4-6
-    if ANTHROPIC_API_KEY:
-        try:
-            raw = _call_anthropic(payload, _OPUS_MODEL)
-            return _parse_to_result(raw, effective_min, ticker, _OPUS_MODEL)
-        except Exception as e:
-            logger.warning(f"Lock 5 [{ticker}]: Opus failed ({e}) — trying Sonnet")
+    if not ANTHROPIC_API_KEY:
+        logger.error(f"Lock 5 [{ticker}]: ANTHROPIC_API_KEY not set — failing closed")
+        return LockResult.fail(
+            lock_id=LOCK_ID,
+            reason="anthropic_unavailable",
+            data={"decision": "HOLD", "confidence": 0.0, "position_size_pct": 0.0,
+                  "reasoning": None, "model": None},
+        )
 
-        # Secondary: claude-sonnet-4-6
-        try:
-            raw = _call_anthropic(payload, _SONNET_MODEL)
-            return _parse_to_result(raw, effective_min, ticker, _SONNET_MODEL)
-        except Exception as e:
-            logger.warning(f"Lock 5 [{ticker}]: Sonnet failed ({e}) — trying GPT-4o")
-    else:
-        logger.warning(f"Lock 5 [{ticker}]: ANTHROPIC_API_KEY not set — trying GPT-4o")
-
-    # Tertiary: gpt-4o
-    if OPENAI_API_KEY:
-        try:
-            raw = _call_openai(payload)
-            return _parse_to_result(raw, effective_min, ticker, _GPT_MODEL)
-        except Exception as e:
-            logger.error(f"Lock 5 [{ticker}]: GPT-4o fallback also failed ({e}) — failing closed")
-    else:
-        logger.error(f"Lock 5 [{ticker}]: OPENAI_API_KEY not set, no fallback — failing closed")
+    try:
+        raw = _call_anthropic(payload, _SONNET_MODEL)
+        return _parse_to_result(raw, effective_min, ticker, _SONNET_MODEL)
+    except Exception as e:
+        logger.error(f"Lock 5 [{ticker}]: Sonnet failed ({e}) — failing closed")
 
     return LockResult.fail(
         lock_id=LOCK_ID,
-        reason="all_providers_failed",
+        reason="anthropic_unavailable",
         data={"decision": "HOLD", "confidence": 0.0, "position_size_pct": 0.0,
               "reasoning": None, "model": None},
     )
@@ -185,20 +166,6 @@ def _call_anthropic(payload: dict, model: str) -> str:
         messages   = [{"role": "user", "content": json.dumps(payload, indent=2, default=str)}],
     )
     return response.content[0].text.strip()
-
-
-def _call_openai(payload: dict) -> str:
-    client   = _get_openai()
-    response = client.chat.completions.create(
-        model           = _GPT_MODEL,
-        response_format = {"type": "json_object"},
-        max_tokens      = 500,
-        messages        = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": json.dumps(payload, indent=2, default=str)},
-        ],
-    )
-    return response.choices[0].message.content.strip()
 
 
 # ── Parse & result ────────────────────────────────────────────────────────────

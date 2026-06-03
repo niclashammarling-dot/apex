@@ -382,6 +382,67 @@ def check48():
              "silent yfinance failures under concurrent load will surface as permanent sub-check failures")
 
 
+def check49():
+    """
+    Verify Lock 4 uses group-constraint logic (not flat min_pass) and that
+    price-check error paths carry "error": True.
+
+    The MSFT/June-2026 post-mortem showed that a flat 2-of-4 pass threshold
+    allowed options-only passes when both price checks were erroring — the gate
+    claimed "leading signals confirmed" while both price-based sub-checks had
+    data errors. Fix: price group (RS + VA) and options group (PCR + UC) must
+    each pass independently; any error in the price group fails the price group.
+
+    Sub-check A: evaluate() contains group-constraint variables
+      (price_group_pass and options_group_pass).
+    Sub-check B: error return paths in _check_relative_strength and
+      _check_volume_accumulation carry "error": True so the group logic can
+      distinguish data errors from genuine signal failures.
+    """
+    lock4 = REPO / "backend/gate/lock4_leading.py"
+    if not lock4.exists():
+        flag(49, "L4 group constraint", "CRITICAL", str(lock4),
+             "lock4_leading.py not found")
+        return
+
+    src = lock4.read_text()
+
+    import ast
+    try:
+        tree = ast.parse(src)
+    except SyntaxError as e:
+        flag(49, "L4 group constraint", "CRITICAL", str(lock4),
+             f"syntax error parsing lock4_leading.py: {e}")
+        return
+
+    lines = src.splitlines()
+    funcs: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            end = getattr(node, "end_lineno", None)
+            if end:
+                funcs[node.name] = "\n".join(lines[node.lineno - 1: end])
+
+    # Sub-check A: group variables present in evaluate()
+    evaluate_body = funcs.get("evaluate", "")
+    missing_vars = [v for v in ("price_group_pass", "options_group_pass")
+                    if v not in evaluate_body]
+    if missing_vars:
+        flag(49, "L4 group constraint", "CRITICAL",
+             "backend/gate/lock4_leading.py",
+             f"group constraint variables missing from evaluate(): {', '.join(missing_vars)} — "
+             "flat min_pass threshold reinstated; options-only passes will be approved when price checks error")
+
+    # Sub-check B: error flag in price-check functions
+    for fn in ("_check_relative_strength", "_check_volume_accumulation"):
+        body = funcs.get(fn, "")
+        if '"error": True' not in body and "'error': True" not in body:
+            flag(49, "L4 group constraint", "CRITICAL",
+                 "backend/gate/lock4_leading.py",
+                 f"{fn}() missing '\"error\": True' on data-error return paths — "
+                 "group logic cannot distinguish data errors from signal failures")
+
+
 def run() -> None:
     check3()
     check6()
@@ -392,3 +453,4 @@ def run() -> None:
     check31()
     check45()
     check48()
+    check49()

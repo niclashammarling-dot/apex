@@ -96,10 +96,23 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS) -> LockResult:
     """
     Evaluate leading signals for a ticker.
 
+    Gate logic — group constraint (not flat threshold):
+      PRICE group  (relative_strength, volume_accumulation):
+          any data error  → price group FAIL (yfinance errors are correlated;
+                            a partial error state taints the group)
+          no errors, ≥1 pass → price group PASS
+      OPTIONS group (put_call_ratio, unusual_calls):
+          ≥1 pass → options group PASS
+          (options errors surface at the shared fetch level, not per-check)
+      LD passes only when BOTH groups pass.
+
+    The min_pass parameter is kept for backward compat with chain.py's cfg lookup
+    but is no longer used in the pass logic.
+
     Args:
         ticker:   Stock ticker symbol
         sector:   Apex sector name
-        min_pass: Minimum sub-checks that must pass (default 2)
+        min_pass: Unused — retained for caller compat only
 
     Returns:
         LockResult with lock_id=4
@@ -119,7 +132,6 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS) -> LockResult:
         except Exception as e:
             logger.warning(f"Lock 4 [{ticker}] options fetch: {e}")
             options_chains = []
-            # Condense the error to a short tag for the sub-check reason field.
             msg = str(e)
             if "curl" in msg.lower() or "tls" in msg.lower():
                 options_fetch_err = "curl TLS error"
@@ -132,13 +144,13 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS) -> LockResult:
             rs_result = fut_rs.result()
         except Exception as e:
             logger.warning(f"Lock 4 [{ticker}] relative_strength: {e}")
-            rs_result = {"pass": False, "reason": f"error: {e}"}
+            rs_result = {"pass": False, "error": True, "reason": f"error: {e}"}
 
         try:
             va_result = fut_va.result()
         except Exception as e:
             logger.warning(f"Lock 4 [{ticker}] volume_accumulation: {e}")
-            va_result = {"pass": False, "reason": f"error: {e}"}
+            va_result = {"pass": False, "error": True, "reason": f"error: {e}"}
 
     checks = {
         "relative_strength":   rs_result,
@@ -147,32 +159,51 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS) -> LockResult:
         "volume_accumulation": va_result,
     }
 
+    # Group evaluation
+    price_checks   = [checks["relative_strength"], checks["volume_accumulation"]]
+    options_checks = [checks["put_call_ratio"],     checks["unusual_calls"]]
+
+    price_errors      = sum(1 for c in price_checks   if c.get("error"))
+    price_passes      = sum(1 for c in price_checks   if c["pass"])
+    options_passes    = sum(1 for c in options_checks if c["pass"])
+
+    price_group_pass   = price_errors == 0 and price_passes >= 1
+    options_group_pass = options_passes >= 1
+    passed             = price_group_pass and options_group_pass
+
     pass_count    = sum(1 for v in checks.values() if v["pass"])
     failed_checks = [k for k, v in checks.items() if not v["pass"]]
-    passed        = pass_count >= min_pass
-
-    score = round(sum(WEIGHTS[k] for k, v in checks.items() if v["pass"]), 4)
+    score         = round(sum(WEIGHTS[k] for k, v in checks.items() if v["pass"]), 4)
 
     data = {
-        "checks":        checks,
-        "pass_count":    pass_count,
-        "min_pass":      min_pass,
-        "failed_checks": failed_checks,
+        "checks":              checks,
+        "pass_count":          pass_count,
+        "min_pass":            min_pass,
+        "failed_checks":       failed_checks,
+        "price_group_pass":    price_group_pass,
+        "options_group_pass":  options_group_pass,
+        "price_errors":        price_errors,
         # Kept for DB compat (lock_leading_checks serialised as JSON)
-        "sub_checks":    checks,
+        "sub_checks":          checks,
     }
 
     if not passed:
-        reason = (
-            f"Only {pass_count}/{len(checks)} leading checks passed "
-            f"(need {min_pass}) — failed: {', '.join(failed_checks)}"
-        )
+        if not price_group_pass and price_errors > 0:
+            reason = (
+                f"price group failed ({price_errors} error(s)) — "
+                f"RS: {checks['relative_strength']['reason'][:60]}, "
+                f"VA: {checks['volume_accumulation']['reason'][:60]}"
+            )
+        elif not price_group_pass:
+            reason = f"price group failed — neither RS nor VA passed"
+        else:
+            reason = f"options group failed — neither PCR nor unusual calls passed"
         logger.debug(f"Lock 4 [{ticker}] FAIL — {reason}")
         return LockResult.fail(lock_id=LOCK_ID, reason=reason, data=data)
 
     passed_names = [k for k, v in checks.items() if v["pass"]]
     reason = (
-        f"{pass_count}/{len(checks)} leading checks passed: "
+        f"price+options groups passed — "
         f"{', '.join(passed_names)}"
     )
     logger.debug(f"Lock 4 [{ticker}] PASS — {reason}")
@@ -233,31 +264,31 @@ def _check_relative_strength(ticker: str, sector: str) -> dict:
                 raw = yf.download([ticker, etf], period="8d", progress=False,
                                    auto_adjust=True)
         except yf.exceptions.YFRateLimitError:
-            return {"pass": False, "reason": "Yahoo 429 rate limit"}
+            return {"pass": False, "error": True, "reason": "Yahoo 429 rate limit"}
         except Exception as e:
-            return {"pass": False, "reason": f"download error: {e}"}
+            return {"pass": False, "error": True, "reason": f"download error: {e}"}
 
         try:
             data = raw["Close"]
         except KeyError:
-            return {"pass": False, "reason": f"no Close column — got {list(raw.columns[:4])}"}
+            return {"pass": False, "error": True, "reason": f"no Close column — got {list(raw.columns[:4])}"}
 
         if data.empty:
-            return {"pass": False, "reason": "empty download (429 or delisted)"}
+            return {"pass": False, "error": True, "reason": "empty download (429 or delisted)"}
         missing = [t for t in [ticker, etf] if t not in data.columns]
         if not missing:
             break
         if attempt == 0:
             logger.warning(f"Lock 4 [{ticker}] RS partial download {missing}, retrying")
             continue
-        return {"pass": False, "reason": f"missing from download: {missing}"}
+        return {"pass": False, "error": True, "reason": f"missing from download: {missing}"}
 
     try:
         data = data[[ticker, etf]].dropna()
     except (KeyError, ValueError) as e:
-        return {"pass": False, "reason": f"column select failed: {e}"}
+        return {"pass": False, "error": True, "reason": f"column select failed: {e}"}
     if len(data) < 2:
-        return {"pass": False, "reason": "insufficient price history"}
+        return {"pass": False, "error": True, "reason": "insufficient price history"}
 
     ticker_ret = float(data[ticker].iloc[-1] / data[ticker].iloc[0]) - 1
     etf_ret    = float(data[etf].iloc[-1]    / data[etf].iloc[0])    - 1
@@ -336,12 +367,12 @@ def _check_volume_accumulation(ticker: str) -> dict:
             with _YF_SEMAPHORE:
                 raw = yf.download(ticker, period="30d", progress=False, auto_adjust=True)
         except yf.exceptions.YFRateLimitError:
-            return {"pass": False, "reason": "Yahoo 429 rate limit"}
+            return {"pass": False, "error": True, "reason": "Yahoo 429 rate limit"}
         except Exception as e:
-            return {"pass": False, "reason": f"download error: {e}"}
+            return {"pass": False, "error": True, "reason": f"download error: {e}"}
 
         if raw.empty:
-            return {"pass": False, "reason": "empty download (429 or delisted)"}
+            return {"pass": False, "error": True, "reason": "empty download (429 or delisted)"}
 
         try:
             close = raw[("Close", ticker)]
@@ -352,7 +383,7 @@ def _check_volume_accumulation(ticker: str) -> dict:
             if attempt == 0:
                 logger.warning(f"Lock 4 [{ticker}] VA unexpected columns {got}, retrying")
                 continue
-            return {"pass": False, "reason": f"unexpected column format: {got}"}
+            return {"pass": False, "error": True, "reason": f"unexpected column format: {got}"}
     idx   = close.index.intersection(vol.index)
     close = close[idx].dropna()
     vol   = vol[idx].dropna()
