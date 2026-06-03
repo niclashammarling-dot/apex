@@ -443,6 +443,74 @@ def check49():
                  "group logic cannot distinguish data errors from signal failures")
 
 
+def check50():
+    """
+    Verify no recent TRADE_EXECUTED entry passed L4 on a single group.
+
+    The 2026-06-02 CRM/NVDA/FDX incident: flat 2-of-4 min_pass let through
+    entries where the price group (RS+VA) or options group (PCR+UC) was
+    entirely failing. NVDA had RS+VA both fail; FDX had PCR+UC both fail.
+    Fix (d70ab53): group constraint requires both groups to pass.
+
+    CHECK 49 verifies the code has the group constraint. This check verifies
+    the runtime data: no executed trade in the last 30 trading days has
+    both price sub-checks failing OR both options sub-checks failing.
+
+    A failure here means either: (a) the group constraint code was bypassed,
+    (b) a regression to flat min_pass, or (c) a data serialisation bug where
+    lock_leading_checks doesn't match the actual pass decision.
+    """
+    import json
+    import sqlite3
+
+    db_path = REPO / "data" / "apex.db"
+    if not db_path.exists():
+        flag(50, "L4 group constraint (live data)", "WARNING", str(db_path),
+             "apex.db not found — cannot verify L4 group constraint on executed trades")
+        return
+
+    con = sqlite3.connect(db_path)
+    try:
+        rows = con.execute(
+            """
+            SELECT ticker, timestamp, lock_leading_checks
+            FROM live_gate_history
+            WHERE gate_decision = 'TRADE_EXECUTED'
+              AND lock_leading_pass = 1
+              AND lock_leading_checks IS NOT NULL
+              AND timestamp >= datetime('now', '-30 days')
+            ORDER BY timestamp DESC
+            """
+        ).fetchall()
+    finally:
+        con.close()
+
+    for ticker, ts, checks_json in rows:
+        try:
+            checks = json.loads(checks_json)
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        rs_pass   = bool(checks.get("relative_strength",   {}).get("pass", False))
+        va_pass   = bool(checks.get("volume_accumulation", {}).get("pass", False))
+        pcr_pass  = bool(checks.get("put_call_ratio",      {}).get("pass", False))
+        uc_pass   = bool(checks.get("unusual_calls",       {}).get("pass", False))
+
+        price_group   = rs_pass or va_pass
+        options_group = pcr_pass or uc_pass
+
+        if not price_group:
+            flag(50, "L4 group constraint (live data)", "CRITICAL",
+                 "data/apex.db:live_gate_history",
+                 f"{ticker} @ {ts[:10]}: TRADE_EXECUTED with both price sub-checks failing "
+                 f"(RS={rs_pass}, VA={va_pass}) — group constraint bypassed or code regressed")
+        elif not options_group:
+            flag(50, "L4 group constraint (live data)", "CRITICAL",
+                 "data/apex.db:live_gate_history",
+                 f"{ticker} @ {ts[:10]}: TRADE_EXECUTED with both options sub-checks failing "
+                 f"(PCR={pcr_pass}, UC={uc_pass}) — group constraint bypassed or code regressed")
+
+
 def run() -> None:
     check3()
     check6()
@@ -454,3 +522,4 @@ def run() -> None:
     check45()
     check48()
     check49()
+    check50()
