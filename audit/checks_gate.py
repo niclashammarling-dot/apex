@@ -378,6 +378,54 @@ def check38():
          f"avg {avg_daily:.0f} assessments/day; dominant filters: {breakdown}")
 
 
+# ── CHECK 49 — Gate funnel endpoint scope integrity ───────────────────────────
+
+def check49():
+    """
+    Gate funnel endpoint scope integrity.
+
+    The /gate/history and /live/gate/history endpoints return a funnel dict and
+    a rows list. They have different intended scopes:
+      - funnel: all-time (no since filter)
+      - rows: today-only (since=market_open)
+
+    This check verifies that the funnel is NOT receiving a since= argument in
+    the router calls — i.e., that the all-time scope has not been accidentally
+    narrowed again. Reads the router source directly.
+
+    Motivated by 2026-06-03 regression where commit 5f5925d accidentally added
+    since=market_open to both funnel calls when only the rows call was intended
+    to change.
+    """
+    import re
+
+    signals_router = REPO / "backend/routers/signals_router.py"
+    live_router    = REPO / "backend/routers/live_router.py"
+
+    for path, fn_name in [
+        (signals_router, "get_demo_gate_funnel_counts"),
+        (live_router,    "get_live_gate_funnel_counts"),
+    ]:
+        if not path.exists():
+            flag(49, "Gate funnel endpoint scope integrity", "WARNING",
+                 str(path), f"{path.name}: file not found")
+            continue
+
+        src = path.read_text()
+        # Find the funnel call line(s)
+        for line in src.splitlines():
+            if fn_name in line and "def " not in line:
+                if "since=" in line:
+                    flag(49, "Gate funnel endpoint scope integrity", "CRITICAL",
+                         f"{path.name}:—",
+                         f"{fn_name}() called with since= argument — funnel scope "
+                         f"accidentally narrowed to a time window; must be all-time. "
+                         f"Line: {line.strip()}")
+                    return
+
+    ok(49, "Gate funnel endpoint scope integrity")
+
+
 def run() -> None:
     check24()
     check25()
@@ -385,3 +433,4 @@ def run() -> None:
     check28()
     check29()
     check38()
+    check49()

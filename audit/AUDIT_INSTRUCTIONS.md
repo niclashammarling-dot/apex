@@ -200,6 +200,20 @@ Run as part of `python3 audit/mechanical_checks.py` (no separate invocation need
 
 **Validation gate:** Once ≥ 4 weeks of data exist, run a retrospective analysis: for each bucket, compute conditional PF against the held-out 2021–23 period by backfilling posteriors from the history table. If bull-bucket PF < neutral-bucket PF, the thresholds are misplaced and need upward adjustment (the "bull" label is applying at too low a posterior).
 
+### CHECK 49 — Gate funnel endpoint scope integrity
+
+Run as part of `python3 audit/mechanical_checks.py` (no separate invocation needed).
+
+Reads `backend/routers/signals_router.py` and `backend/routers/live_router.py`.
+For each funnel call (`get_demo_gate_funnel_counts`, `get_live_gate_funnel_counts`),
+verifies no `since=` argument is present. If found, flags CRITICAL — the funnel scope
+has been accidentally narrowed to a time window, destroying its value as an all-time
+cumulative health metric.
+
+Motivated by: 2026-06-03 regression where commit `5f5925d` added `since=market_open`
+to both funnel calls when only the gate activity rows call was intended to change.
+The regression caused the funnel to show reset-like zeros, masking true gate health.
+
 ### Update the registry
 
 After writing the report, run this Python script. Set `triggered` to check numbers that had at least one finding.
