@@ -132,7 +132,7 @@ def live_gate_history():
                 row["lock_leading_checks"] = _json.loads(row["lock_leading_checks"])
             except Exception:
                 row["lock_leading_checks"] = None
-    funnel = get_live_gate_funnel_counts(since=market_open)
+    funnel = get_live_gate_funnel_counts()
 
     blocked_reason = None
     if LIVE_ENABLED:

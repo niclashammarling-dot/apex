@@ -911,11 +911,12 @@ def insert_demo_gate_result(row: dict) -> None:
         conn.close()
 
 
-def get_demo_gate_history(since: str | None = None) -> list[dict]:
+def get_demo_gate_history(since: str | None = None, limit: int | None = 500) -> list[dict]:
     conn = get_db()
     try:
         where = "WHERE timestamp >= ?" if since else ""
-        params = (since,) if since else ()
+        params: tuple = (since,) if since else ()
+        limit_clause = f"LIMIT {limit}" if limit else ""
         rows = conn.execute(f"""
             SELECT ticker, sector, timestamp, signal_score,
                    gate_decision, lock1_pass, lock2_pass, lock_leading_pass,
@@ -925,6 +926,7 @@ def get_demo_gate_history(since: str | None = None) -> list[dict]:
             FROM demo_gate_history
             {where}
             ORDER BY timestamp DESC
+            {limit_clause}
         """, params).fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -1184,15 +1186,17 @@ def insert_live_gate_result(row: dict) -> int:
         conn.close()
 
 
-def get_live_gate_history(since: str | None = None) -> list[dict]:
+def get_live_gate_history(since: str | None = None, limit: int | None = 500) -> list[dict]:
     conn = get_db()
     try:
         where = "WHERE timestamp >= ?" if since else ""
-        params = (since,) if since else ()
+        params: tuple = (since,) if since else ()
+        limit_clause = f"LIMIT {limit}" if limit else ""
         rows = conn.execute(f"""
             SELECT * FROM live_gate_history
             {where}
             ORDER BY timestamp DESC
+            {limit_clause}
         """, params).fetchall()
         return [dict(r) for r in rows]
     finally:

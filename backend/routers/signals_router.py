@@ -371,7 +371,7 @@ def gate_history():
                 row["lock_leading_checks"] = _json.loads(row["lock_leading_checks"])
             except Exception:
                 row["lock_leading_checks"] = None
-    return {"rows": rows, "funnel": get_demo_gate_funnel_counts(since=market_open)}
+    return {"rows": rows, "funnel": get_demo_gate_funnel_counts()}
 
 
 @router.get("/demo/trades")
