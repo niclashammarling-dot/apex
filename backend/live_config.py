@@ -34,6 +34,7 @@ _KEYS = [
     "macro_earnings_blackout_days",
     "gate_cooloff_hours",
     "exit_cooloff_hours",
+    "tp_cooloff_hours",
     "max_sector_exposure",
     "lock_leading_min_pass",
     "starting_balance",
@@ -47,6 +48,7 @@ def _defaults() -> dict:
     from backend.config import (
         EXIT_COOLOFF_HOURS,
         GATE_COOLOFF_HOURS,
+        TP_COOLOFF_HOURS,
         LIVE_DAILY_LOSS_CAP,
         LIVE_LOCK1_THRESHOLD,
         LIVE_LOCK2_SENTIMENT_MIN,
@@ -85,6 +87,7 @@ def _defaults() -> dict:
         "macro_earnings_blackout_days": MACRO_EARNINGS_BLACKOUT_DAYS,
         "gate_cooloff_hours":           GATE_COOLOFF_HOURS,
         "exit_cooloff_hours":           EXIT_COOLOFF_HOURS,
+        "tp_cooloff_hours":             TP_COOLOFF_HOURS,
         "max_sector_exposure":          LIVE_MAX_SECTOR_EXPOSURE,
         "lock_leading_min_pass":        LOCK_LEADING_MIN_PASS,
         "starting_balance":             LIVE_STARTING_BALANCE,

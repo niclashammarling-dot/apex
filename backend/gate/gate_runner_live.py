@@ -78,7 +78,10 @@ def run() -> list[dict]:
     # Skip tickers already held, in gate cooloff, or in exit cooloff
     open_tickers   = get_open_live_tickers()
     failed_tickers = get_recently_failed_live_tickers(cfg.get("gate_cooloff_hours", 4))
-    exited_tickers = get_recently_exited_live_tickers(cfg.get("exit_cooloff_hours", 4))
+    exited_tickers = get_recently_exited_live_tickers(
+        sl_hours=cfg.get("exit_cooloff_hours", 24),
+        tp_hours=cfg.get("tp_cooloff_hours", 168),
+    )
     blocked = open_tickers | failed_tickers | exited_tickers
     skipped = [c for c in candidates if c["ticker"] in blocked]
     candidates = [c for c in candidates if c["ticker"] not in blocked]

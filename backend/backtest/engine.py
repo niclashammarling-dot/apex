@@ -202,10 +202,12 @@ def run(
             balance += trade["amount"] + (record["pnl"] or 0)
             if record["outcome"] in ("LOSS", "EXPIRED") and (record["pnl"] or 0) < 0:
                 daily_losses[today_str] = daily_losses.get(today_str, 0) + abs(record["pnl"] or 0)
-            if record["exit_reason"] in ("SL", "TSL") and SL_COOLDOWN_DAYS > 0:
-                sl_cooldown[trade["ticker"]] = today + timedelta(days=SL_COOLDOWN_DAYS)
-            elif record["exit_reason"] == "TP" and TP_COOLDOWN_DAYS > 0:
+            _er  = record["exit_reason"]
+            _win = record["outcome"] == "WIN"
+            if (_er == "TP" or (_er == "TSL" and _win)) and TP_COOLDOWN_DAYS > 0:
                 sl_cooldown[trade["ticker"]] = today + timedelta(days=TP_COOLDOWN_DAYS)
+            elif _er in ("SL", "TSL") and SL_COOLDOWN_DAYS > 0:
+                sl_cooldown[trade["ticker"]] = today + timedelta(days=SL_COOLDOWN_DAYS)
 
         # 2. Generate signals for today
         spy       = _spy_data_on(raw_data, today)

@@ -702,18 +702,27 @@ def get_recently_failed_tickers(hours: float) -> set[str]:
         conn.close()
 
 
-def get_recently_exited_tickers(hours: float) -> set[str]:
-    """Return tickers whose demo position closed within the last N hours."""
+def get_recently_exited_tickers(sl_hours: float, tp_hours: float) -> set[str]:
+    """Return tickers blocked from re-entry after a recent exit.
+
+    Only genuine TP/TSL wins use tp_hours (7d).
+    REGIME wins, TIME wins, LOSS, and EXPIRED all use sl_hours (24h).
+    """
     from datetime import datetime, timedelta, timezone
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    now = datetime.now(timezone.utc)
+    sl_cutoff = (now - timedelta(hours=sl_hours)).isoformat()
+    tp_cutoff = (now - timedelta(hours=tp_hours)).isoformat()
     conn = get_db()
     try:
         rows = conn.execute("""
             SELECT DISTINCT ticker FROM trades
-            WHERE outcome IN ('WIN', 'LOSS', 'EXPIRED')
-            AND exited_at IS NOT NULL
-            AND exited_at > ?
-        """, (cutoff,)).fetchall()
+            WHERE exited_at IS NOT NULL
+              AND outcome IN ('WIN', 'LOSS', 'EXPIRED')
+              AND exited_at > CASE
+                  WHEN outcome = 'WIN' AND exit_reason IN ('TP', 'TSL') THEN ?
+                  ELSE ?
+              END
+        """, (tp_cutoff, sl_cutoff)).fetchall()
         return {r[0] for r in rows}
     finally:
         conn.close()
@@ -840,18 +849,27 @@ def get_recently_failed_live_tickers(hours: float) -> set[str]:
         conn.close()
 
 
-def get_recently_exited_live_tickers(hours: float) -> set[str]:
-    """Return tickers whose live position closed within the last N hours."""
+def get_recently_exited_live_tickers(sl_hours: float, tp_hours: float) -> set[str]:
+    """Return live tickers blocked from re-entry after a recent exit.
+
+    Only genuine TP/TSL wins use tp_hours (7d).
+    REGIME wins, TIME wins, LOSS, and EXPIRED all use sl_hours (24h).
+    """
     from datetime import datetime, timedelta, timezone
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    now = datetime.now(timezone.utc)
+    sl_cutoff = (now - timedelta(hours=sl_hours)).isoformat()
+    tp_cutoff = (now - timedelta(hours=tp_hours)).isoformat()
     conn = get_db()
     try:
         rows = conn.execute("""
             SELECT DISTINCT ticker FROM live_trades
-            WHERE outcome IN ('WIN', 'LOSS', 'EXPIRED')
-            AND exited_at IS NOT NULL
-            AND exited_at > ?
-        """, (cutoff,)).fetchall()
+            WHERE exited_at IS NOT NULL
+              AND outcome IN ('WIN', 'LOSS', 'EXPIRED')
+              AND exited_at > CASE
+                  WHEN outcome = 'WIN' AND exit_reason IN ('TP', 'TSL') THEN ?
+                  ELSE ?
+              END
+        """, (tp_cutoff, sl_cutoff)).fetchall()
         return {r[0] for r in rows}
     finally:
         conn.close()

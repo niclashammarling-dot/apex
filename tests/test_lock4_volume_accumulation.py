@@ -159,12 +159,17 @@ def test_insider_cluster_not_present(mock_rs, mock_pcr, mock_ucv, mock_va):
 @patch("backend.gate.lock4_leading._check_put_call_ratio")
 @patch("backend.gate.lock4_leading._check_relative_strength")
 def test_volume_accumulation_score_contribution(mock_rs, mock_pcr, mock_ucv, mock_va):
-    """volume_accumulation contributes 0.25 to score when it passes."""
+    """volume_accumulation contributes 0.25 to score when it passes.
+
+    Group constraint (d70ab53): price group and options group each require ≥1 pass.
+    Setup: RS=pass (price group ok), PCR=pass (options group ok), UCv=fail, VA=pass.
+    → 3/4 pass, both groups satisfied.
+    """
     mock_rs.return_value  = {"pass": True,  "reason": "ok"}
-    mock_pcr.return_value = {"pass": False, "reason": "fail"}
+    mock_pcr.return_value = {"pass": True,  "reason": "ok"}
     mock_ucv.return_value = {"pass": False, "reason": "fail"}
     mock_va.return_value  = {"pass": True,  "reason": "ok"}
 
     result = evaluate("GS", "Financials")
-    assert result.passed          # 2/4, min_pass=2
-    assert abs(result.score - 0.5) < 0.001  # 2 * 0.25
+    assert result.passed          # 3/4, both groups pass
+    assert abs(result.score - 0.75) < 0.001  # 3 * 0.25

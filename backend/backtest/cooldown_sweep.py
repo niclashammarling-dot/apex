@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from itertools import product
 
-from backend.backtest.engine import run
+from backend.backtest.engine_fast import precompute, run
 from backend.config import (
     PROFIT_LOCK_TRAIL_PCT,
     PROFIT_LOCK_TRIGGER_PCT,
@@ -26,12 +26,17 @@ from backend.config import (
 # ── Sweep config ───────────────────────────────────────────────────────────────
 
 START = "2021-01-01"
-END   = "2026-05-01"
+END   = "2026-06-01"
 
 TRAILING_STOP_PCT = 0.09
 
-SL_DAYS_VALUES = [0, 3, 5, 7, 10]
-TP_DAYS_VALUES = [0, 2, 3, 5, 7]
+SL_DAYS_VALUES = [0, 1, 3, 5, 7, 10]
+TP_DAYS_VALUES = [0, 1, 2, 3, 5, 7]
+
+# Production equivalent: EXIT_COOLOFF_HOURS=24 applies to all exits (no TP/SL split)
+# Nearest backtest mapping: SL=1d, TP=1d
+PRODUCTION_SL = 1
+PRODUCTION_TP = 1
 
 W = 78
 
@@ -65,7 +70,7 @@ def _metrics(result: dict) -> dict:
 
 def _row(label: str, m: dict) -> str:
     return (
-        f"  {label:<30} n={m['n']:>4}  WR={m['win_rate']:.1%}  "
+        f"  {label:<36} n={m['n']:>4}  WR={m['win_rate']:.1%}  "
         f"PF={m['pf']:>5.3f}  avgW={m['avg_win']:>7.2f}  avgL={m['avg_loss']:>7.2f}  "
         f"bal=${m['final_bal']:,.0f}"
     )
@@ -80,29 +85,36 @@ def main() -> None:
     print(f"  Profit-lock: trigger={PROFIT_LOCK_TRIGGER_PCT:.0%}  trail={PROFIT_LOCK_TRAIL_PCT:.1%}")
     print("=" * W)
 
+    print("\nPrecomputing caches...", flush=True)
+    pc = precompute(START, END)
+
     shared = dict(
         trailing_stop_pct=TRAILING_STOP_PCT,
         profit_lock_trigger_pct=PROFIT_LOCK_TRIGGER_PCT,
         profit_lock_trail_pct=PROFIT_LOCK_TRAIL_PCT,
+        precomputed=pc,
     )
 
-    # Baseline — current production behaviour
-    print("\nBaseline (SL=5d, TP=0d):")
-    baseline_result = run(START, END, sl_cooldown_days=5, tp_cooldown_days=0, **shared)
-    baseline = _metrics(baseline_result)
-    print(_row("SL=5d  TP=0d", baseline))
+    # Reference: backtest default (SL=5d, TP=0d)
+    print("\nReference baselines:")
+    bkt_result = run(START, END, sl_cooldown_days=5, tp_cooldown_days=0, **shared)
+    bkt = _metrics(bkt_result)
+    print(_row("SL=5d  TP=0d  (bkt default)", bkt), flush=True)
+
+    # Production equivalent: EXIT_COOLOFF_HOURS=24 → ~SL=1d, TP=1d
+    prod_result = run(START, END, sl_cooldown_days=PRODUCTION_SL, tp_cooldown_days=PRODUCTION_TP, **shared)
+    prod = _metrics(prod_result)
+    print(_row(f"SL={PRODUCTION_SL}d  TP={PRODUCTION_TP}d  (production ~24h)", prod), flush=True)
 
     print(f"\nSweep — SL days × TP days ({len(SL_DAYS_VALUES)}×{len(TP_DAYS_VALUES)} grid):")
-    print(f"  {'label':<30} {'n':>5}  {'WR':>6}  {'PF':>6}  {'avgW':>8}  {'avgL':>8}  {'bal':>10}")
+    print(f"  {'label':<36} {'n':>5}  {'WR':>6}  {'PF':>6}  {'avgW':>8}  {'avgL':>8}  {'bal':>10}")
     print("  " + "-" * (W - 2))
 
-    best_pf    = baseline["pf"]
-    best_label = "SL=5d  TP=0d"
-    best_m     = baseline
+    best_pf    = -1.0
+    best_label = ""
+    best_m: dict = {}
 
     for sl_days, tp_days in product(SL_DAYS_VALUES, TP_DAYS_VALUES):
-        if sl_days == 5 and tp_days == 0:
-            continue  # already printed as baseline
         label = f"SL={sl_days}d  TP={tp_days}d"
         result = run(START, END, sl_cooldown_days=sl_days, tp_cooldown_days=tp_days, **shared)
         m = _metrics(result)
@@ -112,15 +124,16 @@ def main() -> None:
             best_label = label
             best_m     = m
             marker     = " ◀ best"
-        print(_row(label, m) + marker)
+        print(_row(label, m) + marker, flush=True)
 
     print("=" * W)
-    print(f"\nBest PF:  {best_label}")
+    print(f"\nBest PF:       {best_label}")
     print(_row(best_label, best_m))
-    print(f"Baseline: {_row('SL=5d  TP=0d', baseline)}")
-    delta_pf = best_m["pf"] - baseline["pf"]
-    delta_wr = best_m["win_rate"] - baseline["win_rate"]
-    print(f"\nDelta vs baseline:  PF {delta_pf:+.3f}  WR {delta_wr:+.1%}")
+    print(f"Backtest ref:  {_row('SL=5d  TP=0d', bkt)}")
+    print(f"Production eq: {_row(f'SL={PRODUCTION_SL}d  TP={PRODUCTION_TP}d', prod)}")
+    delta_pf = best_m["pf"] - prod["pf"]
+    delta_wr = best_m["win_rate"] - prod["win_rate"]
+    print(f"\nDelta vs production:  PF {delta_pf:+.3f}  WR {delta_wr:+.1%}")
     print("=" * W)
 
 

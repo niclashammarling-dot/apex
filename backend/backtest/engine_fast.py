@@ -98,6 +98,8 @@ def run(
     vix_threshold:      float | None = None,
     use_leading_rs:     bool        = False,
     max_positions:      int   | None = None,
+    sl_cooldown_days:   int         = 5,
+    tp_cooldown_days:   int         = 0,
     precomputed:        dict  | None = None,
 ) -> BacktestResult:
     tp       = take_profit_pct    if take_profit_pct    is not None else TAKE_PROFIT_PCT
@@ -167,7 +169,8 @@ def run(
         stock_tickers = [t for cfg in SECTORS.values() for t in cfg["tickers"]]
         earnings_dates = _fetch_earnings_dates(stock_tickers, start, end)
 
-    SL_COOLDOWN_DAYS = 5
+    SL_COOLDOWN_DAYS = sl_cooldown_days
+    TP_COOLDOWN_DAYS = tp_cooldown_days
 
     balance      = initial_balance
     open_trades: list[dict] = []
@@ -191,7 +194,11 @@ def run(
             balance += trade["amount"] + (record["pnl"] or 0)
             if record["outcome"] in ("LOSS", "EXPIRED") and (record["pnl"] or 0) < 0:
                 daily_losses[today_str] = daily_losses.get(today_str, 0) + abs(record["pnl"] or 0)
-            if record["exit_reason"] in ("SL", "TSL"):
+            _er  = record["exit_reason"]
+            _win = record["outcome"] == "WIN"
+            if (_er == "TP" or (_er == "TSL" and _win)) and TP_COOLDOWN_DAYS > 0:
+                sl_cooldown[trade["ticker"]] = today + timedelta(days=TP_COOLDOWN_DAYS)
+            elif _er in ("SL", "TSL") and SL_COOLDOWN_DAYS > 0:
                 sl_cooldown[trade["ticker"]] = today + timedelta(days=SL_COOLDOWN_DAYS)
 
         # 2. Generate candidates from cache

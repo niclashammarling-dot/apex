@@ -287,8 +287,8 @@ def _check_relative_strength(ticker: str, sector: str) -> dict:
         data = data[[ticker, etf]].dropna()
     except (KeyError, ValueError) as e:
         return {"pass": False, "error": True, "reason": f"column select failed: {e}"}
-    if len(data) < 2:
-        return {"pass": False, "error": True, "reason": "insufficient price history"}
+    if len(data) < 5:
+        return {"pass": False, "error": True, "reason": "insufficient price history for 5d RS"}
 
     ticker_ret = float(data[ticker].iloc[-1] / data[ticker].iloc[0]) - 1
     etf_ret    = float(data[etf].iloc[-1]    / data[etf].iloc[0])    - 1
@@ -344,7 +344,7 @@ def _check_unusual_call_volume(chains: list[tuple], fetch_err: str | None = None
     if call_vol + put_vol == 0:
         return {"pass": False, "reason": "no volume today"}
 
-    ratio  = call_vol / put_vol if put_vol > 0 else float(call_vol)
+    ratio  = call_vol / put_vol if put_vol > 0 else float("inf")
     passed = ratio >= 2.0
 
     return {
