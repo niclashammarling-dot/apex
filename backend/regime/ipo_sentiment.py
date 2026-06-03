@@ -236,31 +236,41 @@ class IpoSentiment:
         start = (ref - timedelta(days=IPO_WINDOW_DAYS)).isoformat()
         end   = ref.isoformat()
 
+        PAGE_SIZE = 10  # EDGAR EFTS fixed page size
+
         filings = []
         for form_type in ("S-1", "S-1/A"):
-            try:
-                params = {
-                    "q":         f'"{form_type}"',
-                    "dateRange": "custom",
-                    "startdt":   start,
-                    "enddt":     end,
-                    "forms":     form_type,
-                    "_source":   "file_date,entity_name,file_num,period_of_report",
-                    "hits.hits.total.value": MAX_FILINGS,
-                }
-                resp = requests.get(
-                    EDGAR_SEARCH_URL,
-                    params=params,
-                    headers=EDGAR_HEADERS,
-                    timeout=15,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                hits = data.get("hits", {}).get("hits", [])
-                filings.extend(hits)
-                time.sleep(REQUEST_DELAY_SEC)
-            except Exception as e:
-                logger.warning(f"IpoSentiment: EDGAR search failed for {form_type}: {e}")
+            offset = 0
+            type_count = 0
+            while type_count < MAX_FILINGS:
+                try:
+                    params = {
+                        "q":         f'"{form_type}"',
+                        "dateRange": "custom",
+                        "startdt":   start,
+                        "enddt":     end,
+                        "forms":     form_type,
+                        "_source":   "file_date,entity_name,file_num,period_of_report",
+                        "from":      offset,
+                    }
+                    resp = requests.get(
+                        EDGAR_SEARCH_URL,
+                        params=params,
+                        headers=EDGAR_HEADERS,
+                        timeout=15,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    hits = data.get("hits", {}).get("hits", [])
+                    filings.extend(hits)
+                    type_count += len(hits)
+                    time.sleep(REQUEST_DELAY_SEC)
+                    if len(hits) < PAGE_SIZE:
+                        break  # last page
+                    offset += PAGE_SIZE
+                except Exception as e:
+                    logger.warning(f"IpoSentiment: EDGAR search failed for {form_type}: {e}")
+                    break
 
         # Deduplicate by entity name
         seen: set[str] = set()
