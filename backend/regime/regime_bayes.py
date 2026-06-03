@@ -7,7 +7,7 @@ the portfolio is allocated to each sector before any trading decisions are made.
 Two-stage calculation:
   1. Regime posterior — Bayesian update from four independent signals
   2. Adjusted score   — sector aggregate score × regime posterior
-  3. Leaderboard      — top 5 sectors ranked by adjusted score
+  3. Leaderboard      — all active sectors ranked by adjusted score
   4. Allocation       — linear-ramp split among qualifiers (adjusted > 0.35)
 
 The allocation output is consumed by:
@@ -24,7 +24,7 @@ Usage:
     rb = RegimeBayes(sectors_cfg, sector_etf_map, transition_priors)
     result = rb.update(today, raw_data, sector_snapshots, ipo_shares)
     allocation = result.allocation      # {sector: pct} summing to 1.0
-    leaderboard = result.leaderboard    # top 5 ranked sectors
+    leaderboard = result.leaderboard    # all active sectors, ranked
 """
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ RESULT_CACHE_PATH = Path(__file__).parent.parent.parent / "data" / "regime_resul
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-LEADERBOARD_SIZE      = 8      # number of sectors tracked
+LEADERBOARD_SIZE      = 12     # number of sectors tracked
 ALLOCATION_FLOOR      = 0.35   # hard entry floor; sectors below get zero allocation
 TICKER_RECOVERY_DAYS  = 5      # consecutive days for ticker recovery signal
 RS_WINDOW_DAYS        = 5      # lookback window for RS divergence
@@ -239,7 +239,7 @@ class SectorEntry:
 class RegimeResult:
     """Output of one daily regime update."""
     date:        str
-    leaderboard: list[SectorEntry]    # top 5, ranked by adjusted score
+    leaderboard: list[SectorEntry]    # all active sectors, ranked by adjusted score
     allocation:  dict[str, float]     # {sector: pct} summing to 1.0
     leader:      str                  # rank 1 sector name
     qualifiers:  list[str]            # sectors above allocation threshold
@@ -284,7 +284,7 @@ class RegimeBayes:
         Run one daily update cycle:
           1. Update Bayesian posteriors for all sectors
           2. Compute adjusted scores (aggregate × posterior)
-          3. Rank all sectors → top 5 leaderboard
+          3. Rank all sectors → full leaderboard
           4. Compute linear-ramp allocation among qualifiers (adjusted > 0.35)
           5. Persist posteriors to DB
           6. Return RegimeResult with allocation vector and full signal trace
@@ -375,7 +375,7 @@ class RegimeBayes:
                 },
             ))
 
-        # Rank by adjusted score descending → top 5 leaderboard
+        # Rank by adjusted score descending → full leaderboard
         entries.sort(key=lambda e: e.adjusted_score, reverse=True)
         leaderboard = entries[:LEADERBOARD_SIZE]
         for i, entry in enumerate(leaderboard):
@@ -717,7 +717,7 @@ def regime_context_for_claude(result: RegimeResult) -> str:
         f"Current leader: {result.leader}",
         f"Qualifiers:     {len(result.qualifiers)} sectors with active allocation",
         "",
-        "Sector leaderboard (top 5):",
+        "Sector leaderboard:",
     ]
     for entry in result.leaderboard:
         alloc_str = f"{entry.allocation:.0%}" if entry.allocation > 0 else "no allocation"
