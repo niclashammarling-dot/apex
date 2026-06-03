@@ -199,7 +199,7 @@ def check_exit_behavior_parity() -> list[str]:
     configs — this checks that the live implementation actually uses them.
     """
     import pathlib
-    EXIT_KEYS = ["trailing_stop_pct", "profit_lock_trigger_pct", "profit_lock_trail_pct", "max_hold_days"]
+    EXIT_KEYS = ["profit_lock_trigger_pct", "profit_lock_trail_pct", "max_hold_days"]
     root = pathlib.Path(__file__).parent
     demo_src = (root / "wallet.py").read_text()
     live_src = (root / "live_trades_tracker.py").read_text()

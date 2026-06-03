@@ -125,37 +125,18 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
 
 # ── Exit checks ──────────────────────────────────────────────────────────────
 
-def _effective_trailing_pct(peak: float, entry_price: float, cfg: dict) -> float | None:
-    """
-    Return the active trailing stop distance.
-    If peak gain has cleared profit_lock_trigger_pct, tighten to profit_lock_trail_pct.
-    Falls back to standard trailing_stop_pct when profit-lock hasn't activated.
-    Returns None when TSL is disabled.
-    """
-    trail_pct   = cfg.get("trailing_stop_pct")
-    trigger_pct = cfg.get("profit_lock_trigger_pct")
-    lock_trail  = cfg.get("profit_lock_trail_pct")
-
-    if trail_pct is not None and trigger_pct and lock_trail:
-        peak_gain = (peak - entry_price) / entry_price
-        if peak_gain >= trigger_pct:
-            return lock_trail
-
-    return trail_pct
-
-
 def check_exits() -> list[dict]:
     """
-    Check all open positions against TP, trailing stop, fixed SL, and time-stop.
+    Check all open positions against TP, SL, profit-lock trail, and time-stop.
     Reads thresholds from demo_config.json at call time so UI changes take effect immediately.
     Returns list of closed trade records.
 
-    Trailing stop logic (when trailing_stop_pct is set):
-      - Replaces the fixed SL.
-      - Tracks the highest price seen since entry (peak_price in DB).
-      - Fires when (peak - current) / peak >= effective trail distance.
-      - Trail tightens to profit_lock_trail_pct once peak gain >= profit_lock_trigger_pct.
-      - Outcome is WIN if still above entry, LOSS if below.
+    Exit priority:
+      1. TP: pnl >= take_profit_pct
+      2. SL: pnl <= -stop_loss_pct (hard floor, always active)
+      3. Profit-lock trail: once peak gain >= profit_lock_trigger_pct, fires when
+         drawdown from peak >= profit_lock_trail_pct
+      4. Time-stop: held >= max_hold_days trading days
     """
     open_trades = get_open_trades()
     if not open_trades:
@@ -164,7 +145,8 @@ def check_exits() -> list[dict]:
     cfg               = get_demo_config()
     tp_pct            = cfg["take_profit_pct"]
     sl_pct            = cfg["stop_loss_pct"]
-    trail_pct         = cfg.get("trailing_stop_pct")  # None = disabled
+    trigger_pct       = cfg.get("profit_lock_trigger_pct")
+    lock_trail        = cfg.get("profit_lock_trail_pct")
     max_hold_days     = cfg["max_hold_days"]
 
     tickers        = list({t["ticker"] for t in open_trades})
@@ -191,21 +173,16 @@ def check_exits() -> list[dict]:
         if pnl_pct >= tp_pct:
             reason  = "TP"
             outcome = "WIN"
-        elif trail_pct is not None:
-            # Trailing stop replaces fixed SL; trail tightens once profit-lock activates
-            effective_trail    = _effective_trailing_pct(peak, entry_price, cfg)
-            drawdown_from_peak = (peak - current) / peak
-            if drawdown_from_peak >= effective_trail:
-                reason  = "TSL"
-                outcome = "WIN" if pnl_pct >= 0 else "LOSS"
-            elif _trading_days_since(trade["timestamp"]) >= max_hold_days:
-                reason  = "TIME"
-                outcome = "EXPIRED"
-            else:
-                continue
         elif pnl_pct <= -sl_pct:
             reason  = "SL"
             outcome = "LOSS"
+        elif (
+            trigger_pct and lock_trail
+            and (peak - entry_price) / entry_price >= trigger_pct
+            and (peak - current) / peak >= lock_trail
+        ):
+            reason  = "TSL"
+            outcome = "WIN" if pnl_pct >= 0 else "LOSS"
         elif _trading_days_since(trade["timestamp"]) >= max_hold_days:
             reason  = "TIME"
             outcome = "EXPIRED"

@@ -435,7 +435,6 @@ def _gpt4o_commentary(
             "current_config": {
                 "lock1_threshold":    cfg.get("lock1_threshold"),
                 "take_profit_pct":    cfg.get("take_profit_pct"),
-                "trailing_stop_pct":  cfg.get("trailing_stop_pct"),
                 "max_positions":      cfg.get("max_positions"),
                 "vix_threshold":      cfg.get("vix_threshold"),
             },

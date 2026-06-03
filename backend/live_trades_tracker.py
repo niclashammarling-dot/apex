@@ -59,15 +59,6 @@ def _ticker_consecutive_down_days(ticker: str, n: int) -> bool:
         return False
 
 
-def _effective_trail_pct(peak: float, entry_price: float, cfg: dict) -> float:
-    trail_pct   = cfg.get("trailing_stop_pct")
-    trigger_pct = cfg.get("profit_lock_trigger_pct")
-    lock_trail  = cfg.get("profit_lock_trail_pct")
-    if trail_pct is not None and trigger_pct and lock_trail:
-        if (peak - entry_price) / entry_price >= trigger_pct:
-            return lock_trail
-    return trail_pct
-
 
 def _maybe_ratchet_bracket_sl(trade: dict, peak: float, cfg: dict, broker) -> None:
     """
@@ -152,8 +143,7 @@ def check_live_exits() -> list[dict]:
     """
     For each open live trade:
     1. Check Alpaca for filled TP/SL bracket legs.
-    2. Software trailing stop — fires when drawdown from peak >= trailing_stop_pct.
-       Updates peak_price in DB each run; close_position() cancels the bracket.
+    2. Updates peak_price in DB each run; profit-lock ratchet moves bracket SL upward.
     3. If held longer than max_hold_days, cancel the bracket and close at market.
     4. If position no longer exists in Alpaca, find the most recent filled sell
        order for that ticker and record the exit (covers manual closes and TP/SL
@@ -171,7 +161,6 @@ def check_live_exits() -> list[dict]:
     from backend.live_config import get_live_config
     cfg           = get_live_config()
     max_hold_days = cfg["max_hold_days"]
-    trail_pct     = cfg.get("trailing_stop_pct")
 
     # Snapshot of tickers currently held in Alpaca — used for reconciliation fallback.
     try:
@@ -214,48 +203,6 @@ def check_live_exits() -> list[dict]:
             pnl         = round((exit_price - entry_price) * trade["qty"], 2)
             outcome     = "WIN" if pnl > 0 else "LOSS"
             exited_at   = filled_leg["filled_at"] or datetime.now(timezone.utc).isoformat()
-
-        # ── Software trailing stop ──────────────────────────────────────────
-        elif trail_pct is not None and current is not None and (peak - current) / peak >= _effective_trail_pct(peak, entry_price, cfg):
-            logger.info(
-                f"Live trailing stop [{ticker}]: drawdown {(peak - current)/peak:.1%} "
-                f"from peak ${peak:.2f} — closing"
-            )
-            try:
-                result = broker.close_position(ticker)
-                exit_price = float(result.get("filled_avg_price") or current or entry_price)
-                exit_reason = "TRAILING_STOP"
-            except Exception as e:
-                if "position not found" in str(e).lower() or "40410000" in str(e):
-                    logger.warning(f"Live trailing stop [{ticker}]: position not found on broker — reconciling")
-                    exit_price, exit_reason, exited_at = _find_exit_from_orders(ticker, broker)
-                    if exit_price is None:
-                        logger.warning(f"Live trailing stop [{ticker}]: position gone but no filled order — skipping")
-                        continue
-                    pnl     = round((exit_price - entry_price) * trade["qty"], 2)
-                    outcome = "WIN" if exit_price > entry_price else "LOSS"
-                    logger.info(f"Live exit reconciliation [{ticker}]: trailing stop found position gone externally, exit=${exit_price:.2f}")
-                    close_live_trade(
-                        trade_id    = trade["id"],
-                        exit_price  = exit_price,
-                        pnl         = pnl,
-                        outcome     = outcome,
-                        exit_reason = exit_reason,
-                        exited_at   = exited_at,
-                    )
-                    logger.info(
-                        f"Live exit [{ticker}]: {exit_reason} "
-                        f"entry=${trade['entry_price']:.2f} exit=${exit_price:.2f} "
-                        f"pnl={pnl:+.2f} → {outcome}"
-                    )
-                    closed.append({"ticker": ticker, "outcome": outcome, "exit_reason": exit_reason, "pnl": pnl})
-                    continue
-                logger.warning(f"Live trailing stop [{ticker}]: close_position failed — {e}")
-                continue
-            exit_reason = "TRAILING_STOP"
-            pnl         = round((exit_price - entry_price) * trade["qty"], 2)
-            outcome     = "WIN" if exit_price > entry_price else "LOSS"
-            exited_at   = datetime.now(timezone.utc).isoformat()
 
         # ── Time-stop ───────────────────────────────────────────────────────
         elif _trading_days_since(trade["timestamp"]) >= max_hold_days:

@@ -273,7 +273,7 @@ def check40():
     valid-looking silence failure class.
     """
     # Explicit operator acknowledgment that these keys are intentionally disabled by default.
-    _NONE_DEFAULTS_ALLOWED = {"trailing_stop_pct"}
+    _NONE_DEFAULTS_ALLOWED = set()
 
     _SKIP_SEGMENTS = {".venv", "venv", "__pycache__", ".git", "node_modules", "tests"}
     _SKIP_FILES = {
