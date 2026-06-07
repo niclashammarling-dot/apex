@@ -423,7 +423,62 @@ def check49():
                          f"Line: {line.strip()}")
                     return
 
-    ok(49, "Gate funnel endpoint scope integrity")
+    # No flag = pass (convention: absence of a flag is the pass signal;
+    # `ok()` does not exist in _audit_core — calling it here crashed this
+    # check on every passing run since it was added 2026-06-03)
+
+
+# ── CHECK 51 — Lock 5 Bayesian field exclusion parity ────────────────────────
+
+def check51():
+    """
+    Lock 5 Bayesian field exclusion parity.
+
+    `build_base_context` in chain.py injects `regime_bayes_*` fields into the
+    Lock 5 context dict. The SYSTEM_PROMPT in lock5_claude.py explicitly scopes
+    these out of the model's sizing decision ("Do NOT factor regime_bayes_allocation,
+    regime_bayes_posterior, or any Bayesian field into your size").
+
+    The instruction is correct but the exclusion is named-field, not structural:
+    any new `regime_bayes_*` field added to the context dict without a matching
+    update to the prompt text creates silent permission — the model sees the
+    field and, absent explicit scope-out, may use it (prompt-silence-as-permission).
+
+    This check extracts every `ctx["regime_bayes_*"]` assignment in chain.py and
+    verifies each field name appears verbatim in SYSTEM_PROMPT. Flags WARNING for
+    any field present in context but absent from the exclusion text.
+
+    Filed 2026-06-05 as a byproduct of token-efficiency qualification gate work
+    (raw/notes/2026-06/2026-06-05-lock5-bayesian-exclusion-list-maintenance.md).
+    """
+    chain_path = REPO / "backend/gate/chain.py"
+    prompt_path = REPO / "backend/gate/lock5_claude.py"
+
+    if not chain_path.exists() or not prompt_path.exists():
+        flag(51, "Lock 5 Bayesian field exclusion parity", "WARNING",
+             "backend/gate/chain.py,backend/gate/lock5_claude.py",
+             "source file(s) not found — cannot verify exclusion parity")
+        return
+
+    chain_src = chain_path.read_text()
+    prompt_src = prompt_path.read_text()
+
+    fields = sorted(set(re.findall(r'ctx\["(regime_bayes_\w+)"\]', chain_src)))
+    if not fields:
+        flag(51, "Lock 5 Bayesian field exclusion parity", "WARNING",
+             "backend/gate/chain.py",
+             "no regime_bayes_* fields found in build_base_context — "
+             "check may be stale relative to context structure")
+        return
+
+    missing = [f for f in fields if f not in prompt_src]
+    if missing:
+        flag(51, "Lock 5 Bayesian field exclusion parity", "WARNING",
+             "backend/gate/lock5_claude.py:SYSTEM_PROMPT",
+             f"regime_bayes_* field(s) {missing} present in Lock 5 context "
+             f"(build_base_context) but not named in SYSTEM_PROMPT exclusion "
+             f"text — silent permission risk; update the prompt's Do NOT list")
+    # No flag = pass (convention: absence of a flag is the pass signal)
 
 
 def run() -> None:
@@ -434,3 +489,4 @@ def run() -> None:
     check29()
     check38()
     check49()
+    check51()

@@ -214,6 +214,22 @@ Motivated by: 2026-06-03 regression where commit `5f5925d` added `since=market_o
 to both funnel calls when only the gate activity rows call was intended to change.
 The regression caused the funnel to show reset-like zeros, masking true gate health.
 
+### CHECK 51 — Lock 5 Bayesian field exclusion parity
+
+Run as part of `python3 audit/mechanical_checks.py` (no separate invocation needed).
+
+Reads `backend/gate/chain.py` and `backend/gate/lock5_claude.py`. Extracts every
+`ctx["regime_bayes_*"]` assignment in `build_base_context` and verifies each field
+name appears verbatim in `SYSTEM_PROMPT`'s exclusion clause ("Do NOT factor
+regime_bayes_allocation, regime_bayes_posterior, or any Bayesian field into your
+size"). Flags WARNING for any field present in context but absent from the prompt
+text — the exclusion list is named-field, not structural, so drift between the two
+creates silent permission for the model to use an unscoped Bayesian field in sizing.
+
+Motivated by: 2026-06-05 finding, arrived as a byproduct of token-efficiency
+qualification gate work — six fields are currently named; a seventh added without
+a prompt update would be invisible without this check.
+
 ### Update the registry
 
 After writing the report, run this Python script. Set `triggered` to check numbers that had at least one finding.
