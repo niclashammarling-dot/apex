@@ -195,9 +195,9 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS) -> LockResult:
                 f"VA: {checks['volume_accumulation']['reason'][:60]}"
             )
         elif not price_group_pass:
-            reason = f"price group failed — neither RS nor VA passed"
+            reason = "price group failed — neither RS nor VA passed"
         else:
-            reason = f"options group failed — neither PCR nor unusual calls passed"
+            reason = "options group failed — neither PCR nor unusual calls passed"
         logger.debug(f"Lock 4 [{ticker}] FAIL — {reason}")
         return LockResult.fail(lock_id=LOCK_ID, reason=reason, data=data)
 

@@ -57,6 +57,9 @@ PRICE_HISTORY_DAYS = 35     # yfinance lookback to confirm first trading date
 REQUEST_DELAY_SEC  = 0.15   # EDGAR rate limit — 10 requests/second max
 MAX_FILINGS        = 100    # max S-1 filings to process per run
 
+EDGAR_MAX_RETRIES   = 3     # retries for transient 5xx errors before giving up
+EDGAR_RETRY_BACKOFF = 2.0   # seconds, multiplied by attempt number
+
 # Path relative to this file: backend/regime/ → backend/ → apex(inner) → data/
 CACHE_PATH = Path(__file__).parent.parent.parent / "data" / "ipo_sentiment_cache.json"
 
@@ -202,7 +205,7 @@ class IpoSentiment:
         logger.info(f"IpoSentiment: computing for {today_str}")
 
         # 1. Fetch S-1 filings from EDGAR
-        filings = self._fetch_edgar_filings(ref)
+        filings, fetch_failed = self._fetch_edgar_filings(ref)
         logger.info(f"IpoSentiment: {len(filings)} S-1 filings found")
 
         # 2. Resolve SIC codes and sector for each filing
@@ -216,8 +219,17 @@ class IpoSentiment:
         # 4. Compute sector shares
         result = self._compute_shares(confirmed, ref)
 
-        # 5. Cache and return
-        self._save_cache(result)
+        # 5. Cache and return — but never cache a result derived from a
+        # failed EDGAR fetch, or a transient outage gets baked in as a
+        # full day's "risk_off" signal (data coverage gap masquerading
+        # as a real regime read).
+        if fetch_failed:
+            logger.warning(
+                "IpoSentiment: EDGAR fetch failed after retries — "
+                "skipping cache write so a coverage gap isn't read as a signal"
+            )
+        else:
+            self._save_cache(result)
         logger.info(
             f"IpoSentiment: total={result.total_ipos} "
             f"risk_off={result.risk_off} | "
@@ -227,11 +239,18 @@ class IpoSentiment:
 
     # ── EDGAR fetching ────────────────────────────────────────────────────────
 
-    def _fetch_edgar_filings(self, ref: date) -> list[dict]:
+    def _fetch_edgar_filings(self, ref: date) -> tuple[list[dict], bool]:
         """
         Query EDGAR full-text search for S-1 and S-1/A filings
         in the last IPO_WINDOW_DAYS days.
-        Returns list of raw filing dicts.
+
+        Transient 5xx errors are retried with backoff — EDGAR's EFTS
+        endpoint intermittently returns 500s under load, and treating
+        those as "zero filings" would misclassify a coverage gap as a
+        risk-off signal.
+
+        Returns (raw filing dicts, fetch_failed) — fetch_failed is True
+        if any form_type's query was abandoned after exhausting retries.
         """
         start = (ref - timedelta(days=IPO_WINDOW_DAYS)).isoformat()
         end   = ref.isoformat()
@@ -239,38 +258,59 @@ class IpoSentiment:
         PAGE_SIZE = 10  # EDGAR EFTS fixed page size
 
         filings = []
+        fetch_failed = False
         for form_type in ("S-1", "S-1/A"):
             offset = 0
             type_count = 0
             while type_count < MAX_FILINGS:
-                try:
-                    params = {
-                        "q":         f'"{form_type}"',
-                        "dateRange": "custom",
-                        "startdt":   start,
-                        "enddt":     end,
-                        "forms":     form_type,
-                        "_source":   "file_date,entity_name,file_num,period_of_report",
-                        "from":      offset,
-                    }
-                    resp = requests.get(
-                        EDGAR_SEARCH_URL,
-                        params=params,
-                        headers=EDGAR_HEADERS,
-                        timeout=15,
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                    hits = data.get("hits", {}).get("hits", [])
-                    filings.extend(hits)
-                    type_count += len(hits)
-                    time.sleep(REQUEST_DELAY_SEC)
-                    if len(hits) < PAGE_SIZE:
-                        break  # last page
-                    offset += PAGE_SIZE
-                except Exception as e:
-                    logger.warning(f"IpoSentiment: EDGAR search failed for {form_type}: {e}")
+                params = {
+                    "q":         f'"{form_type}"',
+                    "dateRange": "custom",
+                    "startdt":   start,
+                    "enddt":     end,
+                    "forms":     form_type,
+                    "_source":   "file_date,entity_name,file_num,period_of_report",
+                    "from":      offset,
+                }
+
+                hits = None
+                for attempt in range(1, EDGAR_MAX_RETRIES + 1):
+                    try:
+                        resp = requests.get(
+                            EDGAR_SEARCH_URL,
+                            params=params,
+                            headers=EDGAR_HEADERS,
+                            timeout=15,
+                        )
+                        resp.raise_for_status()
+                        data = resp.json()
+                        hits = data.get("hits", {}).get("hits", [])
+                        break
+                    except requests.exceptions.HTTPError as e:
+                        status = e.response.status_code if e.response is not None else None
+                        if status is not None and status >= 500 and attempt < EDGAR_MAX_RETRIES:
+                            logger.warning(
+                                f"IpoSentiment: EDGAR search transient error for {form_type} "
+                                f"(attempt {attempt}/{EDGAR_MAX_RETRIES}): {e} — retrying"
+                            )
+                            time.sleep(EDGAR_RETRY_BACKOFF * attempt)
+                            continue
+                        logger.warning(f"IpoSentiment: EDGAR search failed for {form_type}: {e}")
+                        break
+                    except Exception as e:
+                        logger.warning(f"IpoSentiment: EDGAR search failed for {form_type}: {e}")
+                        break
+
+                if hits is None:
+                    fetch_failed = True
                     break
+
+                filings.extend(hits)
+                type_count += len(hits)
+                time.sleep(REQUEST_DELAY_SEC)
+                if len(hits) < PAGE_SIZE:
+                    break  # last page
+                offset += PAGE_SIZE
 
         # Deduplicate by entity name
         seen: set[str] = set()
@@ -281,7 +321,7 @@ class IpoSentiment:
                 seen.add(name)
                 unique.append(f)
 
-        return unique[:MAX_FILINGS]
+        return unique[:MAX_FILINGS], fetch_failed
 
     def _resolve_filings(self, filings: list[dict]) -> list[dict]:
         """

@@ -4,7 +4,6 @@
   "lock3_confidence_min": 0.6,
   "take_profit_pct": 0.06,
   "stop_loss_pct": 0.05,
-  "trailing_stop_pct": 0.1,
   "profit_lock_trigger_pct": 0.04,
   "profit_lock_trail_pct": 0.01,
   "max_positions": 8,

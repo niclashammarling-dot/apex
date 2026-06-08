@@ -1,8 +1,8 @@
 {
-  "date": "2026-05-28",
+  "date": "2026-06-08",
   "cycles": [
     {
-      "timestamp": "2026-05-28T13:35:06.376796+00:00",
+      "timestamp": "2026-06-08T15:27:45.287357+00:00",
       "regime_present": true,
       "queued_count": 0,
       "multiplier_count": 0,
@@ -10,7 +10,7 @@
       "variance": 0.0
     },
     {
-      "timestamp": "2026-05-28T13:54:46.396545+00:00",
+      "timestamp": "2026-06-08T15:47:45.447024+00:00",
       "regime_present": true,
       "queued_count": 0,
       "multiplier_count": 0,
@@ -18,7 +18,7 @@
       "variance": 0.0
     },
     {
-      "timestamp": "2026-05-28T14:14:46.509978+00:00",
+      "timestamp": "2026-06-08T16:07:46.792514+00:00",
       "regime_present": true,
       "queued_count": 0,
       "multiplier_count": 0,
@@ -26,7 +26,7 @@
       "variance": 0.0
     },
     {
-      "timestamp": "2026-05-28T14:35:27.959069+00:00",
+      "timestamp": "2026-06-08T16:27:54.228821+00:00",
       "regime_present": true,
       "queued_count": 0,
       "multiplier_count": 0,
@@ -34,7 +34,7 @@
       "variance": 0.0
     },
     {
-      "timestamp": "2026-05-28T14:54:46.477418+00:00",
+      "timestamp": "2026-06-08T16:47:49.581442+00:00",
       "regime_present": true,
       "queued_count": 0,
       "multiplier_count": 0,
@@ -42,31 +42,7 @@
       "variance": 0.0
     },
     {
-      "timestamp": "2026-05-28T15:14:47.708943+00:00",
-      "regime_present": true,
-      "queued_count": 0,
-      "multiplier_count": 0,
-      "all_unity": false,
-      "variance": 0.0
-    },
-    {
-      "timestamp": "2026-05-28T15:34:45.975633+00:00",
-      "regime_present": true,
-      "queued_count": 0,
-      "multiplier_count": 0,
-      "all_unity": false,
-      "variance": 0.0
-    },
-    {
-      "timestamp": "2026-05-28T15:54:50.838260+00:00",
-      "regime_present": true,
-      "queued_count": 0,
-      "multiplier_count": 0,
-      "all_unity": false,
-      "variance": 0.0
-    },
-    {
-      "timestamp": "2026-05-28T16:49:48.029623+00:00",
+      "timestamp": "2026-06-08T17:07:46.169488+00:00",
       "regime_present": true,
       "queued_count": 0,
       "multiplier_count": 0,
