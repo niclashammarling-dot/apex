@@ -8,7 +8,7 @@ OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 # Current Anthropic prepaid credit balance — update manually after each top-up.
 # CHECK 52 uses this to compute days-of-runway against measured burn rate.
-L5_ANTHROPIC_CREDIT_USD: float = 0.0  # TODO: set to actual balance
+L5_ANTHROPIC_CREDIT_USD: float = 20.0  # updated 2026-06-09; top up and reset after each refill
 XAI_API_KEY       = os.getenv("XAI_API_KEY", "")
 NEWS_API_KEY      = os.getenv("NEWS_API_KEY", "")
 
