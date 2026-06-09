@@ -241,6 +241,8 @@ def run() -> list[dict]:
             "lock3_conviction":       result.get("lock3_conviction"),
             "macro_reason":           result.get("macro_reason"),
             "ticker_signal":          result.get("ticker_signal"),
+            "earnings_near":          result.get("earnings_near"),
+            "days_to_earnings":       result.get("days_to_earnings"),
         })
         _log_summary(ticker, result)
 
@@ -366,6 +368,8 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
         "lock3_sentiment_score":  l3_data.get("score"),
         "lock3_conviction":       l3_data.get("conviction"),
         "macro_reason":           l1.reason if (l1 and not l1.passed) else None,
+        "earnings_near":          int(l1.data.get("earnings_near", False)) if l1 and l1.passed else None,
+        "days_to_earnings":       l1.data.get("days_to_earnings") if l1 and l1.passed else None,
     }
 
 

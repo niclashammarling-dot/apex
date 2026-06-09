@@ -90,14 +90,19 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
       1. Regime: sector must be in leaderboard above allocation floor
       2. VIX: must be below threshold
       3. Macro events: must not be within blackout window of FOMC/CPI/NFP
-      4. Earnings: ticker must not have earnings within blackout window
+      4. Earnings: three-tier pre-event gate
+           imminent  (0 ≤ Δ ≤ blackout_days)  → hard fail
+           near-term (blackout < Δ ≤ near_days) → pass + score penalty in chain.py
+           clear     (Δ > near_days)            → pass unchanged
+         Post-earnings (Δ < 0) is never blocked.
 
     Args:
         ticker: Stock ticker symbol
         sector: Apex sector name
         cfg:    Config dict (demo_config or live_config) — supplies
                 vix_threshold, macro_event_blackout_days,
-                macro_earnings_blackout_days
+                macro_earnings_blackout_days, macro_earnings_near_days,
+                macro_earnings_near_penalty
 
     Returns:
         LockResult with lock_id=1
@@ -174,6 +179,10 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
     event_blackout    = 1    if _eb is None else _eb
     _ea = cfg.get("macro_earnings_blackout_days")
     earnings_blackout = 3    if _ea is None else _ea
+    _en = cfg.get("macro_earnings_near_days")
+    earnings_near_days = 14  if _en is None else _en
+    _ep = cfg.get("macro_earnings_near_penalty")
+    earnings_near_penalty = 0.15 if _ep is None else _ep
     today             = date.today()
 
     vix = _get_vix()
@@ -204,9 +213,10 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
         )
 
     earnings = _get_earnings_date(ticker)
+    earnings_data: dict = {}
     if earnings:
-        delta = abs((earnings - today).days)
-        if delta <= earnings_blackout:
+        delta = (earnings - today).days  # positive = future (pre-event), negative = past
+        if 0 <= delta <= earnings_blackout:
             return LockResult.fail(
                 lock_id=LOCK_ID,
                 reason=f"Earnings on {earnings.isoformat()} (Δ{delta}d)",
@@ -219,6 +229,13 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
                     "vix":              vix,
                 },
             )
+        elif earnings_blackout < delta <= earnings_near_days:
+            earnings_data = {
+                "earnings_near":         True,
+                "earnings_date":         earnings.isoformat(),
+                "days_to_earnings":      delta,
+                "earnings_near_penalty": earnings_near_penalty,
+            }
 
     # ── Pass ──────────────────────────────────────────────────────────────────
     logger.debug(
@@ -242,6 +259,7 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
             "allocation":       allocation,
             "rank":             rank,
             "floor":            ALLOCATION_FLOOR,
+            **earnings_data,
             "regime_leader":    regime_result.leader,
             "regime_date":      regime_result.date,
             "vix":              vix,

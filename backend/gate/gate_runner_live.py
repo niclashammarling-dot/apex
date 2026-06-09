@@ -370,6 +370,8 @@ def run() -> list[dict]:
             "lock3_conviction":       result.get("lock3_conviction"),
             "macro_reason":           result.get("macro_reason"),
             "ticker_signal":          result.get("ticker_signal"),
+            "earnings_near":          result.get("earnings_near"),
+            "days_to_earnings":       result.get("days_to_earnings"),
         })
 
         _log_summary(ticker, result)

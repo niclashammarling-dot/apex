@@ -300,6 +300,11 @@ def init_db() -> None:
         # NULL on pre-existing rows: historical rows predate signal state tracking
         _add_column_if_missing(conn, "demo_gate_history", "ticker_signal", "TEXT")
         _add_column_if_missing(conn, "live_gate_history", "ticker_signal", "TEXT")
+        # Near-term earnings flag — tickers that passed L1 with earnings in the soft window
+        _add_column_if_missing(conn, "demo_gate_history", "earnings_near",     "INTEGER")
+        _add_column_if_missing(conn, "demo_gate_history", "days_to_earnings",  "INTEGER")
+        _add_column_if_missing(conn, "live_gate_history", "earnings_near",     "INTEGER")
+        _add_column_if_missing(conn, "live_gate_history", "days_to_earnings",  "INTEGER")
 
         # Migrate old gate_decision values to canonical FILTERED_* form
         conn.executescript("""
@@ -923,12 +928,14 @@ def insert_demo_gate_result(row: dict) -> None:
                 (timestamp, ticker, sector, signal_score,
                  lock1_pass, lock2_pass, lock_leading_pass, lock_leading_checks,
                  lock3_pass, gate_decision, lock3_reasoning, l2_summary,
-                 lock3_sentiment_score, lock3_conviction, macro_reason, ticker_signal)
+                 lock3_sentiment_score, lock3_conviction, macro_reason, ticker_signal,
+                 earnings_near, days_to_earnings)
             VALUES
                 (:timestamp, :ticker, :sector, :signal_score,
                  :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
                  :lock3_pass, :gate_decision, :lock3_reasoning, :l2_summary,
-                 :lock3_sentiment_score, :lock3_conviction, :macro_reason, :ticker_signal)
+                 :lock3_sentiment_score, :lock3_conviction, :macro_reason, :ticker_signal,
+                 :earnings_near, :days_to_earnings)
         """
         _assert_insert_fields("insert_demo_gate_result", _SQL, row)
         conn.execute(_SQL, {**row,
@@ -951,7 +958,7 @@ def get_demo_gate_history(since: str | None = None, limit: int | None = 500) -> 
                    gate_decision, lock1_pass, lock2_pass, lock_leading_pass,
                    lock_leading_checks, lock3_pass, lock3_reasoning,
                    l2_summary, lock3_sentiment_score, lock3_conviction, macro_reason,
-                   ticker_signal
+                   ticker_signal, earnings_near, days_to_earnings
             FROM demo_gate_history
             {where}
             ORDER BY timestamp DESC
@@ -1192,13 +1199,13 @@ def insert_live_gate_result(row: dict) -> int:
                lock1_pass, lock2_pass, lock_leading_pass, lock_leading_checks,
                lock3_pass, gate_decision, lock3_reasoning, alpaca_order_id,
                l2_summary, lock3_sentiment_score, lock3_conviction, macro_reason,
-               ticker_signal)
+               ticker_signal, earnings_near, days_to_earnings)
             VALUES
               (:timestamp, :ticker, :sector, :signal_score,
                :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
                :lock3_pass, :gate_decision, :lock3_reasoning, :alpaca_order_id,
                :l2_summary, :lock3_sentiment_score, :lock3_conviction, :macro_reason,
-               :ticker_signal)
+               :ticker_signal, :earnings_near, :days_to_earnings)
         """
         _assert_insert_fields("insert_live_gate_result", _SQL, row)
         cur = conn.execute(_SQL, {**row,
@@ -1208,7 +1215,9 @@ def insert_live_gate_result(row: dict) -> int:
               "lock3_sentiment_score":  row.get("lock3_sentiment_score"),
               "lock3_conviction":       row.get("lock3_conviction"),
               "macro_reason":           row.get("macro_reason"),
-              "ticker_signal":          row.get("ticker_signal")})
+              "ticker_signal":          row.get("ticker_signal"),
+              "earnings_near":          row.get("earnings_near"),
+              "days_to_earnings":       row.get("days_to_earnings")})
         conn.commit()
         return cur.lastrowid
     finally:

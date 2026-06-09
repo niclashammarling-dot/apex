@@ -130,11 +130,17 @@ function LiveGateRowSummary({ row, i, expanded, setExpanded }) {
           <TipRow label="L5" value={s5 === true ? "✓" : s5 === false ? "✗" : "—"} color={s5 === true ? "var(--green)" : s5 === false ? "var(--red)" : "var(--text-3)"} />
         </>}
         {row.macro_reason && <TipRow label="Macro" value={row.macro_reason.slice(0, 60)} />}
+        {row.earnings_near ? <TipRow label="Earnings" value={`${row.days_to_earnings}d away (near-term penalty)`} /> : null}
         {row.alpaca_order_id && <TipRow label="Order ID" value={row.alpaca_order_id} />}
       </HoverTooltip>
       <td style={{ fontFamily: "'Inconsolata', monospace", fontSize: 12 }}>{ts}</td>
       <td>
         <strong>{row.ticker}</strong>
+        {row.earnings_near ? (
+          <span style={{ marginLeft: 5, fontSize: 11, background: "rgba(251,191,36,0.15)", color: "#f59e0b", borderRadius: 3, padding: "1px 4px" }}>
+            EPS {row.days_to_earnings}d
+          </span>
+        ) : null}
         {hasDetail && (
           <span style={{ color: "var(--text-3)", fontSize: 11, marginLeft: 6 }}>
             {isOpen ? "▲" : "▼"}

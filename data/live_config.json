@@ -19,5 +19,7 @@
   "max_sector_exposure": 0.3,
   "lock_leading_min_pass": 2,
   "starting_balance": 100000,
-  "max_drawdown_pct": 0.2
+  "max_drawdown_pct": 0.2,
+  "macro_earnings_near_days": 14,
+  "macro_earnings_near_penalty": 0.15
 }

@@ -106,6 +106,16 @@ def evaluate_chain(
     if not l1.passed:
         return _chain_fail(ticker, sector, lock_results, exit_lock=1)
 
+    # Near-term earnings penalty: reduce signal_score before L2 sees it
+    earnings_penalty = l1.data.get("earnings_near_penalty", 0.0)
+    if earnings_penalty:
+        original = signal_score
+        signal_score = signal_score * (1.0 - earnings_penalty)
+        logger.debug(
+            f"[{ticker}] Earnings near-term penalty {earnings_penalty:.0%}: "
+            f"signal_score {original:.4f} → {signal_score:.4f}"
+        )
+
     # ── Lock 2: Quant ─────────────────────────────────────────────────────────
     l2 = lock2_evaluate(ticker, sector, signal_score, on_watchlist=on_watchlist,
                         sector_thresholds=sector_thresholds)

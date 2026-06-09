@@ -531,6 +531,36 @@ def check52():
              f"below {RUNWAY_WARNING_DAYS}-day threshold; top up Anthropic credits")
 
 
+def check53() -> None:
+    """CHECK 53 — Earnings near-term tier constants present in config and JSON configs."""
+    import json
+    from pathlib import Path
+    import backend.config as cfg_module
+
+    errors = []
+
+    # config.py
+    if not hasattr(cfg_module, "MACRO_EARNINGS_NEAR_DAYS"):
+        errors.append("MACRO_EARNINGS_NEAR_DAYS missing from config.py")
+    if not hasattr(cfg_module, "MACRO_EARNINGS_NEAR_PENALTY"):
+        errors.append("MACRO_EARNINGS_NEAR_PENALTY missing from config.py")
+
+    # JSON configs
+    root = Path(__file__).parent.parent / "data"
+    for fname in ("demo_config.json", "live_config.json"):
+        path = root / fname
+        if not path.exists():
+            errors.append(f"{fname} not found")
+            continue
+        data = json.loads(path.read_text())
+        for key in ("macro_earnings_near_days", "macro_earnings_near_penalty"):
+            if key not in data:
+                errors.append(f"{key} missing from {fname}")
+
+    if errors:
+        raise AssertionError("CHECK 53 FAIL — earnings near-term config missing:\n" + "\n".join(f"  - {e}" for e in errors))
+
+
 def run() -> None:
     check24()
     check25()
@@ -541,3 +571,4 @@ def run() -> None:
     check49()
     check51()
     check52()
+    check53()
