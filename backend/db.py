@@ -242,6 +242,17 @@ def init_db() -> None:
             );
 
             CREATE INDEX IF NOT EXISTS idx_pcr_ticker_date ON lock4_pcr_history(ticker, date DESC);
+
+            CREATE TABLE IF NOT EXISTS l5_token_usage (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp     TEXT    NOT NULL,
+                ticker        TEXT,
+                input_tokens  INTEGER NOT NULL,
+                output_tokens INTEGER NOT NULL,
+                cost_usd      REAL    NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_l5_token_ts ON l5_token_usage(timestamp DESC);
         """)
         conn.commit()
         logger.info(f"DB initialised at {DB_PATH}")
@@ -1828,6 +1839,57 @@ def get_drift_alerts(severity: str | None = None,
             LIMIT ?
         """, (*params, limit)).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+# ── Lock 5 token usage ────────────────────────────────────────────────────────
+
+def insert_l5_token_usage(ticker: str | None, input_tokens: int,
+                           output_tokens: int, cost_usd: float) -> None:
+    from datetime import datetime, timezone
+    conn = get_db()
+    try:
+        conn.execute(
+            """
+            INSERT INTO l5_token_usage (timestamp, ticker, input_tokens, output_tokens, cost_usd)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (datetime.now(timezone.utc).isoformat(), ticker,
+             input_tokens, output_tokens, round(cost_usd, 6)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_l5_spend_summary() -> dict:
+    """
+    Returns L5 token spend aggregated over 7-day and 30-day windows.
+    Each window includes: total_cost_usd, call_count, daily_rate_usd.
+    """
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT
+                SUM(CASE WHEN timestamp >= DATE('now', '-7 days')  THEN cost_usd ELSE 0 END) AS cost_7d,
+                SUM(CASE WHEN timestamp >= DATE('now', '-30 days') THEN cost_usd ELSE 0 END) AS cost_30d,
+                SUM(CASE WHEN timestamp >= DATE('now', '-7 days')  THEN 1 ELSE 0 END)        AS calls_7d,
+                SUM(CASE WHEN timestamp >= DATE('now', '-30 days') THEN 1 ELSE 0 END)        AS calls_30d
+            FROM l5_token_usage
+        """).fetchone()
+        cost_7d  = rows["cost_7d"]  or 0.0
+        cost_30d = rows["cost_30d"] or 0.0
+        calls_7d  = rows["calls_7d"]  or 0
+        calls_30d = rows["calls_30d"] or 0
+        return {
+            "cost_7d":        round(cost_7d, 4),
+            "cost_30d":       round(cost_30d, 4),
+            "calls_7d":       calls_7d,
+            "calls_30d":      calls_30d,
+            "daily_rate_7d":  round(cost_7d  / 7,  4),
+            "daily_rate_30d": round(cost_30d / 30, 4),
+        }
     finally:
         conn.close()
 

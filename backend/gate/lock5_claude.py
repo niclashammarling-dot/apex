@@ -109,7 +109,8 @@ def evaluate(
         )
 
     try:
-        raw = _call_anthropic(payload, _SONNET_MODEL)
+        raw, usage = _call_anthropic(payload, _SONNET_MODEL)
+        _record_token_usage(ticker, usage)
         return _parse_to_result(raw, effective_min, ticker, _SONNET_MODEL)
     except Exception as e:
         logger.error(f"Lock 5 [{ticker}]: Sonnet failed ({e}) — failing closed")
@@ -155,9 +156,26 @@ def _build_context_payload(
     return payload
 
 
+# ── Token usage logging ───────────────────────────────────────────────────────
+
+_SONNET_INPUT_PRICE_PER_TOK  = 3.0  / 1_000_000   # $3/MTok
+_SONNET_OUTPUT_PRICE_PER_TOK = 15.0 / 1_000_000   # $15/MTok
+
+
+def _record_token_usage(ticker: str | None, usage: object) -> None:
+    try:
+        from backend.db import insert_l5_token_usage
+        inp  = getattr(usage, "input_tokens",  0) or 0
+        out  = getattr(usage, "output_tokens", 0) or 0
+        cost = inp * _SONNET_INPUT_PRICE_PER_TOK + out * _SONNET_OUTPUT_PRICE_PER_TOK
+        insert_l5_token_usage(ticker, inp, out, cost)
+    except Exception as e:
+        logger.warning(f"Lock 5 [{ticker}]: token usage logging failed ({e}) — call not affected")
+
+
 # ── Provider calls ────────────────────────────────────────────────────────────
 
-def _call_anthropic(payload: dict, model: str) -> str:
+def _call_anthropic(payload: dict, model: str) -> tuple[str, object]:
     client   = _get_anthropic()
     response = client.messages.create(
         model      = model,
@@ -165,7 +183,7 @@ def _call_anthropic(payload: dict, model: str) -> str:
         system     = SYSTEM_PROMPT,
         messages   = [{"role": "user", "content": json.dumps(payload, indent=2, default=str)}],
     )
-    return response.content[0].text.strip()
+    return response.content[0].text.strip(), response.usage
 
 
 # ── Parse & result ────────────────────────────────────────────────────────────

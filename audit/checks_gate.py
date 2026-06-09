@@ -481,6 +481,56 @@ def check51():
     # No flag = pass (convention: absence of a flag is the pass signal)
 
 
+# ── CHECK 52 — Anthropic credit runway ───────────────────────────────────────
+
+def check52():
+    """
+    Anthropic credit runway check.
+
+    Lock 5 uses claude-sonnet-4-6 as its sole LLM with no fallback (post-MSFT
+    postmortem). Credit exhaustion causes L5 to fail-closed silently — the gate
+    returns HOLD with no notification, indistinguishable from a normal L5 skip.
+
+    This check queries l5_token_usage for the 7-day measured burn rate, computes
+    projected runway against L5_ANTHROPIC_CREDIT_USD, and flags WARNING if runway
+    drops below 14 days. WARNING (not hard-fail): a blocked audit would be a worse
+    failure mode than the silent exhaustion it is monitoring for.
+
+    Prerequisite: l5_token_usage rows accumulate as L5 calls are made. The check
+    is a no-op (skips without flagging) if the table has fewer than 7 days of data,
+    since the burn rate estimate would be unreliable. Update L5_ANTHROPIC_CREDIT_USD
+    in config.py after each top-up.
+    """
+    from backend.config import L5_ANTHROPIC_CREDIT_USD
+    from backend.db import get_l5_spend_summary
+
+    RUNWAY_WARNING_DAYS = 14
+
+    if L5_ANTHROPIC_CREDIT_USD <= 0:
+        flag(52, "Anthropic credit runway", "WARNING",
+             "backend/config.py:L5_ANTHROPIC_CREDIT_USD",
+             "L5_ANTHROPIC_CREDIT_USD not set — update config.py with current "
+             "Anthropic prepaid balance to enable runway monitoring")
+        return
+
+    summary = get_l5_spend_summary()
+
+    if summary["calls_7d"] == 0:
+        return  # no data yet — skip silently
+
+    daily_rate = summary["daily_rate_7d"]
+    if daily_rate <= 0:
+        return
+
+    runway_days = L5_ANTHROPIC_CREDIT_USD / daily_rate
+    if runway_days < RUNWAY_WARNING_DAYS:
+        flag(52, "Anthropic credit runway", "WARNING",
+             "backend/config.py:L5_ANTHROPIC_CREDIT_USD",
+             f"L5 credit runway {runway_days:.1f} days at ${daily_rate:.4f}/day "
+             f"(7d measured rate, balance ${L5_ANTHROPIC_CREDIT_USD:.2f}) — "
+             f"below {RUNWAY_WARNING_DAYS}-day threshold; top up Anthropic credits")
+
+
 def run() -> None:
     check24()
     check25()
@@ -490,3 +540,4 @@ def run() -> None:
     check38()
     check49()
     check51()
+    check52()
