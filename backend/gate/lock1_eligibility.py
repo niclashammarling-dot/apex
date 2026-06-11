@@ -292,6 +292,13 @@ def _find_sector(regime_result, sector: str):
 
 # ── VIX helpers ───────────────────────────────────────────────────────────────
 
+# VIX has never closed above ~90 (2008/2020 peaks). Anything above this is a
+# yfinance data error, not a market reading — treat as unavailable (don't
+# block) rather than substituting a default, so the bad read doesn't get
+# masked. 2026-06-04: a single VIX=332.9 read blocked an entire session.
+_VIX_SANITY_CEILING = 100.0
+
+
 def _get_vix() -> float | None:
     with _vix_lock:
         now = time.time()
@@ -302,6 +309,12 @@ def _get_vix() -> float | None:
         import yfinance as yf
         data  = yf.download("^VIX", period="1d", interval="1m", progress=False, auto_adjust=True)
         value = float(data["Close"].values.flatten()[-1]) if not data.empty else None
+        if value is not None and value > _VIX_SANITY_CEILING:
+            logger.warning(
+                f"Lock 1: VIX reading {value:.1f} exceeds sanity ceiling "
+                f"{_VIX_SANITY_CEILING} — discarding as data error, treating as unavailable"
+            )
+            value = None
         with _vix_lock:
             _vix_cache["value"]      = value
             _vix_cache["expires_at"] = time.time() + _VIX_TTL

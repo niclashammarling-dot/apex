@@ -561,6 +561,73 @@ def check53() -> None:
         raise AssertionError("CHECK 53 FAIL — earnings near-term config missing:\n" + "\n".join(f"  - {e}" for e in errors))
 
 
+# ── CHECK 54 — Gate funnel label/lock semantic parity ─────────────────────────
+
+# Canonical exit_lock semantics, from _chain_to_gate_result's docstring in
+# gate_runner.py (DB column mapping comment: "semantics shifted").
+_CANONICAL_LOCK_KEYWORDS = {
+    1: "Eligibility",
+    2: "Quant",
+    3: "Sentiment",
+    4: "Leading",
+    5: "Claude",
+}
+
+
+def check54() -> None:
+    """
+    CHECK 54 — gate funnel label/lock semantic parity.
+
+    _OUTCOMES in gate_runner.py maps exit_lock N to a FILTERED_* string under a
+    legacy numbering ("semantics shifted" per _chain_to_gate_result's docstring:
+    lock1_pass=Quant, lock2_pass=Sentiment, lock3_pass=Claude). adaptFunnel in
+    App.jsx then maps those same FILTERED_* strings to display labels. If a
+    label's keyword doesn't match the lock that actually produced the string,
+    a rejection from one lock is displayed under another lock's label — e.g.
+    Quant rejections shown as "L1 Score" and Sentiment rejections shown as
+    "L2 Quant", with no bucket for the lock whose keyword was displaced.
+
+    Prevented by: 2026-06-11 finding — funnel showed L4 (Leading fails) > L2
+    (labelled Quant fails) with no L3 row, traced to this label/lock drift.
+    """
+    runner   = REPO / "backend/gate/gate_runner.py"
+    app_jsx  = REPO / "frontend/src/App.jsx"
+    if not runner.exists() or not app_jsx.exists():
+        return
+
+    runner_text = runner.read_text()
+    outcomes = dict(re.findall(r'(\d+):\s*"(FILTERED_[A-Z0-9_]+)"', runner_text))
+    if not outcomes:
+        flag(54, "gate funnel label/lock semantic parity", "WARNING",
+             "backend/gate/gate_runner.py:_OUTCOMES",
+             "_OUTCOMES dict not found or no FILTERED_* strings — pattern changed")
+        return
+
+    app_text = app_jsx.read_text()
+    rows = re.findall(r'stage:\s*"(FILTERED_[A-Z0-9_]+)",\s*label:\s*"([^"]+)"', app_text)
+    label_by_stage = dict(rows)
+    if not label_by_stage:
+        flag(54, "gate funnel label/lock semantic parity", "WARNING",
+             "frontend/src/App.jsx:adaptFunnel",
+             "no FILTERED_* stage/label rows found — pattern changed")
+        return
+
+    for lock_num_str, outcome in outcomes.items():
+        lock_num = int(lock_num_str)
+        keyword  = _CANONICAL_LOCK_KEYWORDS.get(lock_num)
+        if keyword is None:
+            continue
+        label = label_by_stage.get(outcome)
+        if label is None:
+            continue  # CHECK 25 already flags missing labels
+        if keyword.lower() not in label.lower():
+            flag(54, "gate funnel label/lock semantic parity", "WARNING",
+                 "frontend/src/App.jsx:adaptFunnel",
+                 f'exit_lock {lock_num} ({keyword}) emits "{outcome}", which '
+                 f'adaptFunnel labels "{label}" — funnel shows {keyword} '
+                 f'rejections under a different lock\'s label')
+
+
 def run() -> None:
     check24()
     check25()
@@ -572,3 +639,4 @@ def run() -> None:
     check51()
     check52()
     check53()
+    check54()
