@@ -190,7 +190,7 @@ def write_report(retirement_candidates: list) -> None:
     n_warn = sum(1 for _, _, s, _, _ in findings if s == "WARNING")
     n_info = sum(1 for _, _, s, _, _ in findings if s == "INFO")
 
-    content = f"""# APEX Nightly Audit — {TODAY}
+    content = f"""# Batman's Report — {TODAY}
 {len(findings)} issues: {n_crit} critical, {n_warn} warnings, {n_info} info
 *(LLM checks 1, 2, 7, 8 appended below by llm_checks.py)*
 

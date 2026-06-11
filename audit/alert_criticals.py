@@ -51,7 +51,7 @@ def send_alert(criticals: list[dict]) -> bool:
             print(f"  CRITICAL [{c['check']}] {c['file']}: {c['finding']}")
         return False
 
-    subject = f"[APEX] ⚠ {len(criticals)} CRITICAL finding(s) in nightly audit {TODAY}"
+    subject = f"[APEX] ⚠ {len(criticals)} CRITICAL finding(s) in Batman's report {TODAY}"
 
     rows = "\n".join(
         f"<tr>"
@@ -69,7 +69,7 @@ def send_alert(criticals: list[dict]) -> bool:
     <h2 style='color:#ef4444;margin:0 0 4px 0;'>APEX — Critical Audit Findings</h2>
     <p style='color:#6b7280;font-size:13px;margin:0 0 24px 0;'>{TODAY}</p>
     <p style='color:#e5e7eb;font-size:13px;'>
-      The nightly audit found <strong style='color:#ef4444;'>{len(criticals)} CRITICAL finding(s)</strong>
+      Batman's report found <strong style='color:#ef4444;'>{len(criticals)} CRITICAL finding(s)</strong>
       that require immediate attention. These indicate incorrect trades or silent wrong state right now.
     </p>
     <table style='border-collapse:collapse;width:100%;font-size:13px;margin-top:16px;'>

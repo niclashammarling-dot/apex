@@ -208,7 +208,7 @@ def main():
     git(["push", "-u", "origin", branch])
 
     pr_body = (
-        f"Auto-fixes from nightly audit {today}. "
+        f"Auto-fixes from Batman's report {today}. "
         f"INFO-severity only — additive logging, no logic changes.\n\n"
         f"**Fixed**\n{fix_bullets}\n\n"
         f"**Skipped**\n{skip_bullets}\n\n"
