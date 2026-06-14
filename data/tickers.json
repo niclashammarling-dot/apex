@@ -125,7 +125,11 @@
       "AMAT",
       "LRCX",
       "KLAC",
-      "MU"
+      "MU",
+      "MRVL",
+      "ON",
+      "TER",
+      "ADI"
     ]
   },
   "Defense": {
@@ -145,7 +149,11 @@
       "LEN",
       "PHM",
       "TOL",
-      "NVR"
+      "NVR",
+      "MHO",
+      "TMHC",
+      "BLD",
+      "MTH"
     ]
   },
   "Transportation": {
@@ -155,7 +163,11 @@
       "CSX",
       "FDX",
       "UPS",
-      "JBHT"
+      "JBHT",
+      "WAB",
+      "ODFL",
+      "CHRW",
+      "DAL"
     ]
   }
 }

@@ -1,49 +1,177 @@
 {
-  "date": "2026-06-08",
+  "date": "2026-06-14",
   "cycles": [
     {
-      "timestamp": "2026-06-08T15:27:45.287357+00:00",
-      "regime_present": true,
+      "timestamp": "2026-06-14T10:31:03.718315+00:00",
+      "regime_present": false,
       "queued_count": 0,
       "multiplier_count": 0,
       "all_unity": false,
       "variance": 0.0
     },
     {
-      "timestamp": "2026-06-08T15:47:45.447024+00:00",
-      "regime_present": true,
+      "timestamp": "2026-06-14T10:31:03.721924+00:00",
+      "regime_present": false,
       "queued_count": 0,
       "multiplier_count": 0,
       "all_unity": false,
       "variance": 0.0
     },
     {
-      "timestamp": "2026-06-08T16:07:46.792514+00:00",
-      "regime_present": true,
+      "timestamp": "2026-06-14T10:31:03.724795+00:00",
+      "regime_present": false,
       "queued_count": 0,
       "multiplier_count": 0,
       "all_unity": false,
       "variance": 0.0
     },
     {
-      "timestamp": "2026-06-08T16:27:54.228821+00:00",
-      "regime_present": true,
+      "timestamp": "2026-06-14T10:31:03.730323+00:00",
+      "regime_present": false,
       "queued_count": 0,
       "multiplier_count": 0,
       "all_unity": false,
       "variance": 0.0
     },
     {
-      "timestamp": "2026-06-08T16:47:49.581442+00:00",
-      "regime_present": true,
+      "timestamp": "2026-06-14T10:31:03.735692+00:00",
+      "regime_present": false,
       "queued_count": 0,
       "multiplier_count": 0,
       "all_unity": false,
       "variance": 0.0
     },
     {
-      "timestamp": "2026-06-08T17:07:46.169488+00:00",
-      "regime_present": true,
+      "timestamp": "2026-06-14T10:31:03.741695+00:00",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-06-14T10:31:03.746959+00:00",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-06-14T10:31:03.752794+00:00",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-06-14T10:31:03.757748+00:00",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-06-14T10:31:03.764197+00:00",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-06-14T10:31:03.769398+00:00",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-06-14T10:31:03.774549+00:00",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-06-14T10:31:03.779532+00:00",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-06-14T10:31:03.785080+00:00",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-06-14T10:31:03.793688+00:00",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-06-14T10:31:03.798728+00:00",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-06-14T10:31:03.938718+00:00",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-06-14T10:31:03.950484+00:00",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-06-14T10:31:03.961171+00:00",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-06-14T10:31:03.972156+00:00",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-06-14T10:31:03.984467+00:00",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-06-14T10:31:03.996370+00:00",
+      "regime_present": false,
       "queued_count": 0,
       "multiplier_count": 0,
       "all_unity": false,

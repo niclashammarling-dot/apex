@@ -13,7 +13,8 @@ from datetime import datetime, timezone
 
 from loguru import logger
 
-from backend.config import LIVE_ENABLED, SECTORS
+from backend.config import LIVE_ENABLED
+from backend.ticker_config import get_sectors
 from backend.db import (
     get_live_ticker_gate_fails,
     get_lock1_candidates,
@@ -128,7 +129,7 @@ def run() -> list[dict]:
 
     logger.info(f"Live gate runner: {len(candidates)} candidate(s) — {[c['ticker'] for c in candidates]}")
 
-    _ticker_sector = {t: s for s, data in SECTORS.items() for t in data["tickers"]}
+    _ticker_sector = {t: s for s, data in get_sectors().items() for t in data["tickers"]}
     _positions = broker.get_positions()
     # Exposure ratios: all numerators and denominators must use equity scale.
     # Do not substitute buying_power here — on margin accounts it is 2-4x equity
