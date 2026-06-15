@@ -1,8 +1,9 @@
 """
-Sector-domain mechanical checks — CHECKs 5, 27, 36, 41, 42, 43.
+Sector-domain mechanical checks — CHECKs 5, 27, 36, 41, 42, 43, 57.
 
 Covers: sector name string consistency, GICS classification parity,
-L4 sub-check pass rates, new-sector integrity, and sector addition completeness.
+L4 sub-check pass rates, new-sector integrity, sector addition completeness,
+and SIC_TO_SECTOR/SECTORS key parity.
 """
 import json
 import re
@@ -372,6 +373,48 @@ def check43():
                  f'in all non-neutral regimes; excluded from cyclical/defensive avg')
 
 
+# ── CHECK 57 — SIC_TO_SECTOR / SECTORS parity ────────────────────────────────
+
+def check57():
+    """
+    Assert every sector name used in SIC_TO_SECTOR (backend/regime/ipo_sentiment.py)
+    exists as a key in SECTORS (backend/config.py), and flag any SECTORS key with
+    zero SIC mappings.
+
+    Prevented: SIC_TO_SECTOR used GICS names ("Health Care", "Information Technology",
+    "Communication Services", "Real Estate", "Consumer Discretionary", "Consumer
+    Staples") while SECTORS uses apex's own keys ("Healthcare", "Technology",
+    "Communication", "RealEstate", "ConsumerDisc", "ConsumerStaples"). The mismatch
+    caused _confirm_listings to silently drop every IPO in 6 of 11 sectors —
+    total_ipos read 3 when it should have been 8, with no error anywhere.
+    """
+    try:
+        from backend.config import SECTORS
+        from backend.regime.ipo_sentiment import SIC_TO_SECTOR
+    except Exception as e:
+        flag(57, "SIC_TO_SECTOR/SECTORS parity", "WARNING",
+             "backend/regime/ipo_sentiment.py",
+             f"could not import SIC_TO_SECTOR/SECTORS: {e}")
+        return
+
+    sector_keys = set(SECTORS.keys())
+    sic_sectors = {s for _, s in SIC_TO_SECTOR}
+
+    unknown = sic_sectors - sector_keys
+    if unknown:
+        flag(57, "SIC_TO_SECTOR/SECTORS parity", "CRITICAL",
+             "backend/regime/ipo_sentiment.py",
+             f"SIC_TO_SECTOR references sector(s) not in SECTORS: {sorted(unknown)} — "
+             f"_confirm_listings silently drops these IPOs (config.SECTORS={sorted(sector_keys)})")
+
+    unmapped = sector_keys - sic_sectors
+    if unmapped:
+        flag(57, "SIC_TO_SECTOR/SECTORS parity", "INFO",
+             "backend/regime/ipo_sentiment.py",
+             f"SECTORS key(s) with no SIC_TO_SECTOR mapping: {sorted(unmapped)} — "
+             f"these sectors can never register IPO activity")
+
+
 def run() -> None:
     check5()
     check27()
@@ -379,3 +422,4 @@ def run() -> None:
     check41()
     check42()
     check43()
+    check57()
