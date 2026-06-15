@@ -1,43 +1,50 @@
 {
   "date": "2026-06-15",
   "ipo_shares": {
-    "Defense": 0.0,
-    "Technology": 0.0,
+    "Materials": 0.0,
+    "Energy": 0.125,
     "RealEstate": 0.0,
     "Industrials": 0.0,
-    "Semiconductors": 0.0,
+    "Defense": 0.0,
     "ConsumerStaples": 0.0,
+    "Utilities": 0.0,
+    "Semiconductors": 0.0,
+    "Healthcare": 0.25,
     "Homebuilders": 0.0,
     "Transportation": 0.0,
-    "Financials": 0.6667,
-    "Utilities": 0.0,
-    "Energy": 0.3333,
-    "Materials": 0.0,
+    "Technology": 0.375,
+    "Financials": 0.25,
     "ConsumerDisc": 0.0,
-    "Healthcare": 0.0,
     "Communication": 0.0
   },
   "ipo_counts": {
-    "Defense": 0,
-    "Technology": 0,
+    "Materials": 0,
+    "Energy": 1,
     "RealEstate": 0,
     "Industrials": 0,
-    "Semiconductors": 0,
+    "Defense": 0,
     "ConsumerStaples": 0,
+    "Utilities": 0,
+    "Semiconductors": 0,
+    "Healthcare": 2,
     "Homebuilders": 0,
     "Transportation": 0,
+    "Technology": 3,
     "Financials": 2,
-    "Utilities": 0,
-    "Energy": 1,
-    "Materials": 0,
     "ConsumerDisc": 0,
-    "Healthcare": 0,
     "Communication": 0
   },
-  "total_ipos": 3,
+  "total_ipos": 8,
   "risk_off": false,
-  "context": "IPO Sentiment (2026-06-15, last 30 days):\n  Total market IPOs: 3\n  Sector distribution:\n    Financials                 2 IPOs  (67%)  \u2588\u2588\n    Energy                     1 IPOs  (33%)  \u2588",
+  "context": "IPO Sentiment (2026-06-15, last 30 days):\n  Total market IPOs: 8\n  Sector distribution:\n    Technology                 3 IPOs  (38%)  \u2588\u2588\u2588\n    Healthcare                 2 IPOs  (25%)  \u2588\u2588\n    Financials                 2 IPOs  (25%)  \u2588\u2588\n    Energy                     1 IPOs  (12%)  \u2588",
   "listings": [
+    {
+      "ticker": "PBLS",
+      "company": "Parabilis Medicines, Inc.",
+      "sector": "Healthcare",
+      "sic_code": 2834,
+      "list_date": "2026-06-10"
+    },
     {
       "ticker": "FRBT",
       "company": "Forbright, Inc.",
@@ -51,6 +58,34 @@
       "sector": "Energy",
       "sic_code": 1311,
       "list_date": "2026-06-09"
+    },
+    {
+      "ticker": "ELOX",
+      "company": "Eloxx Pharmaceuticals, Inc.",
+      "sector": "Healthcare",
+      "sic_code": 2836,
+      "list_date": "2026-06-09"
+    },
+    {
+      "ticker": "SPCX",
+      "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+      "sector": "Technology",
+      "sic_code": 7370,
+      "list_date": "2026-06-12"
+    },
+    {
+      "ticker": "LFTO",
+      "company": "Liftoff Mobile, Inc.",
+      "sector": "Technology",
+      "sic_code": 7374,
+      "list_date": "2026-06-04"
+    },
+    {
+      "ticker": "QNT",
+      "company": "Quantinuum Inc.",
+      "sector": "Technology",
+      "sic_code": 7373,
+      "list_date": "2026-06-04"
     },
     {
       "ticker": "HYPG",

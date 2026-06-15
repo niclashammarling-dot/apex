@@ -102,24 +102,24 @@ SIC_TO_SECTOR: list[tuple[range, str]] = [
     (range(4400, 4800), "Industrials"),
     (range(7500, 7600), "Industrials"),
 
-    # Consumer Discretionary
-    (range(5200, 5400), "Consumer Discretionary"),
-    (range(5600, 5700), "Consumer Discretionary"),
-    (range(5900, 5940), "Consumer Discretionary"),
-    (range(7000, 7100), "Consumer Discretionary"),
-    (range(7200, 7300), "Consumer Discretionary"),
-    (range(3711, 3714), "Consumer Discretionary"),   # auto
+    # Consumer Discretionary (ConsumerDisc)
+    (range(5200, 5400), "ConsumerDisc"),
+    (range(5600, 5700), "ConsumerDisc"),
+    (range(5900, 5940), "ConsumerDisc"),
+    (range(7000, 7100), "ConsumerDisc"),
+    (range(7200, 7300), "ConsumerDisc"),
+    (range(3711, 3714), "ConsumerDisc"),   # auto
 
-    # Consumer Staples
-    (range(2000, 2100), "Consumer Staples"),
-    (range(2100, 2200), "Consumer Staples"),
-    (range(5400, 5500), "Consumer Staples"),
-    (range(5900, 5912), "Consumer Staples"),
+    # Consumer Staples (ConsumerStaples)
+    (range(2000, 2100), "ConsumerStaples"),
+    (range(2100, 2200), "ConsumerStaples"),
+    (range(5400, 5500), "ConsumerStaples"),
+    (range(5900, 5912), "ConsumerStaples"),
 
-    # Health Care
-    (range(2830, 2837), "Health Care"),
-    (range(3841, 3852), "Health Care"),
-    (range(8000, 8100), "Health Care"),
+    # Healthcare
+    (range(2830, 2837), "Healthcare"),
+    (range(3841, 3852), "Healthcare"),
+    (range(8000, 8100), "Healthcare"),
 
     # Financials
     (range(6000, 6300), "Financials"),
@@ -127,25 +127,25 @@ SIC_TO_SECTOR: list[tuple[range, str]] = [
     (range(6500, 6600), "Financials"),
     (range(6700, 6800), "Financials"),
 
-    # Information Technology
-    (range(3570, 3580), "Information Technology"),
-    (range(3670, 3680), "Information Technology"),
-    (range(7370, 7380), "Information Technology"),
-    (range(3672, 3678), "Information Technology"),
-    (range(3812, 3813), "Information Technology"),
+    # Technology
+    (range(3570, 3580), "Technology"),
+    (range(3670, 3680), "Technology"),
+    (range(7370, 7380), "Technology"),
+    (range(3672, 3678), "Technology"),
+    (range(3812, 3813), "Technology"),
 
-    # Communication Services
-    (range(4800, 4900), "Communication Services"),
-    (range(7810, 7820), "Communication Services"),
-    (range(7900, 7999), "Communication Services"),
+    # Communication
+    (range(4800, 4900), "Communication"),
+    (range(7810, 7820), "Communication"),
+    (range(7900, 7999), "Communication"),
 
     # Utilities
     (range(4900, 4940), "Utilities"),
     (range(4940, 4992), "Utilities"),
 
-    # Real Estate
-    (range(6510, 6553), "Real Estate"),
-    (range(6726, 6727), "Real Estate"),
+    # Real Estate (RealEstate)
+    (range(6510, 6553), "RealEstate"),
+    (range(6726, 6727), "RealEstate"),
 ]
 
 
