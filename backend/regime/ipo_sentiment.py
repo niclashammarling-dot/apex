@@ -61,7 +61,18 @@ EDGAR_MAX_RETRIES   = 3     # retries for transient 5xx errors before giving up
 EDGAR_RETRY_BACKOFF = 2.0   # seconds, multiplied by attempt number
 
 # Path relative to this file: backend/regime/ → backend/ → apex(inner) → data/
-CACHE_PATH = Path(__file__).parent.parent.parent / "data" / "ipo_sentiment_cache.json"
+CACHE_PATH   = Path(__file__).parent.parent.parent / "data" / "ipo_sentiment_cache.json"
+HISTORY_PATH = Path(__file__).parent.parent.parent / "data" / "ipo_sentiment_history.json"
+HISTORY_MAX_DAYS = 14   # retained for CHECK 55 consecutive-zero detection
+
+# Cache/history entries dated before this are contaminated: a redundant `q`
+# param caused EDGAR to 500 on every search, an `entity_name` vs
+# `display_names` field mismatch dropped every dedup'd hit, and CIKs were
+# read from the filing-agent prefix instead of source.ciks — compounding to
+# total_ipos=0/risk_off=True on every run regardless of actual IPO activity.
+# Fixed 2026-06-15. Any backtest or analysis touching ipo_sentiment_cache
+# history before this date must treat total_ipos=0 as "unknown", not "zero".
+PRE_FIX_CONTAMINATION_DATE = "2026-06-15"
 
 # Regex for standard EDGAR filing IDs: 0001234567-23-000001
 # The first 10 digits are the zero-padded CIK.
@@ -136,6 +147,18 @@ SIC_TO_SECTOR: list[tuple[range, str]] = [
     (range(6510, 6553), "Real Estate"),
     (range(6726, 6727), "Real Estate"),
 ]
+
+
+def _entity_name(source: dict) -> str:
+    """
+    Extract a filer name from an EFTS hit's _source dict.
+
+    EFTS ignores the requested `_source` field list and always returns its
+    standard hit shape, where the filer name lives in `display_names`
+    (e.g. "Pattern Group Inc.  (PTRN)  (CIK 0001811935)"), not `entity_name`.
+    """
+    names = source.get("display_names") or []
+    return names[0] if names else ""
 
 
 def _sic_to_sector(sic_code: int) -> Optional[str]:
@@ -264,12 +287,11 @@ class IpoSentiment:
             type_count = 0
             while type_count < MAX_FILINGS:
                 params = {
-                    "q":         f'"{form_type}"',
                     "dateRange": "custom",
                     "startdt":   start,
                     "enddt":     end,
                     "forms":     form_type,
-                    "_source":   "file_date,entity_name,file_num,period_of_report",
+                    "_source":   "file_date,display_names,file_num,period_of_report",
                     "from":      offset,
                 }
 
@@ -316,7 +338,7 @@ class IpoSentiment:
         seen: set[str] = set()
         unique = []
         for f in filings:
-            name = f.get("_source", {}).get("entity_name", "")
+            name = _entity_name(f.get("_source", {}))
             if name and name not in seen:
                 seen.add(name)
                 unique.append(f)
@@ -332,9 +354,14 @@ class IpoSentiment:
         resolved = []
         for filing in filings:
             source = filing.get("_source", {})
-            name   = source.get("entity_name", "unknown")
+            name   = _entity_name(source) or "unknown"
 
-            cik = self._extract_cik(filing.get("_id", ""), name)
+            # Prefer the company's own CIK(s) from the hit source — the CIK
+            # embedded in the accession number prefix (_id) is the filing
+            # agent's CIK, which is often a shared third-party filer and
+            # does not resolve to the issuing company's submissions.
+            ciks = source.get("ciks") or []
+            cik  = ciks[0] if ciks else self._extract_cik(filing.get("_id", ""), name)
             if not cik:
                 continue
 
@@ -570,6 +597,31 @@ class IpoSentiment:
                 json.dump(payload, f, indent=2)
         except Exception as e:
             logger.warning(f"IpoSentiment: cache write failed: {e}")
+
+        self._append_history(result)
+
+    def _append_history(self, result: IpoSentimentResult) -> None:
+        """
+        Append today's total_ipos to a rolling history log, used by
+        CHECK 55 (nightly audit) to detect N consecutive zero-IPO days —
+        a pipeline-level regression signal distinct from genuinely sparse
+        IPO weeks.
+        """
+        try:
+            entries = []
+            if HISTORY_PATH.exists():
+                with open(HISTORY_PATH) as f:
+                    entries = json.load(f)
+
+            entries = [e for e in entries if e.get("date") != result.date]
+            entries.append({"date": result.date, "total_ipos": result.total_ipos})
+            entries = sorted(entries, key=lambda e: e["date"])[-HISTORY_MAX_DAYS:]
+
+            HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with open(HISTORY_PATH, "w") as f:
+                json.dump(entries, f, indent=2)
+        except Exception as e:
+            logger.warning(f"IpoSentiment: history write failed: {e}")
 
     def _load_cache(self, today_str: str) -> Optional[IpoSentimentResult]:
         try:

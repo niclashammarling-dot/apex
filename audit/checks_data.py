@@ -1,14 +1,17 @@
 """
-Data-integrity mechanical checks — CHECKs 14, 15, 17, 22, 33, 35, 39, 44, 46.
+Data-integrity mechanical checks — CHECKs 14, 15, 17, 22, 33, 35, 39, 44, 46, 47, 55, 56.
 
 Covers: EOD regime freshness, calibration freshness, sentiment cache,
 Yahoo data pipeline health, Bayesian multiplier health, PCR collection
 freshness, live peak_price integrity, regime-conditioned aggregator
-weight validation, and profit-lock ratchet wiring integrity.
+weight validation, profit-lock ratchet wiring integrity, IPO sentiment
+consecutive-zero detection, and EDGAR S-1 search API health.
 """
 import json
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
+
+import requests
 
 from audit._audit_core import REPO, _most_recent_trading_day, flag
 
@@ -605,6 +608,91 @@ def check47():
              f"could not query live_trades: {e}")
 
 
+# ── CHECK 55 — IPO sentiment consecutive-zero detection ──────────────────────
+
+def check55():
+    """
+    Flag if ipo_sentiment total_ipos has been 0 for 3+ consecutive logged days.
+
+    A single zero day is not actionable — genuine IPO activity is sparse
+    enough that 0 confirmed listings in a 30-day window happens routinely.
+    But 3+ consecutive zeros is a pipeline-regression signal: the 2026-06-15
+    bug (redundant `q` param → EDGAR 500s, `entity_name`/`display_names`
+    field mismatch, filer-CIK-vs-issuer-CIK) produced exactly this pattern
+    (total=0, risk_off=True) every single day with no error visible in the
+    happy-path log line. See PRE_FIX_CONTAMINATION_DATE in ipo_sentiment.py.
+    """
+    history_path = REPO / "data/ipo_sentiment_history.json"
+    if not history_path.exists():
+        return
+
+    try:
+        entries = json.loads(history_path.read_text())
+    except Exception as e:
+        flag(55, "IPO sentiment consecutive-zero", "WARNING",
+             "data/ipo_sentiment_history.json",
+             f"could not read history: {e}")
+        return
+
+    recent = sorted(entries, key=lambda e: e["date"])[-3:]
+    if len(recent) == 3 and all(e.get("total_ipos", 0) == 0 for e in recent):
+        dates = ", ".join(e["date"] for e in recent)
+        flag(55, "IPO sentiment consecutive-zero", "WARNING",
+             "data/ipo_sentiment_history.json",
+             f"total_ipos=0 for 3 consecutive logged days ({dates}) — "
+             f"verify against CHECK 56 (EDGAR S-1 smoke test); if EDGAR "
+             f"itself is healthy, this points to a pipeline regression "
+             f"in backend/regime/ipo_sentiment.py")
+
+
+# ── CHECK 56 — EDGAR S-1 search API smoke test ───────────────────────────────
+
+def check56():
+    """
+    Hit EDGAR full-text search directly for S-1 filings in the last 30 days
+    and assert hit count > 0.
+
+    This is independent of ipo_sentiment.py's parsing/dedup/CIK-resolution
+    logic — it catches API-level breakage (param rejection, schema changes,
+    rate limiting, outage) that CHECK 55 alone can't distinguish from a
+    pipeline bug. S-1 filings are continuous and frequent (~200+ in any
+    30-day window); 0 hits or a non-200 response means EDGAR itself is
+    broken or unreachable, not that IPO activity is genuinely zero.
+    """
+    end   = date.today()
+    start = end - timedelta(days=30)
+
+    try:
+        resp = requests.get(
+            "https://efts.sec.gov/LATEST/search-index",
+            params={
+                "forms":     "S-1",
+                "dateRange": "custom",
+                "startdt":   start.isoformat(),
+                "enddt":     end.isoformat(),
+            },
+            headers={
+                "User-Agent": "apex-trading-system contact@apex.local",
+                "Accept":     "application/json",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        total = resp.json().get("hits", {}).get("total", {}).get("value", 0)
+    except Exception as e:
+        flag(56, "EDGAR S-1 search API smoke test", "CRITICAL",
+             "backend/regime/ipo_sentiment.py",
+             f"EDGAR search-index request failed: {e}")
+        return
+
+    if total == 0:
+        flag(56, "EDGAR S-1 search API smoke test", "CRITICAL",
+             "backend/regime/ipo_sentiment.py",
+             f"EDGAR returned 0 S-1 filings for {start} to {end} — "
+             f"S-1 filings are continuous; 0 indicates EDGAR API "
+             f"breakage (param rejection, schema change, rate limit)")
+
+
 def run() -> None:
     check14()
     check15()
@@ -616,3 +704,5 @@ def run() -> None:
     check44()
     check46()
     check47()
+    check55()
+    check56()

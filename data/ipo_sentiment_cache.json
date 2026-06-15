@@ -1,41 +1,63 @@
 {
-  "date": "2026-06-14",
+  "date": "2026-06-15",
   "ipo_shares": {
-    "Industrials": 0.0667,
-    "Transportation": 0.0667,
-    "Materials": 0.0667,
-    "Financials": 0.0667,
-    "Utilities": 0.0667,
-    "Energy": 0.0667,
-    "Defense": 0.0667,
-    "Homebuilders": 0.0667,
-    "ConsumerDisc": 0.0667,
-    "ConsumerStaples": 0.0667,
-    "RealEstate": 0.0667,
-    "Semiconductors": 0.0667,
-    "Communication": 0.0667,
-    "Technology": 0.0667,
-    "Healthcare": 0.0667
+    "Defense": 0.0,
+    "Technology": 0.0,
+    "RealEstate": 0.0,
+    "Industrials": 0.0,
+    "Semiconductors": 0.0,
+    "ConsumerStaples": 0.0,
+    "Homebuilders": 0.0,
+    "Transportation": 0.0,
+    "Financials": 0.6667,
+    "Utilities": 0.0,
+    "Energy": 0.3333,
+    "Materials": 0.0,
+    "ConsumerDisc": 0.0,
+    "Healthcare": 0.0,
+    "Communication": 0.0
   },
   "ipo_counts": {
-    "Industrials": 0,
-    "Transportation": 0,
-    "Materials": 0,
-    "Financials": 0,
-    "Utilities": 0,
-    "Energy": 0,
     "Defense": 0,
-    "Homebuilders": 0,
-    "ConsumerDisc": 0,
-    "ConsumerStaples": 0,
-    "RealEstate": 0,
-    "Semiconductors": 0,
-    "Communication": 0,
     "Technology": 0,
-    "Healthcare": 0
+    "RealEstate": 0,
+    "Industrials": 0,
+    "Semiconductors": 0,
+    "ConsumerStaples": 0,
+    "Homebuilders": 0,
+    "Transportation": 0,
+    "Financials": 2,
+    "Utilities": 0,
+    "Energy": 1,
+    "Materials": 0,
+    "ConsumerDisc": 0,
+    "Healthcare": 0,
+    "Communication": 0
   },
-  "total_ipos": 0,
-  "risk_off": true,
-  "context": "IPO Sentiment (2026-06-14, last 30 days):\n  Total market IPOs: 0\n  RISK-OFF SIGNAL: Zero IPO activity in window.\n  Interpretation: institutional capital avoiding new listings.\n  Consider: reduce position sizing, favour defensive sectors.",
-  "listings": []
+  "total_ipos": 3,
+  "risk_off": false,
+  "context": "IPO Sentiment (2026-06-15, last 30 days):\n  Total market IPOs: 3\n  Sector distribution:\n    Financials                 2 IPOs  (67%)  \u2588\u2588\n    Energy                     1 IPOs  (33%)  \u2588",
+  "listings": [
+    {
+      "ticker": "FRBT",
+      "company": "Forbright, Inc.",
+      "sector": "Financials",
+      "sic_code": 6022,
+      "list_date": "2026-06-11"
+    },
+    {
+      "ticker": "WHK",
+      "company": "WhiteHawk Minerals Corp.",
+      "sector": "Energy",
+      "sic_code": 1311,
+      "list_date": "2026-06-09"
+    },
+    {
+      "ticker": "HYPG",
+      "company": "Grayscale Hyperliquid Staking ETF",
+      "sector": "Financials",
+      "sic_code": 6221,
+      "list_date": "2026-06-03"
+    }
+  ]
 }
