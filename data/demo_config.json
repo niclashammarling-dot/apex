@@ -22,5 +22,6 @@
   "starting_balance": 2000,
   "max_drawdown_pct": 0.2,
   "macro_earnings_near_days": 14,
-  "macro_earnings_near_penalty": 0.15
+  "macro_earnings_near_penalty": 0.15,
+  "macro_pre_event_penalty": 0.05
 }

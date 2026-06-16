@@ -175,8 +175,8 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
     # ── B. Macro filter ───────────────────────────────────────────────────────
     _vt = cfg.get("vix_threshold")
     vix_threshold     = 25.0 if _vt is None else _vt
-    _eb = cfg.get("macro_event_blackout_days")
-    event_blackout    = 1    if _eb is None else _eb
+    _ep2 = cfg.get("macro_pre_event_penalty")
+    macro_pre_event_penalty = 0.05 if _ep2 is None else _ep2
     _ea = cfg.get("macro_earnings_blackout_days")
     earnings_blackout = 3    if _ea is None else _ea
     _en = cfg.get("macro_earnings_near_days")
@@ -198,8 +198,8 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
             },
         )
 
-    blocked, event_desc = _days_to_nearest_event(today, event_blackout, _FOMC_PRE_EVENT_DAYS)
-    if blocked:
+    macro_status, event_desc = _macro_status(today, _FOMC_PRE_EVENT_DAYS)
+    if macro_status == "hard_block":
         return LockResult.fail(
             lock_id=LOCK_ID,
             reason=f"Macro event blackout: {event_desc}",
@@ -211,6 +211,13 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
                 "vix":              vix,
             },
         )
+    macro_penalty_data: dict = {}
+    if macro_status == "pre_event":
+        macro_penalty_data = {
+            "macro_pre_event":         True,
+            "macro_pre_event_event":   event_desc,
+            "macro_pre_event_penalty": macro_pre_event_penalty,
+        }
 
     earnings = _get_earnings_date(ticker)
     earnings_data: dict = {}
@@ -260,6 +267,7 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
             "rank":             rank,
             "floor":            ALLOCATION_FLOOR,
             **earnings_data,
+            **macro_penalty_data,
             "regime_leader":    regime_result.leader,
             "regime_date":      regime_result.date,
             "vix":              vix,
@@ -327,25 +335,27 @@ def _get_vix() -> float | None:
 
 # ── Macro event helpers ───────────────────────────────────────────────────────
 
-def _days_to_nearest_event(
-    today: date, event_blackout: int, fomc_blackout: int
-) -> tuple[bool, str | None]:
-    """Pre-event only. Post-event entries are not blocked — the print is known and
-    the regime signal has more information, not less."""
+def _macro_status(today: date, fomc_blackout: int) -> tuple[str, str | None]:
+    """Return ("hard_block", desc), ("pre_event", desc), or ("clear", None).
+
+    FOMC: hard block for the full pre-event window (fomc_blackout days).
+    CPI/NFP: hard block on the event day; pre_event on the day before.
+    Post-event entries are never blocked — the print is known.
+    """
     for d in _MACRO_DATES:
-        if d in _FOMC_DATES:
-            name    = "FOMC"
-            window  = fomc_blackout
-        elif d in _CPI_DATES:
-            name    = "CPI"
-            window  = event_blackout
-        else:
-            name    = "NFP"
-            window  = event_blackout
         days_ahead = (d - today).days
-        if 0 <= days_ahead <= window:
-            return True, f"{name} on {d.isoformat()} (in {days_ahead}d)"
-    return False, None
+        if days_ahead < 0:
+            continue
+        if d in _FOMC_DATES:
+            if days_ahead <= fomc_blackout:
+                return "hard_block", f"FOMC on {d.isoformat()} (in {days_ahead}d)"
+        else:
+            name = "CPI" if d in _CPI_DATES else "NFP"
+            if days_ahead == 0:
+                return "hard_block", f"{name} on {d.isoformat()} (today)"
+            if days_ahead == 1:
+                return "pre_event", f"{name} on {d.isoformat()} (tomorrow)"
+    return "clear", None
 
 
 def _check_calendar_expiry() -> None:

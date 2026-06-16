@@ -58,7 +58,7 @@ def _evaluate_with_earnings(ticker: str, delta_days: int, **cfg_overrides) -> "L
     with (
         patch.object(m, "_get_regime_result", return_value=regime),
         patch.object(m, "_get_vix",           return_value=10.0),
-        patch.object(m, "_days_to_nearest_event", return_value=(False, None)),
+        patch.object(m, "_macro_status", return_value=("clear", None)),
         patch.object(m, "_get_earnings_date", return_value=earnings),
     ):
         return evaluate(ticker, "Technology", cfg)
@@ -133,7 +133,7 @@ def test_no_earnings_date_passes():
     with (
         patch.object(m, "_get_regime_result", return_value=regime),
         patch.object(m, "_get_vix",           return_value=10.0),
-        patch.object(m, "_days_to_nearest_event", return_value=(False, None)),
+        patch.object(m, "_macro_status", return_value=("clear", None)),
         patch.object(m, "_get_earnings_date", return_value=None),
     ):
         r = evaluate("SPY", "Technology", _cfg())

@@ -20,6 +20,77 @@ import math
 from datetime import date, timedelta
 from typing import TypedDict
 
+# ── Macro event calendar (mirrors lock1_eligibility) ──────────────────────────
+_FOMC_DATES: set[date] = {
+    date(2021, 1, 27), date(2021, 3, 17), date(2021, 4, 28), date(2021, 6, 16),
+    date(2021, 7, 28), date(2021, 9, 22), date(2021, 11, 3), date(2021, 12, 15),
+    date(2022, 1, 26), date(2022, 3, 16), date(2022, 5, 4),  date(2022, 6, 15),
+    date(2022, 7, 27), date(2022, 9, 21), date(2022, 11, 2), date(2022, 12, 14),
+    date(2023, 2, 1),  date(2023, 3, 22), date(2023, 5, 3),  date(2023, 6, 14),
+    date(2023, 7, 26), date(2023, 9, 20), date(2023, 11, 1), date(2023, 12, 13),
+    date(2024, 1, 31), date(2024, 3, 20), date(2024, 5, 1),  date(2024, 6, 12),
+    date(2024, 7, 31), date(2024, 9, 18), date(2024, 11, 7), date(2024, 12, 18),
+    date(2025, 1, 29), date(2025, 3, 19), date(2025, 5, 7),  date(2025, 6, 18),
+    date(2025, 7, 30), date(2025, 9, 17), date(2025, 10, 29), date(2025, 12, 10),
+    date(2026, 1, 28), date(2026, 3, 18), date(2026, 4, 29), date(2026, 6, 17),
+    date(2026, 7, 29), date(2026, 9, 16), date(2026, 10, 28), date(2026, 12, 9),
+}
+_CPI_DATES: set[date] = {
+    date(2021, 1, 13), date(2021, 2, 10), date(2021, 3, 10), date(2021, 4, 13),
+    date(2021, 5, 12), date(2021, 6, 10), date(2021, 7, 13), date(2021, 8, 11),
+    date(2021, 9, 14), date(2021, 10, 13), date(2021, 11, 10), date(2021, 12, 10),
+    date(2022, 1, 12), date(2022, 2, 10), date(2022, 3, 10), date(2022, 4, 12),
+    date(2022, 5, 11), date(2022, 6, 10), date(2022, 7, 13), date(2022, 8, 10),
+    date(2022, 9, 13), date(2022, 10, 13), date(2022, 11, 10), date(2022, 12, 13),
+    date(2023, 1, 12), date(2023, 2, 14), date(2023, 3, 14), date(2023, 4, 12),
+    date(2023, 5, 10), date(2023, 6, 13), date(2023, 7, 12), date(2023, 8, 10),
+    date(2023, 9, 13), date(2023, 10, 12), date(2023, 11, 14), date(2023, 12, 12),
+    date(2024, 1, 11), date(2024, 2, 13), date(2024, 3, 12), date(2024, 4, 10),
+    date(2024, 5, 15), date(2024, 6, 12), date(2024, 7, 11), date(2024, 8, 14),
+    date(2024, 9, 11), date(2024, 10, 10), date(2024, 11, 13), date(2024, 12, 11),
+    date(2025, 1, 15), date(2025, 2, 12), date(2025, 3, 12), date(2025, 4, 10),
+    date(2025, 5, 13), date(2025, 6, 11), date(2025, 7, 15), date(2025, 8, 12),
+    date(2025, 9, 10), date(2025, 10, 15), date(2025, 11, 13), date(2025, 12, 10),
+    date(2026, 1, 14), date(2026, 2, 11), date(2026, 3, 11), date(2026, 4, 8),
+    date(2026, 5, 13), date(2026, 6, 10), date(2026, 7, 15), date(2026, 8, 12),
+    date(2026, 9, 9),  date(2026, 10, 14), date(2026, 11, 12), date(2026, 12, 9),
+}
+
+
+def _build_nfp_dates(start_year: int = 2021, end_year: int = 2026) -> set[date]:
+    dates = set()
+    for year in range(start_year, end_year + 1):
+        for month in range(1, 13):
+            d = date(year, month, 1)
+            days_ahead = (4 - d.weekday()) % 7
+            dates.add(d + timedelta(days=days_ahead))
+    return dates
+
+
+_NFP_DATES: set[date] = _build_nfp_dates()
+_FOMC_PRE_DAYS = 2   # days before FOMC date that are hard-blocked
+_CPI_NFP_EVENT_DAY_ONLY = 0  # day-of is always hard-blocked
+
+
+def _macro_status(today: date) -> str:
+    """
+    Return the macro status for today:
+      "hard_block"   — event day (all types) or within FOMC pre-window
+      "pre_event"    — day before CPI or NFP (candidates for penalty instead of block)
+      "clear"        — no relevant macro event nearby
+    """
+    for d in _FOMC_DATES:
+        delta = (d - today).days
+        if 0 <= delta <= _FOMC_PRE_DAYS:
+            return "hard_block"
+    for d in _CPI_DATES | _NFP_DATES:
+        delta = (d - today).days
+        if delta == 0:
+            return "hard_block"
+        if delta == 1:
+            return "pre_event"
+    return "clear"
+
 import pandas as pd
 import yfinance as yf
 from loguru import logger
@@ -102,6 +173,8 @@ def run(
     max_positions:      int   | None = None,
     sl_cooldown_days:   int         = 5,
     tp_cooldown_days:   int         = 0,
+    macro_hard_block:   bool        = False,
+    macro_pre_event_penalty: float | None = None,
 ) -> BacktestResult:
     """
     Run a historical backtest from start_date to end_date.
@@ -228,6 +301,21 @@ def run(
 
         # Macro lock proxy: skip new entries on high-VIX days
         vix_blocked = vix_threshold is not None and _vix_on(raw_data, today) > vix_threshold
+
+        # Macro calendar filter
+        macro_day = _macro_status(today)
+        if macro_hard_block and macro_day in ("hard_block", "pre_event"):
+            candidates = []
+        elif macro_day == "hard_block":
+            candidates = []
+        elif macro_day == "pre_event" and macro_pre_event_penalty is not None:
+            penalized = []
+            for sig in candidates:
+                new_score = sig["signal_score"] * (1.0 - macro_pre_event_penalty)
+                floor = SECTOR_THRESHOLD_FLOORS.get(sig["sector"], 0.0)
+                if new_score >= max(l1, floor):
+                    penalized.append({**sig, "signal_score": round(new_score, 4)})
+            candidates = penalized
 
         for sig in ([] if vix_blocked else sorted(candidates, key=lambda s: s["signal_score"], reverse=True)):
             if len(open_trades) >= max_pos:

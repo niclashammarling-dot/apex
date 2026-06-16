@@ -116,6 +116,17 @@ def evaluate_chain(
             f"signal_score {original:.4f} → {signal_score:.4f}"
         )
 
+    # Macro pre-event penalty (CPI/NFP day-before): reduce signal_score before L2 sees it
+    macro_penalty = l1.data.get("macro_pre_event_penalty", 0.0)
+    if macro_penalty:
+        original = signal_score
+        signal_score = signal_score * (1.0 - macro_penalty)
+        logger.debug(
+            f"[{ticker}] Macro pre-event penalty {macro_penalty:.0%} "
+            f"({l1.data.get('macro_pre_event_event', '')}): "
+            f"signal_score {original:.4f} → {signal_score:.4f}"
+        )
+
     # ── Lock 2: Quant ─────────────────────────────────────────────────────────
     l2 = lock2_evaluate(ticker, sector, signal_score, on_watchlist=on_watchlist,
                         sector_thresholds=sector_thresholds)
