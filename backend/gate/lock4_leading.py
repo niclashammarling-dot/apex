@@ -20,7 +20,8 @@ from __future__ import annotations
 
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from contextlib import contextmanager
 
 import yfinance as yf
 from loguru import logger
@@ -35,8 +36,43 @@ from backend.gate.types import LockResult
 # "curl:(35) TLS connect error" failures. Tune upward only on bare-metal Linux.
 _YF_SEMAPHORE = threading.Semaphore(4)
 
+# Hard ceiling on a single yfinance call. yf.download() defaults to timeout=10
+# internally, but Ticker.options/.option_chain() take no timeout parameter and
+# curl_cffi's shared BoringSSL singleton has been observed to hang outright
+# under concurrent load rather than raise (2026-06-23: one ticker's Lock 4
+# evaluation never returned, which blocked the entire gate cycle's
+# ThreadPoolExecutor.shutdown(wait=True) forever — no further cycles ran).
+# This bounds each sub-check's future so one hung call degrades to a logged
+# failure instead of freezing the whole gate cycle. Acquiring the semaphore is
+# itself time-bounded too: a thread that's still genuinely stuck inside a call
+# leaks its permit permanently (Python has no way to cancel a running thread),
+# but bounding acquire() means everyone else degrades to "fewer slots
+# available" instead of every future caller blocking forever once permits run out.
+_YF_CALL_TIMEOUT_S      = 15
+_YF_SEMAPHORE_TIMEOUT_S = 20
+
 LOCK_ID  = 4
 MIN_PASS = 2
+
+
+class _YfSemaphoreBusy(Exception):
+    """Raised when the yfinance semaphore can't be acquired within the timeout —
+    likely because a prior call leaked a permit by hanging forever."""
+
+
+@contextmanager
+def _yf_slot():
+    """Bounded-wait semaphore acquire. Raises _YfSemaphoreBusy instead of
+    blocking forever if every permit is held (possibly leaked by a hung call)."""
+    if not _YF_SEMAPHORE.acquire(timeout=_YF_SEMAPHORE_TIMEOUT_S):
+        raise _YfSemaphoreBusy(
+            f"could not acquire yfinance semaphore within {_YF_SEMAPHORE_TIMEOUT_S}s "
+            "— all permits busy or leaked by a hung call"
+        )
+    try:
+        yield
+    finally:
+        _YF_SEMAPHORE.release()
 
 # PCR threshold — set to 0.85 based on 17-day APEX universe sample (mean 0.827).
 # Generic options-literature prior (0.7) passes Utilities/Financials names that are
@@ -121,36 +157,55 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS) -> LockResult:
     # put_call_ratio and unusual_calls are pure computation on options_chains — no I/O.
     # _YF_SEMAPHORE (module-level) caps total concurrent yfinance requests across all
     # outer gate-runner threads; inner pool size of 3 matches the fetch count.
-    with ThreadPoolExecutor(max_workers=3) as inner_pool:
-        fut_options = inner_pool.submit(_fetch_options_chains, ticker)
-        fut_rs      = inner_pool.submit(_check_relative_strength, ticker, sector)
-        fut_va      = inner_pool.submit(_check_volume_accumulation, ticker)
+    #
+    # Deliberately NOT a `with ThreadPoolExecutor(...) as inner_pool:` block —
+    # its __exit__ calls shutdown(wait=True) unconditionally, which would block
+    # here forever on a genuinely hung future even with .result(timeout=...)
+    # below. shutdown(wait=False) lets this function return; the hung thread
+    # itself still leaks (Python has no way to kill a running thread), but it
+    # no longer takes the whole gate cycle down with it.
+    inner_pool  = ThreadPoolExecutor(max_workers=3)
+    fut_options = inner_pool.submit(_fetch_options_chains, ticker)
+    fut_rs      = inner_pool.submit(_check_relative_strength, ticker, sector)
+    fut_va      = inner_pool.submit(_check_volume_accumulation, ticker)
 
-        options_fetch_err: str | None = None
-        try:
-            options_chains = fut_options.result()
-        except Exception as e:
-            logger.warning(f"Lock 4 [{ticker}] options fetch: {e}")
-            options_chains = []
-            msg = str(e)
-            if "curl" in msg.lower() or "tls" in msg.lower():
-                options_fetch_err = "curl TLS error"
-            elif "429" in msg or "rate" in msg.lower():
-                options_fetch_err = "Yahoo 429 rate limit"
-            else:
-                options_fetch_err = f"fetch error: {msg[:60]}"
+    options_fetch_err: str | None = None
+    try:
+        options_chains = fut_options.result(timeout=_YF_CALL_TIMEOUT_S)
+    except FutureTimeoutError:
+        logger.error(f"Lock 4 [{ticker}] options fetch: timed out after {_YF_CALL_TIMEOUT_S}s — abandoning")
+        options_chains    = []
+        options_fetch_err = "timed out"
+    except Exception as e:
+        logger.warning(f"Lock 4 [{ticker}] options fetch: {e}")
+        options_chains = []
+        msg = str(e)
+        if "curl" in msg.lower() or "tls" in msg.lower():
+            options_fetch_err = "curl TLS error"
+        elif "429" in msg or "rate" in msg.lower():
+            options_fetch_err = "Yahoo 429 rate limit"
+        else:
+            options_fetch_err = f"fetch error: {msg[:60]}"
 
-        try:
-            rs_result = fut_rs.result()
-        except Exception as e:
-            logger.warning(f"Lock 4 [{ticker}] relative_strength: {e}")
-            rs_result = {"pass": False, "error": True, "reason": f"error: {e}"}
+    try:
+        rs_result = fut_rs.result(timeout=_YF_CALL_TIMEOUT_S)
+    except FutureTimeoutError:
+        logger.error(f"Lock 4 [{ticker}] relative_strength: timed out after {_YF_CALL_TIMEOUT_S}s — abandoning")
+        rs_result = {"pass": False, "error": True, "reason": f"timed out after {_YF_CALL_TIMEOUT_S}s"}
+    except Exception as e:
+        logger.warning(f"Lock 4 [{ticker}] relative_strength: {e}")
+        rs_result = {"pass": False, "error": True, "reason": f"error: {e}"}
 
-        try:
-            va_result = fut_va.result()
-        except Exception as e:
-            logger.warning(f"Lock 4 [{ticker}] volume_accumulation: {e}")
-            va_result = {"pass": False, "error": True, "reason": f"error: {e}"}
+    try:
+        va_result = fut_va.result(timeout=_YF_CALL_TIMEOUT_S)
+    except FutureTimeoutError:
+        logger.error(f"Lock 4 [{ticker}] volume_accumulation: timed out after {_YF_CALL_TIMEOUT_S}s — abandoning")
+        va_result = {"pass": False, "error": True, "reason": f"timed out after {_YF_CALL_TIMEOUT_S}s"}
+    except Exception as e:
+        logger.warning(f"Lock 4 [{ticker}] volume_accumulation: {e}")
+        va_result = {"pass": False, "error": True, "reason": f"error: {e}"}
+
+    inner_pool.shutdown(wait=False)
 
     checks = {
         "relative_strength":   rs_result,
@@ -226,7 +281,7 @@ def _fetch_options_chains(ticker: str) -> list[tuple]:
         if attempt > 0:
             time.sleep(0.5)
         try:
-            with _YF_SEMAPHORE:
+            with _yf_slot():
                 t        = yf.Ticker(ticker)
                 expiries = t.options
                 if not expiries:
@@ -260,7 +315,7 @@ def _check_relative_strength(ticker: str, sector: str) -> dict:
         if attempt > 0:
             time.sleep(0.5)
         try:
-            with _YF_SEMAPHORE:
+            with _yf_slot():
                 raw = yf.download([ticker, etf], period="8d", progress=False,
                                    auto_adjust=True)
         except yf.exceptions.YFRateLimitError:
@@ -364,7 +419,7 @@ def _check_volume_accumulation(ticker: str) -> dict:
         if attempt > 0:
             time.sleep(0.5)
         try:
-            with _YF_SEMAPHORE:
+            with _yf_slot():
                 raw = yf.download(ticker, period="30d", progress=False, auto_adjust=True)
         except yf.exceptions.YFRateLimitError:
             return {"pass": False, "error": True, "reason": "Yahoo 429 rate limit"}

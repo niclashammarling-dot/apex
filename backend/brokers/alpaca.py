@@ -10,12 +10,28 @@ Live trading:   ALPACA_BASE_URL=https://api.alpaca.markets
 """
 from loguru import logger
 
+# Imported once at module load — not per-call. alpaca-py is a hard dependency
+# (requirements.txt), and importing lazily inside functions let concurrent
+# threads (gate runner's ThreadPoolExecutor + FastAPI request threads) race to
+# import the same submodule for the first time, which deadlocks CPython's
+# per-module import lock (observed 2026-06-23: "deadlock detected by
+# _ModuleLock('alpaca.trading.enums')" — once that happens the process is
+# poisoned and every subsequent broker call hangs until restart).
+from alpaca.trading.client import TradingClient
+from alpaca.trading.enums import OrderClass, OrderSide, QueryOrderStatus, TimeInForce
+from alpaca.trading.requests import (
+    GetOrdersRequest,
+    GetPortfolioHistoryRequest,
+    MarketOrderRequest,
+    ReplaceOrderRequest,
+    StopLossRequest,
+    StopOrderRequest,
+    TakeProfitRequest,
+)
+
 
 def _client():
-    """Return a cached TradingClient. Imported lazily to avoid startup errors
-    when alpaca-py is not yet installed."""
-    from alpaca.trading.client import TradingClient
-
+    """Return a TradingClient built from current config."""
     from backend.config import ALPACA_API_KEY, ALPACA_BASE_URL, ALPACA_SECRET_KEY
     paper = "paper-api" in ALPACA_BASE_URL
     return TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=paper)
@@ -76,8 +92,6 @@ def get_positions() -> list[dict]:
 def get_orders(limit: int = 50, nested: bool = False) -> list[dict]:
     """Return recent orders (all statuses). Pass nested=True to include bracket legs."""
     try:
-        from alpaca.trading.enums import QueryOrderStatus
-        from alpaca.trading.requests import GetOrdersRequest
         req = GetOrdersRequest(status=QueryOrderStatus.ALL, limit=limit, nested=nested)
         orders = _client().get_orders(filter=req)
         return [
@@ -128,13 +142,6 @@ def place_bracket_order(
     Alpaca bracket orders do not support fractional shares — qty is floored to
     the nearest whole share. Prices rounded to 2dp (sufficient for US equities).
     """
-    from alpaca.trading.enums import OrderClass, OrderSide, TimeInForce
-    from alpaca.trading.requests import (
-        MarketOrderRequest,
-        StopLossRequest,
-        TakeProfitRequest,
-    )
-
     qty = int(notional / current_price)  # floor to whole shares — bracket orders require integer qty
     if qty <= 0:
         raise ValueError(f"Computed qty={qty} for {ticker} @ ${current_price:.2f} notional=${notional:.2f}")
@@ -198,7 +205,6 @@ def get_portfolio_history(period: str = "1M") -> list[dict]:
     """
     from datetime import datetime, timezone
 
-    from alpaca.trading.requests import GetPortfolioHistoryRequest
     try:
         req  = GetPortfolioHistoryRequest(period=period, timeframe="1D")
         hist = _client().get_portfolio_history(history_filter=req)
@@ -219,8 +225,6 @@ def get_portfolio_history(period: str = "1M") -> list[dict]:
 
 def cancel_open_orders(ticker: str) -> int:
     """Cancel all open orders for ticker. Returns count cancelled."""
-    from alpaca.trading.enums import QueryOrderStatus
-    from alpaca.trading.requests import GetOrdersRequest
     try:
         req = GetOrdersRequest(status=QueryOrderStatus.OPEN, symbols=[ticker])
         orders = _client().get_orders(filter=req)
@@ -258,7 +262,6 @@ def replace_stop_leg(leg_id: str, new_stop_price: float, qty: int, ticker: str) 
     target account type (paper vs live).
     """
     import uuid as _uuid
-    from alpaca.trading.requests import ReplaceOrderRequest
 
     try:
         result = _client().replace_order_by_id(
@@ -278,9 +281,6 @@ def replace_stop_leg(leg_id: str, new_stop_price: float, qty: int, ticker: str) 
         )
 
     # Fallback: cancel the old leg, place a standalone GTC stop sell order.
-    from alpaca.trading.enums import OrderSide, TimeInForce
-    from alpaca.trading.requests import StopOrderRequest
-
     try:
         _client().cancel_order_by_id(_uuid.UUID(leg_id))
     except Exception as cancel_err:

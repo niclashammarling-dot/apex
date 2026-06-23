@@ -193,11 +193,19 @@ def check33():
     Mode A produces no multiplier entries at all (multiplier_count=0).
     Mode B produces entries but every value is 1.0 (all_unity=True).
 
-    The suspicious_cycles counter in the stats file tracks mode B specifically.
+    Cycles are tagged by runner ("demo"/"live") since gate_runner.py and
+    gate_runner_live.py both write to this file; suspicious_cycles is
+    counted separately per runner so one runner's failure can't be masked
+    by the other's healthy cycles. Live freshness is only required when
+    LIVE_ENABLED — when live trading is off, no live cycles are expected.
 
-    CRITICAL: any suspicious cycle detected in the most recent stats file.
-    WARNING: stats file missing or predates the most recent trading day.
+    CRITICAL: any suspicious cycle detected for either runner in the most
+    recent stats file.
+    WARNING: stats file missing or predates the most recent trading day for
+    a runner that should have run.
     """
+    from backend.config import LIVE_ENABLED
+
     path       = REPO / "data" / "bayesian_multiplier_stats.json"
     today      = date.today()
     is_trading = today.weekday() < 5
@@ -219,6 +227,10 @@ def check33():
         return
 
     file_date = stats.get("date", "")
+    cycles     = stats.get("cycles", [])
+    runners_seen = {c.get("runner", "demo") for c in cycles}
+    required_runners = {"demo"} | ({"live"} if LIVE_ENABLED else set())
+
     if is_trading:
         last_trading_day = _most_recent_trading_day(today - timedelta(days=1))
         file_d = date.fromisoformat(file_date) if file_date else None
@@ -230,14 +242,25 @@ def check33():
                  "_persist_multiplier_stats() was removed")
             return
 
-    suspicious = stats.get("suspicious_cycles", 0)
-    if suspicious > 0:
-        total = len(stats.get("cycles", []))
-        flag(33, "Bayesian multiplier health", "CRITICAL",
-             "data/bayesian_multiplier_stats.json",
-             f"{suspicious}/{total} gate cycle(s): regime_result present, ≥3 tickers queued, "
-             f"but all multipliers=1.0 — ticker_allocations() likely returned zeros or "
-             f"sector allocation lookup failed silently; Bayesian sizing had no effect")
+        missing_runners = required_runners - runners_seen
+        if missing_runners:
+            flag(33, "Bayesian multiplier health", "WARNING",
+                 "data/bayesian_multiplier_stats.json",
+                 f"No cycles recorded today for runner(s) {sorted(missing_runners)} — "
+                 "that gate runner may not be completing cycles")
+
+    suspicious = stats.get("suspicious_cycles", {})
+    if not isinstance(suspicious, dict):
+        suspicious = {"demo": suspicious}  # back-compat with pre-tagging int format
+
+    for runner, count in suspicious.items():
+        if count > 0:
+            total = sum(1 for c in cycles if c.get("runner", "demo") == runner)
+            flag(33, "Bayesian multiplier health", "CRITICAL",
+                 "data/bayesian_multiplier_stats.json",
+                 f"[{runner}] {count}/{total} gate cycle(s): regime_result present, ≥3 tickers "
+                 f"queued, but all multipliers=1.0 — ticker_allocations() likely returned zeros "
+                 f"or sector allocation lookup failed silently; Bayesian sizing had no effect")
 
 
 # ── CHECK 35 — PCR collection freshness ──────────────────────────────────────

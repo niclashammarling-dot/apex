@@ -25,7 +25,12 @@ from backend.db import (
     insert_live_trade,
 )
 from backend.gate.chain import build_base_context, evaluate_chain
-from backend.gate.gate_runner import PRE_ROTATION_FLOOR, _chain_to_gate_result, _compute_bayesian_multipliers
+from backend.gate.gate_runner import (
+    PRE_ROTATION_FLOOR,
+    _chain_to_gate_result,
+    _compute_bayesian_multipliers,
+    _persist_multiplier_stats,
+)
 from backend.sector_caps import compute_dynamic_caps
 
 _MAX_WORKERS = 5
@@ -74,6 +79,7 @@ def run() -> list[dict]:
                                       sector_thresholds=sector_thresholds)
     if not candidates:
         logger.info("Live gate runner: no Lock 1 candidates this cycle")
+        _persist_multiplier_stats({}, None, [], runner="live")
         return []
 
     # Skip tickers already held, in gate cooloff, or in exit cooloff
@@ -108,6 +114,8 @@ def run() -> list[dict]:
             "lock3_conviction":      None,
             "macro_reason":          None,
             "ticker_signal":         None,
+            "earnings_near":         None,
+            "days_to_earnings":      None,
         })
 
     if skipped:
@@ -119,12 +127,14 @@ def run() -> list[dict]:
 
     if not candidates:
         logger.info("Live gate runner: all candidates skipped (open positions / cooloff)")
+        _persist_multiplier_stats({}, None, [], runner="live")
         return []
 
     from backend.config import EXCLUDED_SECTORS
     candidates = [c for c in candidates if c.get("sector", "") not in EXCLUDED_SECTORS]
     if not candidates:
         logger.info("Live gate runner: all candidates in excluded sectors")
+        _persist_multiplier_stats({}, None, [], runner="live")
         return []
 
     logger.info(f"Live gate runner: {len(candidates)} candidate(s) — {[c['ticker'] for c in candidates]}")
@@ -378,6 +388,7 @@ def run() -> list[dict]:
         _log_summary(ticker, result)
         results.append(result)
 
+    _persist_multiplier_stats(bayesian_multipliers, regime_bayes_result, evaluated, runner="live")
     return results
 
 

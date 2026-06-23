@@ -78,6 +78,8 @@ def run() -> list[dict]:
             "lock_leading_checks": None, "lock3_pass": 0,
             "gate_decision": decision, "lock3_reasoning": None,
             "l2_summary": None, "macro_reason": None,
+            "ticker_signal": None, "earnings_near": None, "days_to_earnings": None,
+            "lock3_sentiment_score": None, "lock3_conviction": None,
         })
 
     if skipped:
@@ -175,6 +177,31 @@ def run() -> list[dict]:
 
     for signal, result in evaluated:
         ticker = signal["ticker"]
+
+        # L5 deferred path — run Claude only when a slot is confirmed available.
+        if result["outcome"] == "TRADE_QUEUED_PENDING_L5":
+            sector         = signal.get("sector", "")
+            base_threshold = (sector_thresholds or {}).get(sector, cfg["lock1_threshold"])
+            if ticker in open_tickers:
+                logger.info(f"Gate runner: trade skipped [{ticker}]: position already open (pre-L5)")
+                result["outcome"] = "TRADE_REJECTED"
+                result.pop("_l5_lock_results", None)
+                result.pop("_l5_context", None)
+            elif open_count >= max_positions:
+                overflow_level     = open_count - max_positions + 1
+                overflow_threshold = round(base_threshold * (1 + overflow_level * overflow_increment), 4)
+                if signal["signal_score"] < overflow_threshold:
+                    logger.warning(
+                        f"Gate runner [{ticker}]: overflow slot {overflow_level} rejected pre-L5 — "
+                        f"score {signal['signal_score']:.4f} below {overflow_threshold:.4f}"
+                    )
+                    result["outcome"] = "FILTERED_OVERFLOW_QUANT"
+                    result.pop("_l5_lock_results", None)
+                    result.pop("_l5_context", None)
+                else:
+                    _run_l5_for_result(signal, result, cfg)
+            else:
+                _run_l5_for_result(signal, result, cfg)
 
         # Apply Bayesian sector sizing — scale Lock 5 recommendation by relative
         # signal strength within the sector's portfolio allocation.
@@ -274,9 +301,42 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
         regime_bayes_result=regime_bayes_result,
     )
     chain   = evaluate_chain(ticker, sector, signal_score, context, cfg,
-                             on_watchlist=on_watchlist,
+                             on_watchlist=on_watchlist, stop_after_lock=4,
                              sector_thresholds=sector_thresholds)
-    return _chain_to_gate_result(signal, chain)
+    result  = _chain_to_gate_result(signal, chain)
+    # Stash L5 inputs so the serial executor can run L5 only when a slot is available.
+    if chain.l5_pending:
+        result["_l5_lock_results"] = chain.lock_results
+        result["_l5_context"]      = context
+    return result
+
+
+def _run_l5_for_result(signal: dict, result: dict, cfg: dict) -> None:
+    """
+    Run Lock 5 (Claude) in the serial execution phase using stashed inputs.
+    Mutates result in-place: sets outcome, lock3, lock3_pass, claude_reasoning.
+    """
+    from backend.gate.lock5_claude import evaluate as lock5_evaluate
+    ticker       = signal["ticker"]
+    sector       = signal.get("sector", "")
+    lock_results = result.pop("_l5_lock_results", {})
+    context      = result.pop("_l5_context", {})
+
+    l5      = lock5_evaluate(ticker, sector, lock_results, context,
+                             confidence_min=cfg.get("lock3_confidence_min"))
+    l5_data = l5.data if l5 else {}
+
+    result["lock3"] = {
+        "passed":            l5.passed,
+        "decision":          l5_data.get("decision"),
+        "confidence":        l5_data.get("confidence", 0.0),
+        "position_size_pct": l5_data.get("position_size_pct", 0.0),
+        "reasoning":         l5_data.get("reasoning"),
+        "model":             l5_data.get("model"),
+    }
+    result["lock3_pass"]       = int(l5.passed)
+    result["claude_reasoning"] = l5_data.get("reasoning")
+    result["outcome"]         = "TRADE_QUEUED" if l5.passed else "FILTERED_L3"
 
 
 _OUTCOMES = {
@@ -380,14 +440,17 @@ def _persist_multiplier_stats(
     multipliers: dict[str, float],
     regime_bayes_result,
     evaluated: list[tuple[dict, dict]],
+    runner: str = "demo",
 ) -> None:
     """
     Append one cycle record to the daily Bayesian multiplier stats file.
 
-    The file accumulates per-cycle entries within a trading day. The audit
-    check reads it nightly and flags any cycle where regime was present,
-    ≥3 tickers were queued, but every multiplier was exactly 1.0 — the
-    silent failure mode where ticker_allocations() returned zeros.
+    The file accumulates per-cycle entries within a trading day, tagged by
+    runner ("demo" or "live") so the two gate runners' cycles don't get
+    conflated into one signal. The audit check reads it nightly and flags
+    any cycle where regime was present, ≥3 tickers were queued, but every
+    multiplier was exactly 1.0 — the silent failure mode where
+    ticker_allocations() returned zeros.
     """
     today = date.today().isoformat()
     queued_count    = sum(1 for _, r in evaluated if r["outcome"] == "TRADE_QUEUED")
@@ -403,6 +466,7 @@ def _persist_multiplier_stats(
 
     cycle = {
         "timestamp":       datetime.now(timezone.utc).isoformat(),
+        "runner":          runner,
         "regime_present":  regime_present,
         "queued_count":    queued_count,
         "multiplier_count": len(multipliers),
@@ -420,11 +484,13 @@ def _persist_multiplier_stats(
                 existing = {}
 
         if existing.get("date") != today:
-            existing = {"date": today, "cycles": [], "suspicious_cycles": 0}
+            existing = {"date": today, "cycles": [], "suspicious_cycles": {"demo": 0, "live": 0}}
+        if not isinstance(existing.get("suspicious_cycles"), dict):
+            existing["suspicious_cycles"] = {"demo": 0, "live": 0}
 
         existing["cycles"].append(cycle)
         if suspicious:
-            existing["suspicious_cycles"] = existing.get("suspicious_cycles", 0) + 1
+            existing["suspicious_cycles"][runner] = existing["suspicious_cycles"].get(runner, 0) + 1
 
         _MULTIPLIER_STATS_PATH.write_text(json.dumps(existing, indent=2))
     except Exception as e:

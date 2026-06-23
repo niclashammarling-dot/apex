@@ -189,6 +189,11 @@ def _call_anthropic(payload: dict, model: str) -> tuple[str, object]:
 # ── Parse & result ────────────────────────────────────────────────────────────
 
 def _parse_to_result(raw: str, effective_min: float, ticker: str, model: str) -> LockResult:
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.strip()
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:

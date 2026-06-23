@@ -941,7 +941,9 @@ def insert_demo_gate_result(row: dict) -> None:
         conn.execute(_SQL, {**row,
               "lock3_sentiment_score": row.get("lock3_sentiment_score"),
               "lock3_conviction":      row.get("lock3_conviction"),
-              "ticker_signal":         row.get("ticker_signal")})
+              "ticker_signal":         row.get("ticker_signal"),
+              "earnings_near":         row.get("earnings_near"),
+              "days_to_earnings":      row.get("days_to_earnings")})
         conn.commit()
     finally:
         conn.close()
