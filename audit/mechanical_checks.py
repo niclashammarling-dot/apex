@@ -25,19 +25,32 @@ from audit import checks_config, checks_gate, checks_data, checks_sector, checks
 
 def check32():
     """
-    Verify local master is not behind origin/master and working tree is clean.
+    Verify local master is neither behind nor ahead of origin/master, and the
+    working tree is clean.
 
-    Two assertions:
+    Three assertions:
       1. Local master not behind origin/master — nightly agent commits to origin;
          unpushed dev commits cause stale audit/ and wrong frontend last-test date.
          CRITICAL if >3 behind, WARNING if 1–3.
-      2. No uncommitted files in working tree — nightly agent may write files without
+      2. Local master not ahead of origin/master — dev commits sitting unpushed are
+         invisible to anyone reading origin (including this check, in its other
+         direction). CRITICAL if >3 ahead, WARNING if 1–3.
+      3. No uncommitted files in working tree — nightly agent may write files without
          committing; those changes silently persist across sessions and are invisible
          to the audit history.
 
     Prevented by: 2026-05-09. 26 nightly commits accumulated on origin over 25 days
     while 19 dev commits sat unpushed. Extended 2026-05-12: nightly agent wrote 14
     files (frontend + backend) on May 9 without committing.
+
+    Note on deployment: assertion 2 (ahead-count) is only meaningful when this
+    check runs against a local dev checkout — in CI (.github/workflows/nightly-audit.yml),
+    `actions/checkout` clones origin/master itself, so HEAD==origin/master by
+    construction and ahead is always 0 there. CI can never observe a developer's
+    unpushed local commits; this assertion only does its job when invoked from
+    the local machine that might be holding them (2026-06-23: 15 local commits
+    sat unpushed for ≥12 days, undetected, because the original check only ever
+    measured the behind direction and only ever ran in CI).
     """
     try:
         result = subprocess.run(
@@ -60,6 +73,26 @@ def check32():
     elif behind > 0:
         flag(32, "Git sync divergence", "WARNING", ".git/",
              f"Local master is {behind} commit(s) behind origin/master — push dev commits after session close")
+
+    try:
+        result = subprocess.run(
+            ["git", "rev-list", "--count", "origin/master..HEAD"],
+            cwd=REPO, capture_output=True, text=True, timeout=15,
+        )
+        ahead = int(result.stdout.strip()) if result.returncode == 0 else None
+    except Exception:
+        ahead = None
+
+    if ahead is None:
+        flag(32, "Git sync divergence", "WARNING", ".git/",
+             "Could not determine commits ahead of origin/master — fetch may have failed")
+    elif ahead > 3:
+        flag(32, "Git sync divergence", "CRITICAL", ".git/",
+             f"Local master is {ahead} commits ahead of origin/master — unpushed dev work; "
+             f"push before it accumulates further (only detectable when this check runs locally, not in CI)")
+    elif ahead > 0:
+        flag(32, "Git sync divergence", "WARNING", ".git/",
+             f"Local master is {ahead} commit(s) ahead of origin/master — push dev commits after session close")
 
     try:
         dirty = subprocess.run(
