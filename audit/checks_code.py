@@ -511,6 +511,128 @@ def check50():
                  f"(PCR={pcr_pass}, UC={uc_pass}) — group constraint bypassed or code regressed")
 
 
+# ── CHECK 58 — Gate-result insert call-site field completeness ───────────────
+
+def check58():
+    """
+    Every call site of insert_demo_gate_result() / insert_live_gate_result()
+    must supply all five fields that db.py added defaults for piecemeal
+    (ticker_signal, earnings_near, days_to_earnings, lock3_sentiment_score,
+    lock3_conviction) — db.py's per-field .get() fallback only covers the
+    fields someone remembered to add there; a call site missing a field
+    that db.py does NOT default raises sqlite3.ProgrammingError and kills
+    the whole gate cycle silently (2026-06-23: demo's skipped-ticker call
+    site omitted earnings_near/days_to_earnings, added by 6d9f497 12 days
+    earlier with no fallback — every cooloff/held ticker crashed run()).
+
+    AST-parses each insert_*_gate_result(...) call site's dict literal arg
+    and flags any missing required key.
+    """
+    import ast
+
+    REQUIRED_KEYS = {
+        "ticker_signal", "earnings_near", "days_to_earnings",
+        "lock3_sentiment_score", "lock3_conviction",
+    }
+    targets = {
+        "insert_demo_gate_result": REPO / "backend/gate/gate_runner.py",
+        "insert_live_gate_result": REPO / "backend/gate/gate_runner_live.py",
+    }
+
+    for fn_name, path in targets.items():
+        if not path.exists():
+            continue
+        try:
+            tree = ast.parse(path.read_text())
+        except SyntaxError:
+            continue
+
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id == fn_name and node.args
+                    and isinstance(node.args[0], ast.Dict)):
+                continue
+            present = {
+                k.value for k in node.args[0].keys
+                if isinstance(k, ast.Constant) and isinstance(k.value, str)
+            }
+            missing = REQUIRED_KEYS - present
+            if missing:
+                flag(58, "Gate-result insert field completeness", "CRITICAL",
+                     f"{path.relative_to(REPO)}:{fn_name}() call at line {node.lineno}",
+                     f"missing key(s) {sorted(missing)} — will raise sqlite3.ProgrammingError "
+                     "if db.py has no fallback default for any of them")
+
+
+# ── CHECK 59 — Alpaca SDK imports must be module-level ───────────────────────
+
+def check59():
+    """
+    backend/brokers/alpaca.py must import alpaca.trading.* at module load
+    time, not inside function bodies. Per-function lazy imports let
+    concurrent threads (gate runner's ThreadPoolExecutor + FastAPI request
+    threads polling /live/account, /live/positions, /live/orders) race to
+    import the same submodule for the first time, which deadlocks CPython's
+    per-module import lock and poisons the process until restart
+    (2026-06-23: live gate stopped firing after 18:55, traced to a deadlock
+    on "_ModuleLock('alpaca.trading.enums')"). alpaca-py is an unconditional
+    dependency (requirements.txt) — there is no startup-safety reason for
+    the lazy pattern.
+    """
+    path = REPO / "backend/brokers/alpaca.py"
+    if not path.exists():
+        return
+
+    for i, line in enumerate(path.read_text().splitlines(), start=1):
+        stripped = line.strip()
+        if stripped.startswith("from alpaca.") or stripped.startswith("import alpaca."):
+            if line[0] in (" ", "\t"):  # indented = inside a function body
+                flag(59, "Alpaca SDK imports must be module-level", "CRITICAL",
+                     f"backend/brokers/alpaca.py:{i}",
+                     f"'{stripped}' is imported inside a function — move to module top-level "
+                     "to eliminate the concurrent-first-import deadlock")
+
+
+# ── CHECK 60 — Lock 4 yfinance futures must specify a timeout ────────────────
+
+def check60():
+    """
+    Every fut.result(...) call in lock4_leading.py's evaluate() must pass
+    an explicit timeout=. yf.Ticker().options/.option_chain() take no
+    timeout parameter, and curl_cffi's shared BoringSSL singleton has been
+    observed to hang outright under concurrent load rather than raise.
+    Without a bounded .result(), one hung ticker blocks
+    ThreadPoolExecutor.shutdown(wait=True) forever — no further gate
+    cycles run (2026-06-23 incident; see CHECK 7 file scope note).
+    """
+    import ast
+
+    path = REPO / "backend/gate/lock4_leading.py"
+    if not path.exists():
+        return
+    try:
+        tree = ast.parse(path.read_text())
+    except SyntaxError:
+        return
+
+    fn_node = next(
+        (n for n in ast.walk(tree)
+         if isinstance(n, ast.FunctionDef) and n.name == "evaluate"),
+        None,
+    )
+    if fn_node is None:
+        return
+
+    for node in ast.walk(fn_node):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "result"
+                and not any(kw.arg == "timeout" for kw in node.keywords)):
+            flag(60, "Lock 4 futures must specify a timeout", "CRITICAL",
+                 f"backend/gate/lock4_leading.py:{node.lineno}",
+                 ".result() called without timeout= — a hung yfinance call can "
+                 "block the gate cycle forever")
+
+
 def run() -> None:
     check3()
     check6()
@@ -523,3 +645,6 @@ def run() -> None:
     check48()
     check49()
     check50()
+    check58()
+    check59()
+    check60()
