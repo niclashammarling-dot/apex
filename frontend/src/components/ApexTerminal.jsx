@@ -143,14 +143,26 @@ function KV({ k, v }) {
 
 const DIAL_ORDER = ["TECH","HLTH","ENER","INDU","CDIS","COMM","MATR","REIT","SEMI","DEF","HOME","TRAN"];
 
+function regimeStaleness(dateStr) {
+  if (!dateStr) return null;
+  const days = Math.floor((Date.now() - new Date(`${dateStr}T00:00:00Z`).getTime()) / 86400000);
+  if (days <= 1) return null;
+  return `STALE · last updated ${dateStr}`;
+}
+
 function RegimeDial({ D }) {
+  const [span, setSpan] = useState("1d");
   if (!D.regime || D.regime.length === 0) return null;
   const R = 110, cx = 130, cy = 130;
+  const stale = regimeStaleness(D.regimeDate);
+  const deltaKey = span === "7d" ? "delta7d" : "delta";
   return (
     <div className="t-card">
       <div className="t-card-head">
         <div className="t-card-title">SECTOR REGIME · BAYES</div>
-        <div className="t-meta">EOD · 16:15 ET</div>
+        <div className="t-meta" style={stale ? { color: "var(--t-amber)" } : undefined}>
+          {stale || "EOD · 16:15 ET"}
+        </div>
       </div>
       <div className="t-card-body" style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 16 }}>
         <svg viewBox="0 0 260 260" style={{ width: 260, height: 260 }}>
@@ -181,19 +193,26 @@ function RegimeDial({ D }) {
           })}
         </svg>
         <div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 4, marginBottom: 6 }}>
+            <button className={cls("t-tab", span === "1d" && "t-tab-on")} style={{ padding: "2px 8px", fontSize: 10 }} onClick={() => setSpan("1d")}>1D</button>
+            <button className={cls("t-tab", span === "7d" && "t-tab-on")} style={{ padding: "2px 8px", fontSize: 10 }} onClick={() => setSpan("7d")}>7D</button>
+          </div>
           <table className="t-tbl">
-            <thead><tr><th>RNK</th><th>SECTOR</th><th style={{textAlign:"right"}}>POST</th><th style={{textAlign:"right"}}>Δ</th></tr></thead>
+            <thead><tr><th>RNK</th><th>SECTOR</th><th style={{textAlign:"right"}}>POST</th><th style={{textAlign:"right"}}>{`Δ${span.toUpperCase()}`}</th></tr></thead>
             <tbody>
-              {D.regime.filter(s => !s.excluded).slice(0, 8).map((s, i) => (
-                <tr key={s.code}>
-                  <td>{(i+1).toString().padStart(2,"0")}</td>
-                  <td>{s.name}</td>
-                  <td style={{textAlign:"right"}}>{s.posterior.toFixed(3)}</td>
-                  <td style={{textAlign:"right"}} className={s.delta >= 0 ? "t-pos" : "t-neg"}>
-                    {s.delta >= 0 ? "+" : ""}{s.delta.toFixed(3)}
-                  </td>
-                </tr>
-              ))}
+              {D.regime.filter(s => !s.excluded).slice(0, 8).map((s, i) => {
+                const d = s[deltaKey];
+                return (
+                  <tr key={s.code}>
+                    <td>{(i+1).toString().padStart(2,"0")}</td>
+                    <td>{s.name}</td>
+                    <td style={{textAlign:"right"}}>{s.posterior.toFixed(3)}</td>
+                    <td style={{textAlign:"right"}} className={d == null ? "t-meta" : d >= 0 ? "t-pos" : "t-neg"}>
+                      {d == null ? "—" : `${d >= 0 ? "+" : ""}${d.toFixed(3)}`}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

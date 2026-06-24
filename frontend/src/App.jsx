@@ -249,7 +249,8 @@ function adaptRegime(regimeData) {
       excluded:  meta?.excluded ?? false,
       prior:     r.posterior * 0.9,
       posterior: r.posterior ?? 0,
-      delta:     0,
+      delta:     r.delta ?? null,
+      delta7d:   r.delta_7d ?? null,
       ipo:       r.allocation ?? 0,
     };
   });
@@ -258,7 +259,7 @@ function adaptRegime(regimeData) {
   Object.entries(SECTOR_META).forEach(([, meta]) => {
     if (!meta.excluded && !seen.has(meta.code)) {
       rows.push({ code: meta.code, name: meta.displayName, etf: meta.etf,
-                  excluded: false, prior: 0, posterior: 0, delta: 0, ipo: 0 });
+                  excluded: false, prior: 0, posterior: 0, delta: null, delta7d: null, ipo: 0 });
     }
   });
   return rows;
@@ -781,6 +782,7 @@ export default function App() {
       EXCLUDED:      EXCLUDED_CODES,
       tickers:       adaptTickers(sectors),
       regime:        adaptRegime(regimeData),
+      regimeDate:    regimeData?.date ?? null,
       equity:        eq,
       liveEq,
       funnel:        adaptFunnel(gateHist.funnel),

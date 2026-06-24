@@ -89,8 +89,10 @@ function EquityBanded({ D, mode }) {
 }
 
 function Leaderboard({ D }) {
+  const [span, setSpan] = useState("1d");
   if (!D.regime || D.regime.length === 0) return null;
   const max = Math.max(...D.regime.map(r => r.posterior), 0.01);
+  const deltaKey = span === "7d" ? "delta7d" : "delta";
   return (
     <section className="a-section">
       <header className="a-section-head">
@@ -98,25 +100,34 @@ function Leaderboard({ D }) {
           <div className="a-eyebrow">Fig. 02 · Bayesian posterior</div>
           <h2 className="a-title">Sector leaderboard</h2>
         </div>
-        <span className="a-meta">EOD 16:15 · prior × signal</span>
+        <span className="a-meta" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          EOD 16:15 · prior × signal
+          <span style={{ display: "flex", gap: 4 }}>
+            <button className={cls("a-toggle-btn", span === "1d" && "a-toggle-on")} onClick={() => setSpan("1d")}>1D</button>
+            <button className={cls("a-toggle-btn", span === "7d" && "a-toggle-on")} onClick={() => setSpan("7d")}>7D</button>
+          </span>
+        </span>
       </header>
       <ol className="a-ranks">
-        {D.regime.map((s, i) => (
-          <li key={s.code} className={cls("a-rank-row", s.excluded && "a-rank-out")}>
-            <span className="a-rank-num">{(i + 1).toString().padStart(2, "0")}</span>
-            <span className="a-rank-name">{s.name}</span>
-            <span className="a-rank-etf">{s.etf}</span>
-            <span className="a-rank-bar">
-              <span className="a-rank-fill" style={{ width: `${(s.posterior / max) * 100}%` }} />
-              <span className="a-rank-floor" />
-            </span>
-            <span className="a-rank-val">{s.posterior.toFixed(3)}</span>
-            <span className={cls("a-rank-delta", s.delta >= 0 ? "a-pos" : "a-neg")}>
-              {s.delta >= 0 ? "▲" : "▼"} {Math.abs(s.delta).toFixed(3)}
-            </span>
-            <span className="a-rank-tag">{s.excluded ? "EXCLUDED" : i < 5 ? "LEADER" : i < 8 ? "ELIGIBLE" : "WATCH"}</span>
-          </li>
-        ))}
+        {D.regime.map((s, i) => {
+          const d = s[deltaKey];
+          return (
+            <li key={s.code} className={cls("a-rank-row", s.excluded && "a-rank-out")}>
+              <span className="a-rank-num">{(i + 1).toString().padStart(2, "0")}</span>
+              <span className="a-rank-name">{s.name}</span>
+              <span className="a-rank-etf">{s.etf}</span>
+              <span className="a-rank-bar">
+                <span className="a-rank-fill" style={{ width: `${(s.posterior / max) * 100}%` }} />
+                <span className="a-rank-floor" />
+              </span>
+              <span className="a-rank-val">{s.posterior.toFixed(3)}</span>
+              <span className={cls("a-rank-delta", d == null ? "" : d >= 0 ? "a-pos" : "a-neg")}>
+                {d == null ? "—" : `${d >= 0 ? "▲" : "▼"} ${Math.abs(d).toFixed(3)}`}
+              </span>
+              <span className="a-rank-tag">{s.excluded ? "EXCLUDED" : i < 5 ? "LEADER" : i < 8 ? "ELIGIBLE" : "WATCH"}</span>
+            </li>
+          );
+        })}
       </ol>
     </section>
   );

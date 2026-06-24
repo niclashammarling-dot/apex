@@ -1969,6 +1969,33 @@ def upsert_sector_posteriors(posteriors: dict[str, float]) -> None:
         conn.close()
 
 
+def get_sector_posteriors_asof(date_str: str, days_back: int) -> dict[str, float]:
+    """Load each sector's posterior from the most recent date at or before (date_str - days_back calendar days)."""
+    conn = get_db()
+    try:
+        threshold = conn.execute(
+            "SELECT date(?, ?)", (date_str, f"-{days_back} days"),
+        ).fetchone()[0]
+        prev_date = conn.execute(
+            "SELECT MAX(date) FROM sector_posterior_history WHERE date <= ?",
+            (threshold,),
+        ).fetchone()[0]
+        if prev_date is None:
+            return {}
+        rows = conn.execute(
+            "SELECT sector, posterior FROM sector_posterior_history WHERE date = ?",
+            (prev_date,),
+        ).fetchall()
+        return {r["sector"]: r["posterior"] for r in rows}
+    finally:
+        conn.close()
+
+
+def get_previous_sector_posteriors(date_str: str) -> dict[str, float]:
+    """Load each sector's posterior from the most recent date strictly before date_str."""
+    return get_sector_posteriors_asof(date_str, days_back=1)
+
+
 def insert_sector_posterior_history(date_str: str, posteriors: dict[str, float]) -> None:
     """Append daily posterior snapshot. Idempotent on (date, sector) key."""
     conn = get_db()

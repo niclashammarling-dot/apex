@@ -109,9 +109,15 @@ def _lr_ipo_cluster(sector_ipo_share: float) -> float:
     Zero share when no market IPOs = neutral (handled upstream, pass 1/n_sectors).
     Exponential: +0.2 per 10% share increment — mirrors other signal scales.
     50% share in one sector is rare and warrants the strong compounding signal.
+
+    Zero-share constant eased 0.8 → 0.9 on 2026-06-24: with total_ipos typically
+    in the single digits spread across 15 sectors, most sectors are absent on
+    most days structurally, not as a real signal — 0.8 compounded into a
+    sustained downward drift across the leaderboard. Hand-tuned, same as the
+    original 0.8; not backtested.
     """
     if sector_ipo_share == 0:
-        return 0.8   # sector absent from active IPO market — mild negative
+        return 0.9   # sector absent from active IPO market — mild negative
     steps = int(sector_ipo_share * 10)   # 10% share = 1 step, 30% = 3 steps; int() keeps 1/n_sectors neutral
     lr = sum(0.2 * (2 ** i) for i in range(steps))
     return round(1.0 + lr, 3)

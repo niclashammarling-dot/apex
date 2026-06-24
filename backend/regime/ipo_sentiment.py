@@ -55,7 +55,11 @@ EDGAR_HEADERS     = {
 IPO_WINDOW_DAYS    = 30     # lookback window for IPO listings
 PRICE_HISTORY_DAYS = 35     # yfinance lookback to confirm first trading date
 REQUEST_DELAY_SEC  = 0.15   # EDGAR rate limit — 10 requests/second max
-MAX_FILINGS        = 100    # max S-1 filings to process per run
+MAX_FILINGS        = 300    # max S-1 filings to process per run — self-imposed cost cap,
+                             # not an EDGAR limit. Raised from 100 on 2026-06-24: actual
+                             # 30-day S-1 volume measured at 222, so 100 was silently
+                             # truncating ~55% of filings before sector classification
+                             # ever ran. 300 gives headroom above the measured volume.
 
 EDGAR_MAX_RETRIES   = 3     # retries for transient 5xx errors before giving up
 EDGAR_RETRY_BACKOFF = 2.0   # seconds, multiplied by attempt number
@@ -205,9 +209,16 @@ class IpoSentiment:
     def __init__(self, sectors_cfg: dict):
         """
         sectors_cfg: SECTORS config dict — used to validate sector names
-                     against apex's 11 configured sectors.
+                     against apex's tradeable sectors.
+
+        Excludes EXCLUDED_SECTORS (Financials, Utilities, ConsumerStaples —
+        no backtest-validated momentum edge, never entered): without this,
+        their IPO activity inflated the share denominator and diluted the
+        per-sector IPO signal for sectors that can actually be traded.
+        Mirrors the filtering RegimeBayes.update() already does.
         """
-        self.valid_sectors = set(sectors_cfg.keys())
+        from backend.config import EXCLUDED_SECTORS
+        self.valid_sectors = {s for s in sectors_cfg if s not in EXCLUDED_SECTORS}
 
     def compute(self, reference_date: Optional[date] = None) -> IpoSentimentResult:
         """

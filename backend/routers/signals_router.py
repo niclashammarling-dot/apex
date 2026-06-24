@@ -683,6 +683,7 @@ def sectors_regime_bayes():
     """
     import json
 
+    from backend.db import get_sector_posteriors_asof
     from backend.regime.ipo_sentiment import CACHE_PATH
     from backend.scheduler import _get_regime_bayes
 
@@ -700,6 +701,9 @@ def sectors_regime_bayes():
     except Exception:
         pass
 
+    posteriors_1d = get_sector_posteriors_asof(result.date, days_back=1)
+    posteriors_7d = get_sector_posteriors_asof(result.date, days_back=7)
+
     return {
         "available":   True,
         "date":        result.date,
@@ -715,6 +719,8 @@ def sectors_regime_bayes():
                 "adjusted_score":  e.adjusted_score,
                 "allocation":      e.allocation,
                 "signal_trace":    e.signal_trace,
+                "delta":           e.posterior - posteriors_1d[e.sector] if e.sector in posteriors_1d else None,
+                "delta_7d":        e.posterior - posteriors_7d[e.sector] if e.sector in posteriors_7d else None,
             }
             for e in result.leaderboard
         ],
