@@ -633,6 +633,34 @@ def check60():
                  "block the gate cycle forever")
 
 
+def check61():
+    """
+    All exit-path outcome classifications in wallet.py and
+    live_trades_tracker.py must use >= 0 (not > 0) to classify WIN.
+
+    The asymmetry bug (check_regime_exits used > 0, check_exits used >= 0)
+    caused identical zero-PnL trades to be recorded as WIN or LOSS depending
+    on which exit mechanism fired, distorting win-rate and performance metrics.
+    Fixed 2026-06-25. This check prevents regression and catches the same
+    class of bug in live_trades_tracker.py.
+    """
+    import re
+
+    targets = [
+        REPO / "backend/wallet.py",
+        REPO / "backend/live_trades_tracker.py",
+    ]
+    for path in targets:
+        if not path.exists():
+            continue
+        text = path.read_text()
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if re.search(r'outcome\s*=\s*"WIN"\s+if\s+pnl_pct\s*>\s*0', line):
+                flag(61, "Breakeven outcome must use >= 0 not > 0", "HIGH",
+                     f"{path.relative_to(REPO)}:{lineno}",
+                     "pnl_pct > 0 classifies breakeven trades as LOSS; use >= 0")
+
+
 def run() -> None:
     check3()
     check6()
@@ -648,3 +676,4 @@ def run() -> None:
     check58()
     check59()
     check60()
+    check61()
