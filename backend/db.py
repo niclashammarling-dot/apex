@@ -954,7 +954,7 @@ def get_demo_gate_history(since: str | None = None, limit: int | None = 500) -> 
     try:
         where = "WHERE timestamp >= ?" if since else ""
         params: tuple = (since,) if since else ()
-        limit_clause = f"LIMIT {limit}" if limit else ""
+        limit_clause = f"LIMIT {int(limit)}" if limit else ""
         rows = conn.execute(f"""
             SELECT ticker, sector, timestamp, signal_score,
                    gate_decision, lock1_pass, lock2_pass, lock_leading_pass,
@@ -1231,7 +1231,7 @@ def get_live_gate_history(since: str | None = None, limit: int | None = 500) -> 
     try:
         where = "WHERE timestamp >= ?" if since else ""
         params: tuple = (since,) if since else ()
-        limit_clause = f"LIMIT {limit}" if limit else ""
+        limit_clause = f"LIMIT {int(limit)}" if limit else ""
         rows = conn.execute(f"""
             SELECT * FROM live_gate_history
             {where}

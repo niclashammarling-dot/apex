@@ -21,7 +21,7 @@ function EquityHero({ D, mode }) {
     return (
       <div className="t-card">
         <div className="t-card-head"><div className="t-card-title">EQUITY · {mode === "live" ? "LIVE" : "DEMO"}</div></div>
-        <div className="t-card-body" style={{ color: "var(--t-text-3)", fontFamily: "var(--mono)", fontSize: 12 }}>No equity data</div>
+        <div className="t-card-body" style={{ color: "var(--t-text-2)", fontFamily: "var(--mono)", fontSize: 12 }}>No equity data</div>
       </div>
     );
   }
@@ -268,7 +268,7 @@ function Positions({ D, mode }) {
       </div>
       <div className="t-card-body" style={{ padding: 0 }}>
         {positions.length === 0 ? (
-          <div style={{ padding: "16px 14px", fontFamily: "var(--mono)", fontSize: 11, color: "var(--t-text-3)" }}>
+          <div style={{ padding: "16px 14px", fontFamily: "var(--mono)", fontSize: 11, color: "var(--t-text-2)" }}>
             No open positions
           </div>
         ) : (
@@ -648,7 +648,7 @@ function Alerts({ D }) {
       </div>
       <div className="t-card-body" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {alerts.length === 0 ? (
-          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--t-text-3)" }}>No active alerts</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--t-text-2)" }}>No active alerts</div>
         ) : alerts.map(a => (
           <div key={a.id} className="t-alert">
             <span className={"t-pill t-sev-" + a.sev.toLowerCase()}>{a.sev}</span>
@@ -702,9 +702,58 @@ function TestView({ D }) {
   );
 }
 
-function Header({ D, mode, setMode, onSettings, onPromote, marketOpen }) {
-  const w = mode === "live" ? D.liveWallet : D.wallet;
-  const pnl = w ? ((w.unrealized ?? 0) + (w.realized ?? 0)) : 0;
+function JobCountdown({ jobId, label }) {
+  const [secsLeft, setSecsLeft] = useState(null);
+
+  useEffect(() => {
+    let ticker = null;
+
+    function startTick(targetMs) {
+      if (ticker) clearInterval(ticker);
+      ticker = setInterval(() => {
+        const diff = Math.max(0, Math.round((targetMs - Date.now()) / 1000));
+        setSecsLeft(diff);
+        if (diff <= 0) {
+          clearInterval(ticker);
+          ticker = null;
+          fetchNext();
+        }
+      }, 1000);
+    }
+
+    function fetchNext() {
+      fetch("/health")
+        .then(r => r.json())
+        .then(d => {
+          const job = (d.scheduler_jobs || []).find(j => j.id === jobId);
+          if (!job?.next_run) return;
+          const targetMs = new Date(job.next_run).getTime();
+          const diff = Math.max(0, Math.round((targetMs - Date.now()) / 1000));
+          setSecsLeft(diff);
+          startTick(targetMs);
+        })
+        .catch(() => {});
+    }
+
+    fetchNext();
+    return () => { if (ticker) clearInterval(ticker); };
+  }, [jobId]);
+
+  if (secsLeft === null) return null;
+  const mm = String(Math.floor(secsLeft / 60)).padStart(2, "0");
+  const ss = String(secsLeft % 60).padStart(2, "0");
+  const urgent = secsLeft < 60;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1 }}>
+      <span style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", color: "var(--t-text-3)", marginBottom: 2 }}>{label}</span>
+      <span style={{ fontFamily: "var(--mono)", fontSize: 22, fontWeight: 700, color: urgent ? "#ffe033" : "var(--t-accent)" }}>
+        {mm}:{ss}
+      </span>
+    </div>
+  );
+}
+
+function Header({ mode, setMode, onSettings, onPromote, marketOpen }) {
   const now = new Date();
   const timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
   return (
@@ -713,7 +762,7 @@ function Header({ D, mode, setMode, onSettings, onPromote, marketOpen }) {
         <div className="t-logo">APEX<span style={{ color: "var(--t-text-3)", marginLeft: 6, fontSize: 11 }}>v0.7</span></div>
         <div className="t-marketdot">
           <span className={cls("t-dot", marketOpen && "t-dot-open")} />
-          <span style={{ color: marketOpen ? "var(--t-accent)" : "var(--t-text-3)" }}>
+          <span style={{ color: marketOpen ? "var(--t-accent)" : "var(--t-text-2)" }}>
             {marketOpen ? "MARKET OPEN" : "MARKET CLOSED"}
           </span>
           <span className="t-meta" style={{ marginLeft: 8 }}>{timeStr} ET</span>
@@ -725,15 +774,12 @@ function Header({ D, mode, setMode, onSettings, onPromote, marketOpen }) {
             LIVE
             <span className="t-pill t-pill-paper" style={{ marginLeft: 8 }}>PAPER</span>
           </button>
-          <button className={cls("t-tab", mode === "test" && "t-tab-on")} onClick={() => setMode("test")}>TEST</button>
         </div>
+        <JobCountdown jobId="poll_sectors" label="POLL" />
+        <JobCountdown jobId="run_gate" label="GATE" />
       </div>
       <div className="t-row" style={{ gap: 12 }}>
-        {w && (
-          <div style={{ fontFamily: "var(--mono)", fontSize: 13 }}>
-            {fmt$(w.balance)} <span className={pnl >= 0 ? "t-pos" : "t-neg"}>{pnl >= 0 ? "+" : "−"}{fmt$(Math.abs(pnl)).replace("$","")}</span>
-          </div>
-        )}
+        <button className={cls("t-btn", mode === "test" && "t-tab-on")} onClick={() => setMode("test")}>TEST</button>
         {onSettings && <button className="t-btn" onClick={onSettings}>⚙ SETTINGS</button>}
         {onPromote  && <button className="t-btn t-btn-promote" onClick={onPromote}>↑ PROMOTE</button>}
       </div>
@@ -749,7 +795,7 @@ export default function ApexTerminal({ tweaks = {}, data: D, onSettings, onPromo
 
   return (
     <div className="t-root" data-density={tweaks.density || "comfortable"} data-theme={tweaks.theme || "dark"} data-palette={tweaks.palette || "neon"} data-font={tweaks.font || "mono"}>
-      <Header D={D} mode={mode} setMode={setMode} onSettings={onSettings} onPromote={onPromote} marketOpen={marketOpen} />
+      <Header mode={mode} setMode={setMode} onSettings={onSettings} onPromote={onPromote} marketOpen={marketOpen} />
       {mode === "test" ? (
         <TestView D={D} />
       ) : (

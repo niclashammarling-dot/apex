@@ -362,6 +362,53 @@ function GateLog({ D, mode }) {
   );
 }
 
+function PollCountdown() {
+  const [secsLeft, setSecsLeft] = useState(null);
+
+  useEffect(() => {
+    let ticker = null;
+
+    function startTick(targetMs) {
+      if (ticker) clearInterval(ticker);
+      ticker = setInterval(() => {
+        const diff = Math.max(0, Math.round((targetMs - Date.now()) / 1000));
+        setSecsLeft(diff);
+        if (diff <= 0) {
+          clearInterval(ticker);
+          ticker = null;
+          fetchNext();
+        }
+      }, 1000);
+    }
+
+    function fetchNext() {
+      fetch("/health")
+        .then(r => r.json())
+        .then(d => {
+          const job = (d.scheduler_jobs || []).find(j => j.id === "poll_sectors");
+          if (!job?.next_run) return;
+          const targetMs = new Date(job.next_run).getTime();
+          const diff = Math.max(0, Math.round((targetMs - Date.now()) / 1000));
+          setSecsLeft(diff);
+          startTick(targetMs);
+        })
+        .catch(() => {});
+    }
+
+    fetchNext();
+    return () => { if (ticker) clearInterval(ticker); };
+  }, []);
+
+  if (secsLeft === null) return null;
+  const mm = String(Math.floor(secsLeft / 60)).padStart(2, "0");
+  const ss = String(secsLeft % 60).padStart(2, "0");
+  return (
+    <span style={{ fontFamily: "var(--a-mono)", fontSize: 11, color: "var(--a-ink-3)", marginLeft: 10 }}>
+      poll {mm}:{ss}
+    </span>
+  );
+}
+
 function AtlasHeader({ D, mode, setMode, onSettings, onPromote, marketOpen }) {
   const w = mode === "live" ? D.liveWallet : D.wallet;
   const pnl = w ? ((w.unrealized ?? 0) + (w.realized ?? 0)) : 0;
@@ -380,6 +427,7 @@ function AtlasHeader({ D, mode, setMode, onSettings, onPromote, marketOpen }) {
           {marketOpen ? "Market open" : "Market closed"}
           {" · "}
           {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false })} ET
+          <PollCountdown />
         </div>
       </div>
       <div className="a-row" style={{ gap: 18 }}>

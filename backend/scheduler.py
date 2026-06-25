@@ -386,7 +386,11 @@ def _check_missed_eod_regime() -> None:
         logger.warning(f"EOD regime catch-up: DB check failed — {e}")
         return
 
-    last_date = datetime.fromisoformat(last_updated_str).date() if last_updated_str else None
+    try:
+        last_date = datetime.fromisoformat(last_updated_str).date() if last_updated_str else None
+    except ValueError as e:
+        logger.warning(f"EOD regime catch-up: malformed timestamp in DB ({last_updated_str!r}) — {e}")
+        return
     if last_date and last_date >= expected:
         return
 
@@ -433,12 +437,17 @@ def _check_missed_sentiment_prefetch() -> None:
         last_str = None
 
     if last_str:
-        last_dt = datetime.fromisoformat(last_str)
-        if last_dt.tzinfo is None:
-            last_dt = last_dt.replace(tzinfo=NY)
-        age_hours = (datetime.now(NY) - last_dt).total_seconds() / 3600
-        if age_hours <= 26:
-            return
+        try:
+            last_dt = datetime.fromisoformat(last_str)
+        except ValueError as e:
+            logger.warning(f"Sentiment catch-up: malformed timestamp in DB ({last_str!r}) — {e}")
+            last_dt = None
+        if last_dt is not None:
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=NY)
+            age_hours = (datetime.now(NY) - last_dt).total_seconds() / 3600
+            if age_hours <= 26:
+                return
 
     logger.warning("Sentiment pre-fetch missed or stale — running catch-up now")
     try:

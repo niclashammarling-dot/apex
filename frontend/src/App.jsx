@@ -833,6 +833,7 @@ export default function App() {
       <style>{CSS}</style>
 
       {/* ── Main dashboard ──────────────────────────────────────────────── */}
+      {/* TODO: remove Atlas entirely — Terminal is the only design going forward */}
       {t.direction === "terminal" ? (
         <ErrorBoundary label="Terminal">
           <ApexTerminal
@@ -858,6 +859,7 @@ export default function App() {
       )}
 
       {/* ── Tweaks panel ────────────────────────────────────────────────── */}
+      {/* TODO: remove TweaksPanel entirely — direction/Atlas toggle is dead, remaining knobs (layout, density, theme) should move into Settings modal */}
       <TweaksPanel
         title="Tweaks"
         onSettings={() => setShowSettings(true)}

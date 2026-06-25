@@ -97,6 +97,10 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
         logger.warning(f"Trade rejected [{ticker}]: insufficient cash (${portfolio['cash']:.2f})")
         return None
 
+    if not price:
+        logger.warning(f"Trade rejected [{ticker}]: price is {price!r}")
+        return None
+
     shares = amount / price
     now    = datetime.now(timezone.utc).isoformat()
 
@@ -283,7 +287,7 @@ def check_regime_exits() -> list[dict]:
 
         pnl_pct = (current - entry_price) / entry_price
         pnl     = trade["amount"] * pnl_pct
-        outcome = "WIN" if pnl_pct > 0 else "LOSS"
+        outcome = "WIN" if pnl_pct >= 0 else "LOSS"
 
         close_trade(
             trade_id    = trade["id"],

@@ -35,7 +35,7 @@
 }
 .t-root[data-font="sans"] { --mono: var(--sans); }
 .t-pos { color: var(--t-pos); } .t-neg { color: var(--t-neg); }
-.t-meta { font-family: var(--mono); color: var(--t-text-3); font-size: 11px; letter-spacing: 0.04em; }
+.t-meta { font-family: var(--mono); color: var(--t-text-2); font-size: 11px; letter-spacing: 0.04em; }
 .t-row { display: flex; align-items: center; }
 .t-header {
   position: sticky; top: 0; z-index: 10;
@@ -49,19 +49,19 @@
 @keyframes t-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 .t-tabs { display: flex; gap: 2px; margin-left: 8px; }
 .t-tab {
-  background: transparent; border: 1px solid var(--t-border); color: var(--t-text-3);
+  background: transparent; border: 1px solid var(--t-text-3); color: var(--t-text-2);
   font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; padding: 7px 14px; cursor: pointer;
   text-transform: uppercase; transition: all 0.15s; border-radius: 3px;
   display: inline-flex; align-items: center;
 }
-.t-tab:hover { color: var(--t-text-1); border-color: var(--t-text-3); }
+.t-tab:hover { color: var(--t-text-1); border-color: var(--t-text-2); }
 .t-tab-on { color: var(--t-accent); border-color: var(--t-accent); background: color-mix(in oklab, var(--t-accent) 8%, transparent); }
 .t-btn {
-  background: transparent; border: 1px solid var(--t-border); color: var(--t-text-3);
+  background: transparent; border: 1px solid var(--t-text-3); color: var(--t-text-2);
   font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; padding: 6px 12px; cursor: pointer;
   text-transform: uppercase; border-radius: 3px; transition: all 0.15s;
 }
-.t-btn:hover { color: var(--t-text-1); border-color: var(--t-text-3); }
+.t-btn:hover { color: var(--t-text-1); border-color: var(--t-text-2); }
 .t-btn-promote { color: var(--t-accent); border-color: color-mix(in oklab, var(--t-accent) 40%, var(--t-border)); }
 .t-pill { display: inline-block; padding: 2px 7px; border-radius: 3px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; font-weight: 600; }
 .t-pill-paper { background: color-mix(in oklab, var(--t-accent) 14%, transparent); color: var(--t-accent); }
@@ -75,11 +75,11 @@
 .t-col-main, .t-col-side { display: flex; flex-direction: column; gap: 18px; }
 .t-row-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .t-card {
-  background: var(--t-bg-2); border: 1px solid var(--t-border); border-radius: 4px; overflow: hidden;
+  background: var(--t-bg-2); border: 1px solid var(--t-text-3); border-radius: 4px; overflow: hidden;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.02), 0 1px 0 rgba(0,0,0,0.4);
 }
 .t-card-head {
-  background: var(--t-bg-3); border-bottom: 1px solid var(--t-border);
+  background: var(--t-bg-3); border-bottom: 1px solid var(--t-text-3);
   padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; position: relative;
 }
 .t-card-head::after {
@@ -91,8 +91,8 @@
 .t-num-xl { font-family: var(--mono); font-size: 32px; font-weight: 600; letter-spacing: -0.01em; }
 .t-num-lg { font-family: var(--mono); font-size: 24px; font-weight: 600; }
 .t-tbl { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
-.t-tbl th { color: var(--t-text-3); text-align: left; padding: 7px 0; font-weight: 400; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; border-bottom: 1px solid var(--t-border); }
-.t-tbl td { padding: 6px 0; color: var(--t-text-2); border-bottom: 1px solid color-mix(in oklab, var(--t-border) 60%, transparent); }
+.t-tbl th { color: var(--t-text-2); text-align: left; padding: 7px 0; font-weight: 400; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; border-bottom: 1px solid var(--t-text-3); }
+.t-tbl td { padding: 6px 0; color: var(--t-text-2); border-bottom: 1px solid color-mix(in oklab, var(--t-text-3) 40%, transparent); }
 .t-tbl td strong { color: var(--t-text-1); font-weight: 600; }
 .t-tbl-pad th, .t-tbl-pad td { padding-left: 14px; padding-right: 14px; }
 .t-tbl-pad th:first-child, .t-tbl-pad td:first-child { padding-left: 16px; }
@@ -106,7 +106,7 @@
 .t-funnel-track { height: 16px; background: var(--t-bg-3); border: 1px solid var(--t-border); border-radius: 1px; position: relative; }
 .t-funnel-fill { height: 100%; transition: width 0.4s ease; }
 .t-funnel-count { color: var(--t-text-1); font-weight: 600; text-align: right; }
-.t-funnel-pct { color: var(--t-text-3); text-align: right; }
+.t-funnel-pct { color: var(--t-text-2); text-align: right; }
 /* Gate pills */
 .t-gate-x { background: color-mix(in oklab, var(--t-accent) 18%, transparent); color: var(--t-accent); }
 .t-gate-skip { background: color-mix(in oklab, var(--t-text-3) 20%, transparent); color: var(--t-text-2); }
@@ -117,7 +117,7 @@
 .t-sec-code { font-family: var(--mono); font-size: 13px; letter-spacing: 0.1em; color: var(--t-accent); font-weight: 600; }
 .t-sec-name { font-family: var(--mono); font-size: 13px; color: var(--t-text-2); text-transform: uppercase; letter-spacing: 0.06em; }
 .t-sec-score { font-family: var(--mono); font-size: 14px; font-weight: 600; margin-left: auto; }
-.t-sec-etf { font-family: var(--mono); font-size: 10px; color: var(--t-text-3); margin-left: 8px; }
+.t-sec-etf { font-family: var(--mono); font-size: 10px; color: var(--t-text-2); margin-left: 8px; }
 .t-sec-excluded .t-sec-code { color: var(--t-text-3); }
 .t-sec-excluded .t-tile { opacity: 0.55; }
 .t-sec-tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
