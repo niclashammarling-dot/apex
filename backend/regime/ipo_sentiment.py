@@ -296,6 +296,7 @@ class IpoSentiment:
         for form_type in ("S-1", "S-1/A"):
             offset = 0
             type_count = 0
+            total_hits: Optional[int] = None  # read from first page to cap pagination
             while type_count < MAX_FILINGS:
                 params = {
                     "dateRange": "custom",
@@ -318,6 +319,9 @@ class IpoSentiment:
                         resp.raise_for_status()
                         data = resp.json()
                         hits = data.get("hits", {}).get("hits", [])
+                        if total_hits is None:
+                            t = data.get("hits", {}).get("total", {})
+                            total_hits = t.get("value") if isinstance(t, dict) else (t if isinstance(t, int) else None)
                         break
                     except requests.exceptions.HTTPError as e:
                         status = e.response.status_code if e.response is not None else None
@@ -343,6 +347,8 @@ class IpoSentiment:
                 time.sleep(REQUEST_DELAY_SEC)
                 if len(hits) < PAGE_SIZE:
                     break  # last page
+                if total_hits is not None and offset + PAGE_SIZE >= total_hits:
+                    break  # next offset would exceed result set — avoid EDGAR 500 on empty page
                 offset += PAGE_SIZE
 
         # Deduplicate by entity name
