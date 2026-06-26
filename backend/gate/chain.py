@@ -29,7 +29,7 @@ from typing import Any, Callable
 from loguru import logger
 
 from backend.gate.lock1_eligibility import evaluate as lock1_evaluate
-from backend.gate.lock2_quant import evaluate as lock2_evaluate
+from backend.gate.lock2_quant import evaluate as lock2_evaluate, _sector_threshold
 from backend.gate.lock3_sentiment import evaluate as lock3_evaluate
 from backend.gate.lock4_leading import evaluate as lock4_evaluate
 from backend.gate.lock5_claude import evaluate as lock5_evaluate
@@ -146,6 +146,37 @@ def evaluate_chain(
     if not l4.passed:
         return _chain_fail(ticker, sector, lock_results, exit_lock=4)
 
+    # ETF negative penalty: if the sector ETF 5d return fell below the floor,
+    # penalise signal_score and re-check against the quant threshold.
+    # Motivation: relative strength in a declining sector increases sector-level
+    # drawdown risk even when the ticker outperforms its ETF.
+    # Tune: etf_negative_floor (default -1.0%) sets the noise floor; a rate of
+    # 0.20 would have penalised the LRCX SOXX=-1.3% entry (score 0.855→0.633 < 0.65).
+    etf_negative_penalty = cfg.get("etf_negative_penalty", 0.0)
+    if etf_negative_penalty > 0:
+        etf_negative_floor = cfg.get("etf_negative_floor", -1.0)
+        rs_check = (l4.data or {}).get("checks", {}).get("relative_strength", {})
+        etf_ret  = rs_check.get("etf_return")
+        if etf_ret is not None and etf_ret < etf_negative_floor:
+            original        = signal_score
+            signal_score    = signal_score * (1.0 - etf_negative_penalty)
+            quant_threshold = _sector_threshold(sector, sector_thresholds)
+            logger.debug(
+                f"[{ticker}] ETF negative penalty {etf_negative_penalty:.0%} "
+                f"(ETF {etf_ret:+.2f}% < floor {etf_negative_floor:.1f}%): "
+                f"signal_score {original:.4f} → {signal_score:.4f} "
+                f"(sector threshold {quant_threshold:.3f})"
+            )
+            if signal_score < quant_threshold:
+                return _chain_fail(
+                    ticker, sector, lock_results, exit_lock=4,
+                    reason=(
+                        f"ETF negative penalty: sector ETF {etf_ret:+.2f}% below floor "
+                        f"{etf_negative_floor:.1f}% — penalised score {signal_score:.4f} "
+                        f"< sector threshold {quant_threshold:.3f}"
+                    ),
+                )
+
     # Deferred L5 mode — live gate stops here so the serial executor runs L5
     # only for candidates that actually have a slot, avoiding wasted Claude API calls.
     if stop_after_lock == 4:
@@ -196,9 +227,11 @@ def _chain_fail(
     sector:       str,
     lock_results: dict[int, LockResult],
     exit_lock:    int,
+    reason:       str | None = None,
 ) -> ChainResult:
     failed  = lock_results[exit_lock]
-    summary = f"{ticker} REJECTED at Lock {exit_lock} — {failed.reason[:120]}"
+    msg     = reason if reason is not None else failed.reason
+    summary = f"{ticker} REJECTED at Lock {exit_lock} — {msg[:120]}"
     logger.debug(f"Chain REJECTED: {summary}")
 
     return ChainResult(

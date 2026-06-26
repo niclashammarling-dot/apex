@@ -131,12 +131,25 @@ SIC_TO_SECTOR: list[tuple[range, str]] = [
     (range(6500, 6600), "Financials"),
     (range(6700, 6800), "Financials"),
 
+    # Semiconductors — must precede Technology (SIC 3674 is inside Technology's 3670-3680 range)
+    (range(3674, 3675), "Semiconductors"),
+
+    # Defense — must precede Technology (SIC 3812 is defense electronics; narrow range)
+    (range(3761, 3770), "Defense"),   # guided missiles & space vehicles
+    (range(3812, 3813), "Defense"),   # search/detection/navigation systems
+
     # Technology
     (range(3570, 3580), "Technology"),
     (range(3670, 3680), "Technology"),
     (range(7370, 7380), "Technology"),
     (range(3672, 3678), "Technology"),
-    (range(3812, 3813), "Technology"),
+
+    # Homebuilders — SIC 1521-1532 (residential construction); no overlap with existing ranges
+    (range(1521, 1533), "Homebuilders"),
+
+    # Transportation — railroads and trucking not covered by Industrials range (4400-4800)
+    (range(4011, 4014), "Transportation"),   # railroads
+    (range(4210, 4216), "Transportation"),   # trucking & courier services
 
     # Communication
     (range(4800, 4900), "Communication"),

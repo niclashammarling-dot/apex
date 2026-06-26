@@ -41,6 +41,8 @@ _KEYS = [
     "max_drawdown_pct",
     "profit_lock_trigger_pct",
     "profit_lock_trail_pct",
+    "etf_negative_floor",
+    "etf_negative_penalty",
 ]
 
 
@@ -64,6 +66,8 @@ def _defaults() -> dict:
         MACRO_EARNINGS_BLACKOUT_DAYS,
         MACRO_EVENT_BLACKOUT_DAYS,
         MACRO_VIX_THRESHOLD,
+        ETF_NEGATIVE_FLOOR,
+        ETF_NEGATIVE_PENALTY,
         OVERFLOW_QUANT_INCREMENT,
         PROFIT_LOCK_TRAIL_PCT,
         PROFIT_LOCK_TRIGGER_PCT,
@@ -92,6 +96,8 @@ def _defaults() -> dict:
         "lock_leading_min_pass":        LOCK_LEADING_MIN_PASS,
         "starting_balance":             LIVE_STARTING_BALANCE,
         "max_drawdown_pct":             LOCK3_MAX_DRAWDOWN_PCT,
+        "etf_negative_floor":           ETF_NEGATIVE_FLOOR,
+        "etf_negative_penalty":         ETF_NEGATIVE_PENALTY,
     }
 
 

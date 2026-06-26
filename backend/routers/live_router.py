@@ -62,8 +62,10 @@ def live_positions():
         positions  = broker.get_positions()
         open_trades = get_open_live_trades()
         days_map   = {t["ticker"]: _trading_days_since(t["timestamp"]) for t in open_trades}
+        sl_map     = {t["ticker"]: t["sl_price"] for t in open_trades}
         for p in positions:
             p["days_held"] = days_map.get(p["ticker"])
+            p["sl_price"]  = sl_map.get(p["ticker"])
         return positions
     except Exception as e:
         logger.error(f"live_positions: {e}")

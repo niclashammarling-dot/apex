@@ -478,7 +478,7 @@ def check50():
             WHERE gate_decision = 'TRADE_EXECUTED'
               AND lock_leading_pass = 1
               AND lock_leading_checks IS NOT NULL
-              AND timestamp >= datetime('now', '-30 days')
+              AND timestamp >= '2026-06-03'
             ORDER BY timestamp DESC
             """
         ).fetchall()

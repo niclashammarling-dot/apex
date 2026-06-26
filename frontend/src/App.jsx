@@ -309,12 +309,17 @@ function adaptWallet(wallet, equityPoints) {
   };
 }
 
-function adaptLiveWallet(account, livePositions, settings, equityPoints) {
+function adaptLiveWallet(account, livePositions, settings, equityPoints, liveTrades) {
   const starting = settings?.live?.starting_balance ?? 25000;
   if (!account) {
     return { balance: 0, starting, cash: 0, invested: 0, realized: 0, unrealized: 0, winRate: 0, trades: 0, avgWin: 0, avgLoss: 0, drawdown: 0, sharpe: 0 };
   }
   const unrealized = (livePositions || []).reduce((s, p) => s + (p.unrealized_pnl ?? 0), 0);
+  const closed = (liveTrades || []).filter(t => t.outcome === "WIN" || t.outcome === "LOSS");
+  const wins   = closed.filter(t => t.outcome === "WIN");
+  const losses = closed.filter(t => t.outcome === "LOSS");
+  const grossWins   = wins.reduce((s, t) => s + (t.pnl ?? 0), 0);
+  const grossLosses = losses.reduce((s, t) => s + Math.abs(t.pnl ?? 0), 0);
   return {
     balance:    account.equity ?? 0,
     starting,
@@ -322,10 +327,10 @@ function adaptLiveWallet(account, livePositions, settings, equityPoints) {
     invested:   (account.equity ?? 0) - (account.cash ?? 0),
     realized:   account.total_pnl ?? 0,
     unrealized,
-    winRate:    0,
-    trades:     0,
-    avgWin:     0,
-    avgLoss:    0,
+    winRate:    closed.length ? Math.round(wins.length / closed.length * 100) : 0,
+    trades:     closed.length,
+    avgWin:     wins.length   ? +(grossWins   / wins.length).toFixed(2)   : 0,
+    avgLoss:    losses.length ? +(grossLosses / losses.length).toFixed(2) : 0,
     drawdown:   _maxDD(equityPoints),
     sharpe:     0,
   };
@@ -343,7 +348,7 @@ function adaptPositions(openPositions) {
     peak:   p.peak_price ?? p.current_price ?? p.avg_entry_price ?? p.price ?? 0,
     held:   p.days_held ?? 0,
     tp:     null,
-    sl:     null,
+    sl:     p.sl_price ?? null,
     trail:  false,
   }));
 }
@@ -792,7 +797,7 @@ export default function App() {
       positions:     adaptPositions(wallet?.open_positions ?? []),
       livePositions: adaptPositions(livePositions),
       wallet:        adaptWallet(wallet, eq),
-      liveWallet:    adaptLiveWallet(liveAccount, livePositions, settings, liveEq),
+      liveWallet:    adaptLiveWallet(liveAccount, livePositions, settings, liveEq, liveTrades),
       alerts:        adaptAlerts(driftAlerts),
       demoTrades,
       liveTrades,

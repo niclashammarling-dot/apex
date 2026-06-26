@@ -198,7 +198,8 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
             },
         )
 
-    macro_status, event_desc = _macro_status(today, _FOMC_PRE_EVENT_DAYS)
+    cpi_nfp_blackout = cfg.get("macro_event_blackout_days", 1)
+    macro_status, event_desc = _macro_status(today, _FOMC_PRE_EVENT_DAYS, cpi_nfp_blackout)
     if macro_status == "hard_block":
         return LockResult.fail(
             lock_id=LOCK_ID,
@@ -335,11 +336,11 @@ def _get_vix() -> float | None:
 
 # ── Macro event helpers ───────────────────────────────────────────────────────
 
-def _macro_status(today: date, fomc_blackout: int) -> tuple[str, str | None]:
+def _macro_status(today: date, fomc_blackout: int, cpi_nfp_blackout: int = 1) -> tuple[str, str | None]:
     """Return ("hard_block", desc), ("pre_event", desc), or ("clear", None).
 
     FOMC: hard block for the full pre-event window (fomc_blackout days).
-    CPI/NFP: hard block on the event day; pre_event on the day before.
+    CPI/NFP: hard block on event day; pre_event within cpi_nfp_blackout days before.
     Post-event entries are never blocked — the print is known.
     """
     for d in _MACRO_DATES:
@@ -353,8 +354,8 @@ def _macro_status(today: date, fomc_blackout: int) -> tuple[str, str | None]:
             name = "CPI" if d in _CPI_DATES else "NFP"
             if days_ahead == 0:
                 return "hard_block", f"{name} on {d.isoformat()} (today)"
-            if days_ahead == 1:
-                return "pre_event", f"{name} on {d.isoformat()} (tomorrow)"
+            if 0 < days_ahead <= cpi_nfp_blackout:
+                return "pre_event", f"{name} on {d.isoformat()} (in {days_ahead}d)"
     return "clear", None
 
 

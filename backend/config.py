@@ -82,6 +82,8 @@ MACRO_EARNINGS_NEAR_PENALTY   = 0.15  # score multiplier reduction in near-term 
 GATE_COOLOFF_HOURS            = 4     # hours before re-evaluating a ticker that failed L2/L3/MACRO
 EXIT_COOLOFF_HOURS            = 24    # hours before a LOSS/EXPIRED ticker can re-enter the gate
 TP_COOLOFF_HOURS              = 168   # hours before a WIN ticker can re-enter (7d — sweep-validated 2026-06-03)
+ETF_NEGATIVE_FLOOR            = -1.0  # sector ETF 5d return (%) below which penalty fires; -0.3% is noise
+ETF_NEGATIVE_PENALTY          = 0.0   # score multiplier reduction when ETF is below floor (0 = off; 0.20 blocks LRCX-shape entries)
 
 # --- Lock Leading ---
 LOCK_LEADING_MIN_PASS = 2      # checks that must pass (out of 4) to advance

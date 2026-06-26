@@ -90,18 +90,24 @@ def check27():
         "PLD": "RealEstate", "AMT": "RealEstate", "EQIX": "RealEstate",
         "SPG": "RealEstate", "WELL": "RealEstate", "DLR": "RealEstate",
         "O": "RealEstate",   "VTR": "RealEstate",  "PSA": "RealEstate",
-        # Semiconductors (SOXX) — added 2026-05-17
+        # Semiconductors (SOXX) — added 2026-05-17; expanded 2026-06-14
         "ASML": "Semiconductors", "AMAT": "Semiconductors", "LRCX": "Semiconductors",
         "KLAC": "Semiconductors", "MU": "Semiconductors",
+        "MRVL": "Semiconductors", "ON": "Semiconductors", "TER": "Semiconductors",
+        "ADI": "Semiconductors",
         # Defense (ITA) — added 2026-05-17
         "LMT": "Defense", "RTX": "Defense", "NOC": "Defense",
         "GD": "Defense",  "HII": "Defense",
-        # Homebuilders (ITB) — added 2026-05-18; GICS: Consumer Discretionary sub-industry
+        # Homebuilders (ITB) — added 2026-05-18; expanded 2026-06-14; GICS: Consumer Discretionary sub-industry
         "DHI": "Homebuilders", "LEN": "Homebuilders", "PHM": "Homebuilders",
         "TOL": "Homebuilders", "NVR": "Homebuilders",
-        # Transportation (IYT) — added 2026-05-18; GICS: Industrials sub-industry
+        "MHO": "Homebuilders", "TMHC": "Homebuilders", "BLD": "Homebuilders",
+        "MTH": "Homebuilders",
+        # Transportation (IYT) — added 2026-05-18; expanded 2026-06-14; GICS: Industrials sub-industry
         "UNP": "Transportation", "CSX": "Transportation", "FDX": "Transportation",
         "UPS": "Transportation", "JBHT": "Transportation",
+        "WAB": "Transportation", "ODFL": "Transportation", "CHRW": "Transportation",
+        "DAL": "Transportation",
     }
 
     tickers_path = REPO / "data/tickers.json"

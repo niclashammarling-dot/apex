@@ -3,7 +3,7 @@
   "lock2_sentiment_min": 0.2,
   "lock3_confidence_min": 0.6,
   "take_profit_pct": 0.06,
-  "stop_loss_pct": 0.06,
+  "stop_loss_pct": 0.07,
   "profit_lock_trigger_pct": 0.04,
   "profit_lock_trail_pct": 0.01,
   "max_positions": 10,
@@ -21,7 +21,6 @@
   "lock_leading_min_pass": 2,
   "starting_balance": 2000,
   "max_drawdown_pct": 0.2,
-  "macro_earnings_near_days": 14,
-  "macro_earnings_near_penalty": 0.15,
-  "macro_pre_event_penalty": 0.05
+  "etf_negative_floor": -1.0,
+  "etf_negative_penalty": 0.0
 }

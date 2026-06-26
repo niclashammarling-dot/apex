@@ -294,7 +294,7 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
 
     context = build_base_context(
         signal, wallet_ctx, cfg,
-        starting_balance=cfg["starting_balance"],
+        starting_balance=wallet_ctx["starting_balance"],
         gate_history_fn=get_ticker_gate_fails,
         sector_regime=sector_regime,
         rotation_scores=rotation_scores,

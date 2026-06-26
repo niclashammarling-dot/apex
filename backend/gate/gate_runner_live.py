@@ -30,6 +30,7 @@ from backend.gate.gate_runner import (
     _chain_to_gate_result,
     _compute_bayesian_multipliers,
     _persist_multiplier_stats,
+    _run_l5_for_result,
 )
 from backend.sector_caps import compute_dynamic_caps
 
@@ -390,34 +391,6 @@ def run() -> list[dict]:
 
     _persist_multiplier_stats(bayesian_multipliers, regime_bayes_result, evaluated, runner="live")
     return results
-
-
-def _run_l5_for_result(signal: dict, result: dict, cfg: dict) -> None:
-    """
-    Run Lock 5 (Claude) in the serial execution phase using stashed inputs.
-    Mutates result in-place: sets outcome, lock3, lock3_pass, claude_reasoning.
-    """
-    from backend.gate.lock5_claude import evaluate as lock5_evaluate
-    ticker       = signal["ticker"]
-    sector       = signal.get("sector", "")
-    lock_results = result.pop("_l5_lock_results", {})
-    context      = result.pop("_l5_context", {})
-
-    l5      = lock5_evaluate(ticker, sector, lock_results, context,
-                             confidence_min=cfg.get("lock3_confidence_min"))
-    l5_data = l5.data if l5 else {}
-
-    result["lock3"] = {
-        "passed":            l5.passed,
-        "decision":          l5_data.get("decision"),
-        "confidence":        l5_data.get("confidence", 0.0),
-        "position_size_pct": l5_data.get("position_size_pct", 0.0),
-        "reasoning":         l5_data.get("reasoning"),
-        "model":             l5_data.get("model"),
-    }
-    result["lock3_pass"]      = int(l5.passed)
-    result["claude_reasoning"] = l5_data.get("reasoning")
-    result["outcome"]         = "TRADE_QUEUED" if l5.passed else "FILTERED_L3"
 
 
 def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
