@@ -14,6 +14,9 @@
   "vix_threshold": 30,
   "macro_event_blackout_days": 1,
   "macro_earnings_blackout_days": 2,
+  "macro_earnings_near_days": 14,
+  "macro_earnings_near_penalty": 0.15,
+  "macro_pre_event_penalty": 0.05,
   "gate_cooloff_hours": 4,
   "exit_cooloff_hours": 24,
   "tp_cooloff_hours": 168,
@@ -21,9 +24,6 @@
   "lock_leading_min_pass": 2,
   "starting_balance": 100000,
   "max_drawdown_pct": 0.2,
-  "macro_earnings_near_days": 14,
-  "macro_earnings_near_penalty": 0.15,
-  "macro_pre_event_penalty": 0.05,
   "etf_negative_floor": -1.0,
-  "etf_negative_penalty": 0.10
+  "etf_negative_penalty": 0.1
 }

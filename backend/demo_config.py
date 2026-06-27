@@ -41,6 +41,9 @@ _KEYS = [
     "profit_lock_trail_pct",
     "etf_negative_floor",
     "etf_negative_penalty",
+    "macro_earnings_near_days",
+    "macro_earnings_near_penalty",
+    "macro_pre_event_penalty",
 ]
 
 
@@ -56,7 +59,10 @@ def _defaults() -> dict:
         LOCK3_MAX_DRAWDOWN_PCT,
         LOCK_LEADING_MIN_PASS,
         MACRO_EARNINGS_BLACKOUT_DAYS,
+        MACRO_EARNINGS_NEAR_DAYS,
+        MACRO_EARNINGS_NEAR_PENALTY,
         MACRO_EVENT_BLACKOUT_DAYS,
+        MACRO_PRE_EVENT_PENALTY,
         MACRO_VIX_THRESHOLD,
         ETF_NEGATIVE_FLOOR,
         ETF_NEGATIVE_PENALTY,
@@ -87,6 +93,9 @@ def _defaults() -> dict:
         "vix_threshold":                MACRO_VIX_THRESHOLD,
         "macro_event_blackout_days":    MACRO_EVENT_BLACKOUT_DAYS,
         "macro_earnings_blackout_days": MACRO_EARNINGS_BLACKOUT_DAYS,
+        "macro_earnings_near_days":     MACRO_EARNINGS_NEAR_DAYS,
+        "macro_earnings_near_penalty":  MACRO_EARNINGS_NEAR_PENALTY,
+        "macro_pre_event_penalty":      MACRO_PRE_EVENT_PENALTY,
         "gate_cooloff_hours":           GATE_COOLOFF_HOURS,
         "exit_cooloff_hours":           EXIT_COOLOFF_HOURS,
         "tp_cooloff_hours":             TP_COOLOFF_HOURS,

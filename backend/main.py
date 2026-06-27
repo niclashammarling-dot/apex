@@ -1,15 +1,35 @@
+import json
+import math
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from loguru import logger
 
 from backend.db import init_db
 from backend.routers.live_router import router as live_router
 from backend.routers.signals_router import router as signals_router
 from backend.scheduler import poll_all_sectors, scheduler, start_scheduler
+
+
+def _sanitize(obj: Any) -> Any:
+    """Replace float NaN/Inf with None so json.dumps never raises ValueError."""
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    return obj
+
+
+class _NaNSafeResponse(JSONResponse):
+    def render(self, content: Any) -> bytes:
+        return json.dumps(_sanitize(content), allow_nan=False).encode("utf-8")
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 # Stdout sink is provided by loguru by default.
@@ -48,7 +68,8 @@ async def lifespan(app: FastAPI):
     logger.info("APEX backend stopped")
 
 
-app = FastAPI(title="APEX", version="1.0", lifespan=lifespan)
+app = FastAPI(title="APEX", version="1.0", lifespan=lifespan,
+              default_response_class=_NaNSafeResponse)
 
 # Read CORS origins from the environment so production deployments don't need
 # to modify source code. Falls back to the standard local dev addresses.

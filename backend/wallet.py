@@ -349,13 +349,13 @@ def get_portfolio() -> dict:
     unrealized_total = 0.0
     for t in open_trades:
         current = current_prices.get(t["ticker"])
-        if current:
+        if current is not None:
             unreal     = t["amount"] * ((current - t["price"]) / t["price"])
             unreal_pct = (current - t["price"]) / t["price"]
         else:
             unreal     = None
             unreal_pct = None
-        unrealized_total += unreal or 0
+        unrealized_total += 0 if pd.isna(unreal) else unreal
         positions.append({
             **t,
             "current_price":    current,
@@ -428,14 +428,20 @@ def _batch_prices(tickers: list[str]) -> dict[str, float]:
             hist = yf.Ticker(tickers[0]).history(period="2d")
             if hist.empty:
                 return {}
-            return {tickers[0]: float(hist["Close"].iloc[-1])}
+            v = hist["Close"].iloc[-1]
+            if pd.isna(v):
+                return {}
+            return {tickers[0]: float(v)}
         data   = yf.download(tickers, period="1d", auto_adjust=True, progress=False)
         closes = data["Close"]
-        return {
-            t: float(closes[t].iloc[-1])
-            for t in tickers
-            if t in closes.columns and not closes[t].isna().all()
-        }
+        result = {}
+        for t in tickers:
+            if t not in closes.columns:
+                continue
+            v = closes[t].iloc[-1]
+            if not pd.isna(v):
+                result[t] = float(v)
+        return result
     except Exception as e:
         logger.warning(f"Batch price fetch failed: {e}")
         return {}

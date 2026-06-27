@@ -198,7 +198,8 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
             },
         )
 
-    cpi_nfp_blackout = cfg.get("macro_event_blackout_days", 1)
+    _eb = cfg.get("macro_event_blackout_days")
+    cpi_nfp_blackout = 1 if _eb is None else _eb
     macro_status, event_desc = _macro_status(today, _FOMC_PRE_EVENT_DAYS, cpi_nfp_blackout)
     if macro_status == "hard_block":
         return LockResult.fail(

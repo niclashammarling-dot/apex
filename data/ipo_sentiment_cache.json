@@ -1,56 +1,71 @@
 {
-  "date": "2026-06-15",
+  "date": "2026-06-27",
   "ipo_shares": {
-    "Materials": 0.0,
-    "Energy": 0.125,
-    "RealEstate": 0.0,
-    "Industrials": 0.0,
-    "Defense": 0.0,
-    "ConsumerStaples": 0.0,
-    "Utilities": 0.0,
-    "Semiconductors": 0.0,
-    "Healthcare": 0.25,
-    "Homebuilders": 0.0,
     "Transportation": 0.0,
-    "Technology": 0.375,
-    "Financials": 0.25,
+    "RealEstate": 0.0,
     "ConsumerDisc": 0.0,
-    "Communication": 0.0
+    "Energy": 0.2,
+    "Industrials": 0.0,
+    "Communication": 0.0,
+    "Technology": 0.3,
+    "Healthcare": 0.3,
+    "Semiconductors": 0.0,
+    "Defense": 0.0,
+    "Homebuilders": 0.0,
+    "Materials": 0.2
   },
   "ipo_counts": {
-    "Materials": 0,
-    "Energy": 1,
-    "RealEstate": 0,
-    "Industrials": 0,
-    "Defense": 0,
-    "ConsumerStaples": 0,
-    "Utilities": 0,
-    "Semiconductors": 0,
-    "Healthcare": 2,
-    "Homebuilders": 0,
     "Transportation": 0,
-    "Technology": 3,
-    "Financials": 2,
+    "RealEstate": 0,
     "ConsumerDisc": 0,
-    "Communication": 0
+    "Energy": 2,
+    "Industrials": 0,
+    "Communication": 0,
+    "Technology": 3,
+    "Healthcare": 3,
+    "Semiconductors": 0,
+    "Defense": 0,
+    "Homebuilders": 0,
+    "Materials": 2
   },
-  "total_ipos": 8,
+  "total_ipos": 10,
   "risk_off": false,
-  "context": "IPO Sentiment (2026-06-15, last 30 days):\n  Total market IPOs: 8\n  Sector distribution:\n    Technology                 3 IPOs  (38%)  \u2588\u2588\u2588\n    Healthcare                 2 IPOs  (25%)  \u2588\u2588\n    Financials                 2 IPOs  (25%)  \u2588\u2588\n    Energy                     1 IPOs  (12%)  \u2588",
+  "context": "IPO Sentiment (2026-06-27, last 30 days):\n  Total market IPOs: 10\n  Sector distribution:\n    Technology                 3 IPOs  (30%)  \u2588\u2588\u2588\n    Healthcare                 3 IPOs  (30%)  \u2588\u2588\u2588\n    Energy                     2 IPOs  (20%)  \u2588\u2588\n    Materials                  2 IPOs  (20%)  \u2588\u2588",
   "listings": [
+    {
+      "ticker": "SIND",
+      "company": "Sinda Ltd.",
+      "sector": "Materials",
+      "sic_code": 1040,
+      "list_date": "2026-06-26"
+    },
+    {
+      "ticker": "DPC",
+      "company": "DPC Holdings Ltd",
+      "sector": "Materials",
+      "sic_code": 3360,
+      "list_date": "2026-06-25"
+    },
+    {
+      "ticker": "KARD",
+      "company": "Kardigan, Inc.",
+      "sector": "Healthcare",
+      "sic_code": 2834,
+      "list_date": "2026-06-18"
+    },
+    {
+      "ticker": "FISN",
+      "company": "DEEP FISSION, INC.",
+      "sector": "Energy",
+      "sic_code": 4911,
+      "list_date": "2026-06-18"
+    },
     {
       "ticker": "PBLS",
       "company": "Parabilis Medicines, Inc.",
       "sector": "Healthcare",
       "sic_code": 2834,
       "list_date": "2026-06-10"
-    },
-    {
-      "ticker": "FRBT",
-      "company": "Forbright, Inc.",
-      "sector": "Financials",
-      "sic_code": 6022,
-      "list_date": "2026-06-11"
     },
     {
       "ticker": "WHK",
@@ -86,13 +101,6 @@
       "sector": "Technology",
       "sic_code": 7373,
       "list_date": "2026-06-04"
-    },
-    {
-      "ticker": "HYPG",
-      "company": "Grayscale Hyperliquid Staking ETF",
-      "sector": "Financials",
-      "sic_code": 6221,
-      "list_date": "2026-06-03"
     }
   ]
 }
