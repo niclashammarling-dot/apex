@@ -274,7 +274,7 @@ function Positions({ D, mode }) {
         ) : (
           <table className="t-tbl t-tbl-pad">
             <thead>
-              <tr><th>SYM</th><th>QTY</th><th>ENTRY</th><th>MKT</th><th>P&L</th><th>%</th><th>HOLD</th><th>STOP</th></tr>
+              <tr><th>SYM</th><th>QTY</th><th>ENTRY</th><th>MKT</th><th>STOP</th><th>P&L</th><th>%</th><th>HOLD</th></tr>
             </thead>
             <tbody>
               {positions.map(p => (
@@ -283,14 +283,14 @@ function Positions({ D, mode }) {
                   <td>{p.qty}</td>
                   <td>{(p.entry ?? 0).toFixed(2)}</td>
                   <td>{(p.mkt ?? 0).toFixed(2)}</td>
-                  <td className={(p.pnl ?? 0) >= 0 ? "t-pos" : "t-neg"}>{(p.pnl ?? 0) >= 0 ? "+" : ""}{(p.pnl ?? 0).toFixed(2)}</td>
-                  <td className={(p.pct ?? 0) >= 0 ? "t-pos" : "t-neg"}>{(p.pct ?? 0) >= 0 ? "+" : ""}{(p.pct ?? 0).toFixed(2)}%</td>
-                  <td>{p.held}d</td>
                   <td>
                     {p.trail
                       ? <span className="t-pill t-pill-lock">PROFIT-LOCK</span>
                       : <span className="t-meta">{p.sl ? `SL ${p.sl.toFixed(2)}` : "—"}</span>}
                   </td>
+                  <td className={(p.pnl ?? 0) >= 0 ? "t-pos" : "t-neg"}>{(p.pnl ?? 0) >= 0 ? "+" : ""}{(p.pnl ?? 0).toFixed(2)}</td>
+                  <td className={(p.pct ?? 0) >= 0 ? "t-pos" : "t-neg"}>{(p.pct ?? 0) >= 0 ? "+" : ""}{(p.pct ?? 0).toFixed(2)}%</td>
+                  <td>{p.held}d</td>
                 </tr>
               ))}
             </tbody>

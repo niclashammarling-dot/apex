@@ -612,6 +612,7 @@ def get_wallet_context() -> dict:
             "balance":         round(balance, 2),
             "open_positions":  open_positions,
             "sector_exposure": sector_exposure,
+            "starting_balance": STARTING_BALANCE,
         }
     finally:
         conn.close()
