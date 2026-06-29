@@ -195,7 +195,7 @@ def _parse_to_result(raw: str, effective_min: float, ticker: str, model: str) ->
             raw = raw[4:]
         raw = raw.strip()
     try:
-        parsed = json.loads(raw)
+        parsed, _ = json.JSONDecoder().raw_decode(raw)
     except json.JSONDecodeError:
         logger.warning(f"Lock 5 [{ticker}] ({model}): JSON parse failed — treating as HOLD\nRaw: {raw[:200]}")
         raise
