@@ -661,6 +661,38 @@ def check61():
                      "pnl_pct > 0 classifies breakeven trades as LOSS; use >= 0")
 
 
+def check62():
+    """
+    Lock 4's evaluate() and data-fetch paths must retain two concurrency guards:
+      1. NoneType guard: check results accessed via `v and v.get("pass")` not
+         bare `v["pass"]`; ThreadPoolExecutor may return None if a check function
+         exits via an unhandled exception path (2026-06-30 incident).
+      2. MultiIndex guard: `isinstance(raw.columns, ...MultiIndex)` + xs()
+         normalization; concurrent yfinance session reuse can inject MultiIndex
+         column structure into single-ticker downloads (2026-06-30 incident).
+    Note: checks that the known guard patterns persist; does not cover novel
+    None-producing escape paths that bypass evaluate()'s aggregation layer.
+    """
+    import re
+
+    path = REPO / "backend/gate/lock4_leading.py"
+    if not path.exists():
+        return
+    text = path.read_text()
+
+    if not re.search(r'v\s+and\s+v\.get\(', text):
+        flag(62, "Lock 4 NoneType guard missing", "CRITICAL",
+             "backend/gate/lock4_leading.py",
+             "v and v.get() guard absent from evaluate() — bare v['pass'] crashes "
+             "on None futures results from ThreadPoolExecutor")
+
+    if not re.search(r'isinstance\(.*\.columns.*MultiIndex\)', text):
+        flag(62, "Lock 4 MultiIndex normalization missing", "CRITICAL",
+             "backend/gate/lock4_leading.py",
+             "isinstance(raw.columns, MultiIndex) guard absent — concurrent yfinance "
+             "session reuse can inject MultiIndex structure into single-ticker downloads")
+
+
 def run() -> None:
     check3()
     check6()
@@ -677,3 +709,4 @@ def run() -> None:
     check59()
     check60()
     check61()
+    check62()
