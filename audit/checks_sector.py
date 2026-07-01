@@ -443,7 +443,9 @@ def check63():
 
     Single-day readings below threshold are meaningful (threshold gap from baseline is
     wide enough that noise does not reach it).  Retires when Healthcare's post-addition
-    composite has been stable above 0.62 for 30 consecutive trading days.
+    composite has been stable above WARN_FLOOR + 0.02 (currently 0.62) for 30 consecutive
+    trading days.  SYK addition is gated on the same condition — if WARN_FLOOR changes,
+    update the SYK/ABBV revisit trigger in CHECKS.md to match.
     """
     BASELINE_VALUE = 0.6736
     BASELINE_DATE  = "2026-07-01"
