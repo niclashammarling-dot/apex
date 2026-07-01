@@ -76,6 +76,14 @@ Columns: `last_triggered` = most recent date the check found an issue. `last_cle
 | 62 | Lock 4 concurrency guards present | 2026-06-30 | Two concurrency guards in lock4_leading.py must persist: (1) `v and v.get("pass")` NoneType guard in evaluate() — ThreadPoolExecutor can return None from a check function, bare subscript crashes; (2) `isinstance(raw.columns, ...MultiIndex)` + xs() normalization — concurrent yfinance session reuse can inject MultiIndex structure into single-ticker downloads. CRITICAL if either pattern is absent. Note: verifies known guard patterns; does not cover novel None-producing escape paths that bypass evaluate()'s aggregation | backend/gate/lock4_leading.py | 2026-06-30 | 2026-06-30 |
 | 63 | Healthcare composite dilution monitor | 2026-07-01 | ISRG and TMO added to Healthcare (5→7 tickers) on 2026-07-01; baseline avg_score=0.6736 pinned at that date. AVG(signal_score) dilution from new tickers feeds directly into L1 adjusted_score floor check (ALLOCATION_FLOOR=0.35). Fixed baseline (not rolling) so sustained dilution doesn't get averaged away. WARNING if avg_score < 0.60; CRITICAL if < 0.55 (at neutral posterior ~0.55, adjusted_score ≈ 0.30, below floor). CRITICAL action: remove ISRG+TMO via ticker_config.remove_ticker() and diagnose before re-adding. Retire after 30 consecutive trading days above WARN_FLOOR + 0.02 (currently 0.62); SYK addition gated on this same condition — update both if WARN_FLOOR changes. | data/apex.db:sector_snapshots | 2026-07-01 | 2026-07-01 |
 
+## Pending Checks
+
+Gaps identified but not yet implemented — typically blocked on missing data or contingent on a future decision.
+
+| # | Name | Identified | Trigger condition | Description |
+|---|------|-----------|-------------------|-------------|
+| 64 | Healthcare lr_ticker_balance amplification | 2026-07-01 | Healthcare reaches 9 tickers (SYK + ABBV addition) | `_lr_ticker_balance` in regime_bayes uses exponential doubling (`0.2 * 2^i`): max lr_bull ≈ 6.2 at 5 tickers, ~204 at 10. Effect is invisible under normal mixed-signal conditions and only activates when many tickers simultaneously recover — exactly the correlated-move scenario a real sector rally produces. Not a linear noise increase: a tail-scenario amplifier that pushes Healthcare's posterior to extremes unjustified by the ETF signal alone. CHECK 63 covers the dilution (mean-effect); this covers the amplification (covariance-effect). Proxy to watch: Healthcare posterior spiking faster/farther than XLV ETF streak justifies. Implement alongside SYK/ABBV addition, not before — calibrating the posterior spike threshold requires data from the 7-ticker regime first. |
+
 ## Retired Checks
 
 None yet.
