@@ -165,7 +165,7 @@ def run() -> list[dict]:
             try:
                 result = future.result()
             except Exception as e:
-                logger.error(f"Gate runner [{signal['ticker']}]: evaluation raised — {e}")
+                logger.exception(f"Gate runner [{signal['ticker']}]: evaluation raised — {e}")
                 continue
             evaluated.append((signal, result))
 

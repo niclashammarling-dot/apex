@@ -218,17 +218,17 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS) -> LockResult:
     price_checks   = [checks["relative_strength"], checks["volume_accumulation"]]
     options_checks = [checks["put_call_ratio"],     checks["unusual_calls"]]
 
-    price_errors      = sum(1 for c in price_checks   if c.get("error"))
-    price_passes      = sum(1 for c in price_checks   if c["pass"])
-    options_passes    = sum(1 for c in options_checks if c["pass"])
+    price_errors      = sum(1 for c in price_checks   if c and c.get("error"))
+    price_passes      = sum(1 for c in price_checks   if c and c.get("pass"))
+    options_passes    = sum(1 for c in options_checks if c and c.get("pass"))
 
     price_group_pass   = price_errors == 0 and price_passes >= 1
     options_group_pass = options_passes >= 1
     passed             = price_group_pass and options_group_pass
 
-    pass_count    = sum(1 for v in checks.values() if v["pass"])
-    failed_checks = [k for k, v in checks.items() if not v["pass"]]
-    score         = round(sum(WEIGHTS[k] for k, v in checks.items() if v["pass"]), 4)
+    pass_count    = sum(1 for v in checks.values() if v and v.get("pass"))
+    failed_checks = [k for k, v in checks.items() if not (v and v.get("pass"))]
+    score         = round(sum(WEIGHTS[k] for k, v in checks.items() if v and v.get("pass")), 4)
 
     data = {
         "checks":              checks,
@@ -256,7 +256,7 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS) -> LockResult:
         logger.debug(f"Lock 4 [{ticker}] FAIL — {reason}")
         return LockResult.fail(lock_id=LOCK_ID, reason=reason, data=data)
 
-    passed_names = [k for k, v in checks.items() if v["pass"]]
+    passed_names = [k for k, v in checks.items() if v and v.get("pass")]
     reason = (
         f"price+options groups passed — "
         f"{', '.join(passed_names)}"
@@ -293,7 +293,10 @@ def _fetch_options_chains(ticker: str) -> list[tuple]:
                 for exp in expiries[:2]:
                     try:
                         chain = t.option_chain(exp)
-                        chains.append((chain.calls, chain.puts))
+                        # Under concurrent session reuse, .calls/.puts can be None
+                        # instead of an empty DataFrame — guard before appending.
+                        if chain.calls is not None and chain.puts is not None:
+                            chains.append((chain.calls, chain.puts))
                     except Exception as e:
                         logger.warning(f"Lock 4 [{ticker}] chain fetch {exp}: {e}")
                 return chains
@@ -429,9 +432,22 @@ def _check_volume_accumulation(ticker: str) -> dict:
         if raw.empty:
             return {"pass": False, "error": True, "reason": "empty download (429 or delisted)"}
 
+        # Normalize MultiIndex columns to flat — concurrent RS download of [ticker, ETF]
+        # can contaminate a single-ticker session, returning MultiIndex columns instead
+        # of flat ones. Droplevel to the ticker name; then access by flat string key.
+        if isinstance(raw.columns, __import__("pandas").MultiIndex):
+            try:
+                raw = raw.xs(ticker, axis=1, level=1)
+            except KeyError:
+                got = [str(c) for c in raw.columns[:4]]
+                if attempt == 0:
+                    logger.warning(f"Lock 4 [{ticker}] VA unexpected columns {got}, retrying")
+                    continue
+                return {"pass": False, "error": True, "reason": f"unexpected column format: {got}"}
+
         try:
-            close = raw[("Close", ticker)]
-            vol   = raw[("Volume", ticker)]
+            close = raw["Close"]
+            vol   = raw["Volume"]
             break
         except KeyError:
             got = [str(c) for c in raw.columns[:4]]
