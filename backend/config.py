@@ -128,7 +128,7 @@ SECTORS = {
     },
     "Healthcare": {
         "etf": "XLV",
-        "tickers": ["JNJ", "PFE", "UNH", "MRNA", "LLY"],
+        "tickers": ["JNJ", "PFE", "UNH", "MRNA", "LLY", "ISRG", "TMO"],
     },
     "Energy": {
         "etf": "XLE",

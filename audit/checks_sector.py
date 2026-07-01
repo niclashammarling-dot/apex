@@ -62,6 +62,7 @@ def check27():
         # Healthcare (XLV)
         "JNJ": "Healthcare", "PFE": "Healthcare", "UNH": "Healthcare",
         "MRNA": "Healthcare", "LLY": "Healthcare",
+        "ISRG": "Healthcare", "TMO": "Healthcare",
         # Energy (XLE)
         "EOG": "Energy", "CVX": "Energy", "HAL": "Energy",
         "COP": "Energy", "OXY": "Energy",
@@ -421,6 +422,75 @@ def check57():
              f"these sectors can never register IPO activity")
 
 
+# ── CHECK 63 — Healthcare composite dilution monitor ──────────────────────────
+
+def check63():
+    """
+    Monitor Healthcare avg_score for dilution from the ISRG/TMO addition (2026-07-01).
+
+    Baseline: 0.6736 — Healthcare avg_score with the original 5-ticker list, recorded
+    2026-07-01 immediately before adding ISRG and TMO.  This baseline is FIXED and
+    must not become a rolling window; a sustained drop below it IS the dilution signal,
+    not noise to be averaged away.
+
+    Thresholds (applied to the most recent sector_snapshots reading):
+      - avg_score < 0.60  → WARNING: meaningful dilution from 0.6736 baseline;
+        investigate ISRG/TMO signal quality before the next gate cycle.
+      - avg_score < 0.55  → CRITICAL: at a neutral posterior (~0.55), adjusted_score ≈ 0.30,
+        below ALLOCATION_FLOOR (0.35) — floor failures likely in live gate.
+        Action: remove ISRG and TMO via ticker_config.remove_ticker() and diagnose
+        signal history before re-adding.
+
+    Single-day readings below threshold are meaningful (threshold gap from baseline is
+    wide enough that noise does not reach it).  Retires when Healthcare's post-addition
+    composite has been stable above 0.62 for 30 consecutive trading days.
+    """
+    BASELINE_VALUE = 0.6736
+    BASELINE_DATE  = "2026-07-01"
+    WARN_FLOOR     = 0.60
+    CRIT_FLOOR     = 0.55
+
+    db = REPO / "data/apex.db"
+    if not db.exists():
+        return
+
+    try:
+        conn = sqlite3.connect(db)
+        row = conn.execute("""
+            SELECT avg_score, timestamp
+            FROM sector_snapshots
+            WHERE sector = 'Healthcare'
+            ORDER BY timestamp DESC
+            LIMIT 1
+        """).fetchone()
+        conn.close()
+    except Exception as e:
+        flag(63, "Healthcare composite dilution monitor", "WARNING",
+             "data/apex.db:sector_snapshots",
+             f"could not query sector_snapshots: {e}")
+        return
+
+    if row is None:
+        return
+
+    avg_score, ts = row[0], row[1]
+
+    if avg_score < CRIT_FLOOR:
+        flag(63, "Healthcare composite dilution monitor", "CRITICAL",
+             "data/apex.db:sector_snapshots",
+             f"Healthcare avg_score={avg_score:.4f} (at {ts}) is below critical floor {CRIT_FLOOR}; "
+             f"baseline was {BASELINE_VALUE} on {BASELINE_DATE} (pre-ISRG/TMO). "
+             f"At neutral posterior (~0.55), adjusted_score ≈ {avg_score * 0.55:.3f}, "
+             f"below ALLOCATION_FLOOR 0.35. Action: remove ISRG and TMO via "
+             f"ticker_config.remove_ticker() and diagnose signal history before re-adding.")
+    elif avg_score < WARN_FLOOR:
+        flag(63, "Healthcare composite dilution monitor", "WARNING",
+             "data/apex.db:sector_snapshots",
+             f"Healthcare avg_score={avg_score:.4f} (at {ts}) dropped below {WARN_FLOOR}; "
+             f"baseline was {BASELINE_VALUE} on {BASELINE_DATE} (pre-ISRG/TMO). "
+             f"Investigate ISRG/TMO signal quality in sector_snapshots before next gate cycle.")
+
+
 def run() -> None:
     check5()
     check27()
@@ -429,3 +499,4 @@ def run() -> None:
     check42()
     check43()
     check57()
+    check63()

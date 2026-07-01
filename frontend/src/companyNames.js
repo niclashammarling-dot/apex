@@ -2,6 +2,7 @@ export const COMPANY_NAMES = {
   AAPL: "Apple", MSFT: "Microsoft", NVDA: "Nvidia", AMD: "AMD", V: "Visa",
   AVGO: "Broadcom", CRM: "Salesforce", ORCL: "Oracle", ADBE: "Adobe", NOW: "ServiceNow", QCOM: "Qualcomm",
   JNJ: "J&J", PFE: "Pfizer", UNH: "UnitedHealth", MRNA: "Moderna", LLY: "Eli Lilly",
+  ISRG: "Intuitive Surgical", TMO: "Thermo Fisher",
   EOG: "EOG Resources", CVX: "Chevron", HAL: "Halliburton", COP: "ConocoPhillips", OXY: "Occidental",
   CAT: "Caterpillar", BA: "Boeing", GE: "GE", HON: "Honeywell", DE: "Deere",
   JPM: "JPMorgan", BAC: "Bank of America", GS: "Goldman", BLK: "BlackRock", MS: "Morgan Stanley",
