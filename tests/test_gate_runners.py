@@ -623,3 +623,84 @@ class TestLiveGateRunner:
 
         assert demo_saved["gate_decision"] == "SKIPPED_OPEN"
         assert live_saved["gate_decision"] == "SKIPPED_OPEN"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mechanical pre-L5 drawdown guard (chain.py)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestMechanicalDrawdownGuard:
+    """
+    The drawdown guard in evaluate_chain must reject before calling L5 when
+    (starting_balance - wallet_balance) / starting_balance > max_drawdown_pct.
+
+    This prevents the L5 failure mode observed on 2026-07-02 (BA 16:42):
+    Claude returned 'REJECT on drawdown grounds' in its reasoning but 'BUY'
+    in the JSON decision field — the system treated it as a pass and executed.
+    """
+
+    def _context(self, balance: float, starting: float = 2000.0, max_dd: float = 0.20):
+        return {
+            "wallet_balance": balance,
+            "open_positions": 2,
+            "sector_exposure": {},
+            "risk_limits": {
+                "starting_balance":    starting,
+                "max_positions":       10,
+                "max_sector_exposure": 0.30,
+                "max_position_size":   0.10,
+                "daily_loss_cap":      500.0,
+                "max_drawdown_pct":    max_dd,
+            },
+        }
+
+    def _run_chain(self, context: dict, cfg: dict | None = None):
+        from backend.gate.chain import evaluate_chain
+        return evaluate_chain(
+            ticker="BA", sector="Industrials", signal_score=0.8,
+            context=context, cfg=cfg or _demo_cfg(),
+        )
+
+    def _all_lock_patches(self, l5_return=None):
+        """Patch all five locks at the chain module's bound names."""
+        return [
+            patch("backend.gate.chain.lock1_evaluate", return_value=_lr_pass(1)),
+            patch("backend.gate.chain.lock2_evaluate", return_value=_lr_pass(2)),
+            patch("backend.gate.chain.lock3_evaluate", return_value=_lr_pass(3)),
+            patch("backend.gate.chain.lock4_evaluate", return_value=_lr_pass(4)),
+            patch("backend.gate.chain.lock5_evaluate",
+                  return_value=(l5_return if l5_return is not None else _lr_pass(5))),
+        ]
+
+    def test_drawdown_exceeded_rejects_before_l5(self):
+        # 46.7% drawdown > 20% limit — must reject at lock 5 without calling Claude
+        context = self._context(balance=1066.37, starting=2000.0, max_dd=0.20)
+        patches = self._all_lock_patches()
+        with ExitStack() as stack:
+            mocks = [stack.enter_context(p) for p in patches]
+            result = self._run_chain(context)
+
+        assert result.approved is False
+        assert result.exit_lock == 5
+        assert "drawdown" in result.summary.lower()
+        mocks[4].assert_not_called()  # lock5_evaluate must not be called
+
+    def test_drawdown_at_limit_passes(self):
+        # Exactly at 20% — should not be rejected by the guard (strictly greater than)
+        context = self._context(balance=1600.0, starting=2000.0, max_dd=0.20)
+        patches = self._all_lock_patches()
+        with ExitStack() as stack:
+            [stack.enter_context(p) for p in patches]
+            result = self._run_chain(context)
+
+        assert result.approved is True
+
+    def test_no_risk_limits_in_context_skips_guard(self):
+        # Contexts without risk_limits must not crash and must reach L5
+        context = {}
+        patches = self._all_lock_patches()
+        with ExitStack() as stack:
+            [stack.enter_context(p) for p in patches]
+            result = self._run_chain(context)
+
+        assert result.approved is True

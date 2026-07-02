@@ -177,6 +177,23 @@ def evaluate_chain(
                     ),
                 )
 
+    # ── Mechanical risk guards (pre-L5) ──────────────────────────────────────
+    # These enforce hard limits that L5 is instructed to check but can misstate
+    # in its JSON decision field (reasoning ≠ decision is a real failure mode).
+    _rl = context.get("risk_limits", {})
+    if _rl:
+        _start_bal   = _rl.get("starting_balance", 0)
+        _wallet_bal  = context.get("wallet_balance", _start_bal)
+        _max_dd      = _rl.get("max_drawdown_pct", 1.0)
+        _drawdown    = (_start_bal - _wallet_bal) / _start_bal if _start_bal > 0 else 0.0
+        if _drawdown > _max_dd:
+            _dd_result = LockResult.fail(
+                lock_id=5,
+                reason=f"drawdown {_drawdown:.1%} > max {_max_dd:.1%} (mechanical pre-L5 guard)",
+            )
+            lock_results[5] = _dd_result
+            return _chain_fail(ticker, sector, lock_results, exit_lock=5)
+
     # Deferred L5 mode — live gate stops here so the serial executor runs L5
     # only for candidates that actually have a slot, avoiding wasted Claude API calls.
     if stop_after_lock == 4:
