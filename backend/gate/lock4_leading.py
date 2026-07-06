@@ -432,13 +432,16 @@ def _check_volume_accumulation(ticker: str) -> dict:
         if raw.empty:
             return {"pass": False, "error": True, "reason": "empty download (429 or delisted)"}
 
-        # Normalize MultiIndex columns to flat — concurrent RS download of [ticker, ETF]
-        # can contaminate a single-ticker session, returning MultiIndex columns instead
-        # of flat ones. Droplevel to the ticker name; then access by flat string key.
+        # Normalize MultiIndex columns to flat — concurrent downloads can contaminate
+        # a single-ticker session with a different ticker label at the ticker level.
+        # Identify which level holds OHLCV field names and keep that level; the ticker
+        # label in the other level is irrelevant for a single-ticker download.
         if isinstance(raw.columns, __import__("pandas").MultiIndex):
-            try:
-                raw = raw.xs(ticker, axis=1, level=1)
-            except KeyError:
+            _fields = {"Open", "High", "Low", "Close", "Volume", "Adj Close"}
+            _lvl0 = set(raw.columns.get_level_values(0))
+            lvl = 0 if _lvl0 & _fields else 1
+            raw.columns = raw.columns.get_level_values(lvl)
+            if not ({"Close", "Volume"} <= set(raw.columns)):
                 got = [str(c) for c in raw.columns[:4]]
                 if attempt == 0:
                     logger.warning(f"Lock 4 [{ticker}] VA unexpected columns {got}, retrying")
