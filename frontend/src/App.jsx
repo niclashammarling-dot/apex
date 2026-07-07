@@ -365,6 +365,7 @@ function adaptFunnel(funnel) {
   const leadFail   = funnel.leading_fail ?? 0;
   const l3Fail     = funnel.l3_fail ?? 0;
   const overFail   = funnel.overflow_fail ?? 0;
+  const overUsed   = funnel.overflow_executed ?? 0;
   const executed   = funnel.executed ?? 0;
   return [
     { stage: "POLLED",                label: "Tickers polled",    count: total          },
@@ -375,7 +376,7 @@ function adaptFunnel(funnel) {
     { stage: "FILTERED_L2",           label: "L2 · Quant",        count: l2Fail         },
     { stage: "FILTERED_LEADING",      label: "L4 · Leading",      count: leadFail       },
     { stage: "FILTERED_L3",           label: "L5 · Claude",       count: l3Fail         },
-    { stage: "FILTERED_OVERFLOW",     label: "Overflow quant",    count: overFail       },
+    { stage: "FILTERED_OVERFLOW",     label: `Overflow · ${overUsed}u/${overFail}r`, count: overFail },
     { stage: "TRADE_EXECUTED",        label: "Trade executed",    count: executed       },
   ];
 }

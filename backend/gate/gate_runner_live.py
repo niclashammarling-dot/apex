@@ -117,6 +117,7 @@ def run() -> list[dict]:
             "ticker_signal":         None,
             "earnings_near":         None,
             "days_to_earnings":      None,
+            "overflow_slot":         False,
         })
 
     if skipped:
@@ -316,7 +317,8 @@ def run() -> list[dict]:
                                     take_profit_pct = cfg["take_profit_pct"],
                                     stop_loss_pct   = cfg["stop_loss_pct"],
                                 )
-                                result["outcome"] = "TRADE_EXECUTED"
+                                result["outcome"]       = "TRADE_EXECUTED"
+                                result["overflow_slot"] = True
                                 open_tickers.add(ticker)
                                 open_count += 1
                                 sector_exposure_live[sector] = projected
@@ -384,6 +386,7 @@ def run() -> list[dict]:
             "ticker_signal":          result.get("ticker_signal"),
             "earnings_near":          result.get("earnings_near"),
             "days_to_earnings":       result.get("days_to_earnings"),
+            "overflow_slot":          result.get("overflow_slot", False),
         })
 
         _log_summary(ticker, result)

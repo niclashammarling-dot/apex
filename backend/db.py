@@ -305,6 +305,8 @@ def init_db() -> None:
         _add_column_if_missing(conn, "demo_gate_history", "days_to_earnings",  "INTEGER")
         _add_column_if_missing(conn, "live_gate_history", "earnings_near",     "INTEGER")
         _add_column_if_missing(conn, "live_gate_history", "days_to_earnings",  "INTEGER")
+        # overflow_slot: 1 when the trade executed into a slot beyond max_positions
+        _add_column_if_missing(conn, "live_gate_history", "overflow_slot",     "INTEGER DEFAULT 0")
 
         # Migrate old gate_decision values to canonical FILTERED_* form
         conn.executescript("""
@@ -1202,13 +1204,13 @@ def insert_live_gate_result(row: dict) -> int:
                lock1_pass, lock2_pass, lock_leading_pass, lock_leading_checks,
                lock3_pass, gate_decision, lock3_reasoning, alpaca_order_id,
                l2_summary, lock3_sentiment_score, lock3_conviction, macro_reason,
-               ticker_signal, earnings_near, days_to_earnings)
+               ticker_signal, earnings_near, days_to_earnings, overflow_slot)
             VALUES
               (:timestamp, :ticker, :sector, :signal_score,
                :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
                :lock3_pass, :gate_decision, :lock3_reasoning, :alpaca_order_id,
                :l2_summary, :lock3_sentiment_score, :lock3_conviction, :macro_reason,
-               :ticker_signal, :earnings_near, :days_to_earnings)
+               :ticker_signal, :earnings_near, :days_to_earnings, :overflow_slot)
         """
         _assert_insert_fields("insert_live_gate_result", _SQL, row)
         cur = conn.execute(_SQL, {**row,
@@ -1220,7 +1222,8 @@ def insert_live_gate_result(row: dict) -> int:
               "macro_reason":           row.get("macro_reason"),
               "ticker_signal":          row.get("ticker_signal"),
               "earnings_near":          row.get("earnings_near"),
-              "days_to_earnings":       row.get("days_to_earnings")})
+              "days_to_earnings":       row.get("days_to_earnings"),
+              "overflow_slot":          1 if row.get("overflow_slot") else 0})
         conn.commit()
         return cur.lastrowid
     finally:
@@ -1261,34 +1264,42 @@ def get_live_gate_funnel_counts(since: str | None = None) -> dict:
             GROUP BY gate_decision
         """, params).fetchall()
 
+        overflow_executed_row = conn.execute(f"""
+            SELECT COUNT(*) AS cnt
+            FROM live_gate_history
+            {where} AND gate_decision = 'TRADE_EXECUTED' AND overflow_slot = 1
+        """, params).fetchone()
+
         counts = {r["gate_decision"]: r["cnt"] for r in rows}
-        skipped_open    = counts.get("SKIPPED_OPEN", 0)
-        skipped_cooloff = counts.get("SKIPPED_COOLOFF", 0)
-        l1_fail         = counts.get("FILTERED_L1", 0)
-        eligibility_fail = counts.get("FILTERED_ELIGIBILITY", 0)
-        l2_fail         = counts.get("FILTERED_L2", 0)
-        leading_fail    = counts.get("FILTERED_LEADING", 0)
-        l3_fail         = counts.get("FILTERED_L3", 0)
-        overflow_fail   = counts.get("FILTERED_OVERFLOW_QUANT", 0)
-        executed        = counts.get("TRADE_EXECUTED", 0)
-        rejected        = counts.get("TRADE_REJECTED", 0)
+        skipped_open      = counts.get("SKIPPED_OPEN", 0)
+        skipped_cooloff   = counts.get("SKIPPED_COOLOFF", 0)
+        l1_fail           = counts.get("FILTERED_L1", 0)
+        eligibility_fail  = counts.get("FILTERED_ELIGIBILITY", 0)
+        l2_fail           = counts.get("FILTERED_L2", 0)
+        leading_fail      = counts.get("FILTERED_LEADING", 0)
+        l3_fail           = counts.get("FILTERED_L3", 0)
+        overflow_fail     = counts.get("FILTERED_OVERFLOW_QUANT", 0)
+        overflow_executed = overflow_executed_row["cnt"] if overflow_executed_row else 0
+        executed          = counts.get("TRADE_EXECUTED", 0)
+        rejected          = counts.get("TRADE_REJECTED", 0)
 
         total_candidates = sum(counts.values())
         evaluated = total_candidates - skipped_open - skipped_cooloff
 
         return {
-            "total_candidates": total_candidates,
-            "skipped_open":     skipped_open,
-            "skipped_cooloff":  skipped_cooloff,
-            "evaluated":        evaluated,
-            "l1_fail":          l1_fail,
+            "total_candidates":  total_candidates,
+            "skipped_open":      skipped_open,
+            "skipped_cooloff":   skipped_cooloff,
+            "evaluated":         evaluated,
+            "l1_fail":           l1_fail,
             "eligibility_fail":  eligibility_fail,
-            "l2_fail":          l2_fail,
-            "leading_fail":     leading_fail,
-            "l3_fail":          l3_fail,
-            "overflow_fail":    overflow_fail,
-            "executed":         executed,
-            "rejected":         rejected,
+            "l2_fail":           l2_fail,
+            "leading_fail":      leading_fail,
+            "l3_fail":           l3_fail,
+            "overflow_fail":     overflow_fail,
+            "overflow_executed": overflow_executed,
+            "executed":          executed,
+            "rejected":          rejected,
         }
     finally:
         conn.close()

@@ -320,8 +320,12 @@ def build_base_context(
                 None,
             )
             confirmed = forecast.get("confirmed_transition")
+            # rotation_leader intentionally omitted — it is forecast["leader"] which equals
+            # sector_regime.leader (same compute_sector_regime() call as market_leader above).
+            # Including both labels makes them look like independent corroboration when they
+            # are one number counted twice. The forward-looking fields below are the unique
+            # contribution of the rotation forecast.
             ctx.update({
-                "rotation_leader":             forecast["leader"],
                 "rotation_predecessor":        forecast.get("predecessor"),
                 "sector_next_probability":     next_prob,
                 "rotation_confirmed":          confirmed is not None,
@@ -344,6 +348,11 @@ def build_base_context(
         ctx["regime_bayes_adjusted_score"] = entry.adjusted_score if entry else None
         ctx["regime_bayes_rank"]           = entry.rank           if entry else None
         ctx["regime_bayes_qualified"]      = alloc > 0
+        # regime_bayes_leader ranks by adjusted_score (aggregate × Bayesian posterior with daily
+        # decay), so it can diverge from market_leader when a sector's raw score is high but its
+        # conviction has been decaying — e.g. a sector leading on raw score but failing the
+        # regime-alignment signal for several days will show market_leader != regime_bayes_leader.
+        # That divergence is the signal. Both fields are kept in the payload deliberately.
         ctx["regime_bayes_leader"]         = regime_bayes_result.leader
 
     try:
