@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 import yfinance as yf
 from loguru import logger
 
+from backend.brokers.alpaca import OrderTerminalError
 from backend.config import LIVE_ENABLED
 from backend.db import (
     close_live_trade,
@@ -124,6 +125,14 @@ def _maybe_ratchet_bracket_sl(trade: dict, peak: float, cfg: dict, broker) -> No
     qty    = int(trade["qty"])
     try:
         broker.replace_stop_leg(leg_id, new_sl, qty, ticker)
+    except OrderTerminalError as e:
+        # Leg filled or cancelled between our fetch and the PATCH — exit check
+        # will record the close on this cycle; nothing to ratchet.
+        logger.debug(
+            f"Profit-lock ratchet [{ticker}] trade_id={trade_id}: "
+            f"leg already terminal — exit check will reconcile ({e})"
+        )
+        return
     except Exception as e:
         logger.error(
             f"Profit-lock ratchet [{ticker}] trade_id={trade_id} parent={parent_id}: "
@@ -136,6 +145,43 @@ def _maybe_ratchet_bracket_sl(trade: dict, peak: float, cfg: dict, broker) -> No
         f"Profit-lock ratchet [{ticker}] trade_id={trade_id}: "
         f"SL moved ${current_sl:.2f} → ${new_sl:.2f} "
         f"(peak={peak:.2f} trigger={trigger_pct:.1%} trail={lock_trail:.1%})"
+    )
+
+
+def _log_vol_slope(trade: dict) -> None:
+    """
+    For positions held 3+ trading days, log trailing vol_score slope and hold_days.
+    Prospective data collection only — no gate logic. Co-located here so the signal
+    and any future action point are in the same function.
+    Log both slope and hold_days so duration-correlation can be tested retrospectively.
+    """
+    hold_days = _trading_days_since(trade["timestamp"])
+    if hold_days < 3:
+        return
+    ticker = trade["ticker"]
+    from backend.db import get_db
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT DATE(timestamp), AVG(volume_score)
+                FROM signals
+                WHERE ticker = ? AND timestamp >= ?
+                GROUP BY DATE(timestamp)
+                ORDER BY DATE(timestamp)
+            """, (ticker, trade["timestamp"]))
+            path = [(d, v) for d, v in cur.fetchall() if v is not None]
+    except Exception as e:
+        logger.debug(f"Vol slope [{ticker}]: db fetch failed — {e}")
+        return
+    if len(path) < 3:
+        return
+    vols = [v for _, v in path]
+    slope = (vols[-1] - vols[0]) / (len(vols) - 1)
+    logger.info(
+        f"Vol slope [{ticker}] trade_id={trade['id']}: "
+        f"hold_days={hold_days} slope={slope:+.4f}/day "
+        f"vol_path={[round(v, 3) for v in vols]}"
     )
 
 
@@ -194,6 +240,9 @@ def check_live_exits() -> list[dict]:
 
         # ── Profit-lock ratchet ─────────────────────────────────────────────
         _maybe_ratchet_bracket_sl(trade, peak, cfg, broker)
+
+        # ── Vol slope observation (prospective data collection) ──────────────
+        _log_vol_slope(trade)
 
         # ── Check TP/SL bracket legs ────────────────────────────────────────
         filled_leg = _find_filled_sell_leg(order) if order else None
@@ -256,13 +305,29 @@ def check_live_exits() -> list[dict]:
                     and not any(s in (order.get("status") or "").lower() for s in _terminal_statuses)):
                 logger.debug(f"Live exit check [{ticker}]: buy order pending (status={order.get('status')}) — waiting for fill")
                 continue
+            # Position is confirmed gone — cancel any remaining bracket legs immediately.
+            # Orphaned sell orders that fire against a zero position create short exposure.
+            try:
+                cancelled = broker.cancel_open_orders(ticker)
+                if cancelled:
+                    logger.info(f"Live exit reconciliation [{ticker}]: cancelled {cancelled} orphaned bracket order(s)")
+            except Exception as _ce:
+                logger.warning(f"Live exit reconciliation [{ticker}]: could not cancel orders — {_ce}")
             exit_price, exit_reason, exited_at = _find_exit_from_orders(ticker, broker)
             if exit_price is None:
-                logger.warning(f"Live exit reconciliation [{ticker}]: position gone but no filled order found — skipping")
-                continue
+                # Order history exhausted (>100 orders) or bracket leg not visible.
+                # Fall back to current market price so the trade doesn't zombie.
+                exit_price = _current_price(ticker)
+                if exit_price is None:
+                    logger.warning(f"Live exit reconciliation [{ticker}]: position gone, no order found, price unavailable — skipping")
+                    continue
+                exit_reason = "RECONCILIATION"
+                exited_at   = datetime.now(timezone.utc).isoformat()
+                logger.warning(f"Live exit reconciliation [{ticker}]: no fill found — closing at current price ${exit_price:.2f}")
+            else:
+                logger.info(f"Live exit reconciliation [{ticker}]: position closed externally, exit=${exit_price:.2f}")
             pnl     = round((exit_price - trade["entry_price"]) * trade["qty"], 2)
             outcome = "WIN" if pnl > 0 else "LOSS"
-            logger.info(f"Live exit reconciliation [{ticker}]: position closed externally, exit=${exit_price:.2f}")
 
         else:
             continue
@@ -390,6 +455,53 @@ def check_live_regime_exits() -> list[dict]:
         alert_regime_exits(closed, mode="LIVE")
 
     return closed
+
+
+def cancel_orphan_brackets() -> int:
+    """
+    Scan all open sell orders in Alpaca and cancel any whose ticker has no
+    open position. Prevents bracket legs from creating short exposure after
+    a position is closed externally (margin call, manual close, etc.).
+    Returns number of orders cancelled.
+    """
+    if not LIVE_ENABLED:
+        return 0
+    from backend.brokers import alpaca as broker
+    try:
+        positions  = {p["ticker"] for p in broker.get_positions()}
+        all_orders = broker.get_orders(limit=200, nested=True)
+    except Exception as e:
+        logger.warning(f"cancel_orphan_brackets: could not fetch broker state — {e}")
+        return 0
+
+    # Flatten to include bracket legs
+    flat: list[dict] = []
+    for o in all_orders:
+        flat.append(o)
+        for leg in (o.get("legs") or []):
+            flat.append({**leg, "ticker": o["ticker"]})
+
+    cancelled = 0
+    seen: set[str] = set()
+    for o in flat:
+        ticker = o.get("ticker")
+        status = (o.get("status") or "").lower()
+        side   = (o.get("side") or "").lower()
+        if (ticker
+                and ticker not in positions
+                and "sell" in side
+                and status in {"new", "held", "accepted", "pending_new", "partially_filled"}
+                and ticker not in seen):
+            seen.add(ticker)
+            try:
+                n = broker.cancel_open_orders(ticker)
+                if n:
+                    logger.warning(f"cancel_orphan_brackets [{ticker}]: cancelled {n} orphaned sell order(s) (no open position)")
+                    cancelled += n
+            except Exception as e:
+                logger.warning(f"cancel_orphan_brackets [{ticker}]: cancel failed — {e}")
+
+    return cancelled
 
 
 def _find_filled_sell_leg(order: dict) -> dict | None:

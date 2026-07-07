@@ -293,8 +293,9 @@ def run() -> list[dict]:
                     )
                     result["outcome"] = "FILTERED_OVERFLOW_QUANT"
                 else:
-                    position_pct = result["lock3"]["position_size_pct"] if result.get("lock3") else cfg["max_position_size"]
-                    notional     = acct["equity"] * min(position_pct, cfg["max_position_size"])
+                    position_pct    = result["lock3"]["position_size_pct"] if result.get("lock3") else cfg["max_position_size"]
+                    available_cash  = max(0.0, min(acct["equity"], acct["cash"]))
+                    notional        = available_cash * min(position_pct, cfg["max_position_size"])
                     if notional < 10:
                         logger.warning(f"Live trade rejected [{ticker}]: notional too small (${notional:.2f})")
                         result["outcome"] = "TRADE_REJECTED"
@@ -332,8 +333,9 @@ def run() -> list[dict]:
                                 logger.error(f"Live trade failed [{ticker}]: {e}")
                                 result["outcome"] = "TRADE_FAILED"
             else:
-                position_pct = result["lock3"]["position_size_pct"] if result.get("lock3") else cfg["max_position_size"]
-                notional     = acct["equity"] * min(position_pct, cfg["max_position_size"])
+                position_pct   = result["lock3"]["position_size_pct"] if result.get("lock3") else cfg["max_position_size"]
+                available_cash = max(0.0, min(acct["equity"], acct["cash"]))
+                notional       = available_cash * min(position_pct, cfg["max_position_size"])
                 if notional < 10:
                     logger.warning(f"Live trade rejected [{ticker}]: notional too small (${notional:.2f})")
                     result["outcome"] = "TRADE_REJECTED"

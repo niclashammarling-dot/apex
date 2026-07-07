@@ -23,6 +23,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from contextlib import contextmanager
 
+import pandas as pd
 import yfinance as yf
 from loguru import logger
 
@@ -451,6 +452,12 @@ def _check_volume_accumulation(ticker: str) -> dict:
         try:
             close = raw["Close"]
             vol   = raw["Volume"]
+            # Concurrent contamination can produce duplicate column labels so
+            # raw["Close"] returns a DataFrame instead of a Series. Take first column.
+            if isinstance(close, pd.DataFrame):
+                close = close.iloc[:, 0]
+            if isinstance(vol, pd.DataFrame):
+                vol = vol.iloc[:, 0]
             break
         except KeyError:
             got = [str(c) for c in raw.columns[:4]]

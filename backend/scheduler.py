@@ -123,7 +123,14 @@ def check_exit_conditions() -> None:
 def check_live_exit_conditions() -> None:
     if not is_market_open():
         return
-    from backend.live_trades_tracker import check_live_exits, check_live_regime_exits
+    from backend.live_trades_tracker import (
+        cancel_orphan_brackets,
+        check_live_exits,
+        check_live_regime_exits,
+    )
+    # Sweep orphaned bracket legs before processing exits — prevents sell orders
+    # attached to dead positions from creating short exposure.
+    cancel_orphan_brackets()
     closed = check_live_exits()
     if closed:
         logger.info(f"Live exit check: closed {len(closed)} position(s)")
