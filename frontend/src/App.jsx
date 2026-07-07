@@ -792,6 +792,7 @@ export default function App() {
       equity:        eq,
       liveEq,
       funnel:        adaptFunnel(gateHist.funnel),
+      liveFunnel:    adaptFunnel(liveGateHist.funnel),
       gateRows:      adaptGateRows(gateHist.rows),
       liveGateRows:    adaptGateRows(liveGateHist.rows),
       liveGateBlocked: liveGateHist.blocked_reason || null,

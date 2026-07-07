@@ -221,9 +221,10 @@ function RegimeDial({ D }) {
   );
 }
 
-function LockChain({ D }) {
-  if (!D.funnel || D.funnel.length === 0) return null;
-  const total = D.funnel[0].count || 1;
+function LockChain({ D, mode }) {
+  const funnel = mode === "live" ? D.liveFunnel : D.funnel;
+  if (!funnel || funnel.length === 0) return null;
+  const total = funnel[0].count || 1;
   return (
     <div className="t-card">
       <div className="t-card-head">
@@ -232,7 +233,7 @@ function LockChain({ D }) {
       </div>
       <div className="t-card-body">
         <div className="t-funnel">
-          {D.funnel.map(f => {
+          {funnel.map(f => {
             const pct = f.count / total;
             return (
               <div key={f.stage} className="t-funnel-row">
@@ -816,7 +817,7 @@ export default function ApexTerminal({ tweaks = {}, data: D, onSettings, onPromo
             <div className="t-col-side">
               <Wallet D={D} mode={mode} />
               <EquityHero D={D} mode={mode} />
-              <LockChain D={D} />
+              <LockChain D={D} mode={mode} />
               <RegimeBayes />
               <Alerts D={D} />
             </div>
