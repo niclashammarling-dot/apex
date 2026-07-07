@@ -46,6 +46,7 @@ _KEYS = [
     "macro_earnings_near_days",
     "macro_earnings_near_penalty",
     "macro_pre_event_penalty",
+    "live_account_since",
 ]
 
 

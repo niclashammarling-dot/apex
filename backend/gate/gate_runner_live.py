@@ -195,7 +195,8 @@ def run() -> list[dict]:
             if (c.get("sector") in watching_sectors
                     and c["ticker"] not in existing
                     and c["ticker"] not in open_tickers
-                    and c["ticker"] not in failed_tickers):
+                    and c["ticker"] not in failed_tickers
+                    and c["ticker"] not in exited_tickers):
                 c = dict(c)
                 c["pre_rotation"] = True
                 candidates.append(c)
@@ -371,7 +372,7 @@ def run() -> list[dict]:
         insert_live_gate_result({
             "timestamp":              result["timestamp"],
             "ticker":                 ticker,
-            "sector":                 signal["sector"],
+            "sector":                 signal.get("sector", ""),
             "signal_score":           signal["signal_score"],
             "lock1_pass":             result["lock1_pass"],
             "lock2_pass":             result["lock2_pass"],
@@ -437,11 +438,11 @@ def _record_live_trade(signal: dict, notional: float, order_id: str, cfg: dict) 
     try:
         from datetime import datetime, timezone
         price = signal["price"]
-        qty   = round(notional / price, 6)
+        qty   = int(notional / price)   # floor matches place_bracket_order integer fill
         insert_live_trade({
             "timestamp":       datetime.now(timezone.utc).isoformat(),
             "ticker":          signal["ticker"],
-            "sector":          signal["sector"],
+            "sector":          signal.get("sector", ""),
             "alpaca_order_id": order_id,
             "entry_price":     price,
             "qty":             qty,
@@ -459,7 +460,7 @@ def _fire_trade_alert(ticker: str, signal: dict, notional: float, order_id: str,
         price = signal["price"]
         alert_trade_executed(
             ticker    = ticker,
-            sector    = signal["sector"],
+            sector    = signal.get("sector", ""),
             notional  = notional,
             price     = price,
             tp        = round(price * (1 + cfg["take_profit_pct"]), 2),

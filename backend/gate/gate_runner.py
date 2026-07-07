@@ -141,7 +141,8 @@ def run() -> list[dict]:
             if (c.get("sector") in watching_sectors
                     and c["ticker"] not in existing
                     and c["ticker"] not in open_tickers
-                    and c["ticker"] not in failed_tickers):
+                    and c["ticker"] not in failed_tickers
+                    and c["ticker"] not in exited_tickers):
                 c = dict(c)
                 c["pre_rotation"] = True
                 candidates.append(c)
@@ -174,6 +175,11 @@ def run() -> list[dict]:
     overflow_increment   = cfg.get("overflow_quant_increment", 0.05)
     open_count           = len(open_tickers)  # snapshot; incremented on each executed trade
     bayesian_multipliers = _compute_bayesian_multipliers(evaluated, regime_bayes_result)
+    # Count queued outcomes before the serial loop mutates them to EXECUTED/REJECTED.
+    pre_exec_queued = sum(
+        1 for _, r in evaluated
+        if r["outcome"] in ("TRADE_QUEUED", "TRADE_QUEUED_PENDING_L5")
+    )
 
     for signal, result in evaluated:
         ticker = signal["ticker"]
@@ -273,7 +279,8 @@ def run() -> list[dict]:
         })
         _log_summary(ticker, result)
 
-    _persist_multiplier_stats(bayesian_multipliers, regime_bayes_result, evaluated)
+    _persist_multiplier_stats(bayesian_multipliers, regime_bayes_result, evaluated,
+                              pre_exec_queued=pre_exec_queued)
     return results
 
 
@@ -441,6 +448,7 @@ def _persist_multiplier_stats(
     regime_bayes_result,
     evaluated: list[tuple[dict, dict]],
     runner: str = "demo",
+    pre_exec_queued: int | None = None,
 ) -> None:
     """
     Append one cycle record to the daily Bayesian multiplier stats file.
@@ -453,7 +461,9 @@ def _persist_multiplier_stats(
     ticker_allocations() returned zeros.
     """
     today = date.today().isoformat()
-    queued_count    = sum(1 for _, r in evaluated if r["outcome"] == "TRADE_QUEUED")
+    queued_count    = pre_exec_queued if pre_exec_queued is not None else sum(
+        1 for _, r in evaluated if r["outcome"] in ("TRADE_QUEUED", "TRADE_QUEUED_PENDING_L5")
+    )
     regime_present  = regime_bayes_result is not None and bool(
         getattr(regime_bayes_result, "allocation", {})
     )

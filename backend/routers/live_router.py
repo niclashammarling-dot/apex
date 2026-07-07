@@ -89,13 +89,13 @@ def live_equity(period: str = "1M"):
     try:
         from backend.brokers import alpaca as broker
         from backend.db import get_live_equity_curve
+        from backend.live_config import get_live_config
 
-        # Build curve from live_trades DB (same approach as demo wallet equity).
-        # Use Alpaca's unrealized_pnl directly — it knows the actual fill price
-        # and integer qty, which differ from our DB signal prices.
+        cfg            = get_live_config()
+        since          = cfg.get("live_account_since")
         positions      = broker.get_positions()
         unrealised     = sum(p["unrealized_pnl"] or 0 for p in positions)
-        return get_live_equity_curve(unrealised_total=unrealised)
+        return get_live_equity_curve(unrealised_total=unrealised, since=since)
     except Exception as e:
         logger.error(f"live_equity: {e}")
         raise HTTPException(status_code=502, detail=f"Alpaca error: {e}")
@@ -197,8 +197,8 @@ def compare_performance():
         try:
             from backend.brokers import alpaca as broker
             from backend.db import get_all_live_trades
-            acct     = broker.get_account()
-            lt       = get_all_live_trades()
+            acct      = broker.get_account()
+            lt        = get_all_live_trades()
             closed_lt = [t for t in lt if t["outcome"] in ("WIN", "LOSS")]
             open_lt   = [t for t in lt if t["outcome"] == "OPEN"]
             wins      = [t for t in closed_lt if t["outcome"] == "WIN"]
@@ -209,10 +209,12 @@ def compare_performance():
             gross_losses  = abs(sum(t["pnl"] for t in losses if t["pnl"]))
             profit_factor = round(gross_wins / gross_losses, 2) if gross_losses > 0 else None
 
+            from backend.live_config import get_live_config as _lcfg
+            _live_start = _lcfg().get("starting_balance", 100_000.0)
             live = {
                 "balance":          round(float(acct["equity"]), 2),
-                "starting_balance": 100_000.0,
-                "total_return_pct": round((float(acct["equity"]) - 100_000.0) / 100_000.0 * 100, 2),
+                "starting_balance": _live_start,
+                "total_return_pct": round((float(acct["equity"]) - _live_start) / _live_start * 100, 2),
                 "realized_pnl":     round(realized_pnl, 2),
                 "total_trades":     len(closed_lt),
                 "open_positions":   len(open_lt),

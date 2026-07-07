@@ -9,7 +9,7 @@
   "max_positions": 8,
   "overflow_quant_increment": 0.05,
   "max_position_size": 0.15,
-  "daily_loss_cap": 5000,
+  "daily_loss_cap": 500,
   "max_hold_days": 25,
   "vix_threshold": 30,
   "macro_event_blackout_days": 1,
@@ -22,8 +22,9 @@
   "tp_cooloff_hours": 168,
   "max_sector_exposure": 0.3,
   "lock_leading_min_pass": 2,
-  "starting_balance": 100000,
+  "starting_balance": 10000,
   "max_drawdown_pct": 0.2,
   "etf_negative_floor": -1.0,
-  "etf_negative_penalty": 0.1
+  "etf_negative_penalty": 0.1,
+  "live_account_since": "2026-07-07"
 }
