@@ -628,6 +628,87 @@ def check54() -> None:
                  f'rejections under a different lock\'s label')
 
 
+def check64() -> None:
+    """
+    CHECK 64 — bayes_margin distribution drift.
+
+    bayes_margin is the posterior gap between the conviction leader and the raw-score
+    leader, used to determine whether Bayes disagreement is signal or noise.
+    The signal threshold (BAYES_MARGIN_SIGNAL_THRESHOLD = 0.10) was calibrated
+    2026-07-07 against 25 labeled days: 12/17 disagree cases had margin > 0.10.
+
+    If no margin exceeds 0.10 for N_WEEKS consecutive weeks, the threshold has
+    silently become too strict — either posteriors have compressed in a calmer regime,
+    or the conviction model is saturating.  Flag for recalibration rather than assume
+    harmony.  Check window: 21 trading days (~4 weeks).
+    """
+    import json
+    import sqlite3
+    from datetime import date, timedelta
+    from pathlib import Path
+
+    CHECK_WINDOW_DAYS = 21
+    SIGNAL_THRESHOLD  = 0.10
+
+    db_path = Path(__file__).parent.parent / "data" / "apex.db"
+    if not db_path.exists():
+        return
+
+    cutoff = (date.today() - timedelta(days=CHECK_WINDOW_DAYS)).isoformat()
+    try:
+        con = sqlite3.connect(str(db_path))
+        con.row_factory = sqlite3.Row
+
+        # sector_posterior_history gives per-sector posteriors by date
+        rows = con.execute(
+            "SELECT date, sector, posterior FROM sector_posterior_history "
+            "WHERE date >= ? ORDER BY date",
+            (cutoff,),
+        ).fetchall()
+        con.close()
+    except Exception as e:
+        flag(64, "bayes_margin drift", "WARNING", "sector_posterior_history",
+             f"DB query failed: {e}")
+        return
+
+    if not rows:
+        return   # no data yet — not a failure
+
+    from collections import defaultdict
+    posts_by_date: dict = defaultdict(dict)
+    for r in rows:
+        posts_by_date[r["date"]][r["sector"]] = r["posterior"]
+
+    # For each date, compute the margin between #1 and #2 by posterior.
+    # This is an upper bound on bayes_margin (which is #1 vs. the raw leader,
+    # not #1 vs. #2), so if even #1-vs-#2 margin never exceeds the threshold,
+    # bayes_margin definitely can't either.
+    max_margin_seen = 0.0
+    dates_checked   = 0
+    for d, posts in posts_by_date.items():
+        if len(posts) < 2:
+            continue
+        sorted_vals = sorted(posts.values(), reverse=True)
+        margin      = sorted_vals[0] - sorted_vals[1]
+        if margin > max_margin_seen:
+            max_margin_seen = margin
+        dates_checked += 1
+
+    if dates_checked == 0:
+        return
+
+    if max_margin_seen < SIGNAL_THRESHOLD:
+        flag(
+            64,
+            "bayes_margin drift",
+            "WARNING",
+            "sector_posterior_history",
+            f"No day in the last {CHECK_WINDOW_DAYS}d had a top-2 posterior gap "
+            f">= {SIGNAL_THRESHOLD} (max seen: {max_margin_seen:.3f}). "
+            f"BAYES_MARGIN_SIGNAL_THRESHOLD in chain.py may need recalibration.",
+        )
+
+
 def run() -> None:
     check24()
     check25()
@@ -640,3 +721,4 @@ def run() -> None:
     check52()
     check53()
     check54()
+    check64()

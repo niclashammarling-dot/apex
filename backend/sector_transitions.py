@@ -132,9 +132,10 @@ def get_rotation_forecast() -> dict:
         active_matrix       = unconditional_matrix
         regime_conditioned  = False
 
-    leader_trans     = active_matrix.get(leader, {})
-    sector_momentum  = compute_sector_rotation_scores()
-    sector_stats     = regime.get("sectors", {})
+    leader_trans    = active_matrix.get(leader, {})
+    sector_momentum = compute_sector_rotation_scores()
+    sector_breadth  = compute_sector_breadth()   # genuine second data source: not derivable from avg_score
+    sector_stats    = regime.get("sectors", {})
 
     # Blend historical prior + live sector momentum, then re-rank top 3.
     # Pull top-5 from the matrix so a momentum surge can promote a #4/#5 historical
@@ -149,6 +150,7 @@ def get_rotation_forecast() -> dict:
             "historical_prob": hist_p,
             "sector_score":    stats.get("score"),
             "sector_signal":   stats.get("signal"),
+            "breadth":         sector_breadth.get(s),
         })
 
     # If the matrix has fewer than 3 candidates for this leader (sparse history),
@@ -169,6 +171,7 @@ def get_rotation_forecast() -> dict:
                 "historical_prob": None,   # no matrix data — momentum-only slot
                 "sector_score":    stats.get("score"),
                 "sector_signal":   stats.get("signal"),
+                "breadth":         sector_breadth.get(s),
             })
 
     blended.sort(key=lambda x: x["probability"], reverse=True)
@@ -193,6 +196,7 @@ def get_rotation_forecast() -> dict:
         "available":            True,
         "leader":               leader,
         "leader_streak_days":   regime.get("leader_streak", 0),
+        "leader_breadth":       sector_breadth.get(leader),   # breadth of current leader — broad vs. one-ticker strength
         "predecessors":         predecessors,         # chronological list, oldest first
         "confirmed_transition": confirmed_transition,
         "likely_next":          likely_next,
@@ -260,6 +264,37 @@ def compute_ticker_rotation_scores() -> dict[str, float]:
         )
 
     return result
+
+
+def compute_sector_breadth() -> dict[str, float]:
+    """
+    Fraction of tickers per sector that are above the strength threshold.
+    Above-threshold signals: rising, trending, extended, breakout, recovering.
+
+    This is a second data source that sector_regime cannot derive from avg_score
+    alone: two sectors can have identical avg_score while one has broad participation
+    and the other is carried by a single mega-cap. The base layer sees the same
+    number; only breadth tells them apart.
+
+    Returns {sector: breadth} where breadth is 0.0–1.0.
+    """
+    from backend.sector_regime import compute_ticker_signals
+    ticker_signals = compute_ticker_signals()
+    if not ticker_signals:
+        return {}
+
+    ABOVE = {"rising", "trending", "extended", "breakout", "recovering"}
+    by_sector: dict[str, list[bool]] = {}
+    for sig in ticker_signals.values():
+        sector = sig.get("sector", "")
+        if sector:
+            by_sector.setdefault(sector, []).append(sig.get("signal", "weak") in ABOVE)
+
+    return {
+        sector: round(sum(flags) / len(flags), 4)
+        for sector, flags in by_sector.items()
+        if flags
+    }
 
 
 def compute_sector_rotation_scores() -> dict[str, float]:

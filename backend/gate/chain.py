@@ -28,6 +28,11 @@ from typing import Any, Callable
 
 from loguru import logger
 
+# Minimum posterior gap for Bayes divergence to be considered signal vs. noise.
+# Calibrated 2026-07-07 against 25 days of labeled cases: 12/17 disagree days have
+# margin > 0.10; 4 are < 0.05 (noise).  Recalibrate if market regime changes significantly.
+BAYES_MARGIN_SIGNAL_THRESHOLD = 0.10
+
 from backend.gate.lock1_eligibility import evaluate as lock1_evaluate
 from backend.gate.lock2_quant import evaluate as lock2_evaluate, _sector_threshold
 from backend.gate.lock3_sentiment import evaluate as lock3_evaluate
@@ -320,11 +325,9 @@ def build_base_context(
                 None,
             )
             confirmed = forecast.get("confirmed_transition")
-            # rotation_leader intentionally omitted — it is forecast["leader"] which equals
-            # sector_regime.leader (same compute_sector_regime() call as market_leader above).
-            # Including both labels makes them look like independent corroboration when they
-            # are one number counted twice. The forward-looking fields below are the unique
-            # contribution of the rotation forecast.
+            # rotation_leader intentionally omitted — equals market_leader (same source).
+            # Including it makes two fields look like independent corroboration of one number.
+            # The forward-looking fields and leader_breadth are the unique contributions here.
             ctx.update({
                 "rotation_predecessor":        forecast.get("predecessor"),
                 "sector_next_probability":     next_prob,
@@ -332,6 +335,7 @@ def build_base_context(
                 "rotation_transition_prob":    confirmed["probability"] if confirmed else None,
                 "rotation_regime_conditioned": forecast.get("regime_conditioned"),
                 "rotation_regime_sample_size": forecast.get("regime_sample_size"),
+                "leader_breadth":              forecast.get("leader_breadth"),
             })
     except Exception as e:
         logger.debug(f"[{signal['ticker']}]: rotation forecast unavailable — {e}")
@@ -340,6 +344,7 @@ def build_base_context(
         ctx["ticker_rotation_score"] = rotation_scores.get(signal["ticker"])
 
     if regime_bayes_result is not None:
+        import math as _math
         sector = signal.get("sector", "")
         alloc  = regime_bayes_result.allocation.get(sector, 0.0)
         entry  = next((e for e in regime_bayes_result.leaderboard if e.sector == sector), None)
@@ -348,12 +353,25 @@ def build_base_context(
         ctx["regime_bayes_adjusted_score"] = entry.adjusted_score if entry else None
         ctx["regime_bayes_rank"]           = entry.rank           if entry else None
         ctx["regime_bayes_qualified"]      = alloc > 0
-        # regime_bayes_leader ranks by adjusted_score (aggregate × Bayesian posterior with daily
-        # decay), so it can diverge from market_leader when a sector's raw score is high but its
-        # conviction has been decaying — e.g. a sector leading on raw score but failing the
-        # regime-alignment signal for several days will show market_leader != regime_bayes_leader.
-        # That divergence is the signal. Both fields are kept in the payload deliberately.
-        ctx["regime_bayes_leader"]         = regime_bayes_result.leader
+
+        # bayes_margin: posterior(conviction_leader) − posterior(market_leader).
+        # 0 when both agree on the leader.  > BAYES_MARGIN_SIGNAL_THRESHOLD means the conviction
+        # layer has meaningfully higher belief in a different sector than the raw-score snapshot.
+        # bayes_conviction_leader is set only when margin exceeds the signal threshold — giving
+        # L5 one number to check rather than a boolean that fires most days.
+        market_leader = ctx.get("market_leader")
+        bayes_leader  = regime_bayes_result.leader
+        bayes_posts   = {e.sector: e.posterior for e in regime_bayes_result.leaderboard}
+        if market_leader and bayes_leader and market_leader != bayes_leader:
+            ml_post = bayes_posts.get(market_leader, 0.0)
+            bl_post = bayes_posts.get(bayes_leader, 0.0)
+            margin  = round(bl_post - ml_post, 4)
+        else:
+            margin = 0.0
+        ctx["bayes_margin"] = margin
+        ctx["bayes_conviction_leader"] = (
+            bayes_leader if margin >= BAYES_MARGIN_SIGNAL_THRESHOLD else None
+        )
 
     try:
         fails = gate_history_fn(signal["ticker"], limit=5)
