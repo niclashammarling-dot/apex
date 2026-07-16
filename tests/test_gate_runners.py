@@ -72,7 +72,7 @@ def _lr_pass(lock_id: int, score: float = 0.75, data: dict = None) -> LockResult
     base: dict = {}
     if lock_id == 1:
         base = {"sector": "Technology", "adjusted_score": 0.8,
-                "allocation": 0.3, "rank": 1, "floor": 0.35,
+                "allocation": 0.3, "rank": 1, "entry_threshold": 0.37, "exit_threshold": 0.33,
                 "regime_available": True}
     elif lock_id == 2:
         base = {"signal_score": score, "threshold": 0.5,

@@ -69,6 +69,12 @@ CACHE_PATH   = Path(__file__).parent.parent.parent / "data" / "ipo_sentiment_cac
 HISTORY_PATH = Path(__file__).parent.parent.parent / "data" / "ipo_sentiment_history.json"
 HISTORY_MAX_DAYS = 14   # retained for CHECK 55 consecutive-zero detection
 
+# Laplace smoothing for sector IPO share — prevents single-IPO days from producing
+# share=1.0 and the resulting extreme LR in regime_bayes._lr_ipo_cluster.
+# With α=1 and n active sectors, one IPO in sector X gives (1+1)/(1+n) ≈ 2/13
+# instead of 1.0 — a mild nudge that scales up proportionally as total IPOs grow.
+IPO_LAPLACE_ALPHA = 1
+
 # Cache/history entries dated before this are contaminated: a redundant `q`
 # param caused EDGAR to 500 on every search, an `entity_name` vs
 # `display_names` field mismatch dropped every dedup'd hit, and CIKs were
@@ -543,14 +549,16 @@ class IpoSentiment:
         total = sum(counts.values())
         risk_off = total == 0
 
+        n = max(len(self.valid_sectors), 1)
         if risk_off:
             # Uniform shares — neutral signal for all sectors
-            n = max(len(self.valid_sectors), 1)
             shares = {s: round(1.0 / n, 4) for s in self.valid_sectors}
             logger.info("IpoSentiment: risk-off detected — no IPO activity in window")
         else:
+            # Laplace-smoothed shares: prevents a single IPO from claiming 100% share
+            # and producing an extreme LR downstream. Signal strength scales with evidence.
             shares = {
-                s: round(count / total, 4)
+                s: round((count + IPO_LAPLACE_ALPHA) / (total + IPO_LAPLACE_ALPHA * n), 4)
                 for s, count in counts.items()
             }
 

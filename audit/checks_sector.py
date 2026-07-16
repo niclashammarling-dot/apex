@@ -1,9 +1,9 @@
 """
-Sector-domain mechanical checks — CHECKs 5, 27, 36, 41, 42, 43, 57.
+Sector-domain mechanical checks — CHECKs 5, 27, 36, 41, 42, 43, 57, 63, 65.
 
 Covers: sector name string consistency, GICS classification parity,
 L4 sub-check pass rates, new-sector integrity, sector addition completeness,
-and SIC_TO_SECTOR/SECTORS key parity.
+SIC_TO_SECTOR/SECTORS key parity, Healthcare dilution, and posterior saturation.
 """
 import json
 import re
@@ -437,7 +437,7 @@ def check63():
       - avg_score < 0.60  → WARNING: meaningful dilution from 0.6736 baseline;
         investigate ISRG/TMO signal quality before the next gate cycle.
       - avg_score < 0.55  → CRITICAL: at a neutral posterior (~0.55), adjusted_score ≈ 0.30,
-        below ALLOCATION_FLOOR (0.35) — floor failures likely in live gate.
+        below ALLOCATION_ENTRY_THRESHOLD (0.37) — floor failures likely in live gate.
         Action: remove ISRG and TMO via ticker_config.remove_ticker() and diagnose
         signal history before re-adding.
 
@@ -483,7 +483,7 @@ def check63():
              f"Healthcare avg_score={avg_score:.4f} (at {ts}) is below critical floor {CRIT_FLOOR}; "
              f"baseline was {BASELINE_VALUE} on {BASELINE_DATE} (pre-ISRG/TMO). "
              f"At neutral posterior (~0.55), adjusted_score ≈ {avg_score * 0.55:.3f}, "
-             f"below ALLOCATION_FLOOR 0.35. Action: remove ISRG and TMO via "
+             f"below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove ISRG and TMO via "
              f"ticker_config.remove_ticker() and diagnose signal history before re-adding.")
     elif avg_score < WARN_FLOOR:
         flag(63, "Healthcare composite dilution monitor", "WARNING",
@@ -491,6 +491,88 @@ def check63():
              f"Healthcare avg_score={avg_score:.4f} (at {ts}) dropped below {WARN_FLOOR}; "
              f"baseline was {BASELINE_VALUE} on {BASELINE_DATE} (pre-ISRG/TMO). "
              f"Investigate ISRG/TMO signal quality in sector_snapshots before next gate cycle.")
+
+
+# ── CHECK 65 — Posterior saturation monitor ───────────────────────────────────
+
+def check65():
+    """
+    Flag any sector whose pre_clamp_posterior exceeded the clamp ceiling (0.95) in the
+    most recent regime run, or that is approaching it (> 0.90) while aggregate is weak.
+
+    Reads regime_signal_trace.jsonl — appended daily by regime_bayes.py. The stored
+    posterior in sector_posterior_history is always the *clamped* value; only the
+    pre_clamp_posterior field in the trace reveals when the clamp is binding.
+
+    Thresholds:
+      - clamp_binding=True: CRITICAL — a signal formula delivered a raw posterior above
+        0.95, overriding all other signals. The clamp fired; investigate which LR caused
+        it (lr_ipo_raw field is most commonly the culprit).
+      - pre_clamp_posterior > 0.90 with aggregate_score < 0.55: WARNING — approaching
+        saturation with weak sector momentum; conviction/momentum divergence, potential
+        early rotation candidate.
+
+    Fires on the latest date present in the trace file.
+    Silently skips if the file does not exist (regime has not run since the JSONL
+    feature was added — no false alarm on first deploy).
+    """
+    trace_path = REPO / "data" / "regime_signal_trace.jsonl"
+    if not trace_path.exists():
+        return
+
+    try:
+        lines = trace_path.read_text().strip().splitlines()
+    except Exception as e:
+        flag(65, "posterior saturation monitor", "WARNING",
+             "data/regime_signal_trace.jsonl",
+             f"could not read trace file: {e}")
+        return
+
+    if not lines:
+        return
+
+    records = []
+    for line in lines:
+        try:
+            records.append(json.loads(line))
+        except Exception:
+            continue
+
+    if not records:
+        return
+
+    latest_date = max(r.get("date", "") for r in records)
+    today_records = [r for r in records if r.get("date") == latest_date]
+
+    for r in today_records:
+        sector        = r.get("sector", "?")
+        clamp_binding = r.get("clamp_binding", False)
+        pre_clamp     = r.get("pre_clamp_posterior")
+        aggregate     = r.get("aggregate_score", 1.0)
+        lr_ipo_raw    = r.get("lr_ipo_raw")
+        ipo_share     = r.get("ipo_share")
+
+        if clamp_binding:
+            detail = (
+                f"{sector}: pre_clamp_posterior={pre_clamp:.4f} exceeded clamp ceiling 0.95 "
+                f"on {latest_date}. "
+            )
+            if lr_ipo_raw is not None and lr_ipo_raw > 10.0:
+                detail += (
+                    f"lr_ipo_raw={lr_ipo_raw:.1f} (ipo_share={ipo_share}) was the trigger — "
+                    f"check ipo_sentiment smoothing or LR cap."
+                )
+            else:
+                detail += f"lr_ipo_raw={lr_ipo_raw}; check all LR formulas for uncapped range."
+            flag(65, "posterior saturation monitor", "CRITICAL",
+                 "data/regime_signal_trace.jsonl", detail)
+
+        elif pre_clamp is not None and pre_clamp > 0.90 and aggregate < 0.55:
+            flag(65, "posterior saturation monitor", "WARNING",
+                 "data/regime_signal_trace.jsonl",
+                 f"{sector}: pre_clamp_posterior={pre_clamp:.4f} approaching ceiling with "
+                 f"aggregate_score={aggregate:.4f} on {latest_date} — "
+                 f"conviction/momentum divergence; potential rotation signal.")
 
 
 def run() -> None:
@@ -502,3 +584,4 @@ def run() -> None:
     check43()
     check57()
     check63()
+    check65()

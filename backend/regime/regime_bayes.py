@@ -8,7 +8,7 @@ Two-stage calculation:
   1. Regime posterior — Bayesian update from four independent signals
   2. Adjusted score   — sector aggregate score × regime posterior
   3. Leaderboard      — all active sectors ranked by adjusted score
-  4. Allocation       — linear-ramp split among qualifiers (adjusted > 0.35)
+  4. Allocation       — hysteresis band (enter ≥ 0.37, exit < 0.33) + linear-ramp split
 
 The allocation output is consumed by:
   - Lock chain: determines how many tickers can be traded per sector
@@ -37,15 +37,39 @@ from typing import Optional
 import pandas as pd
 from loguru import logger
 
-RESULT_CACHE_PATH = Path(__file__).parent.parent.parent / "data" / "regime_result_cache.json"
+RESULT_CACHE_PATH    = Path(__file__).parent.parent.parent / "data" / "regime_result_cache.json"
+SIGNAL_TRACE_PATH    = Path(__file__).parent.parent.parent / "data" / "regime_signal_trace.jsonl"
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-LEADERBOARD_SIZE      = 12     # number of sectors tracked
-ALLOCATION_FLOOR      = 0.35   # hard entry floor; sectors below get zero allocation
+LEADERBOARD_SIZE           = 12    # number of sectors tracked
+ALLOCATION_ENTRY_THRESHOLD = 0.37  # adjusted score a sector must first clear to enter allocation
+ALLOCATION_EXIT_THRESHOLD  = 0.33  # retained sectors drop at this level — hysteresis gap prevents
+                                   # day-to-day binary flapping near the old hard floor (0.35)
+HYSTERESIS_STALE_DAYS      = 5     # after a gap longer than this, prior allocation state is treated
+                                   # as unknown=out; re-entry requires clearing ENTRY_THRESHOLD.
+                                   # 5 days covers weekends + short holidays without silently
+                                   # perpetuating stale state across longer gaps.
 TICKER_RECOVERY_DAYS  = 5      # consecutive days for ticker recovery signal
 RS_WINDOW_DAYS        = 5      # lookback window for RS divergence
 POSTERIOR_DECAY       = 0.90   # daily pull-back toward base prior; prevents saturation at 1.0
+
+# LR range guard — log WARNING when any raw LR falls outside this band before capping;
+# cap applied before Bayesian update as belt-and-suspenders after signal-level fixes.
+LR_WARN_FLOOR         = 0.1
+LR_WARN_CEIL          = 10.0
+LR_CAP_FLOOR          = 0.1
+LR_CAP_CEIL           = 10.0
+
+# Posterior clamp — keeps all signals responsive even after sustained bullish runs.
+# The clamp fires when at least one signal formula has escaped calibration;
+# pre_clamp_posterior in the signal trace reveals when it is binding.
+POSTERIOR_CLAMP_FLOOR = 0.05
+POSTERIOR_CLAMP_CEIL  = 0.95
+
+
+def _clamp_lr(v: float) -> float:
+    return min(max(v, LR_CAP_FLOOR), LR_CAP_CEIL)
 
 
 # ── Likelihood ratio functions ────────────────────────────────────────────────
@@ -291,7 +315,7 @@ class RegimeBayes:
           1. Update Bayesian posteriors for all sectors
           2. Compute adjusted scores (aggregate × posterior)
           3. Rank all sectors → full leaderboard
-          4. Compute linear-ramp allocation among qualifiers (adjusted > 0.35)
+          4. Compute hysteresis-gated allocation (enter ≥ 0.37, exit < 0.33) + linear-ramp split
           5. Persist posteriors to DB
           6. Return RegimeResult with allocation vector and full signal trace
 
@@ -322,28 +346,47 @@ class RegimeBayes:
 
             # Signal 1: ticker balance (recovering vs deteriorating)
             recovering, deteriorating, total = self._ticker_counts(sector, raw_data, today)
-            lr_ticker = _lr_ticker_balance(recovering, deteriorating, total)
+            lr_ticker_raw = _lr_ticker_balance(recovering, deteriorating, total)
 
             # Signal 2: ETF signed streak (positive = up days, negative = down days)
-            etf_streak = self._etf_signed_streak(sector, raw_data, today)
-            lr_etf     = _lr_etf_streak(etf_streak)
+            etf_streak    = self._etf_signed_streak(sector, raw_data, today)
+            lr_etf_raw    = _lr_etf_streak(etf_streak)
 
             # Signal 3: RS divergence
             # Leader's decline feeds all candidates equally — a weakening leader
             # strengthens the case for every candidate on the leaderboard
-            lr_rs = _lr_rs_divergence(
+            lr_rs_raw = _lr_rs_divergence(
                 leader_rs["start_score"],
                 leader_rs["end_score"],
                 leader_rs["decline_days"],
             )
 
             # Signal 4: IPO sector share
-            ipo_share = ipo_shares.get(sector, 0.0)
-            lr_ipo    = _lr_ipo_cluster(ipo_share)
+            ipo_share  = ipo_shares.get(sector, 0.0)
+            lr_ipo_raw = _lr_ipo_cluster(ipo_share)
 
             # Signal 5: cross-sectional ETF return rank
             # Falls back to LR=1.0 (neutral) if ETF data is unavailable for this sector
-            lr_rank = rank_lrs.get(sector, 1.0)
+            lr_rank_raw = rank_lrs.get(sector, 1.0)
+
+            # Log raw LRs that have escaped the calibrated range before capping
+            for _lr_name, _lr_val in [
+                ("lr_ticker", lr_ticker_raw), ("lr_etf", lr_etf_raw),
+                ("lr_rs",     lr_rs_raw),     ("lr_ipo", lr_ipo_raw),
+                ("lr_rank",   lr_rank_raw),
+            ]:
+                if _lr_val < LR_WARN_FLOOR or _lr_val > LR_WARN_CEIL:
+                    logger.warning(
+                        f"Regime [{today_str}] {sector}: {_lr_name}={_lr_val:.3f} (raw) "
+                        f"outside [{LR_WARN_FLOOR}, {LR_WARN_CEIL}] — check signal calibration"
+                    )
+
+            # Cap LRs before Bayesian update
+            lr_ticker = _clamp_lr(lr_ticker_raw)
+            lr_etf    = _clamp_lr(lr_etf_raw)
+            lr_rs     = _clamp_lr(lr_rs_raw)
+            lr_ipo    = _clamp_lr(lr_ipo_raw)
+            lr_rank   = _clamp_lr(lr_rank_raw)
 
             # Decay yesterday's posterior toward the base prior before applying today's signals.
             # Without decay all LRs are ≥ 1.0 in neutral/bullish conditions and posteriors
@@ -352,8 +395,16 @@ class RegimeBayes:
             persistent_prior = self._posteriors.get(sector, prior)
             decayed_prior    = POSTERIOR_DECAY * persistent_prior + (1.0 - POSTERIOR_DECAY) * base_prior
 
-            trace     = _apply_signals(decayed_prior, lr_ticker, lr_etf, lr_rs, lr_ipo, lr_rank)
-            posterior = trace["posterior"]
+            trace         = _apply_signals(decayed_prior, lr_ticker, lr_etf, lr_rs, lr_ipo, lr_rank)
+            raw_posterior = trace["posterior"]
+            posterior     = min(max(raw_posterior, POSTERIOR_CLAMP_FLOOR), POSTERIOR_CLAMP_CEIL)
+            clamp_binding = raw_posterior != posterior
+            if clamp_binding:
+                logger.warning(
+                    f"Regime [{today_str}] {sector}: posterior clamp binding — "
+                    f"raw={raw_posterior:.4f} → {posterior:.4f}"
+                )
+            trace["posterior"] = posterior  # trace carries the value that was actually stored
 
             # Stage for DB persist below
             self._posteriors[sector] = posterior
@@ -376,6 +427,9 @@ class RegimeBayes:
                     "leader_end_score":       leader_rs["end_score"],
                     "leader_decline_days":    leader_rs["decline_days"],
                     "ipo_share":              round(ipo_share, 4),
+                    "lr_ipo_raw":             round(lr_ipo_raw, 3),
+                    "pre_clamp_posterior":    round(raw_posterior, 4),
+                    "clamp_binding":          clamp_binding,
                     "decayed_prior":          round(decayed_prior, 4),
                     **trace,
                 },
@@ -387,13 +441,34 @@ class RegimeBayes:
         for i, entry in enumerate(leaderboard):
             entry.rank = i + 1
 
-        # Proportional allocation — linear ramp above ALLOCATION_FLOOR.
-        # raw_weight = (adjusted_score - floor) / (1 - floor), clamped to [0, 1].
-        # Eliminates the binary cliff at 0.5: sectors just above the floor get a
-        # small positive allocation rather than jumping from 0 to a full proportional share.
-        qualifiers = [e for e in leaderboard if e.adjusted_score >= ALLOCATION_FLOOR]
+        # Proportional allocation with hysteresis — prevents day-to-day binary flapping
+        # near the allocation boundary.
+        # Entry: sector must first clear ALLOCATION_ENTRY_THRESHOLD (0.37).
+        # Exit:  sector stays allocated until it drops below ALLOCATION_EXIT_THRESHOLD (0.33).
+        # Ramp base is EXIT_THRESHOLD so retained sectors get a proportional taper down to
+        # near-zero weight rather than a hard cliff when they re-approach the boundary.
+        # After a gap, treat prior state as unknown=out so stale cached allocations
+        # can't perpetuate eligibility for sectors that may have naturally exited.
+        last_date   = date.fromisoformat(self._last_result.date) if self._last_result else None
+        gap_days    = (today - last_date).days if last_date else HYSTERESIS_STALE_DAYS + 1
+        state_fresh = gap_days <= HYSTERESIS_STALE_DAYS
+        if not state_fresh and self._last_result:
+            logger.warning(
+                f"Regime [{today_str}]: hysteresis state stale ({gap_days}d gap) — "
+                f"treating all sectors as unknown=out; re-entry requires ≥ {ALLOCATION_ENTRY_THRESHOLD}"
+            )
+        currently_allocated = (
+            {e.sector for e in self._last_result.leaderboard if e.allocation > 0}
+            if state_fresh
+            else set()
+        )
+        qualifiers = [
+            e for e in leaderboard
+            if e.adjusted_score >= ALLOCATION_ENTRY_THRESHOLD
+            or (e.sector in currently_allocated and e.adjusted_score >= ALLOCATION_EXIT_THRESHOLD)
+        ]
         raw_weights = {
-            e.sector: (e.adjusted_score - ALLOCATION_FLOOR) / (1.0 - ALLOCATION_FLOOR)
+            e.sector: (e.adjusted_score - ALLOCATION_EXIT_THRESHOLD) / (1.0 - ALLOCATION_EXIT_THRESHOLD)
             for e in qualifiers
         }
         total_raw = sum(raw_weights.values())
@@ -426,6 +501,7 @@ class RegimeBayes:
         self._save_posteriors()
         self._save_posterior_history(today_str)
         self._save_result(result)
+        self._append_signal_trace(entries)
 
         logger.info(
             f"Regime [{today_str}] leader={leader} | "
@@ -642,6 +718,40 @@ class RegimeBayes:
             return direction * count
         except Exception:
             return 0
+
+    def _append_signal_trace(self, entries: list[SectorEntry]) -> None:
+        """
+        Append one JSONL line per sector to the rolling signal trace file.
+        Stores both raw and capped LRs, pre/post-clamp posteriors, and aggregate/adjusted scores.
+        Used by CHECK 65 (saturation monitor) and any future historical audit.
+        """
+        try:
+            SIGNAL_TRACE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with open(SIGNAL_TRACE_PATH, "a") as f:
+                for e in entries:
+                    t = e.signal_trace
+                    record = {
+                        "date":                t.get("date", ""),
+                        "sector":              e.sector,
+                        "aggregate_score":     e.aggregate_score,
+                        "adjusted_score":      e.adjusted_score,
+                        "posterior":           e.posterior,
+                        "pre_clamp_posterior": t.get("pre_clamp_posterior"),
+                        "clamp_binding":       t.get("clamp_binding", False),
+                        "lr_ipo_raw":          t.get("lr_ipo_raw"),
+                        "lr_ticker":           t.get("lr_ticker"),
+                        "lr_etf":              t.get("lr_etf"),
+                        "lr_rs":               t.get("lr_rs"),
+                        "lr_ipo":              t.get("lr_ipo"),
+                        "lr_rank":             t.get("lr_rank"),
+                        "ipo_share":           t.get("ipo_share"),
+                        "decayed_prior":       t.get("decayed_prior"),
+                        "rank":                e.rank,
+                        "allocation":          e.allocation,
+                    }
+                    f.write(json.dumps(record) + "\n")
+        except Exception as ex:
+            logger.warning(f"Regime: failed to append signal trace: {ex}")
 
     def _sector_decline_stats(
         self,
