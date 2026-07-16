@@ -62,7 +62,8 @@ class ChainResult:
     lock_results: dict[int, LockResult] = field(default_factory=dict)
     final_score:  float = 0.0
     summary:      str   = ""
-    l5_pending:   bool  = False  # L1-L4 passed; L5 deferred to serial execution phase
+    l5_pending:   bool  = False   # L1-L4 passed; L5 deferred to serial execution phase
+    exit_label:   str | None = None  # override _OUTCOMES[exit_lock] when set
 
     def to_dict(self) -> dict:
         return {
@@ -180,6 +181,7 @@ def evaluate_chain(
                         f"{etf_negative_floor:.1f}% — penalised score {signal_score:.4f} "
                         f"< sector threshold {quant_threshold:.3f}"
                     ),
+                    exit_label="FILTERED_ETF_PENALTY",
                 )
 
     # ── Mechanical risk guards (pre-L5) ──────────────────────────────────────
@@ -250,6 +252,7 @@ def _chain_fail(
     lock_results: dict[int, LockResult],
     exit_lock:    int,
     reason:       str | None = None,
+    exit_label:   str | None = None,
 ) -> ChainResult:
     failed  = lock_results[exit_lock]
     msg     = reason if reason is not None else failed.reason
@@ -264,6 +267,7 @@ def _chain_fail(
         lock_results=lock_results,
         final_score=failed.score,
         summary=summary,
+        exit_label=exit_label,
     )
 
 

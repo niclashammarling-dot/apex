@@ -150,6 +150,12 @@ class BacktestResult(TypedDict):
     spy_return_pct: float | None
     equity_curve: list[dict]
     trade_log: list[TradeRecord]
+    # ETF penalty tracking: populated when etf_negative_penalty is set.
+    # Each entry is {"date": str, "ticker": str, "sector": str,
+    #                "original_score": float, "penalized_score": float, "etf_ret_pct": float}.
+    # Counterfactual outcome (what the trade would have returned) is NOT computed here —
+    # that requires a second pass through the exit simulation. See etf_penalty_sweep.py TODO.
+    etf_penalty_blocked: list[dict]
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
@@ -175,6 +181,8 @@ def run(
     tp_cooldown_days:   int         = 0,
     macro_hard_block:   bool        = False,
     macro_pre_event_penalty: float | None = None,
+    etf_negative_penalty: float | None = None,
+    etf_negative_floor:   float        = -1.0,
 ) -> BacktestResult:
     """
     Run a historical backtest from start_date to end_date.
@@ -258,8 +266,9 @@ def run(
     open_trades: list[dict] = []
     closed_trades: list[TradeRecord] = []
     equity_curve = [{"date": start_date, "balance": round(balance, 2)}]
-    daily_losses: dict[str, float] = {}  # date_str → realized losses
-    sl_cooldown:  dict[str, date]  = {}  # ticker → earliest re-entry date after SL
+    daily_losses:        dict[str, float] = {}  # date_str → realized losses
+    sl_cooldown:         dict[str, date]  = {}  # ticker → earliest re-entry date after SL
+    etf_penalty_blocked: list[dict]       = []  # populated when etf_negative_penalty is set
 
     for today in trading_days:
         today_str = today.isoformat()
@@ -338,6 +347,24 @@ def run(
             # Leading RS proxy: ticker must outperform its sector ETF over last 5 days
             if use_leading_rs and not _leading_rs_pass(raw_data, sig["ticker"], sector_etf.get(sig["sector"], ""), today):
                 continue
+
+            # ETF negative penalty: penalise signal_score when sector ETF 5d return < floor
+            if etf_negative_penalty is not None:
+                etf_ret = _etf_5d_return(raw_data, sector_etf.get(sig["sector"], ""), today)
+                if etf_ret is not None and etf_ret < etf_negative_floor / 100:
+                    new_score = sig["signal_score"] * (1.0 - etf_negative_penalty)
+                    sec_floor = SECTOR_THRESHOLD_FLOORS.get(sig["sector"], 0.0)
+                    if new_score < max(l1, sec_floor):
+                        etf_penalty_blocked.append({
+                            "date":             today_str,
+                            "ticker":           sig["ticker"],
+                            "sector":           sig["sector"],
+                            "original_score":   round(sig["signal_score"], 4),
+                            "penalized_score":  round(new_score, 4),
+                            "etf_ret_pct":      round(etf_ret * 100, 2),
+                        })
+                        continue
+                    sig = {**sig, "signal_score": round(new_score, 4)}
 
             # Sector exposure check
             sector    = sig["sector"]
@@ -708,6 +735,19 @@ def _vix_on(raw_data: pd.DataFrame, today: date) -> float:
         return 0.0
 
 
+def _etf_5d_return(raw_data: pd.DataFrame, etf: str, today: date) -> float | None:
+    """Return sector ETF 5-day return as a fraction, or None if data unavailable."""
+    if not etf:
+        return None
+    df = _slice_history(raw_data, etf, today, lookback_days=6)
+    if df is None or len(df) < 2:
+        return None
+    try:
+        return float(df["Close"].iloc[-1] / df["Close"].iloc[0]) - 1
+    except Exception:
+        return None
+
+
 def _leading_rs_pass(raw_data: pd.DataFrame, ticker: str, etf: str, today: date) -> bool:
     """Return True if ticker's 5-day return > sector ETF's 5-day return."""
     if not etf:
@@ -841,4 +881,5 @@ def _compute_metrics(
         spy_return_pct=spy_return,
         equity_curve=equity_curve,
         trade_log=trades,
+        etf_penalty_blocked=etf_penalty_blocked,
     )

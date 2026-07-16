@@ -371,8 +371,9 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
     l5 = lr.get(5)   # Claude     → DB lock3_pass
 
     outcome = (
-        "TRADE_QUEUED"          if chain.approved    else
-        "TRADE_QUEUED_PENDING_L5" if chain.l5_pending else
+        "TRADE_QUEUED"            if chain.approved    else
+        "TRADE_QUEUED_PENDING_L5" if chain.l5_pending  else
+        chain.exit_label          if chain.exit_label   else
         _OUTCOMES.get(chain.exit_lock, "FILTERED_UNKNOWN")
     )
 

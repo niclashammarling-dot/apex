@@ -277,17 +277,18 @@ def _fetch_options_chains(ticker: str) -> list[tuple]:
     Retries once on curl TLS errors and on silently-empty t.options — both are
     intermittent under concurrent load via the shared curl_cffi BoringSSL singleton.
     """
+    _RETRY_DELAYS = [1.5, 3.0]  # seconds before attempt 2, 3
     last_exc: Exception | None = None
-    for attempt in range(2):
+    for attempt in range(3):
         if attempt > 0:
-            time.sleep(0.5)
+            time.sleep(_RETRY_DELAYS[attempt - 1])
         try:
             with _yf_slot():
                 t        = yf.Ticker(ticker)
                 expiries = t.options
                 if not expiries:
-                    if attempt == 0:
-                        logger.warning(f"Lock 4 [{ticker}] options empty on attempt 1, retrying")
+                    if attempt < 2:
+                        logger.warning(f"Lock 4 [{ticker}] options empty on attempt {attempt + 1}, retrying")
                         continue
                     return []
                 chains = []
@@ -303,8 +304,8 @@ def _fetch_options_chains(ticker: str) -> list[tuple]:
                 return chains
         except Exception as e:
             last_exc = e
-            if attempt == 0:
-                logger.warning(f"Lock 4 [{ticker}] options attempt 1 failed ({e}), retrying")
+            if attempt < 2:
+                logger.warning(f"Lock 4 [{ticker}] options attempt {attempt + 1} failed ({e}), retrying")
     raise last_exc  # type: ignore[misc]
 
 
@@ -317,7 +318,7 @@ def _check_relative_strength(ticker: str, sector: str) -> dict:
     data = None
     for attempt in range(2):
         if attempt > 0:
-            time.sleep(0.5)
+            time.sleep(1.5)
         try:
             with _yf_slot():
                 raw = yf.download([ticker, etf], period="8d", progress=False,
@@ -421,7 +422,7 @@ def _check_volume_accumulation(ticker: str) -> dict:
     close = vol = None
     for attempt in range(2):
         if attempt > 0:
-            time.sleep(0.5)
+            time.sleep(1.5)
         try:
             with _yf_slot():
                 raw = yf.download(ticker, period="30d", progress=False, auto_adjust=True)

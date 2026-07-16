@@ -1,4 +1,4 @@
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from functools import lru_cache
 from zoneinfo import ZoneInfo
 
@@ -520,6 +520,9 @@ def start_scheduler() -> None:
         run_live_gate_candidates,
         "interval",
         minutes=GATE_INTERVAL,
+        # Offset live gate by half the interval so demo and live never fire together.
+        # Halves peak concurrent yfinance load on the shared _YF_SEMAPHORE in lock4_leading.
+        start_date=datetime.now(tz=scheduler.timezone) + timedelta(minutes=GATE_INTERVAL // 2),
         id="run_live_gate",
         replace_existing=True,
     )
