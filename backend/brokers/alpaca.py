@@ -17,6 +17,7 @@ from loguru import logger
 # per-module import lock (observed 2026-06-23: "deadlock detected by
 # _ModuleLock('alpaca.trading.enums')" — once that happens the process is
 # poisoned and every subsequent broker call hangs until restart).
+from alpaca.common.exceptions import APIError
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderClass, OrderSide, QueryOrderStatus, TimeInForce
 from alpaca.trading.requests import (
@@ -28,6 +29,12 @@ from alpaca.trading.requests import (
     StopOrderRequest,
     TakeProfitRequest,
 )
+
+
+class OrderTerminalError(Exception):
+    """Order is already in a terminal state (filled, cancelled, expired).
+    Callers should stop managing the leg and let the exit-reconciliation cycle
+    record the close."""
 
 
 def _client():
@@ -274,6 +281,16 @@ def replace_stop_leg(leg_id: str, new_stop_price: float, qty: int, ticker: str) 
             f"stop=${new_stop_price:.2f} (PATCH)"
         )
         return new_id
+    except APIError as patch_err:
+        if patch_err.status_code == 422:
+            raise OrderTerminalError(
+                f"replace_stop_leg [{ticker}] leg={leg_id[:8]}: "
+                f"order in terminal state — {patch_err}"
+            ) from patch_err
+        logger.warning(
+            f"Alpaca replace_stop_leg [{ticker}]: PATCH failed ({patch_err}) "
+            f"— falling back to cancel + new stop"
+        )
     except Exception as patch_err:
         logger.warning(
             f"Alpaca replace_stop_leg [{ticker}]: PATCH failed ({patch_err}) "

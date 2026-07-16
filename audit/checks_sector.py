@@ -102,7 +102,7 @@ def check27():
         # Homebuilders (ITB) — added 2026-05-18; expanded 2026-06-14; GICS: Consumer Discretionary sub-industry
         "DHI": "Homebuilders", "LEN": "Homebuilders", "PHM": "Homebuilders",
         "TOL": "Homebuilders", "NVR": "Homebuilders",
-        "MHO": "Homebuilders", "TMHC": "Homebuilders", "BLD": "Homebuilders",
+        "MHO": "Homebuilders", "TMHC": "Homebuilders",
         "MTH": "Homebuilders",
         # Transportation (IYT) — added 2026-05-18; expanded 2026-06-14; GICS: Industrials sub-industry
         "UNP": "Transportation", "CSX": "Transportation", "FDX": "Transportation",

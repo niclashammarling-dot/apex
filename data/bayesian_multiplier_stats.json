@@ -1,8 +1,368 @@
 {
-  "date": "2026-06-26",
+  "date": "2026-07-16",
   "cycles": [
     {
-      "timestamp": "2026-06-26T15:49:42.644867+00:00",
+      "timestamp": "2026-07-16T13:51:10.705330+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:10.712350+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:10.716159+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:10.897795+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.037485+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.069513+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.171790+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.201161+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.231876+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.257150+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.283197+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.309226+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.334955+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.358946+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.390579+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.420253+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.607099+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.612527+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.619536+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.624305+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.633106+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.642475+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.653929+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.662322+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.676187+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.729976+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.737777+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.832222+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:11.981007+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:12.065080+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:12.093670+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:12.102251+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:12.132994+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:12.140543+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:12.166279+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:12.174559+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:12.203322+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:09.737665+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:09.757333+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T13:51:09.792289+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T14:02:11.810790+00:00",
       "runner": "demo",
       "regime_present": true,
       "queued_count": 0,
@@ -11,16 +371,16 @@
       "variance": 0.0
     },
     {
-      "timestamp": "2026-06-26T15:50:20.618590+00:00",
+      "timestamp": "2026-07-16T14:02:12.535375+00:00",
       "runner": "live",
       "regime_present": true,
       "queued_count": 0,
-      "multiplier_count": 4,
+      "multiplier_count": 0,
       "all_unity": false,
-      "variance": 0.003146
+      "variance": 0.0
     },
     {
-      "timestamp": "2026-06-26T16:09:17.588044+00:00",
+      "timestamp": "2026-07-16T14:22:09.382779+00:00",
       "runner": "demo",
       "regime_present": true,
       "queued_count": 0,
@@ -29,25 +389,7 @@
       "variance": 0.0
     },
     {
-      "timestamp": "2026-06-26T16:09:23.708998+00:00",
-      "runner": "live",
-      "regime_present": true,
-      "queued_count": 0,
-      "multiplier_count": 1,
-      "all_unity": true,
-      "variance": 0.0
-    },
-    {
-      "timestamp": "2026-06-26T16:29:18.947267+00:00",
-      "runner": "demo",
-      "regime_present": true,
-      "queued_count": 0,
-      "multiplier_count": 0,
-      "all_unity": false,
-      "variance": 0.0
-    },
-    {
-      "timestamp": "2026-06-26T16:49:17.948176+00:00",
+      "timestamp": "2026-07-16T14:22:17.537004+00:00",
       "runner": "live",
       "regime_present": true,
       "queued_count": 0,
@@ -56,25 +398,7 @@
       "variance": 0.0
     },
     {
-      "timestamp": "2026-06-26T16:49:18.645674+00:00",
-      "runner": "demo",
-      "regime_present": true,
-      "queued_count": 0,
-      "multiplier_count": 0,
-      "all_unity": false,
-      "variance": 0.0
-    },
-    {
-      "timestamp": "2026-06-26T17:09:18.283114+00:00",
-      "runner": "demo",
-      "regime_present": true,
-      "queued_count": 0,
-      "multiplier_count": 0,
-      "all_unity": false,
-      "variance": 0.0
-    },
-    {
-      "timestamp": "2026-06-26T17:09:22.383414+00:00",
+      "timestamp": "2026-07-16T14:42:16.451435+00:00",
       "runner": "live",
       "regime_present": true,
       "queued_count": 0,
@@ -83,16 +407,7 @@
       "variance": 0.0
     },
     {
-      "timestamp": "2026-06-26T17:29:18.312908+00:00",
-      "runner": "live",
-      "regime_present": true,
-      "queued_count": 0,
-      "multiplier_count": 1,
-      "all_unity": true,
-      "variance": 0.0
-    },
-    {
-      "timestamp": "2026-06-26T18:18:43.268681+00:00",
+      "timestamp": "2026-07-16T14:42:26.198803+00:00",
       "runner": "demo",
       "regime_present": true,
       "queued_count": 0,
@@ -101,7 +416,34 @@
       "variance": 0.0
     },
     {
-      "timestamp": "2026-06-26T18:19:07.225470+00:00",
+      "timestamp": "2026-07-16T15:02:08.582291+00:00",
+      "runner": "live",
+      "regime_present": true,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T15:02:24.461619+00:00",
+      "runner": "demo",
+      "regime_present": true,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T15:22:02.597612+00:00",
+      "runner": "demo",
+      "regime_present": true,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T15:22:05.886073+00:00",
       "runner": "live",
       "regime_present": true,
       "queued_count": 0,

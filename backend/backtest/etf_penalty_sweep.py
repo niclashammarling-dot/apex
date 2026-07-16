@@ -26,16 +26,17 @@ The penalty earns its place if, relative to the null (no penalty):
 "remove the penalty" — that is a valid and important result, not a failure of the
 sweep.
 
-Counterfactual gap (TODO — build before relying on these results for rate tuning)
-----------------------------------------------------------------------------------
-The engine tracks which (date, ticker) pairs were blocked by the ETF penalty
-in `result["etf_penalty_blocked"]`. What it does NOT compute: what those blocked
-trades would have returned if entered. Without that, the sweep answers "which
-cells admit the most/fewest trades with what performance" but not "which cells
-avoided the bad trades." The counterfactual requires a second pass through the
-exit simulation feeding the blocked list. Until that's built, the sweep gives you
-the signal — you can compare the null's trade_log against the grid cells' trade_log
-to identify which trades were filtered — but not the counterfactual P&L.
+Counterfactual note
+-------------------
+The engine records which trades were blocked in `result["etf_penalty_blocked"]`,
+but does not compute per-trade counterfactual P&L (what those trades would have
+returned). That gap is explanatory, not verdict-blocking: the null and mild cells
+*already take* the trades that harsher cells block, so the cross-cell PF/CAGR
+comparison incorporates blocked-trade outcomes implicitly. The verdict question
+("does this penalty configuration earn its place?") is answerable from the grid
+as built. Per-trade counterfactual P&L adds explanation — which specific blocks
+paid and which cost — and is worth building for post-decision understanding, but
+the sweep's conclusion does not depend on it.
 
 Post-sweep step
 ---------------

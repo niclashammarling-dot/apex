@@ -22,6 +22,14 @@ from backend.signals import (
 from backend.ticker_config import get_sectors
 
 # --------------------------------------------------------------------------- #
+#  Consecutive data-gap tracker (process-lifetime; resets on success)          #
+# --------------------------------------------------------------------------- #
+
+_HISTORY_FAIL_THRESHOLD = 3
+_history_fail_count: dict[str, int] = {}
+
+
+# --------------------------------------------------------------------------- #
 #  SPY regime — fetched once per poll cycle, shared across all tickers         #
 # --------------------------------------------------------------------------- #
 
@@ -87,7 +95,13 @@ def _score_ticker(
         df = yf.Ticker(symbol).history(period="90d", auto_adjust=True)
         # Need 55 bars: MA50(50) + a few extra to avoid edge NaNs
         if df.empty or len(df) < 55:
-            logger.warning(f"{symbol}: insufficient history ({len(df)} rows)")
+            rows = len(df)
+            _history_fail_count[symbol] = _history_fail_count.get(symbol, 0) + 1
+            consecutive = _history_fail_count[symbol]
+            logger.warning(f"{symbol}: insufficient history ({rows} rows) — consecutive failures: {consecutive}")
+            if consecutive == _HISTORY_FAIL_THRESHOLD:
+                from backend.alerts import alert_ticker_data_gap
+                alert_ticker_data_gap(symbol, sector, consecutive, rows)
             return None
 
         mom = momentum.compute(df)
@@ -141,6 +155,7 @@ def _score_ticker(
             f"etf_mult={etf_mult:.2f}"
         )
 
+        _history_fail_count.pop(symbol, None)
         return {
             "timestamp":         poll_ts or datetime.now(timezone.utc).isoformat(),
             "ticker":            symbol,

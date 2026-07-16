@@ -125,6 +125,18 @@ def alert_regime_exits(closed: list[dict], mode: str = "DEMO") -> None:
     _dispatch(title, body)
 
 
+def alert_ticker_data_gap(symbol: str, sector: str, consecutive: int, rows: int) -> None:
+    title = f"[APEX] Ticker Data Gap — {symbol}"
+    body  = (
+        f"*{symbol}* ({sector}) has returned insufficient history "
+        f"for {consecutive} consecutive poll cycles.\n"
+        f"Last fetch: {rows} rows (need 55).\n"
+        "Possible causes: delisting, acquisition, yfinance outage, or ticker rename.\n"
+        "Action: remove from tickers.json and checks_sector.py if delisted."
+    )
+    _dispatch(title, body)
+
+
 def alert_gate_blocked(reason: str) -> None:
     mode  = _mode_label()
     title = f"[APEX {mode}] Gate Blocked"
