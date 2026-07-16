@@ -430,7 +430,7 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
         "lock3_pass":          int(l5.passed) if l5 else 0,
         "gate_decision":       outcome if outcome != "TRADE_QUEUED" else "TRADE_EXECUTED",
         "claude_confidence":   l5_data.get("confidence"),
-        "claude_reasoning":    l5_data.get("reasoning"),
+        "claude_reasoning":    l5_data.get("reasoning") or chain.exit_reason,
         "sentiment_score":        l3_data.get("score"),
         "l2_summary":             l3_data.get("summary"),
         "lock3_sentiment_score":  l3_data.get("score"),

@@ -64,6 +64,7 @@ class ChainResult:
     summary:      str   = ""
     l5_pending:   bool  = False   # L1-L4 passed; L5 deferred to serial execution phase
     exit_label:   str | None = None  # override _OUTCOMES[exit_lock] when set
+    exit_reason:  str | None = None  # custom reason for non-standard exits (shown in L5 slot)
 
     def to_dict(self) -> dict:
         return {
@@ -268,6 +269,7 @@ def _chain_fail(
         final_score=failed.score,
         summary=summary,
         exit_label=exit_label,
+        exit_reason=reason,
     )
 
 

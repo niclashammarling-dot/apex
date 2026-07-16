@@ -450,6 +450,753 @@
       "multiplier_count": 0,
       "all_unity": false,
       "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:22:21.099196+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:08.003881+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:08.009147+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:08.159831+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:09.786462+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:09.887110+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:10.078219+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:10.163129+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:10.277222+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:10.457438+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:10.496434+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:10.628414+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:10.644001+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:10.809560+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:10.831452+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:11.090686+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:11.273938+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:11.356519+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:11.361237+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:11.504735+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:11.511957+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:11.661504+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:11.668988+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:11.839436+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:11.986948+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:12.023833+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:12.170670+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:12.244600+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:12.340811+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:12.403912+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:12.434324+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:12.439260+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:12.489531+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:12.505421+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:12.528265+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:12.553172+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:12.580366+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:12.587325+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:12.637606+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:12.641856+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:27.675859+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:27.681112+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:27.768206+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:31.034400+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:31.164050+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:31.183182+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:31.295130+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:31.329194+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:31.405604+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:31.430587+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:31.561588+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:31.584276+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:31.711214+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:31.742108+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:31.869091+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:32.187961+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:32.194624+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:32.285024+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:32.288970+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:32.295302+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:32.417942+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:32.426049+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:32.563303+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:32.570302+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:32.868849+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:32.880330+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:33.072617+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:33.264305+00:00",
+      "runner": "demo",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:23:33.267513+00:00",
+      "runner": "live",
+      "regime_present": false,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:45:00.052274+00:00",
+      "runner": "live",
+      "regime_present": true,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T17:55:06.142455+00:00",
+      "runner": "demo",
+      "regime_present": true,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T18:05:10.007464+00:00",
+      "runner": "live",
+      "regime_present": true,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T18:15:06.065933+00:00",
+      "runner": "demo",
+      "regime_present": true,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T18:24:55.375041+00:00",
+      "runner": "live",
+      "regime_present": true,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T18:34:55.286679+00:00",
+      "runner": "demo",
+      "regime_present": true,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T18:45:01.901676+00:00",
+      "runner": "live",
+      "regime_present": true,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T18:55:02.251034+00:00",
+      "runner": "demo",
+      "regime_present": true,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T19:05:06.199061+00:00",
+      "runner": "live",
+      "regime_present": true,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T19:15:06.849786+00:00",
+      "runner": "demo",
+      "regime_present": true,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T19:25:00.191745+00:00",
+      "runner": "live",
+      "regime_present": true,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T19:34:51.442140+00:00",
+      "runner": "demo",
+      "regime_present": true,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T19:44:59.226017+00:00",
+      "runner": "live",
+      "regime_present": true,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
+    },
+    {
+      "timestamp": "2026-07-16T19:54:58.297569+00:00",
+      "runner": "demo",
+      "regime_present": true,
+      "queued_count": 0,
+      "multiplier_count": 0,
+      "all_unity": false,
+      "variance": 0.0
     }
   ],
   "suspicious_cycles": {

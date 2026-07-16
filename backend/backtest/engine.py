@@ -438,6 +438,7 @@ def run(
     return _compute_metrics(
         start_date, end_date, initial_balance, balance,
         closed_trades, equity_curve, raw_data, trading_days,
+        etf_penalty_blocked=etf_penalty_blocked,
     )
 
 
@@ -799,6 +800,7 @@ def _compute_metrics(
     equity_curve: list[dict],
     raw_data: pd.DataFrame | None = None,
     trading_days: list[date] | None = None,
+    etf_penalty_blocked: list[dict] | None = None,
 ) -> BacktestResult:
     total_return = (final_balance - initial_balance) / initial_balance
 
@@ -881,5 +883,5 @@ def _compute_metrics(
         spy_return_pct=spy_return,
         equity_curve=equity_curve,
         trade_log=trades,
-        etf_penalty_blocked=etf_penalty_blocked,
+        etf_penalty_blocked=etf_penalty_blocked or [],
     )
