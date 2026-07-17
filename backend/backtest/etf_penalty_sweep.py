@@ -38,6 +38,25 @@ as built. Per-trade counterfactual P&L adds explanation — which specific block
 paid and which cost — and is worth building for post-decision understanding, but
 the sweep's conclusion does not depend on it.
 
+Path-dependence and blocked-set non-nesting
+-------------------------------------------
+Blocked-trade sets across cells are NOT expected to nest monotonically even though
+a higher rate always produces a lower penalized score for any given signal. The
+reason: sequential simulation means portfolio state (open positions, SL/TP
+cooldown windows, max-position saturation) diverges across cells as different
+trades are admitted on different days. A trade that is evaluated and blocked by
+rate=0.10 on a given date may never reach the penalty code at rate=0.15 — a
+position in the same ticker may already be open, or a cooldown may be in effect,
+because an earlier evaluation went differently. The observed 12-event cross-over
+between rate=0.10 and rate=0.15 at floor=−1.0% (NVDA, PFE, ORCL, ISRG, AMT,
+UNH — high-signal names with frequent evaluation under slot pressure) was
+confirmed as this mechanism, not a penalty-logic flaw.
+
+Implication for cell selection: each cell's PF carries portfolio-path noise on
+top of penalty effect. Single-cell extremes (best cell, worst cell) are therefore
+less trustworthy than row- or column-consistency patterns. Prefer a rate that
+passes the criterion across multiple floors over the single highest-PF cell.
+
 Post-sweep step
 ---------------
 Once a floor/rate pair is chosen, FILTERED_ETF_PENALTY labels (available from
