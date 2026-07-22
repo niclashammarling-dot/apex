@@ -498,8 +498,11 @@ class RegimeBayes:
         self._last_result = result
 
         # Persist posteriors and full result — both survive restarts
-        self._save_posteriors()
-        self._save_posterior_history(today_str)
+        # Excluded sectors are not updated in this cycle; omit them from DB writes
+        # so stale sub-floor values don't accumulate as misleading rows.
+        active_posteriors = {s: self._posteriors[s] for s in all_sectors if s in self._posteriors}
+        self._save_posteriors(active_posteriors)
+        self._save_posterior_history(today_str, active_posteriors)
         self._save_result(result)
         self._append_signal_trace(entries)
 
@@ -562,19 +565,19 @@ class RegimeBayes:
             logger.warning(f"Regime: could not load posteriors from DB ({e}) — using uniform")
             return {sector: uniform for sector in self.sectors_cfg}
 
-    def _save_posteriors(self) -> None:
+    def _save_posteriors(self, posteriors: dict[str, float]) -> None:
         """Persist current posteriors to DB."""
         try:
             from backend.db import upsert_sector_posteriors
-            upsert_sector_posteriors(self._posteriors)
+            upsert_sector_posteriors(posteriors)
         except Exception as e:
             logger.warning(f"Regime: failed to persist posteriors: {e}")
 
-    def _save_posterior_history(self, date_str: str) -> None:
+    def _save_posterior_history(self, date_str: str, posteriors: dict[str, float]) -> None:
         """Append today's posteriors to history table. Idempotent — safe to call on restart."""
         try:
             from backend.db import insert_sector_posterior_history
-            insert_sector_posterior_history(date_str, self._posteriors)
+            insert_sector_posterior_history(date_str, posteriors)
         except Exception as e:
             logger.warning(f"Regime: failed to persist posterior history: {e}")
 
