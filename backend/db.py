@@ -602,7 +602,7 @@ def get_wallet_context() -> dict:
 
         invested     = sum(r["total"] for r in exposure_rows) if exposure_rows else 0
         realized_pnl = closed_pnl_row["total"] if closed_pnl_row else 0
-        balance      = STARTING_BALANCE - invested + realized_pnl
+        balance      = STARTING_BALANCE + realized_pnl
         open_positions = open_row["cnt"] if open_row else 0
 
         sector_exposure = {

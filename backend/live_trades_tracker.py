@@ -248,8 +248,8 @@ def check_live_exits() -> list[dict]:
         filled_leg = _find_filled_sell_leg(order) if order else None
         if filled_leg:
             exit_price  = filled_leg["filled_avg_price"]
-            exit_reason = _leg_reason(filled_leg)
             pnl         = round((exit_price - entry_price) * trade["qty"], 2)
+            exit_reason = _leg_reason(filled_leg, entry_price)
             outcome     = "WIN" if pnl > 0 else "LOSS"
             exited_at   = filled_leg["filled_at"] or datetime.now(timezone.utc).isoformat()
 
@@ -568,10 +568,13 @@ def _current_price(ticker: str) -> float | None:
         return None
 
 
-def _leg_reason(leg: dict) -> str:
+def _leg_reason(leg: dict, entry_price: float | None = None) -> str:
     order_type = (leg.get("order_type") or "").lower()
     if "limit" in order_type:
         return "TP"
     if "stop" in order_type:
+        fill = leg.get("filled_avg_price")
+        if entry_price and fill and float(fill) > entry_price:
+            return "TSL"
         return "SL"
     return "MANUAL"

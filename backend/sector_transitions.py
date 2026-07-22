@@ -17,6 +17,8 @@ from __future__ import annotations
 import time
 from collections import defaultdict
 
+from backend.config import EXCLUDED_SECTORS
+
 _cache: dict = {}
 _cache_ts: float = 0
 _regime_matrix_cache: dict = {}
@@ -175,7 +177,7 @@ def get_rotation_forecast() -> dict:
             })
 
     blended.sort(key=lambda x: x["probability"], reverse=True)
-    likely_next = blended[:3]
+    likely_next = [b for b in blended if b["sector"] not in EXCLUDED_SECTORS][:3]
 
     # confirmed_transition uses the most recent predecessor against the unconditional matrix
     predecessors         = _find_predecessor_chain(leader, n=2)

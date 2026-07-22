@@ -269,7 +269,7 @@ def _chain_fail(
         final_score=failed.score,
         summary=summary,
         exit_label=exit_label,
-        exit_reason=reason,
+        exit_reason=msg,
     )
 
 

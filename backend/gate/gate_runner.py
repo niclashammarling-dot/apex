@@ -379,12 +379,13 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
 
     # Lock 5 (Claude) — backward compat with result["lock3"]["position_size_pct"] in wallet.py
     l5_data = l5.data if l5 else {}
+    _l5_reasoning = l5_data.get("reasoning") or chain.exit_reason or (l5.reason if l5 else None)
     lock3_compat = {
         "passed":            l5.passed if l5 else False,
         "decision":          l5_data.get("decision"),
         "confidence":        l5_data.get("confidence", 0.0),
         "position_size_pct": l5_data.get("position_size_pct", 0.0),
-        "reasoning":         l5_data.get("reasoning"),
+        "reasoning":         _l5_reasoning,
         "model":             l5_data.get("model"),
     }
 
@@ -430,7 +431,7 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
         "lock3_pass":          int(l5.passed) if l5 else 0,
         "gate_decision":       outcome if outcome != "TRADE_QUEUED" else "TRADE_EXECUTED",
         "claude_confidence":   l5_data.get("confidence"),
-        "claude_reasoning":    l5_data.get("reasoning") or chain.exit_reason,
+        "claude_reasoning":    _l5_reasoning,
         "sentiment_score":        l3_data.get("score"),
         "l2_summary":             l3_data.get("summary"),
         "lock3_sentiment_score":  l3_data.get("score"),
