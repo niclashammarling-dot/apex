@@ -6,7 +6,7 @@ Also covers the mirror direction (broker holds an untracked position) and
 the resolve_unreconciled() sign-off path.
 """
 from contextlib import ExitStack
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -84,6 +84,71 @@ class TestOrderStatusExtraction:
         # The exact typo that caused the incident must not be present anywhere.
         assert "cancelled" not in _TERMINAL_ORDER_STATUSES
         assert "cancelled" not in _PENDING_ORDER_STATUSES
+
+
+class TestProfitLockRatchetLegSelection:
+    """
+    _maybe_ratchet_bracket_sl operates on existing open positions (BA, CVX,
+    PFE — not new entries, which the gate halt already covers), so a wrong
+    belief about whether the SL leg is alive here is a live-position risk,
+    not just a bookkeeping one. Same defect family as the reconciliation
+    fallback fixed in 49dfe30: exact-match against a hand-typed tuple
+    containing "cancelled" (never a real Alpaca status) instead of
+    membership against the real vocabulary — inert before that commit
+    (str(enum) never matched any tuple member regardless of spelling),
+    live afterward.
+    """
+
+    def _trade(self, peak=110.0, entry_price=100.0):
+        return {"ticker": "TEST", "id": 1, "alpaca_order_id": "parent-1",
+                "entry_price": entry_price, "qty": 10}
+
+    def _cfg(self):
+        return {"profit_lock_trigger_pct": 0.05, "profit_lock_trail_pct": 0.02}
+
+    def test_canceled_stop_leg_not_selected_as_open(self):
+        """
+        Only stop leg present is genuinely canceled (real Alpaca spelling).
+        Before the fix, "cancelled" (typo) never matched "canceled" so this
+        leg was wrongly treated as still open — the ratchet believed a dead
+        leg was live protection.
+        """
+        from backend.live_trades_tracker import _maybe_ratchet_bracket_sl
+
+        order = {"legs": [
+            {"id": "leg-dead", "order_type": "stop", "status": "canceled",
+             "stop_price": 95.0},
+        ]}
+        broker = MagicMock()
+        broker.get_order_by_id.return_value = order
+
+        with patch("backend.live_trades_tracker.logger.warning") as warn_mock:
+            _maybe_ratchet_bracket_sl(self._trade(), peak=110.0, cfg=self._cfg(), broker=broker)
+
+        broker.replace_stop_leg.assert_not_called()
+        assert any("no open stop leg" in str(c.args[0]).lower()
+                   for c in warn_mock.call_args_list)
+
+    def test_live_stop_leg_selected_over_canceled_one(self):
+        """A dead leg and a live leg both present — the live one must be picked."""
+        from backend.live_trades_tracker import _maybe_ratchet_bracket_sl
+
+        order = {"legs": [
+            {"id": "leg-dead", "order_type": "stop", "status": "canceled",
+             "stop_price": 95.0},
+            {"id": "leg-live", "order_type": "stop", "status": "new",
+             "stop_price": 96.0},
+        ]}
+        broker = MagicMock()
+        broker.get_order_by_id.return_value = order
+        broker.replace_stop_leg.return_value = "new-order-id"
+
+        with patch("backend.live_trades_tracker.set_live_trade_profit_lock_activated"):
+            _maybe_ratchet_bracket_sl(self._trade(), peak=110.0, cfg=self._cfg(), broker=broker)
+
+        broker.replace_stop_leg.assert_called_once()
+        called_leg_id = broker.replace_stop_leg.call_args[0][0]
+        assert called_leg_id == "leg-live"
 
 
 def _open_trade(ticker="HON", entry_price=249.13, qty=4.0, order_id="ord-hon-1"):
