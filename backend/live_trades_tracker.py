@@ -129,11 +129,15 @@ def _maybe_ratchet_bracket_sl(trade: dict, peak: float, cfg: dict, broker) -> No
         )
         return
 
+    # Same defect family as commit 49dfe30: exact-match against a hand-typed
+    # tuple containing "cancelled" (never a real Alpaca status) instead of
+    # membership against the real vocabulary. Reuses the module-level set so
+    # there's exactly one place that enumerates "terminal" going forward.
     sl_leg = next(
         (
             leg for leg in (order.get("legs") or [])
             if "stop" in (leg.get("order_type") or "").lower()
-            and leg.get("status") not in ("filled", "cancelled", "replaced", "expired")
+            and leg.get("status") not in _TERMINAL_ORDER_STATUSES
         ),
         None,
     )
