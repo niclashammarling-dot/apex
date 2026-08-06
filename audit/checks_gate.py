@@ -764,7 +764,12 @@ def check66() -> None:
              "position-reconciliation fallback block not found — check_live_exits() "
              "structure changed, CHECK 66 needs updating")
     else:
-        fallback_block = text[fallback_start:fallback_start + 3000]
+        # Bounded by the next top-level "def " so the window grows with the
+        # branch instead of silently truncating before mark_live_trade_unreconciled
+        # / alert_position_unreconciled if the branch grows more status-handling
+        # logic (as it did when the enum-vocabulary fix landed).
+        next_def = text.find("\ndef ", fallback_start + 1)
+        fallback_block = text[fallback_start:next_def if next_def != -1 else len(text)]
         if "mark_live_trade_unreconciled" not in fallback_block:
             flag(66, "live position/DB reconciliation integrity", "CRITICAL",
                  "backend/live_trades_tracker.py",

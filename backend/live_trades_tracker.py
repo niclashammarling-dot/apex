@@ -12,6 +12,7 @@ Only runs when LIVE_ENABLED=true.
 from datetime import datetime, timezone
 
 import yfinance as yf
+from alpaca.trading.enums import OrderStatus
 from loguru import logger
 
 from backend.brokers.alpaca import OrderTerminalError
@@ -23,6 +24,34 @@ from backend.db import (
     set_live_trade_profit_lock_activated,
     update_live_trade_peak_price,
 )
+
+# Membership tests against Alpaca's real OrderStatus enum values (imported, not
+# hand-typed) — a typo here (e.g. OrderStatus.CANCELLED) raises AttributeError
+# at import time instead of silently compiling into a substring check that
+# never matches. Pending = order could still receive a fill. Terminal = it
+# can't; anything reaching the position-reconciliation branch with a terminal
+# or unrecognized status should proceed to reconciliation, not wait forever.
+_PENDING_ORDER_STATUSES = {
+    OrderStatus.NEW.value,
+    OrderStatus.PARTIALLY_FILLED.value,
+    OrderStatus.ACCEPTED.value,
+    OrderStatus.PENDING_NEW.value,
+    OrderStatus.PENDING_CANCEL.value,
+    OrderStatus.PENDING_REPLACE.value,
+    OrderStatus.PENDING_REVIEW.value,
+    OrderStatus.ACCEPTED_FOR_BIDDING.value,
+    OrderStatus.HELD.value,
+    OrderStatus.STOPPED.value,
+    OrderStatus.CALCULATED.value,
+}
+_TERMINAL_ORDER_STATUSES = {
+    OrderStatus.FILLED.value,
+    OrderStatus.CANCELED.value,
+    OrderStatus.EXPIRED.value,
+    OrderStatus.REPLACED.value,
+    OrderStatus.DONE_FOR_DAY.value,
+    OrderStatus.REJECTED.value,
+}
 
 
 def _trading_days_since(iso_timestamp: str) -> int:
@@ -335,12 +364,24 @@ def check_live_exits() -> list[dict]:
         elif alpaca_positions is not None and ticker not in alpaca_positions:
             # Parent order buy leg not yet filled (e.g. placed on a market holiday,
             # pending next session). Position will appear once the order fills.
-            _terminal_statuses = {"cancelled", "expired", "replaced", "done_for_day"}
+            # Membership test against Alpaca's real order-status vocabulary — not
+            # a substring check on a hand-typed word. A substring check on
+            # "cancelled" (never a real Alpaca status; they use "canceled")
+            # against a get_order_by_id() status is what let a canceled parent
+            # order be silently misread as "still pending" forever in the
+            # 2026-08-06 HON incident's diagnosis. An unrecognized status is
+            # logged, not silently sorted into either bucket.
+            status = (order.get("status") if order else None) or ""
             if (order is not None
                     and (order.get("filled_qty") or 0) == 0
-                    and not any(s in (order.get("status") or "").lower() for s in _terminal_statuses)):
-                logger.debug(f"Live exit check [{ticker}]: buy order pending (status={order.get('status')}) — waiting for fill")
+                    and status in _PENDING_ORDER_STATUSES):
+                logger.debug(f"Live exit check [{ticker}]: buy order pending (status={status}) — waiting for fill")
                 continue
+            if order is not None and status and status not in _TERMINAL_ORDER_STATUSES \
+                    and status not in _PENDING_ORDER_STATUSES:
+                logger.warning(f"Live exit check [{ticker}]: unrecognized order status {status!r} "
+                                f"— treating as terminal (proceeding to reconciliation) rather than "
+                                f"silently waiting on it")
             # Position is confirmed gone — cancel any remaining bracket legs immediately.
             # Orphaned sell orders that fire against a zero position create short exposure.
             try:

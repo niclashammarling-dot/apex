@@ -174,6 +174,20 @@ def place_bracket_order(
     return str(order.id)
 
 
+def _enum_value(x) -> str | None:
+    """
+    alpaca-py's OrderStatus/OrderSide/OrderType are str-mixin Enums, but
+    str(member) still returns Enum's "ClassName.MEMBER_NAME" repr, not the
+    plain value ("OrderStatus.CANCELED", not "canceled") — a well-known
+    Python str-Enum gotcha. Every consumer expects Alpaca's real lowercase
+    status vocabulary; .value gives that. getattr() falls through cleanly
+    if x is already a plain string (or None).
+    """
+    if x is None:
+        return None
+    return getattr(x, "value", x)
+
+
 def get_order_by_id(order_id: str) -> dict:
     """Return a single order with its bracket legs."""
     import uuid
@@ -183,9 +197,9 @@ def get_order_by_id(order_id: str) -> dict:
         for leg in (order.legs or []):
             legs.append({
                 "id":               str(leg.id),
-                "side":             str(leg.side),
-                "order_type":       str(leg.order_type),
-                "status":           str(leg.status),
+                "side":             _enum_value(leg.side),
+                "order_type":       _enum_value(leg.order_type),
+                "status":           _enum_value(leg.status),
                 "limit_price":      float(leg.limit_price)      if leg.limit_price      else None,
                 "stop_price":       float(leg.stop_price)       if leg.stop_price       else None,
                 "filled_avg_price": float(leg.filled_avg_price) if leg.filled_avg_price else None,
@@ -194,7 +208,7 @@ def get_order_by_id(order_id: str) -> dict:
         return {
             "id":               str(order.id),
             "ticker":           order.symbol,
-            "status":           str(order.status),
+            "status":           _enum_value(order.status),
             "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
             "filled_qty":       float(order.filled_qty)       if order.filled_qty       else None,
             "legs":             legs,
