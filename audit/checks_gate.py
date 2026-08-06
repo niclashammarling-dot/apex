@@ -1,9 +1,11 @@
 """
-Gate-domain mechanical checks — CHECKs 24, 25, 26, 28, 29, 38.
+Gate-domain mechanical checks — CHECKs 24, 25, 26, 28, 29, 38, 49, 51, 52,
+53, 54, 64, 66.
 
 Covers: chain-runner wiring integrity, gate_decision string parity,
 L1/L2 threshold-source parity, EXCLUDED_SECTORS wiring, live sector
-exposure cap wiring, and live entry absence-of-activity.
+exposure cap wiring, live entry absence-of-activity, and live
+position/DB reconciliation integrity.
 """
 import re
 import sqlite3
@@ -709,6 +711,135 @@ def check64() -> None:
         )
 
 
+# ── CHECK 66 — Live position/DB reconciliation integrity ──────────────────────
+
+def check66() -> None:
+    """
+    CHECK 66 — live position/DB reconciliation integrity.
+
+    2026-08-06 HON incident: a live position vanished from Alpaca with zero
+    corroborating record — no fill, no order, no account activity entry. The
+    reconciliation fallback in live_trades_tracker.py used to paper over this
+    by booking a fake exit at "current market price" (-$4.04 recorded; ledger
+    replay proved cash was untouched and last_equity implied the full ~$1011
+    position value was genuinely gone — a real loss mislabeled as a trivial
+    one). Root cause of the wipe itself is unresolved pending Alpaca support;
+    candidates are delayed corporate-action reprocessing on a restructured
+    CUSIP (HON had a spinoff + reverse split five weeks prior) or a recurrence
+    of the July 7 "paper margin engine silent wipe" class — kept open, not
+    conflated with either.
+
+    Four sub-checks:
+    A. Static (fallback) — the fallback must never fabricate an exit price
+       when no fill is found. It must freeze the trade (mark_live_trade_unreconciled)
+       and alert (alert_position_unreconciled) instead. CRITICAL if either call
+       is missing from the fallback branch, or if a market-price fallback
+       (_current_price call feeding exit_price in that branch) has crept back in.
+    B. Static (gate linkage) — the halt must not be incidental to the daily
+       loss cap. gate_runner_live.run() must refuse all new entries while any
+       UNRECONCILED row exists, checked before a day-boundary equity reset or
+       a quietly-restored position could otherwise release the cap. CRITICAL
+       if get_unreconciled_live_trades() is not called in run(), or if that
+       check no longer precedes candidate evaluation.
+    C. Static (untracked direction) — the mirror case (broker holds a position
+       with no matching internal OPEN row — a restored position, a manual
+       dashboard trade, partial-fill drift) must also alert. CRITICAL if
+       alert_position_untracked is defined but never called anywhere.
+    D. Dynamic — any live_trades row currently sitting at outcome='UNRECONCILED'
+       is an open, unresolved incident by definition. CRITICAL per row — these
+       require human resolution via resolve_unreconciled(), not another gate
+       cycle or a day rolling over.
+    """
+    tracker = REPO / "backend/live_trades_tracker.py"
+    runner  = REPO / "backend/gate/gate_runner_live.py"
+    alerts  = REPO / "backend/alerts.py"
+    if not tracker.exists():
+        return
+
+    text = tracker.read_text()
+    fallback_start = text.find("Position-reconciliation fallback")
+    if fallback_start == -1:
+        flag(66, "live position/DB reconciliation integrity", "CRITICAL",
+             "backend/live_trades_tracker.py",
+             "position-reconciliation fallback block not found — check_live_exits() "
+             "structure changed, CHECK 66 needs updating")
+    else:
+        fallback_block = text[fallback_start:fallback_start + 3000]
+        if "mark_live_trade_unreconciled" not in fallback_block:
+            flag(66, "live position/DB reconciliation integrity", "CRITICAL",
+                 "backend/live_trades_tracker.py",
+                 "reconciliation fallback no longer calls mark_live_trade_unreconciled — "
+                 "an unexplained position wipe can silently re-acquire a fabricated exit price")
+        if "alert_position_unreconciled" not in fallback_block:
+            flag(66, "live position/DB reconciliation integrity", "CRITICAL",
+                 "backend/live_trades_tracker.py",
+                 "reconciliation fallback no longer calls alert_position_unreconciled — "
+                 "an unresolved position wipe would go unnoticed until the next equity check")
+        if re.search(r'exit_price\s*=\s*_current_price\(ticker\)', fallback_block):
+            flag(66, "live position/DB reconciliation integrity", "CRITICAL",
+                 "backend/live_trades_tracker.py",
+                 "reconciliation fallback still books exit_price from _current_price() when "
+                 "no fill is found — this is the exact HON-incident fabrication path")
+
+    # Sub-check C — untracked direction wired somewhere (not necessarily in
+    # live_trades_tracker.py; check_live_exits + gate_runner_live together).
+    if alerts.exists() and "def alert_position_untracked" in alerts.read_text():
+        combined = text
+        if runner.exists():
+            combined += runner.read_text()
+        if "alert_position_untracked(" not in combined:
+            flag(66, "live position/DB reconciliation integrity", "CRITICAL",
+                 "backend/alerts.py",
+                 "alert_position_untracked is defined but never called — the untracked "
+                 "direction (broker holds a position with no matching internal OPEN row) "
+                 "is not actually wired, only its alert function exists")
+
+    if not runner.exists():
+        flag(66, "live position/DB reconciliation integrity", "CRITICAL",
+             "backend/gate/gate_runner_live.py", "file not found")
+    else:
+        runner_text = runner.read_text()
+        run_start = runner_text.find("def run()")
+        gate_check_pos = runner_text.find("get_unreconciled_live_trades()")
+        candidates_pos = runner_text.find("get_lock1_candidates(")
+        if gate_check_pos == -1:
+            flag(66, "live position/DB reconciliation integrity", "CRITICAL",
+                 "backend/gate/gate_runner_live.py",
+                 "run() no longer calls get_unreconciled_live_trades() — the UNRECONCILED "
+                 "halt is not enforced by the gate itself, only surfaced as a nightly audit "
+                 "finding; a day-boundary equity reset or a quietly-restored position could "
+                 "release trading with the incident still unresolved")
+        elif candidates_pos != -1 and gate_check_pos > candidates_pos:
+            flag(66, "live position/DB reconciliation integrity", "CRITICAL",
+                 "backend/gate/gate_runner_live.py",
+                 "get_unreconciled_live_trades() is called after candidate evaluation has "
+                 "already started — the halt must precede it, not follow it")
+        elif run_start != -1 and gate_check_pos < run_start:
+            flag(66, "live position/DB reconciliation integrity", "CRITICAL",
+                 "backend/gate/gate_runner_live.py",
+                 "get_unreconciled_live_trades() reference found outside run() — "
+                 "verify the halt is actually enforced inside the gate's entry point")
+
+    db = REPO / "data/apex.db"
+    if not db.exists():
+        return
+    try:
+        conn = sqlite3.connect(db)
+        rows = conn.execute("""
+            SELECT ticker, timestamp, entry_price, qty, exit_reason
+            FROM live_trades WHERE outcome = 'UNRECONCILED'
+        """).fetchall()
+        conn.close()
+    except sqlite3.Error:
+        return
+
+    for ticker, ts, entry_price, qty, note in rows:
+        flag(66, "live position/DB reconciliation integrity", "CRITICAL",
+             "data/apex.db:live_trades",
+             f"{ticker} (opened {ts}, entry ${entry_price:.2f} x {qty:g}) is UNRECONCILED — "
+             f"{note}")
+
+
 def run() -> None:
     check24()
     check25()
@@ -722,3 +853,4 @@ def run() -> None:
     check53()
     check54()
     check64()
+    check66()

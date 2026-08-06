@@ -21,6 +21,7 @@ from backend.db import (
     get_open_live_tickers,
     get_recently_exited_live_tickers,
     get_recently_failed_live_tickers,
+    get_unreconciled_live_trades,
     insert_live_gate_result,
     insert_live_trade,
 )
@@ -36,6 +37,7 @@ from backend.sector_caps import compute_dynamic_caps
 
 _MAX_WORKERS = 5
 _loss_cap_alerted: set[str] = set()  # dates (YYYY-MM-DD) for which the alert was already sent
+_unreconciled_alerted: set[str] = set()  # dates for which the reminder alert was already sent
 
 
 def run() -> list[dict]:
@@ -46,6 +48,26 @@ def run() -> list[dict]:
     """
     if not LIVE_ENABLED:
         logger.debug("Live gate: LIVE_ENABLED=false — skipping")
+        return []
+
+    # UNRECONCILED gate — checked before touching the broker at all. A position
+    # that vanished with no fill/order/activity trail (see 2026-08-06 HON
+    # incident, CHECK 66) must not release the halt just because a day boundary
+    # resets last_equity or the broker quietly restores the position. Only
+    # resolve_unreconciled() can clear this — see backend/db.py.
+    unreconciled = get_unreconciled_live_trades()
+    if unreconciled:
+        from datetime import date
+        today = date.today().isoformat()
+        tickers = ", ".join(t["ticker"] for t in unreconciled)
+        logger.error(f"Live gate: halted — UNRECONCILED position(s) unresolved: {tickers}")
+        if today not in _unreconciled_alerted:
+            _unreconciled_alerted.add(today)
+            from backend.alerts import alert_gate_blocked
+            alert_gate_blocked(
+                f"UNRECONCILED position(s) unresolved: {tickers} — "
+                "resolve via backend.db.resolve_unreconciled() before trading resumes"
+            )
         return []
 
     from backend.brokers import alpaca as broker

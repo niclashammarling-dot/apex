@@ -1428,6 +1428,100 @@ def close_live_trade(trade_id: int, exit_price: float, pnl: float,
         conn.close()
 
 
+def mark_live_trade_unreconciled(trade_id: int, note: str) -> None:
+    """
+    Position vanished from the broker with no fill, order, or activity record
+    to explain it (distinct from a normal SL/TP/time exit). Freezes the trade
+    out of get_open_live_trades() polling — no exit_price/pnl is fabricated —
+    until a human or a confirmed broker record resolves it.
+    """
+    from datetime import datetime, timezone
+    conn = get_db()
+    try:
+        conn.execute("""
+            UPDATE live_trades
+            SET outcome = 'UNRECONCILED', exit_reason = ?, exited_at = ?
+            WHERE id = ?
+        """, (note, datetime.now(timezone.utc).isoformat(), trade_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_unreconciled_live_trades() -> list[dict]:
+    """
+    Trades frozen by mark_live_trade_unreconciled() and not yet resolved.
+    The live gate must refuse all new entries while this is non-empty — see
+    gate_runner_live.run() (CHECK 66). A day-boundary equity reset or the
+    broker quietly restoring a wiped position must not be able to release
+    the halt on its own; only resolve_unreconciled() can.
+    """
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT * FROM live_trades WHERE outcome = 'UNRECONCILED' ORDER BY timestamp ASC
+        """).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def resolve_unreconciled(trade_id: int, resolution: str, evidence: str,
+                          exit_price: float | None = None) -> None:
+    """
+    Close out an UNRECONCILED trade. Two paths:
+
+    - resolution="CONFIRMED_EXIT": a broker record (order, activity, or Alpaca
+      support confirmation) surfaced the real fill. exit_price is required;
+      pnl and outcome (WIN/LOSS) are computed from it same as a normal exit.
+    - resolution="WRITTEN_OFF": no broker record ever surfaced; Alpaca support
+      confirmed the wipe (or it's being written off after investigation).
+      Books the full position value as lost. exit_price is not used.
+
+    `evidence` must be non-empty and is appended verbatim to exit_reason — this
+    is the human sign-off trail; there is no other way for a trade to leave
+    the UNRECONCILED state, and CHECK 66 will keep flagging until one of these
+    is called. `outcome` is deliberately never WIN/LOSS/EXPIRED for a written-off
+    trade so it can't be silently binned into win-rate/cooloff stats alongside
+    real exits — see WRITTEN_OFF handling in downstream `outcome` consumers.
+    """
+    if not evidence:
+        raise ValueError("resolve_unreconciled requires non-empty evidence")
+    if resolution not in ("CONFIRMED_EXIT", "WRITTEN_OFF"):
+        raise ValueError(f"resolution must be CONFIRMED_EXIT or WRITTEN_OFF, got {resolution!r}")
+
+    from datetime import datetime, timezone
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT entry_price, qty FROM live_trades WHERE id = ?",
+                            (trade_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"no live_trades row with id={trade_id}")
+        entry_price, qty = row["entry_price"], row["qty"]
+
+        exited_at = datetime.now(timezone.utc).isoformat()
+        note = f"[{resolution}] {evidence}"
+
+        if resolution == "CONFIRMED_EXIT":
+            if exit_price is None:
+                raise ValueError("CONFIRMED_EXIT requires exit_price")
+            pnl     = round((exit_price - entry_price) * qty, 2)
+            outcome = "WIN" if pnl > 0 else "LOSS"
+        else:
+            exit_price = 0.0
+            pnl         = round(-entry_price * qty, 2)
+            outcome     = "WRITTEN_OFF"
+
+        conn.execute("""
+            UPDATE live_trades
+            SET outcome = ?, exit_price = ?, pnl = ?, exit_reason = ?, exited_at = ?
+            WHERE id = ?
+        """, (outcome, exit_price, pnl, note, exited_at, trade_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def get_open_live_trades() -> list[dict]:
     conn = get_db()
     try:

@@ -19,6 +19,7 @@ from backend.config import LIVE_ENABLED
 from backend.db import (
     close_live_trade,
     get_open_live_trades,
+    mark_live_trade_unreconciled,
     set_live_trade_profit_lock_activated,
     update_live_trade_peak_price,
 )
@@ -185,6 +186,29 @@ def _log_vol_slope(trade: dict) -> None:
     )
 
 
+_untracked_alerted: set[str] = set()  # tickers currently alerted as untracked
+
+
+def _check_untracked_positions(alpaca_positions: set[str], open_trades: list[dict]) -> None:
+    """
+    Mirror of the reconciliation fallback: a ticker held at the broker with no
+    matching internal OPEN row. Covers a wiped position quietly reappearing
+    (the live theory for the 2026-08-06 HON incident), a manual dashboard
+    trade, or partial-fill drift. One alert per ticker while the mismatch
+    persists — re-alerts if it clears and recurs.
+    """
+    from backend.alerts import alert_position_untracked
+    open_tickers = {t["ticker"] for t in open_trades}
+    untracked = alpaca_positions - open_tickers
+    for ticker in untracked:
+        if ticker not in _untracked_alerted:
+            _untracked_alerted.add(ticker)
+            logger.error(f"Live exit check [{ticker}]: held at broker with no matching OPEN row")
+            alert_position_untracked(ticker)
+    # Clear the latch for tickers no longer mismatched, so a future recurrence re-alerts.
+    _untracked_alerted.intersection_update(untracked)
+
+
 def check_live_exits() -> list[dict]:
     """
     For each open live trade:
@@ -200,20 +224,32 @@ def check_live_exits() -> list[dict]:
         return []
 
     open_trades = get_open_live_trades()
-    if not open_trades:
-        return []
 
     from backend.brokers import alpaca as broker
     from backend.live_config import get_live_config
     cfg           = get_live_config()
     max_hold_days = cfg["max_hold_days"]
 
-    # Snapshot of tickers currently held in Alpaca — used for reconciliation fallback.
+    # Snapshot of tickers currently held in Alpaca — used for the reconciliation
+    # fallback below AND the untracked-position check (the mirror direction:
+    # broker holds a ticker with no matching internal OPEN row — a position
+    # restored after a wipe, a manual dashboard trade, partial-fill drift).
+    # Computed even when open_trades is empty, so a restored/untracked position
+    # is still caught on a cycle where nothing else needs polling.
     try:
         alpaca_positions = {p["ticker"] for p in broker.get_positions()}
     except Exception as e:
         logger.warning(f"Live exit check: could not fetch Alpaca positions — skipping reconciliation: {e}")
         alpaca_positions = None
+
+    if alpaca_positions is not None:
+        try:
+            _check_untracked_positions(alpaca_positions, open_trades)
+        except Exception as e:
+            logger.warning(f"Live exit check: untracked-position check failed — {e}")
+
+    if not open_trades:
+        return []
 
     closed = []
 
@@ -315,17 +351,29 @@ def check_live_exits() -> list[dict]:
                 logger.warning(f"Live exit reconciliation [{ticker}]: could not cancel orders — {_ce}")
             exit_price, exit_reason, exited_at = _find_exit_from_orders(ticker, broker)
             if exit_price is None:
-                # Order history exhausted (>100 orders) or bracket leg not visible.
-                # Fall back to current market price so the trade doesn't zombie.
-                exit_price = _current_price(ticker)
-                if exit_price is None:
-                    logger.warning(f"Live exit reconciliation [{ticker}]: position gone, no order found, price unavailable — skipping")
-                    continue
-                exit_reason = "RECONCILIATION"
-                exited_at   = datetime.now(timezone.utc).isoformat()
-                logger.warning(f"Live exit reconciliation [{ticker}]: no fill found — closing at current price ${exit_price:.2f}")
-            else:
-                logger.info(f"Live exit reconciliation [{ticker}]: position closed externally, exit=${exit_price:.2f}")
+                # Position gone from the broker but no fill, order, or account
+                # activity anywhere explains it (order history exhausted, bracket
+                # leg not visible, or the position value simply vanished — see
+                # 2026-08-06 HON incident: position gone, zero transaction trail
+                # on either side of the ledger, real equity loss, not a mis-book).
+                # Do NOT fabricate an exit at current market price — that silently
+                # mislabels an unexplained loss as a small approximate one. Freeze
+                # the trade as UNRECONCILED and alert; a human must resolve it via
+                # broker support/dashboard before this trade record is touched again.
+                note = (
+                    f"position gone from broker at {datetime.now(timezone.utc).isoformat()}; "
+                    f"no fill/order/activity record found (entry ${trade['entry_price']:.2f} "
+                    f"x {trade['qty']:g} on order {order_id})"
+                )
+                logger.error(f"Live exit reconciliation [{ticker}]: UNRECONCILED — {note}")
+                mark_live_trade_unreconciled(trade["id"], note)
+                try:
+                    from backend.alerts import alert_position_unreconciled
+                    alert_position_unreconciled(ticker, trade["entry_price"], trade["qty"], note)
+                except Exception as _ae:
+                    logger.warning(f"Live exit reconciliation [{ticker}]: alert failed — {_ae}")
+                continue
+            logger.info(f"Live exit reconciliation [{ticker}]: position closed externally, exit=${exit_price:.2f}")
             pnl     = round((exit_price - trade["entry_price"]) * trade["qty"], 2)
             outcome = "WIN" if pnl > 0 else "LOSS"
 
