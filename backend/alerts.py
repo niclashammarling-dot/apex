@@ -137,6 +137,46 @@ def alert_ticker_data_gap(symbol: str, sector: str, consecutive: int, rows: int)
     _dispatch(title, body)
 
 
+def alert_position_unreconciled(ticker: str, entry_price: float, qty: float,
+                                 detail: str) -> None:
+    """
+    A DB-open live position is gone from the broker with no fill, order, or
+    account activity to explain it — the position value did not move through
+    a sale. No exit price is fabricated; this requires manual resolution
+    (broker support, dashboard inspection) before the trade record is closed.
+    """
+    mode  = _mode_label()
+    title = f"[APEX {mode}] UNRECONCILED — {ticker} vanished with no trail"
+    body  = (
+        f"{ticker}: entry ${entry_price:.2f} x {qty:g} shares is no longer held "
+        f"at the broker, but no fill, order, or account activity record explains "
+        f"the close.\n\n"
+        f"{detail}\n\n"
+        "No exit price has been booked — the trade is frozen as UNRECONCILED, "
+        "not closed. Do not resume live trading on this ticker until a human "
+        "confirms what happened via broker support/dashboard and manually "
+        "resolves the trade record."
+    )
+    _dispatch(title, body)
+
+
+def alert_position_untracked(ticker: str) -> None:
+    """
+    A ticker is held at the broker but has no matching OPEN row in our own
+    live_trades table — the mirror image of alert_position_unreconciled.
+    Independent of the daily loss cap: this catches a broker/DB divergence
+    at the moment it's observed rather than via the equity gap the next day.
+    """
+    mode  = _mode_label()
+    title = f"[APEX {mode}] Position/DB mismatch — {ticker}"
+    body  = (
+        f"{ticker} is held at the broker but has no OPEN row in live_trades.\n"
+        "Either an untracked order was placed outside the gate, or a DB write "
+        "was lost. Investigate before the next live cycle."
+    )
+    _dispatch(title, body)
+
+
 def alert_gate_blocked(reason: str) -> None:
     mode  = _mode_label()
     title = f"[APEX {mode}] Gate Blocked"

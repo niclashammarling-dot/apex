@@ -334,30 +334,33 @@ def _account(equity=10000.0, buying_power=10000.0, day_pnl=0.0,
 
 def _live_patches(candidates, open_tickers=None, failed_tickers=None,
                   chain_result=None, account=None, positions=None,
-                  order_id="ord-123", cfg_overrides=None, live_enabled=True):
+                  order_id="ord-123", cfg_overrides=None, live_enabled=True,
+                  unreconciled=None):
     """
     Build the patch list for live gate runner tests.
 
     Mock index reference:
       0  LIVE_ENABLED
-      1  get_live_config
-      2  get_ticker_thresholds
-      3  compute_sector_regime
-      4  get_lock1_candidates
-      5  get_open_live_tickers
-      6  get_recently_failed_live_tickers
-      7  insert_live_gate_result
-      8  insert_live_trade
-      9  evaluate_chain
-      10 alpaca.get_account
-      11 alpaca.get_positions
-      12 alpaca.place_bracket_order
-      13 alert_daily_loss_cap
-      14 alert_trade_executed
-      15 compute_ticker_rotation_scores
-      16 get_rotation_forecast
-      17 _get_regime_bayes
-      18 get_recently_exited_live_tickers
+      1  get_unreconciled_live_trades
+      2  alert_gate_blocked
+      3  get_live_config
+      4  get_ticker_thresholds
+      5  compute_sector_regime
+      6  get_lock1_candidates
+      7  get_open_live_tickers
+      8  get_recently_failed_live_tickers
+      9  insert_live_gate_result
+      10 insert_live_trade
+      11 evaluate_chain
+      12 alpaca.get_account
+      13 alpaca.get_positions
+      14 alpaca.place_bracket_order
+      15 alert_daily_loss_cap
+      16 alert_trade_executed
+      17 compute_ticker_rotation_scores
+      18 get_rotation_forecast
+      19 _get_regime_bayes
+      20 get_recently_exited_live_tickers
     """
     cfg       = _live_cfg(**(cfg_overrides or {}))
     acct      = account  or _account()
@@ -366,36 +369,40 @@ def _live_patches(candidates, open_tickers=None, failed_tickers=None,
     return [
         # Module-level constant
         patch("backend.gate.gate_runner_live.LIVE_ENABLED", live_enabled),              # 0
+        # UNRECONCILED gate — checked before the broker is touched at all
+        patch("backend.gate.gate_runner_live.get_unreconciled_live_trades",
+              return_value=unreconciled or []),                                         # 1
+        patch("backend.alerts.alert_gate_blocked"),                                     # 2
         # Lazy imports inside run() → patch at source
-        patch("backend.live_config.get_live_config",           return_value=cfg),       # 1
-        patch("backend.db.get_ticker_thresholds",              return_value={}),        # 2
-        patch("backend.sector_regime.compute_sector_regime",   return_value={"available": False}),  # 3
+        patch("backend.live_config.get_live_config",           return_value=cfg),       # 3
+        patch("backend.db.get_ticker_thresholds",              return_value={}),        # 4
+        patch("backend.sector_regime.compute_sector_regime",   return_value={"available": False}),  # 5
         # Module-level imports → patch at gate_runner_live scope
         patch("backend.gate.gate_runner_live.get_lock1_candidates",
-              return_value=candidates),                                                  # 4
+              return_value=candidates),                                                  # 6
         patch("backend.gate.gate_runner_live.get_open_live_tickers",
-              return_value=open_tickers or set()),                                       # 5
+              return_value=open_tickers or set()),                                       # 7
         patch("backend.gate.gate_runner_live.get_recently_failed_live_tickers",
-              return_value=failed_tickers or set()),                                     # 6
-        patch("backend.gate.gate_runner_live.insert_live_gate_result"),                 # 7
-        patch("backend.gate.gate_runner_live.insert_live_trade"),                       # 8
+              return_value=failed_tickers or set()),                                     # 8
+        patch("backend.gate.gate_runner_live.insert_live_gate_result"),                 # 9
+        patch("backend.gate.gate_runner_live.insert_live_trade"),                       # 10
         # Chain evaluation — replaces individual lock patches
-        patch("backend.gate.gate_runner_live.evaluate_chain", return_value=cr),        # 9
+        patch("backend.gate.gate_runner_live.evaluate_chain", return_value=cr),        # 11
         # Broker — lazy import, patch at source
-        patch("backend.brokers.alpaca.get_account",          return_value=acct),       # 10
-        patch("backend.brokers.alpaca.get_positions",        return_value=positions),  # 11
-        patch("backend.brokers.alpaca.place_bracket_order",  return_value=order_id),  # 12
+        patch("backend.brokers.alpaca.get_account",          return_value=acct),       # 12
+        patch("backend.brokers.alpaca.get_positions",        return_value=positions),  # 13
+        patch("backend.brokers.alpaca.place_bracket_order",  return_value=order_id),  # 14
         # Alerts
-        patch("backend.alerts.alert_daily_loss_cap"),                                   # 13
-        patch("backend.alerts.alert_trade_executed"),                                   # 14
+        patch("backend.alerts.alert_daily_loss_cap"),                                   # 15
+        patch("backend.alerts.alert_trade_executed"),                                   # 16
         # Lazy imports for rotation + Bayesian — patch at source
-        patch("backend.sector_transitions.compute_ticker_rotation_scores", return_value={}),  # 15
+        patch("backend.sector_transitions.compute_ticker_rotation_scores", return_value={}),  # 17
         patch("backend.sector_transitions.get_rotation_forecast",
-              return_value={"available": False, "watching": [], "likely_next": []}),    # 16
+              return_value={"available": False, "watching": [], "likely_next": []}),    # 18
         patch("backend.scheduler._get_regime_bayes",
-              return_value=MagicMock(last_result=MagicMock(return_value=None))),        # 17
+              return_value=MagicMock(last_result=MagicMock(return_value=None))),        # 19
         patch("backend.gate.gate_runner_live.get_recently_exited_live_tickers",
-              return_value=set()),                                                       # 18
+              return_value=set()),                                                       # 20
     ]
 
 
@@ -436,7 +443,7 @@ class TestLiveGateRunner:
             results = gate_runner_live.run()
         assert results == []
         # Pre-flight failure — no evaluation happened, nothing written to DB
-        insert_mock = mocks[7]  # insert_live_gate_result
+        insert_mock = mocks[9]  # insert_live_gate_result
         insert_mock.assert_not_called()
 
     def test_daily_loss_cap_exceeded_returns_empty(self):
@@ -468,7 +475,7 @@ class TestLiveGateRunner:
         results, mocks = _run_live(candidates=[_signal("NVDA")],
                                    open_tickers={"NVDA"})
         assert results == []
-        insert_mock = mocks[7]  # insert_live_gate_result
+        insert_mock = mocks[9]  # insert_live_gate_result
         insert_mock.assert_called_once()
         saved = insert_mock.call_args[0][0]
         assert saved["gate_decision"] == "SKIPPED_OPEN"
@@ -477,7 +484,7 @@ class TestLiveGateRunner:
         results, mocks = _run_live(candidates=[_signal("NVDA")],
                                    failed_tickers={"NVDA"})
         assert results == []
-        saved = mocks[7].call_args[0][0]
+        saved = mocks[9].call_args[0][0]
         assert saved["gate_decision"] == "SKIPPED_COOLOFF"
 
     def test_all_skipped_no_evaluations(self):
@@ -487,7 +494,7 @@ class TestLiveGateRunner:
             failed_tickers={"AAPL"},
         )
         assert results == []
-        assert mocks[7].call_count == 2
+        assert mocks[9].call_count == 2
 
     # ── Pipeline outcomes ─────────────────────────────────────────────────────
 
@@ -521,8 +528,8 @@ class TestLiveGateRunner:
     def test_all_pass_trade_executed(self):
         results, mocks = _run_live(candidates=[_signal()])
         assert results[0]["outcome"] == "TRADE_EXECUTED"
-        mocks[12].assert_called_once()  # place_bracket_order
-        mocks[8].assert_called_once()   # insert_live_trade
+        mocks[14].assert_called_once()  # place_bracket_order
+        mocks[10].assert_called_once()   # insert_live_trade
 
     def test_max_positions_reached_rejects_trade(self):
         positions = [{"ticker": f"T{i}"} for i in range(5)]
@@ -530,14 +537,14 @@ class TestLiveGateRunner:
         results, mocks = _run_live(candidates=[_signal(score=0.50)], positions=positions,
                                    cfg_overrides={"max_positions": 5})
         assert results[0]["outcome"] == "FILTERED_OVERFLOW_QUANT"
-        mocks[12].assert_not_called()
+        mocks[14].assert_not_called()
 
     def test_ticker_already_open_at_execution_rejected(self):
         # Race condition: position opened between evaluation and execution
         results, mocks = _run_live(candidates=[_signal("NVDA")],
                                    positions=[{"ticker": "NVDA", "cost_basis": 200.0}])
         assert results[0]["outcome"] == "TRADE_REJECTED"
-        mocks[12].assert_not_called()
+        mocks[14].assert_not_called()
 
     def test_notional_too_small_rejected(self):
         # equity=$1 → notional = 1 * 0.10 = $0.10, below $10 floor
@@ -545,7 +552,7 @@ class TestLiveGateRunner:
                                    account=_account(equity=1.0, buying_power=1.0),
                                    cfg_overrides={"max_position_size": 0.10})
         assert results[0]["outcome"] == "TRADE_REJECTED"
-        mocks[12].assert_not_called()
+        mocks[14].assert_not_called()
 
     def test_broker_exception_sets_trade_failed(self):
         patches = _live_patches(candidates=[_signal()])
@@ -558,7 +565,7 @@ class TestLiveGateRunner:
             results = gate_runner_live.run()
         assert results[0]["outcome"] == "TRADE_FAILED"
         # gate_decision written to DB must match the final outcome
-        saved = mocks[7].call_args[0][0]  # insert_live_gate_result arg
+        saved = mocks[9].call_args[0][0]  # insert_live_gate_result arg
         assert saved["gate_decision"] == "TRADE_FAILED"
         assert saved["alpaca_order_id"] is None
 
@@ -567,7 +574,7 @@ class TestLiveGateRunner:
         # score=0.50 < overflow_threshold → FILTERED_OVERFLOW_QUANT, counted in overflow_fail funnel
         results, mocks = _run_live(candidates=[_signal(score=0.50)], positions=positions,
                                    cfg_overrides={"max_positions": 5})
-        saved = mocks[7].call_args[0][0]
+        saved = mocks[9].call_args[0][0]
         assert saved["gate_decision"] == "FILTERED_OVERFLOW_QUANT"
 
     def test_gate_decision_not_buy_for_executed_trade(self):
@@ -578,11 +585,11 @@ class TestLiveGateRunner:
     def test_insert_live_gate_result_called_per_evaluated_ticker(self):
         results, mocks = _run_live(
             candidates=[_signal("NVDA", sid=1), _signal("AAPL", sid=2)])
-        assert mocks[7].call_count == 2  # insert_live_gate_result
+        assert mocks[9].call_count == 2  # insert_live_gate_result
 
     def test_leading_checks_stored_in_db(self):
         results, mocks = _run_live(candidates=[_signal()])
-        saved = mocks[7].call_args[0][0]  # insert_live_gate_result arg
+        saved = mocks[9].call_args[0][0]  # insert_live_gate_result arg
         assert saved["lock_leading_pass"] == 1
         assert saved["lock_leading_checks"] is not None
         parsed = json.loads(saved["lock_leading_checks"])
@@ -619,7 +626,7 @@ class TestLiveGateRunner:
                                              open_tickers={"NVDA"})
 
         demo_saved = demo_mocks[7].call_args[0][1]  # update_signal_gate
-        live_saved = live_mocks[7].call_args[0][0]  # insert_live_gate_result
+        live_saved = live_mocks[9].call_args[0][0]  # insert_live_gate_result
 
         assert demo_saved["gate_decision"] == "SKIPPED_OPEN"
         assert live_saved["gate_decision"] == "SKIPPED_OPEN"
