@@ -61,6 +61,108 @@ class TestOrderStatusExtraction:
         assert result["status"] == "canceled"
         assert "OrderStatus" not in result["status"]
 
+    def test_get_account_get_positions_get_orders_return_plain_values(self):
+        """
+        2026-08-07 audit sweep: get_order_by_id() was fixed for this gotcha on
+        2026-08-06, but get_account()/get_positions()/get_orders() — same
+        module, same enum fields — were not. That left "status": "AccountStatus.ACTIVE"
+        and "side": "PositionSide.LONG" flowing to every consumer, silently
+        breaking cancel_orphan_brackets()'s exact-match status guard (the
+        mechanism added 2026-07-07 specifically to stop orphaned bracket legs
+        creating short exposure — it could never match and had been a no-op
+        since it was written) and the frontend order-side buy/sell coloring.
+        """
+        from alpaca.trading.enums import AccountStatus, OrderSide, OrderStatus, OrderType
+        from alpaca.trading.enums import PositionSide
+        import uuid as uuid_mod
+
+        class _FakeAccount:
+            equity = "1000.0"
+            cash = "500.0"
+            buying_power = "2000.0"
+            last_equity = "990.0"
+            pattern_day_trader = False
+            trading_blocked = False
+            account_blocked = False
+            status = AccountStatus.ACTIVE
+
+        class _FakePosition:
+            symbol = "HON"
+            qty = "4"
+            side = PositionSide.LONG
+            avg_entry_price = "249.42"
+            current_price = "245.0"
+            market_value = "980.0"
+            cost_basis = "997.68"
+            unrealized_pl = "-17.68"
+            unrealized_plpc = "-0.0177"
+            change_today = "0.01"
+
+        class _FakeLeg:
+            id = uuid_mod.uuid4()
+            side = OrderSide.SELL
+            order_type = OrderType.STOP
+            status = OrderStatus.CANCELED
+            filled_avg_price = None
+            filled_at = None
+
+        class _FakeOrder:
+            id = uuid_mod.uuid4()
+            symbol = "HON"
+            side = OrderSide.BUY
+            order_type = OrderType.MARKET
+            qty = "4"
+            filled_qty = "4"
+            filled_avg_price = "249.42"
+            status = OrderStatus.FILLED
+            submitted_at = None
+            filled_at = None
+            legs = [_FakeLeg()]
+
+        with patch("backend.brokers.alpaca._client") as client_mock:
+            client_mock.return_value.get_account.return_value = _FakeAccount()
+            client_mock.return_value.get_all_positions.return_value = [_FakePosition()]
+            client_mock.return_value.get_orders.return_value = [_FakeOrder()]
+
+            from backend.brokers.alpaca import get_account, get_orders, get_positions
+            acct  = get_account()
+            poss  = get_positions()
+            ords  = get_orders(nested=True)
+
+        for value in (acct["status"], poss[0]["side"], ords[0]["side"],
+                      ords[0]["type"], ords[0]["status"],
+                      ords[0]["legs"][0]["side"], ords[0]["legs"][0]["order_type"],
+                      ords[0]["legs"][0]["status"]):
+            assert "." not in value, f"leaked Enum repr: {value!r}"
+
+        # AccountStatus's own vocabulary is uppercase ("ACTIVE"); every other
+        # enum here (side/type/order status) is lowercase — both are .value
+        # as Alpaca defines it, not a normalization this helper should impose.
+        assert acct["status"] == "ACTIVE"
+        assert poss[0]["side"] == "long"
+        assert ords[0]["side"] == "buy"
+        assert ords[0]["status"] == "filled"
+        assert ords[0]["legs"][0]["status"] == "canceled"
+
+    def test_cancel_orphan_brackets_actually_matches_now(self):
+        """
+        Direct regression for the silenced mechanism: with real Alpaca-shaped
+        status/side strings (not the mangled Enum repr), an orphaned sell leg
+        on a ticker with no open position must be recognized and cancelled.
+        """
+        from backend.live_trades_tracker import cancel_orphan_brackets
+
+        with patch("backend.live_trades_tracker.LIVE_ENABLED", True), \
+             patch("backend.brokers.alpaca.get_positions", return_value=[]), \
+             patch("backend.brokers.alpaca.get_orders", return_value=[{
+                 "ticker": "TOL", "side": "sell", "status": "new", "legs": [],
+             }]), \
+             patch("backend.brokers.alpaca.cancel_open_orders", return_value=1) as cancel_mock:
+            n = cancel_orphan_brackets()
+
+        assert n == 1
+        cancel_mock.assert_called_once_with("TOL")
+
     def test_terminal_and_pending_status_sets_pin_exact_alpaca_values(self):
         """
         Pins the exact strings so a future edit (or an Alpaca SDK bump renaming

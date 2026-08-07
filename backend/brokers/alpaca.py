@@ -61,7 +61,7 @@ def get_account() -> dict:
             "pattern_day_trader": acct.pattern_day_trader,
             "trading_blocked":   acct.trading_blocked,
             "account_blocked":   acct.account_blocked,
-            "status":            str(acct.status),
+            "status":            _enum_value(acct.status),
         }
     except Exception as e:
         logger.error(f"Alpaca get_account failed: {e}")
@@ -78,7 +78,7 @@ def get_positions() -> list[dict]:
             {
                 "ticker":           p.symbol,
                 "qty":              float(p.qty),
-                "side":             str(p.side),
+                "side":             _enum_value(p.side),
                 "avg_entry_price":  float(p.avg_entry_price),
                 "current_price":    float(p.current_price) if p.current_price else None,
                 "market_value":     float(p.market_value) if p.market_value else None,
@@ -105,20 +105,20 @@ def get_orders(limit: int = 50, nested: bool = False) -> list[dict]:
             {
                 "id":           str(o.id),
                 "ticker":       o.symbol,
-                "side":         str(o.side),
-                "type":         str(o.order_type),
+                "side":         _enum_value(o.side),
+                "type":         _enum_value(o.order_type),
                 "qty":          float(o.qty) if o.qty else None,
                 "filled_qty":   float(o.filled_qty) if o.filled_qty else None,
                 "filled_price": float(o.filled_avg_price) if o.filled_avg_price else None,
-                "status":       str(o.status),
+                "status":       _enum_value(o.status),
                 "submitted_at": o.submitted_at.isoformat() if o.submitted_at else None,
                 "filled_at":    o.filled_at.isoformat() if o.filled_at else None,
                 "legs": [
                     {
                         "id":               str(leg.id),
-                        "side":             str(leg.side),
-                        "order_type":       str(leg.order_type),
-                        "status":           str(leg.status),
+                        "side":             _enum_value(leg.side),
+                        "order_type":       _enum_value(leg.order_type),
+                        "status":           _enum_value(leg.status),
                         "filled_avg_price": float(leg.filled_avg_price) if leg.filled_avg_price else None,
                         "filled_at":        leg.filled_at.isoformat() if leg.filled_at else None,
                     }
