@@ -24,6 +24,7 @@ from backend.db import (
     get_unreconciled_live_trades,
     insert_live_gate_result,
     insert_live_trade,
+    set_alert_latch,
 )
 from backend.gate.chain import build_base_context, evaluate_chain
 from backend.gate.gate_runner import (
@@ -36,8 +37,23 @@ from backend.gate.gate_runner import (
 from backend.sector_caps import compute_dynamic_caps
 
 _MAX_WORKERS = 5
-_loss_cap_alerted: set[str] = set()  # dates (YYYY-MM-DD) for which the alert was already sent
-_unreconciled_alerted: set[str] = set()  # dates for which the reminder alert was already sent
+# Dedup latches persisted via backend.db.set_alert_latch() (DB-backed, keyed
+# "loss_cap:<date>" / "unreconciled:<date>") — not module-level sets. A
+# process restart (deploy, uvicorn --reload) must not re-arm an already-sent
+# daily alert; 2026-08-07 confirmed an in-memory set does exactly that.
+
+
+def _ny_today() -> str:
+    """
+    NY-anchored trading date for daily alert-latch keys — not date.today()
+    (server runs 6h ahead of ET; OS-local date can mislabel which trading day
+    a same-evening alert belongs to, see 2026-08-07 regime-bayes staleness
+    fix). Split out so tests can patch it to cross a day boundary without
+    waiting on the clock.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("America/New_York")).date().isoformat()
 
 
 def run() -> list[dict]:
@@ -57,12 +73,10 @@ def run() -> list[dict]:
     # resolve_unreconciled() can clear this — see backend/db.py.
     unreconciled = get_unreconciled_live_trades()
     if unreconciled:
-        from datetime import date
-        today = date.today().isoformat()
+        today = _ny_today()
         tickers = ", ".join(t["ticker"] for t in unreconciled)
         logger.error(f"Live gate: halted — UNRECONCILED position(s) unresolved: {tickers}")
-        if today not in _unreconciled_alerted:
-            _unreconciled_alerted.add(today)
+        if set_alert_latch(f"unreconciled:{today}"):
             from backend.alerts import alert_gate_blocked
             alert_gate_blocked(
                 f"UNRECONCILED position(s) unresolved: {tickers} — "
@@ -89,11 +103,9 @@ def run() -> list[dict]:
     # Daily loss cap check
     day_loss = abs(min(acct["day_pnl"], 0))
     if day_loss >= cfg["daily_loss_cap"]:
-        from datetime import date
-        today = date.today().isoformat()
+        today = _ny_today()
         logger.warning(f"Live gate: daily loss cap hit — day loss ${day_loss:.2f} >= cap ${cfg['daily_loss_cap']:.2f}")
-        if today not in _loss_cap_alerted:
-            _loss_cap_alerted.add(today)
+        if set_alert_latch(f"loss_cap:{today}"):
             from backend.alerts import alert_daily_loss_cap
             alert_daily_loss_cap(day_loss, cfg["daily_loss_cap"])
         return []

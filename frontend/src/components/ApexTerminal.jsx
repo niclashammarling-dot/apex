@@ -291,7 +291,7 @@ function Positions({ D, mode }) {
                   </td>
                   <td className={(p.pnl ?? 0) >= 0 ? "t-pos" : "t-neg"}>{(p.pnl ?? 0) >= 0 ? "+" : ""}{(p.pnl ?? 0).toFixed(2)}</td>
                   <td className={(p.pct ?? 0) >= 0 ? "t-pos" : "t-neg"}>{(p.pct ?? 0) >= 0 ? "+" : ""}{(p.pct ?? 0).toFixed(2)}%</td>
-                  <td>{p.held}d</td>
+                  <td>{p.held != null ? `${p.held}d` : "—"}</td>
                 </tr>
               ))}
             </tbody>

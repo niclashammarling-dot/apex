@@ -346,7 +346,13 @@ function adaptPositions(openPositions) {
     pnl:    p.unrealized_pnl ?? 0,
     pct:    (p.unrealized_pct ?? 0) * 100,
     peak:   p.peak_price ?? p.current_price ?? p.avg_entry_price ?? p.price ?? 0,
-    held:   p.days_held ?? 0,
+    // null (not 0) when no internal OPEN row exists to compute this from —
+    // e.g. a broker-side position with no matching live_trades row (untracked
+    // or UNRECONCILED). Silently defaulting to 0 here is the same
+    // fabricated-value anti-pattern as the 2026-08-06 reconciliation bug,
+    // just in the display layer: "0d held" is indistinguishable from a
+    // genuinely fresh same-day position. Render unknown as "—", not "0d".
+    held:   p.days_held ?? null,
     tp:     null,
     sl:     p.sl_price ?? null,
     trail:  false,

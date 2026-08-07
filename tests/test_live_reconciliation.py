@@ -278,18 +278,58 @@ class TestReconciliationFreeze:
         assert any(t["id"] == trade_id for t in get_unreconciled_live_trades())
 
 
+class TestAlertLatches:
+    """Direct coverage of the persisted latch primitives (backend.db)."""
+
+    def test_set_alert_latch_is_one_shot_and_persists(self):
+        from backend.db import clear_alert_latch, set_alert_latch
+        clear_alert_latch("test:one-shot")
+        assert set_alert_latch("test:one-shot") is True   # newly set → caller alerts
+        assert set_alert_latch("test:one-shot") is False  # already set → caller doesn't
+        assert set_alert_latch("test:one-shot") is False  # still latched, no expiry
+        clear_alert_latch("test:one-shot")
+        assert set_alert_latch("test:one-shot") is True   # cleared → re-arms
+
+    def test_clear_alert_latches_except_keeps_only_named_keys(self):
+        from backend.db import clear_alert_latch, clear_alert_latches_except, set_alert_latch
+        for t in ("AAA", "BBB", "CCC"):
+            clear_alert_latch(f"untracked:{t}")
+            set_alert_latch(f"untracked:{t}")
+
+        # Only BBB is still mismatched — AAA and CCC should clear, BBB should not.
+        clear_alert_latches_except("untracked:", {"untracked:BBB"})
+
+        assert set_alert_latch("untracked:AAA") is True   # cleared → re-arms
+        assert set_alert_latch("untracked:BBB") is False  # kept latched → still suppressed
+        assert set_alert_latch("untracked:CCC") is True   # cleared → re-arms
+
+        for t in ("AAA", "BBB", "CCC"):
+            clear_alert_latch(f"untracked:{t}")
+
+
 class TestUntrackedPosition:
-    """The mirror direction: broker holds a ticker with no matching internal OPEN row."""
+    """The mirror direction: broker holds a ticker with no matching internal OPEN row.
+
+    Dedup is a DB-persisted latch (backend.db.alert_latches), not a module-level
+    set — 2026-08-07 confirmed a plain in-memory set gets wiped by any process
+    restart (uvicorn --reload, a deploy), re-sending an already-latched alert
+    with no relation to whether the mismatch actually recurred. These tests
+    exercise the persisted table directly so a restart can't silently
+    reintroduce that failure mode.
+    """
 
     def test_broker_position_with_no_open_row_alerts(self):
-        from backend.live_trades_tracker import _check_untracked_positions, _untracked_alerted
-        _untracked_alerted.clear()
+        from backend.db import clear_alert_latch
+        from backend.live_trades_tracker import _check_untracked_positions
+        clear_alert_latch("untracked:XOM")
 
         with patch("backend.alerts.alert_position_untracked") as alert_mock:
             _check_untracked_positions({"XOM"}, open_trades=[])
             alert_mock.assert_called_once_with("XOM")
 
-        # Second call with the same mismatch does not re-alert (latch).
+        # Second call with the same mismatch does not re-alert (latch persists
+        # across calls — and would persist across a process restart too,
+        # since it's read from the DB each time, not a process-lifetime set).
         with patch("backend.alerts.alert_position_untracked") as alert_mock2:
             _check_untracked_positions({"XOM"}, open_trades=[])
             alert_mock2.assert_not_called()
@@ -300,32 +340,125 @@ class TestUntrackedPosition:
             _check_untracked_positions({"XOM"}, open_trades=[])
             alert_mock3.assert_called_once_with("XOM")
 
-        _untracked_alerted.clear()
+        clear_alert_latch("untracked:XOM")
+
+    def test_latch_survives_simulated_process_restart(self):
+        """
+        The exact defect class the in-memory set had: a restart between two
+        checks of the same still-standing mismatch must NOT re-alert. Simulated
+        by reloading live_trades_tracker (fresh module globals) between calls —
+        the old _untracked_alerted set would have reset to empty here and
+        re-alerted; the DB latch must not.
+        """
+        import importlib
+        from backend.db import clear_alert_latch
+        import backend.live_trades_tracker as ltt
+
+        clear_alert_latch("untracked:BA")
+        with patch("backend.alerts.alert_position_untracked") as alert_mock:
+            ltt._check_untracked_positions({"BA"}, open_trades=[])
+            alert_mock.assert_called_once_with("BA")
+
+        importlib.reload(ltt)  # fresh module-level state, as a restart would produce
+
+        with patch("backend.alerts.alert_position_untracked") as alert_mock2:
+            ltt._check_untracked_positions({"BA"}, open_trades=[])
+            alert_mock2.assert_not_called()
+
+        clear_alert_latch("untracked:BA")
 
 
 class TestGateRefusal:
     """gate_runner_live.run() must refuse all new entries while UNRECONCILED rows exist."""
 
     def test_gate_halts_on_unreconciled(self):
+        from backend.db import clear_alert_latch
+        clear_alert_latch("unreconciled:2026-08-07")
+
         with ExitStack() as stack:
             stack.enter_context(patch("backend.gate.gate_runner_live.LIVE_ENABLED", True))
             stack.enter_context(patch(
                 "backend.gate.gate_runner_live.get_unreconciled_live_trades",
                 return_value=[{"ticker": "HON", "id": 1}],
             ))
+            stack.enter_context(patch("backend.gate.gate_runner_live._ny_today", return_value="2026-08-07"))
             alert_mock = stack.enter_context(patch("backend.alerts.alert_gate_blocked"))
             # If the halt didn't short-circuit, run() would reach broker.get_account()
             # next and this mock absence would raise — proving the halt fired first.
             account_mock = stack.enter_context(patch("backend.brokers.alpaca.get_account"))
 
             from backend.gate import gate_runner_live
-            gate_runner_live._unreconciled_alerted.clear()
             result = gate_runner_live.run()
 
         assert result == []
         alert_mock.assert_called_once()
         account_mock.assert_not_called()  # halted before touching the broker at all
-        gate_runner_live._unreconciled_alerted.clear()
+        clear_alert_latch("unreconciled:2026-08-07")
+
+    def test_unreconciled_alert_is_day_capped_not_permanently_suppressed(self):
+        """
+        The dedup key must include the NY trading date. Without it, a
+        DB-persisted latch (unlike the old in-memory set, which reset on every
+        restart) would suppress this alert forever after the first firing —
+        the next day's genuine halt would alert zero times instead of once.
+        """
+        from backend.db import clear_alert_latch
+        from backend.gate import gate_runner_live
+        clear_alert_latch("unreconciled:2026-08-07")
+        clear_alert_latch("unreconciled:2026-08-08")
+
+        def run_on(day: str):
+            with ExitStack() as stack:
+                stack.enter_context(patch("backend.gate.gate_runner_live.LIVE_ENABLED", True))
+                stack.enter_context(patch(
+                    "backend.gate.gate_runner_live.get_unreconciled_live_trades",
+                    return_value=[{"ticker": "HON", "id": 1}],
+                ))
+                stack.enter_context(patch("backend.gate.gate_runner_live._ny_today", return_value=day))
+                alert_mock = stack.enter_context(patch("backend.alerts.alert_gate_blocked"))
+                stack.enter_context(patch("backend.brokers.alpaca.get_account"))
+                gate_runner_live.run()
+                return alert_mock.call_count
+
+        assert run_on("2026-08-07") == 1  # first firing on day 1: alerts
+        assert run_on("2026-08-07") == 0  # same day, still halted: latched, no re-alert
+        assert run_on("2026-08-08") == 1  # new trading day, still halted: alerts again
+
+        clear_alert_latch("unreconciled:2026-08-07")
+        clear_alert_latch("unreconciled:2026-08-08")
+
+    def test_loss_cap_alert_is_day_capped_not_permanently_suppressed(self):
+        from backend.db import clear_alert_latch
+        from backend.gate import gate_runner_live
+        clear_alert_latch("loss_cap:2026-08-07")
+        clear_alert_latch("loss_cap:2026-08-08")
+
+        def run_on(day: str):
+            with ExitStack() as stack:
+                stack.enter_context(patch("backend.gate.gate_runner_live.LIVE_ENABLED", True))
+                stack.enter_context(patch(
+                    "backend.gate.gate_runner_live.get_unreconciled_live_trades", return_value=[],
+                ))
+                stack.enter_context(patch(
+                    "backend.brokers.alpaca.get_account",
+                    return_value={"trading_blocked": False, "account_blocked": False, "day_pnl": -500.0},
+                ))
+                stack.enter_context(patch(
+                    "backend.live_config.get_live_config",
+                    return_value={"daily_loss_cap": 100.0},
+                ))
+                stack.enter_context(patch("backend.db.get_ticker_thresholds", return_value={}))
+                stack.enter_context(patch("backend.gate.gate_runner_live._ny_today", return_value=day))
+                alert_mock = stack.enter_context(patch("backend.alerts.alert_daily_loss_cap"))
+                gate_runner_live.run()
+                return alert_mock.call_count
+
+        assert run_on("2026-08-07") == 1
+        assert run_on("2026-08-07") == 0
+        assert run_on("2026-08-08") == 1
+
+        clear_alert_latch("loss_cap:2026-08-07")
+        clear_alert_latch("loss_cap:2026-08-08")
 
 
 class TestAuditCheck66:

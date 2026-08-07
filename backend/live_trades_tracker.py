@@ -219,9 +219,6 @@ def _log_vol_slope(trade: dict) -> None:
     )
 
 
-_untracked_alerted: set[str] = set()  # tickers currently alerted as untracked
-
-
 def _check_untracked_positions(alpaca_positions: set[str], open_trades: list[dict]) -> None:
     """
     Mirror of the reconciliation fallback: a ticker held at the broker with no
@@ -229,17 +226,22 @@ def _check_untracked_positions(alpaca_positions: set[str], open_trades: list[dic
     (the live theory for the 2026-08-06 HON incident), a manual dashboard
     trade, or partial-fill drift. One alert per ticker while the mismatch
     persists — re-alerts if it clears and recurs.
+
+    Dedup is a DB-backed latch (backend.db.set_alert_latch), not a module-level
+    set: 2026-08-07 confirmed a plain in-memory set gets cleared by any process
+    restart (a deploy, uvicorn --reload), which re-sent an already-latched
+    alert on every restart during a live incident rather than staying silent.
     """
     from backend.alerts import alert_position_untracked
+    from backend.db import clear_alert_latches_except, set_alert_latch
     open_tickers = {t["ticker"] for t in open_trades}
     untracked = alpaca_positions - open_tickers
     for ticker in untracked:
-        if ticker not in _untracked_alerted:
-            _untracked_alerted.add(ticker)
+        if set_alert_latch(f"untracked:{ticker}"):
             logger.error(f"Live exit check [{ticker}]: held at broker with no matching OPEN row")
             alert_position_untracked(ticker)
     # Clear the latch for tickers no longer mismatched, so a future recurrence re-alerts.
-    _untracked_alerted.intersection_update(untracked)
+    clear_alert_latches_except("untracked:", {f"untracked:{t}" for t in untracked})
 
 
 def check_live_exits() -> list[dict]:

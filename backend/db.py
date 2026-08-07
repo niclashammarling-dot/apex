@@ -1,5 +1,6 @@
 import re
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 from loguru import logger
@@ -242,6 +243,11 @@ def init_db() -> None:
             );
 
             CREATE INDEX IF NOT EXISTS idx_pcr_ticker_date ON lock4_pcr_history(ticker, date DESC);
+
+            CREATE TABLE IF NOT EXISTS alert_latches (
+                key    TEXT PRIMARY KEY,
+                set_at TEXT NOT NULL
+            );
 
             CREATE TABLE IF NOT EXISTS l5_token_usage (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1424,6 +1430,55 @@ def close_live_trade(trade_id: int, exit_price: float, pnl: float,
             WHERE id = ?
         """, (exit_price, pnl, outcome, exit_reason, exited_at, trade_id))
         conn.commit()
+    finally:
+        conn.close()
+
+
+def set_alert_latch(key: str) -> bool:
+    """
+    Persisted one-shot alert dedup — survives process restarts, unlike a
+    module-level set() (2026-08-07: uvicorn --reload cleared _untracked_alerted
+    mid-incident and re-sent an already-latched alert; a plain in-memory set
+    can't tell a real recurrence from a redeploy). Returns True if the latch
+    was newly set (caller should alert), False if it was already set.
+    """
+    conn = get_db()
+    try:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO alert_latches (key, set_at) VALUES (?, ?)",
+            (key, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def clear_alert_latch(key: str) -> None:
+    """Release a latch set by set_alert_latch() so a future recurrence re-alerts."""
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM alert_latches WHERE key = ?", (key,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def clear_alert_latches_except(prefix: str, keep_keys: set[str]) -> None:
+    """
+    Release all latches under `prefix` (e.g. "untracked:") not in keep_keys —
+    the persisted equivalent of set.intersection_update(), for latch families
+    keyed per-ticker/per-item rather than a single fixed key.
+    """
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT key FROM alert_latches WHERE key LIKE ?", (f"{prefix}%",)
+        ).fetchall()
+        stale = [r["key"] for r in rows if r["key"] not in keep_keys]
+        if stale:
+            conn.executemany("DELETE FROM alert_latches WHERE key = ?", [(k,) for k in stale])
+            conn.commit()
     finally:
         conn.close()
 

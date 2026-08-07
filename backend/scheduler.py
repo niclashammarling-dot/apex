@@ -231,8 +231,6 @@ def run_eod_regime() -> None:
       2. Download raw OHLCV for all tickers + ETFs (60d lookback)
       3. RegimeBayes.update() — compute posteriors, allocation, persist to DB
     """
-    from datetime import date
-
     import yfinance as yf
 
     from backend.db import get_latest_sector_scores
@@ -279,7 +277,10 @@ def run_eod_regime() -> None:
     try:
         sector_snapshots = get_latest_sector_scores()
         rb     = _get_regime_bayes()
-        result = rb.update(date.today(), raw_data, sector_snapshots, ipo_shares)
+        # Anchor to the NY trading date, not the server's OS-local date — this job
+        # can run close to Stockholm's midnight rollover (6h ahead of ET), which would
+        # otherwise mislabel today's ET trading day as tomorrow.
+        result = rb.update(datetime.now(NY).date(), raw_data, sector_snapshots, ipo_shares)
         logger.info(
             f"Regime update complete — leader={result.leader} "
             f"qualifiers={result.qualifiers}"
@@ -394,7 +395,13 @@ def _check_missed_eod_regime() -> None:
         return
 
     try:
-        last_date = datetime.fromisoformat(last_updated_str).date() if last_updated_str else None
+        # updated_at is stored in UTC — convert to NY before truncating to a date,
+        # otherwise a write in the UTC-evening/ET-afternoon window silently rolls
+        # to the wrong calendar day and the catch-up check misjudges what ran.
+        last_date = (
+            datetime.fromisoformat(last_updated_str).astimezone(NY).date()
+            if last_updated_str else None
+        )
     except ValueError as e:
         logger.warning(f"EOD regime catch-up: malformed timestamp in DB ({last_updated_str!r}) — {e}")
         return
