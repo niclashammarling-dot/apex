@@ -12,7 +12,8 @@
       "ORCL",
       "ADBE",
       "NOW",
-      "QCOM"
+      "QCOM",
+      "ANET"
     ]
   },
   "Healthcare": {
@@ -44,7 +45,10 @@
       "BA",
       "GE",
       "HON",
-      "DE"
+      "DE",
+      "ETN",
+      "PWR",
+      "TT"
     ]
   },
   "Financials": {
@@ -63,7 +67,8 @@
       "TSLA",
       "NKE",
       "MCD",
-      "HD"
+      "HD",
+      "BKNG"
     ]
   },
   "ConsumerStaples": {
@@ -141,7 +146,9 @@
       "RTX",
       "NOC",
       "GD",
-      "HII"
+      "HII",
+      "AXON",
+      "HWM"
     ]
   },
   "Homebuilders": {

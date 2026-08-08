@@ -58,7 +58,7 @@ def check27():
         "AAPL": "Technology", "MSFT": "Technology", "NVDA": "Technology",
         "AMD": "Technology",  "V": "Technology",    "AVGO": "Technology",
         "CRM": "Technology",  "ORCL": "Technology", "ADBE": "Technology",
-        "NOW": "Technology",  "QCOM": "Technology",
+        "NOW": "Technology",  "QCOM": "Technology", "ANET": "Technology",  # added 2026-08-08
         # Healthcare (XLV)
         "JNJ": "Healthcare", "PFE": "Healthcare", "UNH": "Healthcare",
         "MRNA": "Healthcare", "LLY": "Healthcare",
@@ -66,15 +66,18 @@ def check27():
         # Energy (XLE)
         "EOG": "Energy", "CVX": "Energy", "HAL": "Energy",
         "COP": "Energy", "OXY": "Energy",
-        # Industrials (XLI)
+        # Industrials (XLI) — ETN/PWR/TT added 2026-08-08
         "CAT": "Industrials", "BA": "Industrials", "GE": "Industrials",
         "HON": "Industrials", "DE": "Industrials",
+        "ETN": "Industrials", "PWR": "Industrials", "TT": "Industrials",
         # Financials (XLF)
         "JPM": "Financials", "BAC": "Financials", "GS": "Financials",
         "BLK": "Financials", "MS": "Financials",
-        # ConsumerDisc (XLY)
-        "AMZN": "ConsumerDisc", "TSLA": "ConsumerDisc", "NKE": "ConsumerDisc",
-        "MCD": "ConsumerDisc", "HD": "ConsumerDisc",
+        # ConsumerDisc (XLY) — BKNG added 2026-08-08; AMZN removed 2026-05-22
+        # (do-not-resuggest: PF 0.118/8 trades, signal-architecture incompatibility —
+        # see [[2026-05-22-apex-consumerdic-amzn-removal-floor-correction]])
+        "TSLA": "ConsumerDisc", "NKE": "ConsumerDisc",
+        "MCD": "ConsumerDisc", "HD": "ConsumerDisc", "BKNG": "ConsumerDisc",
         # ConsumerStaples (XLP)
         "PG": "ConsumerStaples", "KO": "ConsumerStaples", "PEP": "ConsumerStaples",
         "WMT": "ConsumerStaples", "COST": "ConsumerStaples",
@@ -96,9 +99,13 @@ def check27():
         "KLAC": "Semiconductors", "MU": "Semiconductors",
         "MRVL": "Semiconductors", "ON": "Semiconductors", "TER": "Semiconductors",
         "ADI": "Semiconductors",
-        # Defense (ITA) — added 2026-05-17
+        # Defense (ITA) — added 2026-05-17; AXON/HWM added 2026-08-08
+        # (both GICS industry = Aerospace & Defense, confirmed via yfinance;
+        # AXON was misassigned to Industrials in the original candidate list —
+        # caught before wiring, same class as the 2026-05-06 V/MA incident)
         "LMT": "Defense", "RTX": "Defense", "NOC": "Defense",
         "GD": "Defense",  "HII": "Defense",
+        "AXON": "Defense", "HWM": "Defense",
         # Homebuilders (ITB) — added 2026-05-18; expanded 2026-06-14; GICS: Consumer Discretionary sub-industry
         "DHI": "Homebuilders", "LEN": "Homebuilders", "PHM": "Homebuilders",
         "TOL": "Homebuilders", "NVR": "Homebuilders",
@@ -493,6 +500,97 @@ def check63():
              f"Investigate ISRG/TMO signal quality in sector_snapshots before next gate cycle.")
 
 
+# ── CHECKs 67/68/69 — 2026-08-08 sector-addition dilution monitors ───────────
+# Same instrument as CHECK 63, generalized. Each of the three sectors touched
+# by the 2026-08-08 expansion got at least one MIXED-shape candidate (weak 20d/
+# strong 90d excess vs. its own sector ETF) — the confirmation-window condition
+# on those tickers is this monitor staying clear, mirroring the SYK/CHECK 63
+# gating precedent. Fixed baselines pinned immediately before addition.
+
+def _dilution_monitor(check_num: int, sector: str, added: str, baseline: float,
+                       baseline_date: str, warn_floor: float, crit_floor: float,
+                       confirm_note: str) -> None:
+    db = REPO / "data/apex.db"
+    if not db.exists():
+        return
+    try:
+        conn = sqlite3.connect(db)
+        row = conn.execute("""
+            SELECT avg_score, timestamp
+            FROM sector_snapshots
+            WHERE sector = ?
+            ORDER BY timestamp DESC
+            LIMIT 1
+        """, (sector,)).fetchone()
+        conn.close()
+    except Exception as e:
+        flag(check_num, f"{sector} composite dilution monitor", "WARNING",
+             "data/apex.db:sector_snapshots", f"could not query sector_snapshots: {e}")
+        return
+
+    if row is None:
+        return
+    avg_score, ts = row[0], row[1]
+
+    if avg_score < crit_floor:
+        flag(check_num, f"{sector} composite dilution monitor", "CRITICAL",
+             "data/apex.db:sector_snapshots",
+             f"{sector} avg_score={avg_score:.4f} (at {ts}) is below critical floor {crit_floor}; "
+             f"baseline was {baseline} on {baseline_date} (pre-{added}). "
+             f"At neutral posterior (~0.55), adjusted_score ≈ {avg_score * 0.55:.3f}, "
+             f"below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove {added} via "
+             f"ticker_config.remove_ticker() and diagnose signal history before re-adding.")
+    elif avg_score < warn_floor:
+        flag(check_num, f"{sector} composite dilution monitor", "WARNING",
+             "data/apex.db:sector_snapshots",
+             f"{sector} avg_score={avg_score:.4f} (at {ts}) dropped below {warn_floor}; "
+             f"baseline was {baseline} on {baseline_date} (pre-{added}). "
+             f"Investigate {added} signal quality in sector_snapshots before next gate cycle. "
+             f"{confirm_note}")
+
+
+def check67():
+    """
+    Industrials composite dilution monitor — ETN/PWR/TT added 2026-08-08 (5→8 tickers).
+
+    Baseline: 0.6009, pinned 2026-08-08 immediately before addition. WARNING < 0.53,
+    CRITICAL < 0.48 (baseline-relative gap matches CHECK 63's ~0.07/~0.12 spacing).
+    TT is the confirmation-flagged ticker in this sector (weak-20d/strong-90d shape
+    vs XLI — pullback-in-trend read, not yet confirmed). Retires with CHECK 68/69
+    under the shared 30-consecutive-trading-day-above-WARN_FLOOR+0.02 condition.
+    """
+    _dilution_monitor(67, "Industrials", "ETN/PWR/TT", 0.6009, "2026-08-08",
+                       warn_floor=0.53, crit_floor=0.48,
+                       confirm_note="TT's confirmation-window flag depends on this staying clear.")
+
+
+def check68():
+    """
+    Defense composite dilution monitor — AXON/HWM added 2026-08-08 (5→7 tickers).
+
+    Baseline: 0.7169, pinned 2026-08-08 immediately before addition. WARNING < 0.65,
+    CRITICAL < 0.60. Both AXON and HWM are confirmation-flagged (weak-20d/strong-90d
+    shape vs ITA). Note AXON was corrected from Industrials to Defense at addition
+    time — GICS industry is Aerospace & Defense per yfinance, same as HWM/LMT/RTX/NOC/GD/HII;
+    the original candidate list had it misclassified.
+    """
+    _dilution_monitor(68, "Defense", "AXON/HWM", 0.7169, "2026-08-08",
+                       warn_floor=0.65, crit_floor=0.60,
+                       confirm_note="AXON's and HWM's confirmation-window flags depend on this staying clear.")
+
+
+def check69():
+    """
+    Technology composite dilution monitor — ANET added 2026-08-08 (11→12 tickers).
+
+    Baseline: 0.6257, pinned 2026-08-08 immediately before addition. WARNING < 0.56,
+    CRITICAL < 0.51. ANET is confirmation-flagged (weak-20d/strong-90d shape vs XLK).
+    """
+    _dilution_monitor(69, "Technology", "ANET", 0.6257, "2026-08-08",
+                       warn_floor=0.56, crit_floor=0.51,
+                       confirm_note="ANET's confirmation-window flag depends on this staying clear.")
+
+
 # ── CHECK 65 — Posterior saturation monitor ───────────────────────────────────
 
 def check65():
@@ -585,3 +683,6 @@ def run() -> None:
     check57()
     check63()
     check65()
+    check67()
+    check68()
+    check69()
