@@ -1535,6 +1535,12 @@ def resolve_unreconciled(trade_id: int, resolution: str, evidence: str,
       confirmed the wipe (or it's being written off after investigation).
       Books the full position value as lost. exit_price is not used.
 
+    Both paths assume the trade actually ended. If the position turns out to
+    still be held at the broker — a snapshot omission that self-corrected
+    rather than a real exit or a real loss — use reopen_unreconciled()
+    instead; forcing that case through either path here fabricates an exit
+    that never happened (see the 2026-08-06/07 HON incident, CHECK 66).
+
     `evidence` must be non-empty and is appended verbatim to exit_reason — this
     is the human sign-off trail; there is no other way for a trade to leave
     the UNRECONCILED state, and CHECK 66 will keep flagging until one of these
@@ -1574,6 +1580,51 @@ def resolve_unreconciled(trade_id: int, resolution: str, evidence: str,
             SET outcome = ?, exit_price = ?, pnl = ?, exit_reason = ?, exited_at = ?
             WHERE id = ?
         """, (outcome, exit_price, pnl, note, exited_at, trade_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def reopen_unreconciled(trade_id: int, evidence: str) -> None:
+    """
+    Release an UNRECONCILED trade back to normal open-position management
+    because the position was confirmed still held at the broker, matching
+    what it should be — the freeze was a reporting-layer false alarm, not a
+    real exit or a real loss. Unlike resolve_unreconciled(), this does not
+    fabricate an exit_price/pnl: it clears them (they were never real to
+    begin with — see the fabricated -$4.04 fallback in the HON incident)
+    and restores outcome='OPEN' so get_open_live_trades()/live_trades_tracker
+    resume normal TP/SL/peak-price management on it, and CHECK 66 stops
+    flagging it.
+
+    `evidence` must be non-empty — same sign-off discipline as
+    resolve_unreconciled(): what confirmed the position is still genuinely
+    held (e.g. "Alpaca account/positions snapshot checked <date>, HON shown
+    at qty/entry matching live_trades row, portfolio-history never showed a
+    gap") and by whom.
+    """
+    if not evidence:
+        raise ValueError("reopen_unreconciled requires non-empty evidence")
+
+    from datetime import datetime, timezone
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT outcome FROM live_trades WHERE id = ?",
+                            (trade_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"no live_trades row with id={trade_id}")
+        if row["outcome"] != "UNRECONCILED":
+            raise ValueError(
+                f"live_trades id={trade_id} outcome is {row['outcome']!r}, not UNRECONCILED"
+            )
+
+        note = f"[REOPENED — confirmed still held] {evidence}"
+        conn.execute("""
+            UPDATE live_trades
+            SET outcome = 'OPEN', exit_price = NULL, pnl = NULL,
+                exit_reason = ?, exited_at = NULL
+            WHERE id = ?
+        """, (note, trade_id))
         conn.commit()
     finally:
         conn.close()

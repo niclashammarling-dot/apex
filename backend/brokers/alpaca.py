@@ -23,6 +23,7 @@ from alpaca.trading.enums import OrderClass, OrderSide, QueryOrderStatus, TimeIn
 from alpaca.trading.requests import (
     GetOrdersRequest,
     GetPortfolioHistoryRequest,
+    LimitOrderRequest,
     MarketOrderRequest,
     ReplaceOrderRequest,
     StopLossRequest,
@@ -169,6 +170,31 @@ def place_bracket_order(
     order = _client().submit_order(req)
     logger.info(
         f"Alpaca bracket order placed [{ticker}]: qty={qty} @ ~${current_price:.2f} "
+        f"TP=${tp_price:.2f} SL=${sl_price:.2f} order_id={order.id}"
+    )
+    return str(order.id)
+
+
+def place_oco_exit(ticker: str, qty: float, tp_price: float, sl_price: float) -> str:
+    """
+    Place a standalone OCO exit pair (TP limit + SL stop, linked — either leg
+    filling cancels the other) on a position that is already held, with no
+    entry leg. Use this to (re)arm broker-side protection on a position whose
+    original bracket legs are gone (cancelled/expired) but the shares are
+    still held — e.g. reopen_unreconciled(). Returns the Alpaca order ID.
+    """
+    req = LimitOrderRequest(
+        symbol=ticker,
+        qty=qty,
+        side=OrderSide.SELL,
+        time_in_force=TimeInForce.GTC,
+        order_class=OrderClass.OCO,
+        take_profit=TakeProfitRequest(limit_price=round(tp_price, 2)),
+        stop_loss=StopLossRequest(stop_price=round(sl_price, 2)),
+    )
+    order = _client().submit_order(req)
+    logger.info(
+        f"Alpaca OCO exit placed [{ticker}]: qty={qty} "
         f"TP=${tp_price:.2f} SL=${sl_price:.2f} order_id={order.id}"
     )
     return str(order.id)

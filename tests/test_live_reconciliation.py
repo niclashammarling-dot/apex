@@ -12,10 +12,12 @@ import pytest
 
 from backend.db import (
     close_live_trade,
+    get_open_live_trades,
     get_unreconciled_live_trades,
     init_db,
     insert_live_trade,
     mark_live_trade_unreconciled,
+    reopen_unreconciled,
     resolve_unreconciled,
 )
 
@@ -617,3 +619,41 @@ class TestResolveUnreconciled:
         mark_live_trade_unreconciled(trade_id, "test: simulated wipe")
         with pytest.raises(ValueError):
             resolve_unreconciled(trade_id, "WRITTEN_OFF", "")
+
+
+class TestReopenUnreconciled:
+    """
+    reopen_unreconciled(): a third resolution path for the case neither
+    CONFIRMED_EXIT nor WRITTEN_OFF describes — the position was confirmed
+    still held at the broker, so the UNRECONCILED freeze was a reporting-layer
+    false alarm, not a real exit or a real loss (2026-08-06/07 HON incident).
+    """
+
+    def test_reopen_clears_halt_and_restores_open_with_no_fabricated_exit(self):
+        trade_id = _open_trade(ticker="TESTR", order_id="ord-reopen-1")
+        mark_live_trade_unreconciled(trade_id, "test: simulated snapshot omission")
+        assert any(t["id"] == trade_id for t in get_unreconciled_live_trades())
+
+        reopen_unreconciled(
+            trade_id,
+            "portfolio-history replay: position held continuously, no dip",
+        )
+
+        assert not any(t["id"] == trade_id for t in get_unreconciled_live_trades())
+        reopened = next(t for t in get_open_live_trades() if t["id"] == trade_id)
+        assert reopened["outcome"] == "OPEN"
+        assert reopened["exit_price"] is None
+        assert reopened["pnl"] is None
+        assert reopened["exited_at"] is None
+
+    def test_reopen_requires_evidence(self):
+        trade_id = _open_trade(ticker="TESTQ", order_id="ord-reopen-2")
+        mark_live_trade_unreconciled(trade_id, "test: simulated snapshot omission")
+        with pytest.raises(ValueError):
+            reopen_unreconciled(trade_id, "")
+
+    def test_reopen_refuses_a_row_that_is_not_unreconciled(self):
+        trade_id = _open_trade(ticker="TESTP", order_id="ord-reopen-3")
+        # Never frozen — still plain OPEN.
+        with pytest.raises(ValueError):
+            reopen_unreconciled(trade_id, "should not apply to an already-open row")
