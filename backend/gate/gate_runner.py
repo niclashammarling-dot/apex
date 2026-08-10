@@ -243,6 +243,7 @@ def run() -> list[dict]:
                                                  overflow=True)
                     result["outcome"] = "TRADE_EXECUTED" if trade else "TRADE_REJECTED"
                     if result["outcome"] == "TRADE_EXECUTED":
+                        result["overflow_slot"] = True
                         open_count += 1
                         logger.info(
                             f"Gate runner [{ticker}]: overflow slot {overflow_level} executed — "
@@ -276,6 +277,7 @@ def run() -> list[dict]:
             "ticker_signal":          result.get("ticker_signal"),
             "earnings_near":          result.get("earnings_near"),
             "days_to_earnings":       result.get("days_to_earnings"),
+            "overflow_slot":          result.get("overflow_slot", False),
         })
         _log_summary(ticker, result)
 

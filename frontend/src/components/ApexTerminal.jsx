@@ -460,10 +460,21 @@ const GATE_OUTCOME = {
   FILTERED_L2:             { label: "L3 FAIL",   cls: "t-gate-filt" },
   FILTERED_LEADING:        { label: "L4 FAIL",   cls: "t-gate-filt" },
   FILTERED_L3:             { label: "L5 FAIL",   cls: "t-gate-filt" },
-  FILTERED_OVERFLOW_QUANT: { label: "OVERFLOW",  cls: "t-gate-skip" },
+  // Cleared L1-L5 but rejected by the escalating overflow quant threshold — never traded.
+  FILTERED_OVERFLOW_QUANT: { label: "OVERFLOW PASS", cls: "t-gate-filt" },
   SKIPPED_OPEN:            { label: "HELD",      cls: "t-gate-skip" },
   SKIPPED_COOLOFF:         { label: "COOLOFF",   cls: "t-gate-skip" },
 };
+
+// Executed via the overflow slot path (open_count already at max_positions) —
+// same green as a normal EXECUTED, but distinct label so it isn't read as
+// FILTERED_OVERFLOW_QUANT (which passed gates but never traded).
+function gateOutcomeMeta(r) {
+  if (r.outcome === "TRADE_EXECUTED" && r.overflow_slot) {
+    return { label: "OVERFLOW", cls: "t-gate-x" };
+  }
+  return GATE_OUTCOME[r.outcome] ?? { label: r.outcome, cls: "t-gate-filt" };
+}
 
 const GATE_LEADING_LABELS = {
   relative_strength:   "RS",
@@ -504,7 +515,8 @@ function GateFeed({ D, mode }) {
 
   const grouped = rows.reduce((acc, r) => {
     const prev = acc[acc.length - 1];
-    if (prev && prev.sym === r.sym && prev.outcome === r.outcome) {
+    if (prev && prev.sym === r.sym && prev.outcome === r.outcome
+        && !!prev.overflow_slot === !!r.overflow_slot) {
       prev._count = (prev._count || 1) + 1;
       prev._lastTs = r.ts;
     } else {
@@ -544,7 +556,7 @@ function GateFeed({ D, mode }) {
             </thead>
             <tbody>
               {grouped.map((r, i) => {
-                const outcome   = GATE_OUTCOME[r.outcome] ?? { label: r.outcome, cls: "t-gate-filt" };
+                const outcome   = gateOutcomeMeta(r);
                 const isSkipped = r.outcome === "SKIPPED_OPEN" || r.outcome === "SKIPPED_COOLOFF";
                 const locks     = getGateLockStates(r.outcome);
                 const hasDetail = !isSkipped && !!(r.lock3_reasoning || r.lock_leading_checks || r.l2_summary || r.macro_reason);

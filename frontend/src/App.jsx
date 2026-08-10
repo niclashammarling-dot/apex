@@ -394,6 +394,7 @@ function adaptGateRows(rows) {
     sector:              SECTOR_META[r.sector]?.code ?? r.sector ?? "",
     score:               r.signal_score ?? 0,
     outcome:             r.gate_decision ?? "",
+    overflow_slot:       !!r.overflow_slot,
     l1_threshold:        r.l1_threshold ?? null,
     macro_reason:        r.macro_reason ?? null,
     l2_summary:          r.l2_summary ?? null,

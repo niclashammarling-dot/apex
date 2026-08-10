@@ -313,6 +313,7 @@ def init_db() -> None:
         _add_column_if_missing(conn, "live_gate_history", "days_to_earnings",  "INTEGER")
         # overflow_slot: 1 when the trade executed into a slot beyond max_positions
         _add_column_if_missing(conn, "live_gate_history", "overflow_slot",     "INTEGER DEFAULT 0")
+        _add_column_if_missing(conn, "demo_gate_history", "overflow_slot",     "INTEGER DEFAULT 0")
 
         # Migrate old gate_decision values to canonical FILTERED_* form
         conn.executescript("""
@@ -938,13 +939,13 @@ def insert_demo_gate_result(row: dict) -> None:
                  lock1_pass, lock2_pass, lock_leading_pass, lock_leading_checks,
                  lock3_pass, gate_decision, lock3_reasoning, l2_summary,
                  lock3_sentiment_score, lock3_conviction, macro_reason, ticker_signal,
-                 earnings_near, days_to_earnings)
+                 earnings_near, days_to_earnings, overflow_slot)
             VALUES
                 (:timestamp, :ticker, :sector, :signal_score,
                  :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
                  :lock3_pass, :gate_decision, :lock3_reasoning, :l2_summary,
                  :lock3_sentiment_score, :lock3_conviction, :macro_reason, :ticker_signal,
-                 :earnings_near, :days_to_earnings)
+                 :earnings_near, :days_to_earnings, :overflow_slot)
         """
         _assert_insert_fields("insert_demo_gate_result", _SQL, row)
         conn.execute(_SQL, {**row,
@@ -952,7 +953,8 @@ def insert_demo_gate_result(row: dict) -> None:
               "lock3_conviction":      row.get("lock3_conviction"),
               "ticker_signal":         row.get("ticker_signal"),
               "earnings_near":         row.get("earnings_near"),
-              "days_to_earnings":      row.get("days_to_earnings")})
+              "days_to_earnings":      row.get("days_to_earnings"),
+              "overflow_slot":         1 if row.get("overflow_slot") else 0})
         conn.commit()
     finally:
         conn.close()
@@ -969,7 +971,7 @@ def get_demo_gate_history(since: str | None = None, limit: int | None = 500) -> 
                    gate_decision, lock1_pass, lock2_pass, lock_leading_pass,
                    lock_leading_checks, lock3_pass, lock3_reasoning,
                    l2_summary, lock3_sentiment_score, lock3_conviction, macro_reason,
-                   ticker_signal, earnings_near, days_to_earnings
+                   ticker_signal, earnings_near, days_to_earnings, overflow_slot
             FROM demo_gate_history
             {where}
             ORDER BY timestamp DESC
