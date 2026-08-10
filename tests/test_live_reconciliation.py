@@ -146,6 +146,45 @@ class TestOrderStatusExtraction:
         assert ords[0]["status"] == "filled"
         assert ords[0]["legs"][0]["status"] == "canceled"
 
+    def test_place_oco_exit_submits_linked_tp_sl_no_entry_leg(self):
+        """
+        place_oco_exit() (added alongside reopen_unreconciled(), 2026-08-10 HON
+        incident) places a standalone TP/SL pair on an already-held position —
+        no entry leg, order_class=OCO. First call went straight to a live
+        broker with no test coverage; this pins the request shape so a second
+        use doesn't repeat that.
+        """
+        import uuid as uuid_mod
+        from alpaca.trading.enums import OrderClass
+
+        fake_id = uuid_mod.uuid4()
+
+        with patch("backend.brokers.alpaca._client") as client_mock:
+            submitted = {}
+
+            def _fake_submit_order(req):
+                submitted["req"] = req
+                order = MagicMock()
+                order.id = fake_id
+                return order
+
+            client_mock.return_value.submit_order.side_effect = _fake_submit_order
+
+            from backend.brokers.alpaca import place_oco_exit
+            order_id = place_oco_exit("HON", 4, 264.39, 234.45)
+
+        assert order_id == str(fake_id)
+        req = submitted["req"]
+        assert req.symbol == "HON"
+        assert req.qty == 4
+        assert req.side.value == "sell"
+        assert req.order_class == OrderClass.OCO
+        assert req.take_profit.limit_price == 264.39
+        assert req.stop_loss.stop_price == 234.45
+        # No entry leg — this must not be a bracket order (which would try to
+        # buy more shares on top of the position already held).
+        assert req.order_class != OrderClass.BRACKET
+
     def test_cancel_orphan_brackets_actually_matches_now(self):
         """
         Direct regression for the silenced mechanism: with real Alpaca-shaped
@@ -253,6 +292,55 @@ class TestProfitLockRatchetLegSelection:
         broker.replace_stop_leg.assert_called_once()
         called_leg_id = broker.replace_stop_leg.call_args[0][0]
         assert called_leg_id == "leg-live"
+
+    def test_oco_exit_stop_leg_selected_after_order_id_repoint(self):
+        """
+        2026-08-10 HON reopen: place_oco_exit() replaces canceled bracket legs
+        with a standalone OCO pair, and update_live_trade_order_id() repoints
+        alpaca_order_id at it so this gate can find the leg at all — before
+        the repoint, get_order_by_id(parent_id) returns the old canceled
+        bracket order and finds nothing (warns, silently never ratchets).
+
+        Fixture below is the verbatim get_order_by_id() response captured
+        live for HON's actual OCO order (id ec9b01a9-...) on 2026-08-10, not
+        a hand-typed guess at the shape — pins the ratchet against what
+        Alpaca actually returns (SL leg nested under `legs`, status "held",
+        not "new") rather than against our belief about it.
+        """
+        from backend.live_trades_tracker import _maybe_ratchet_bracket_sl
+
+        order = {
+            "id": "ec9b01a9-dc04-463c-9473-2c384b881b03",
+            "ticker": "HON",
+            "status": "new",
+            "filled_avg_price": None,
+            "filled_qty": 0.0,
+            "legs": [
+                {
+                    "id": "d9c160d8-b2af-4a77-96d5-d9003b17ebe8",
+                    "side": "sell",
+                    "order_type": "stop",
+                    "status": "held",
+                    "limit_price": None,
+                    "stop_price": 234.45,
+                    "filled_avg_price": None,
+                    "filled_at": None,
+                },
+            ],
+        }
+        broker = MagicMock()
+        broker.get_order_by_id.return_value = order
+        broker.replace_stop_leg.return_value = "new-order-id"
+
+        trade = self._trade(entry_price=249.42)
+        trade["alpaca_order_id"] = "ec9b01a9-dc04-463c-9473-2c384b881b03"  # post-repoint
+        with patch("backend.live_trades_tracker.set_live_trade_profit_lock_activated"):
+            _maybe_ratchet_bracket_sl(trade, peak=270.0, cfg=self._cfg(), broker=broker)
+
+        broker.get_order_by_id.assert_called_once_with("ec9b01a9-dc04-463c-9473-2c384b881b03")
+        broker.replace_stop_leg.assert_called_once()
+        called_leg_id = broker.replace_stop_leg.call_args[0][0]
+        assert called_leg_id == "d9c160d8-b2af-4a77-96d5-d9003b17ebe8"
 
 
 def _open_trade(ticker="HON", entry_price=249.13, qty=4.0, order_id="ord-hon-1"):

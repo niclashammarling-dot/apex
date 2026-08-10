@@ -673,6 +673,27 @@ def set_live_trade_profit_lock_activated(trade_id: int) -> None:
         conn.close()
 
 
+def update_live_trade_order_id(trade_id: int, alpaca_order_id: str) -> None:
+    """
+    Repoint the bracket-leg order a trade's exit checks and profit-lock
+    ratchet look at (_find_filled_sell_leg, _maybe_ratchet_bracket_sl both key
+    off live_trades.alpaca_order_id). Needed after re-arming protection with a
+    standalone order that isn't the original entry order — e.g.
+    reopen_unreconciled() + place_oco_exit() — otherwise both keep reading a
+    stale, terminal parent order and the ratchet silently no-ops (warns, never
+    errors) forever.
+    """
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE live_trades SET alpaca_order_id = ? WHERE id = ?",
+            (alpaca_order_id, trade_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def close_trade(trade_id: int, price_exit: float, pnl: float,
                 outcome: str, exit_reason: str, exited_at: str) -> None:
     conn = get_db()
