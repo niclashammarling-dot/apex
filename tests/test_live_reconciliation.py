@@ -730,6 +730,11 @@ class TestDataQualityDivergence:
     on a phantom $978 drop while APEX's own ledger (realized+unrealized) said
     $0. gate_runner_live must relabel a divergent loss-cap trip as a
     data-quality halt instead of a genuine one — same halt, honest reason.
+
+    The gate is evaluated every cycle, independent of the loss-cap threshold
+    (post-review fix, same day): a sub-cap divergence still corrupts position
+    sizing (which reads acct["equity"]/acct["cash"] directly) and must not
+    wait for the cap to be tripped before it's noticed.
     """
 
     def _run(self, day_pnl: float, apex_pnl: float, missing: list[str],
@@ -808,6 +813,93 @@ class TestDataQualityDivergence:
 
         clear_alert_latch("data_quality:2026-08-11")
         clear_alert_latch("data_quality:2026-08-12")
+
+    def test_subcap_divergence_still_triggers_data_quality(self):
+        """
+        Broker day loss ($50) is well under the $500 cap, but the broker
+        number still disagrees with APEX's own ledger by more than the
+        divergence threshold. Must halt — waiting for the cap to trip first
+        would let a wrong broker number keep sizing new positions in the
+        meantime.
+        """
+        from backend.db import clear_alert_latch
+        clear_alert_latch("data_quality:2026-08-11")
+        result, loss_cap_mock, dq_mock = self._run(
+            day_pnl=-50.0, apex_pnl=200.0, missing=[], cap=500.0)
+        clear_alert_latch("data_quality:2026-08-11")
+        assert result == []
+        dq_mock.assert_called_once_with(-50.0, 200.0, [])
+        loss_cap_mock.assert_not_called()
+
+    def test_positions_read_failure_triggers_data_quality_not_a_crash(self):
+        """
+        broker.get_positions() itself throwing — not just disagreeing — must
+        halt conservatively rather than silently defaulting to "no positions,
+        nothing missing" (which, with zero OPEN live_trades rows, would look
+        identical to a genuinely quiet day and pass through unnoticed).
+        """
+        from backend.db import clear_alert_latch
+        from backend.gate import gate_runner_live
+        clear_alert_latch("data_quality:2026-08-11")
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("backend.gate.gate_runner_live.LIVE_ENABLED", True))
+            stack.enter_context(patch(
+                "backend.gate.gate_runner_live.get_unreconciled_live_trades", return_value=[]))
+            stack.enter_context(patch(
+                "backend.brokers.alpaca.get_account",
+                return_value={"trading_blocked": False, "account_blocked": False, "day_pnl": -10.0}))
+            stack.enter_context(patch(
+                "backend.brokers.alpaca.get_positions", side_effect=Exception("timeout")))
+            stack.enter_context(patch(
+                "backend.live_config.get_live_config", return_value={"daily_loss_cap": 500.0}))
+            stack.enter_context(patch("backend.db.get_ticker_thresholds", return_value={}))
+            stack.enter_context(patch(
+                "backend.gate.gate_runner_live._ny_today", return_value="2026-08-11"))
+            dq_mock = stack.enter_context(patch("backend.alerts.alert_data_quality_divergence"))
+            # No OPEN live_trades rows in the (real, temp) test DB → the
+            # missing-ticker mechanism alone would see nothing wrong here;
+            # positions_read_ok is what has to catch it.
+            stack.enter_context(patch(
+                "backend.gate.gate_runner_live.get_open_live_trades", return_value=[]))
+            stack.enter_context(patch(
+                "backend.gate.gate_runner_live.get_live_trades_exited_since", return_value=[]))
+            result = gate_runner_live.run()
+
+        clear_alert_latch("data_quality:2026-08-11")
+        assert result == []
+        dq_mock.assert_called_once()
+
+    def test_apex_pnl_computation_failure_triggers_data_quality_with_none(self):
+        """A DB error inside _compute_apex_day_pnl must not crash run() —
+        caught, treated as a data-quality halt, apex_day_pnl passed as None
+        rather than a fabricated number."""
+        from backend.db import clear_alert_latch
+        from backend.gate import gate_runner_live
+        clear_alert_latch("data_quality:2026-08-11")
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("backend.gate.gate_runner_live.LIVE_ENABLED", True))
+            stack.enter_context(patch(
+                "backend.gate.gate_runner_live.get_unreconciled_live_trades", return_value=[]))
+            stack.enter_context(patch(
+                "backend.brokers.alpaca.get_account",
+                return_value={"trading_blocked": False, "account_blocked": False, "day_pnl": -10.0}))
+            stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
+            stack.enter_context(patch(
+                "backend.gate.gate_runner_live._compute_apex_day_pnl",
+                side_effect=Exception("db locked")))
+            stack.enter_context(patch(
+                "backend.live_config.get_live_config", return_value={"daily_loss_cap": 500.0}))
+            stack.enter_context(patch("backend.db.get_ticker_thresholds", return_value={}))
+            stack.enter_context(patch(
+                "backend.gate.gate_runner_live._ny_today", return_value="2026-08-11"))
+            dq_mock = stack.enter_context(patch("backend.alerts.alert_data_quality_divergence"))
+            result = gate_runner_live.run()
+
+        clear_alert_latch("data_quality:2026-08-11")
+        assert result == []
+        dq_mock.assert_called_once_with(-10.0, None, [])
 
 
 class TestApexDayPnl:

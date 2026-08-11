@@ -177,15 +177,17 @@ def alert_position_untracked(ticker: str) -> None:
     _dispatch(title, body)
 
 
-def alert_data_quality_divergence(broker_day_pnl: float, apex_day_pnl: float,
+def alert_data_quality_divergence(broker_day_pnl: float, apex_day_pnl: float | None,
                                    missing_from_broker: list[str]) -> None:
     """
-    The daily loss cap tripped on broker-reported day P&L, but APEX's own
-    realized+unrealized reconstruction disagrees with the broker by more than
-    LIVE_DATA_QUALITY_DIVERGENCE — the same shape as the 2026-08-11 HON third
-    snapshot-omission ($978 broker-side loss, $0 APEX-side). Halted for the
-    same reason a genuine loss-cap trip would halt, but the label says which
-    surface to distrust instead of implying a real trading loss occurred.
+    Either broker-reported day P&L disagrees with APEX's own realized+
+    unrealized reconstruction by more than LIVE_DATA_QUALITY_DIVERGENCE (same
+    shape as the 2026-08-11 HON third snapshot-omission: $978 broker-side
+    loss, $0 APEX-side), or the APEX-side reconstruction itself couldn't be
+    computed (apex_day_pnl is None — broker.get_positions() or the DB read
+    failed outright, not just disagreed). Both are "don't trust the broker
+    number enough to size off it" — same halt, same alert. The label says
+    which surface to distrust instead of implying a real trading loss.
     """
     mode  = _mode_label()
     title = f"[APEX {mode}] Data-Quality Halt (not a real loss)"
@@ -193,10 +195,20 @@ def alert_data_quality_divergence(broker_day_pnl: float, apex_day_pnl: float,
         f" Missing from broker position snapshot: {', '.join(missing_from_broker)}."
         if missing_from_broker else ""
     )
+    if apex_day_pnl is None:
+        comparison = (
+            "APEX's own realized+unrealized reconstruction could not be computed this "
+            "cycle (broker positions unreadable or a DB read failed) — broker day P&L "
+            f"is unverified, not just unverified-and-disagreeing (${broker_day_pnl:.2f})."
+        )
+    else:
+        comparison = (
+            f"Broker day P&L (${broker_day_pnl:.2f}) diverges from APEX's own "
+            f"realized+unrealized reconstruction (${apex_day_pnl:.2f}) by "
+            f"${broker_day_pnl - apex_day_pnl:.2f}."
+        )
     body  = (
-        f"Broker day P&L (${broker_day_pnl:.2f}) diverges from APEX's own "
-        f"realized+unrealized reconstruction (${apex_day_pnl:.2f}) by "
-        f"${broker_day_pnl - apex_day_pnl:.2f}.{missing_note}\n\n"
+        f"{comparison}{missing_note}\n\n"
         "Trading is halted with the same effect as a loss-cap trip, but this "
         "is not a booked trading loss — the broker's account/positions "
         "snapshot is the suspect surface, not the ledger. Do not resize or "
