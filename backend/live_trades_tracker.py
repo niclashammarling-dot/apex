@@ -388,15 +388,28 @@ def check_live_exits() -> list[dict]:
                 logger.warning(f"Live exit check [{ticker}]: unrecognized order status {status!r} "
                                 f"— treating as terminal (proceeding to reconciliation) rather than "
                                 f"silently waiting on it")
-            # Position is confirmed gone — cancel any remaining bracket legs immediately.
-            # Orphaned sell orders that fire against a zero position create short exposure.
-            try:
-                cancelled = broker.cancel_open_orders(ticker)
-                if cancelled:
-                    logger.info(f"Live exit reconciliation [{ticker}]: cancelled {cancelled} orphaned bracket order(s)")
-            except Exception as _ce:
-                logger.warning(f"Live exit reconciliation [{ticker}]: could not cancel orders — {_ce}")
+            # Corroborate before cancelling anything. get_positions() reporting
+            # a ticker absent is a single unverified read — the same class of
+            # input that produced the fabricated -$4.04 exit (2026-08-04) and,
+            # uncorroborated, would later cancel a live protective order on a
+            # genuinely-held position twice (2026-08-04, 2026-08-11 — see
+            # cancel_orphan_brackets and the HON incident cluster). A filled
+            # sell order in get_orders() is independent, positive evidence the
+            # position actually closed; only then is cancelling the remaining
+            # bracket leg safe (it prevents a double-exit, not an orphan-risk
+            # cancellation on a position we still hold). No fill found means
+            # this is a suspected bad read, not a confirmed close — leave the
+            # resting order in place (harmless: it can't fill against nothing)
+            # and fall through to the freeze/alert below instead of acting.
             exit_price, exit_reason, exited_at = _find_exit_from_orders(ticker, broker)
+            if exit_price is not None:
+                try:
+                    cancelled = broker.cancel_open_orders(ticker)
+                    if cancelled:
+                        logger.info(f"Live exit reconciliation [{ticker}]: cancelled {cancelled} bracket order(s) "
+                                    f"remaining after confirmed exit")
+                except Exception as _ce:
+                    logger.warning(f"Live exit reconciliation [{ticker}]: could not cancel orders — {_ce}")
             if exit_price is None:
                 # Position gone from the broker but no fill, order, or account
                 # activity anywhere explains it (order history exhausted, bracket
@@ -555,8 +568,19 @@ def check_live_regime_exits() -> list[dict]:
 def cancel_orphan_brackets() -> int:
     """
     Scan all open sell orders in Alpaca and cancel any whose ticker has no
-    open position. Prevents bracket legs from creating short exposure after
-    a position is closed externally (margin call, manual close, etc.).
+    open position AND has a filled sell order corroborating the position
+    genuinely closed. Prevents bracket legs from creating short exposure
+    after a position is closed externally (margin call, manual close, etc.).
+
+    Position-absence-from-get_positions() alone is not treated as sufficient
+    evidence — it's a single unverified read, the same input class that
+    (uncorroborated) cancelled a live protective order on a still-held HON
+    position twice (2026-08-04, 2026-08-11 — see the HON incident cluster).
+    A resting sell order left in place on a genuinely-closed position is
+    harmless (nothing to fill against); cancelling the stop on a position
+    still actually held is real exposure. The asymmetry means the corrobo-
+    ration check only needs to gate the cancel, not the leave-alone.
+
     Returns number of orders cancelled.
     """
     if not LIVE_ENABLED:
@@ -576,6 +600,12 @@ def cancel_orphan_brackets() -> int:
         for leg in (o.get("legs") or []):
             flat.append({**leg, "ticker": o["ticker"]})
 
+    filled_sell_tickers = {
+        o["ticker"] for o in flat
+        if "sell" in (o.get("side") or "").lower()
+        and (o.get("filled_price") or o.get("filled_avg_price"))
+    }
+
     cancelled = 0
     seen: set[str] = set()
     for o in flat:
@@ -588,10 +618,16 @@ def cancel_orphan_brackets() -> int:
                 and status in {"new", "held", "accepted", "pending_new", "partially_filled"}
                 and ticker not in seen):
             seen.add(ticker)
+            if ticker not in filled_sell_tickers:
+                logger.warning(f"cancel_orphan_brackets [{ticker}]: absent from positions but no filled "
+                                f"sell corroborates a genuine close — suspected bad broker read, leaving "
+                                f"resting order in place (not cancelling)")
+                continue
             try:
                 n = broker.cancel_open_orders(ticker)
                 if n:
-                    logger.warning(f"cancel_orphan_brackets [{ticker}]: cancelled {n} orphaned sell order(s) (no open position)")
+                    logger.warning(f"cancel_orphan_brackets [{ticker}]: cancelled {n} orphaned sell order(s) "
+                                    f"(no open position, confirmed closed via filled sell)")
                     cancelled += n
             except Exception as e:
                 logger.warning(f"cancel_orphan_brackets [{ticker}]: cancel failed — {e}")

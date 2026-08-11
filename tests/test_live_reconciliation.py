@@ -189,20 +189,44 @@ class TestOrderStatusExtraction:
         """
         Direct regression for the silenced mechanism: with real Alpaca-shaped
         status/side strings (not the mangled Enum repr), an orphaned sell leg
-        on a ticker with no open position must be recognized and cancelled.
+        on a ticker with no open position, corroborated by a filled sell on
+        the same ticker, must be recognized and cancelled.
         """
         from backend.live_trades_tracker import cancel_orphan_brackets
 
         with patch("backend.live_trades_tracker.LIVE_ENABLED", True), \
              patch("backend.brokers.alpaca.get_positions", return_value=[]), \
-             patch("backend.brokers.alpaca.get_orders", return_value=[{
-                 "ticker": "TOL", "side": "sell", "status": "new", "legs": [],
-             }]), \
+             patch("backend.brokers.alpaca.get_orders", return_value=[
+                 {"ticker": "TOL", "side": "sell", "status": "new", "legs": []},
+                 {"ticker": "TOL", "side": "sell", "status": "filled",
+                  "filled_price": 42.0, "legs": []},
+             ]), \
              patch("backend.brokers.alpaca.cancel_open_orders", return_value=1) as cancel_mock:
             n = cancel_orphan_brackets()
 
         assert n == 1
         cancel_mock.assert_called_once_with("TOL")
+
+    def test_cancel_orphan_brackets_leaves_uncorroborated_order_in_place(self):
+        """
+        2026-08-11 HON: absence from get_positions() alone, with no filled
+        sell anywhere corroborating an actual close, is a suspected bad
+        broker read, not a confirmed orphan. Must NOT cancel — the resting
+        order is the only protection left on a position that may still be
+        genuinely held.
+        """
+        from backend.live_trades_tracker import cancel_orphan_brackets
+
+        with patch("backend.live_trades_tracker.LIVE_ENABLED", True), \
+             patch("backend.brokers.alpaca.get_positions", return_value=[]), \
+             patch("backend.brokers.alpaca.get_orders", return_value=[
+                 {"ticker": "HON", "side": "sell", "status": "new", "legs": []},
+             ]), \
+             patch("backend.brokers.alpaca.cancel_open_orders") as cancel_mock:
+            n = cancel_orphan_brackets()
+
+        assert n == 0
+        cancel_mock.assert_not_called()
 
     def test_terminal_and_pending_status_sets_pin_exact_alpaca_values(self):
         """
@@ -378,7 +402,7 @@ class TestReconciliationFreeze:
             # _find_exit_from_orders) is what actually returns nothing.
             stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
                                        return_value={"status": "filled", "filled_qty": 4, "legs": []}))
-            stack.enter_context(patch("backend.brokers.alpaca.cancel_open_orders", return_value=2))
+            cancel_mock = stack.enter_context(patch("backend.brokers.alpaca.cancel_open_orders", return_value=2))
             stack.enter_context(patch("backend.brokers.alpaca.get_orders", return_value=[]))  # no fill anywhere
             stack.enter_context(patch("backend.live_trades_tracker._current_price", return_value=248.12))
             close_mock = stack.enter_context(patch("backend.live_trades_tracker.close_live_trade"))
@@ -394,6 +418,12 @@ class TestReconciliationFreeze:
         assert closed == []
         close_mock.assert_not_called()
 
+        # No fill corroborates the position actually closed — this is a
+        # suspected bad broker read, not a confirmed close. The resting
+        # order must be left alone, not cancelled (2026-08-11 HON: cancelling
+        # here is what stripped protection off a still-held position).
+        cancel_mock.assert_not_called()
+
         # It fired the alert exactly once...
         alert_mock.assert_called_once()
         ticker_arg = alert_mock.call_args[0][0]
@@ -406,6 +436,40 @@ class TestReconciliationFreeze:
         assert unreconciled[0]["outcome"] == "UNRECONCILED"
         assert unreconciled[0]["exit_price"] is None  # nothing fabricated
         assert unreconciled[0]["pnl"] is None
+
+    def test_corroborated_exit_still_cancels_remaining_leg(self):
+        """
+        The corroboration requirement gates cancellation on evidence, not on
+        disabling it outright — when a filled sell genuinely explains the
+        close, the leftover bracket leg must still be cancelled (prevents a
+        stale TP/SL firing against a position that no longer exists).
+
+        close_live_trade runs for real here (not mocked) — mocking it would
+        leave the row permanently OPEN in the shared test DB and pollute
+        every later test's get_open_live_trades() with a phantom MSFT row.
+        """
+        trade_id = _open_trade(ticker="MSFT", order_id="ord-msft-1")
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
+            stack.enter_context(patch("backend.live_config.get_live_config",
+                                       return_value={"max_hold_days": 25}))
+            stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
+            stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
+                                       return_value={"status": "filled", "filled_qty": 4, "legs": []}))
+            cancel_mock = stack.enter_context(patch("backend.brokers.alpaca.cancel_open_orders", return_value=1))
+            # A genuine filled TP sell corroborates the position actually closed.
+            stack.enter_context(patch("backend.brokers.alpaca.get_orders", return_value=[
+                {"ticker": "MSFT", "side": "sell", "type": "limit",
+                 "filled_price": 270.0, "filled_at": "2026-08-11T14:00:00+00:00", "legs": []},
+            ]))
+
+            from backend.live_trades_tracker import check_live_exits
+            closed = check_live_exits()
+
+        cancel_mock.assert_called_once_with("MSFT")
+        assert any(c["ticker"] == "MSFT" for c in closed)
+        assert not any(t["id"] == trade_id for t in get_unreconciled_live_trades())
 
     def test_canceled_parent_order_does_not_wait_forever(self):
         """
