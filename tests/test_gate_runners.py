@@ -335,7 +335,7 @@ def _account(equity=10000.0, buying_power=10000.0, day_pnl=0.0,
 def _live_patches(candidates, open_tickers=None, failed_tickers=None,
                   chain_result=None, account=None, positions=None,
                   order_id="ord-123", cfg_overrides=None, live_enabled=True,
-                  unreconciled=None):
+                  unreconciled=None, apex_day_pnl=None):
     """
     Build the patch list for live gate runner tests.
 
@@ -357,10 +357,12 @@ def _live_patches(candidates, open_tickers=None, failed_tickers=None,
       14 alpaca.place_bracket_order
       15 alert_daily_loss_cap
       16 alert_trade_executed
-      17 compute_ticker_rotation_scores
-      18 get_rotation_forecast
-      19 _get_regime_bayes
-      20 get_recently_exited_live_tickers
+      17 alert_data_quality_divergence
+      18 _compute_apex_day_pnl
+      19 compute_ticker_rotation_scores
+      20 get_rotation_forecast
+      21 _get_regime_bayes
+      22 get_recently_exited_live_tickers
     """
     cfg       = _live_cfg(**(cfg_overrides or {}))
     acct      = account  or _account()
@@ -397,9 +399,17 @@ def _live_patches(candidates, open_tickers=None, failed_tickers=None,
         patch("backend.alerts.alert_trade_executed"),                                   # 16
         patch("backend.alerts.alert_data_quality_divergence"),
         # Dual P&L check (2026-08-11) — real DB calls otherwise; harness has
-        # no reason to model live_trades rows, so treat the broker figure as
-        # unverified-but-agreeing rather than exercising the temp test DB.
-        patch("backend.gate.gate_runner_live._compute_apex_day_pnl", return_value=(0.0, [])),
+        # no reason to model live_trades rows. Default APEX-side figure
+        # agrees with the broker's day_pnl (divergence 0) so tests unrelated
+        # to the data-quality gate don't silently trip it — the gate now
+        # runs every cycle, independent of the loss-cap check (2026-08-11
+        # cap-independence fix), so any test whose broker day_pnl disagreed
+        # with a hardcoded 0.0 by >= LIVE_DATA_QUALITY_DIVERGENCE would halt
+        # via data-quality before ever reaching the logic it's testing.
+        # Tests that specifically want a divergence (or the loss-cap path
+        # in particular) pass apex_day_pnl explicitly.
+        patch("backend.gate.gate_runner_live._compute_apex_day_pnl",
+              return_value=(apex_day_pnl if apex_day_pnl is not None else acct["day_pnl"], [])),
         # Lazy imports for rotation + Bayesian — patch at source
         patch("backend.sector_transitions.compute_ticker_rotation_scores", return_value={}),  # 17
         patch("backend.sector_transitions.get_rotation_forecast",
@@ -452,17 +462,45 @@ class TestLiveGateRunner:
         insert_mock.assert_not_called()
 
     def test_daily_loss_cap_exceeded_returns_empty(self):
-        results, _ = _run_live(candidates=[_signal()],
-                               account=_account(day_pnl=-600.0),
-                               cfg_overrides={"daily_loss_cap": 500.0})
+        """
+        apex_day_pnl is set to agree with the broker (divergence 0) so this
+        exercises the genuine loss-cap path specifically, not the
+        data-quality gate — which now runs first, every cycle, and would
+        otherwise halt on the very same day_pnl before this branch is ever
+        reached (see TestDataQualityDivergence in test_live_reconciliation.py
+        for that branch's own coverage).
+
+        _ny_today is pinned and its latch cleared before/after — the
+        loss_cap:<date> latch is one-shot per real day, and this test and
+        test_daily_loss_at_cap_returns_empty would otherwise collide on
+        today's real date and silently suppress the second test's alert.
+        """
+        from backend.db import clear_alert_latch
+        clear_alert_latch("loss_cap:2026-08-11")
+        with patch("backend.gate.gate_runner_live._ny_today", return_value="2026-08-11"):
+            results, mocks = _run_live(candidates=[_signal()],
+                                   account=_account(day_pnl=-600.0),
+                                   apex_day_pnl=-600.0,
+                                   cfg_overrides={"daily_loss_cap": 500.0})
+        clear_alert_latch("loss_cap:2026-08-11")
         assert results == []
+        mocks[15].assert_called_once()   # alert_daily_loss_cap
+        mocks[17].assert_not_called()    # alert_data_quality_divergence
 
     def test_daily_loss_at_cap_returns_empty(self):
-        # Exactly at cap → exceeded (>=)
-        results, _ = _run_live(candidates=[_signal()],
-                               account=_account(day_pnl=-500.0),
-                               cfg_overrides={"daily_loss_cap": 500.0})
+        # Exactly at cap → exceeded (>=). apex_day_pnl agrees, same reasoning
+        # as above. Own latch key/date — no collision with the test above.
+        from backend.db import clear_alert_latch
+        clear_alert_latch("loss_cap:2026-08-12")
+        with patch("backend.gate.gate_runner_live._ny_today", return_value="2026-08-12"):
+            results, mocks = _run_live(candidates=[_signal()],
+                                   account=_account(day_pnl=-500.0),
+                                   apex_day_pnl=-500.0,
+                                   cfg_overrides={"daily_loss_cap": 500.0})
+        clear_alert_latch("loss_cap:2026-08-12")
         assert results == []
+        mocks[15].assert_called_once()
+        mocks[17].assert_not_called()
 
     def test_daily_loss_below_cap_continues(self):
         results, _ = _run_live(candidates=[_signal()],
