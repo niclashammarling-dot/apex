@@ -13,12 +13,14 @@ from datetime import datetime, timezone
 
 from loguru import logger
 
-from backend.config import LIVE_ENABLED
+from backend.config import LIVE_DATA_QUALITY_DIVERGENCE, LIVE_ENABLED
 from backend.ticker_config import get_sectors
 from backend.db import (
     get_live_ticker_gate_fails,
+    get_live_trades_exited_since,
     get_lock1_candidates,
     get_open_live_tickers,
+    get_open_live_trades,
     get_recently_exited_live_tickers,
     get_recently_failed_live_tickers,
     get_unreconciled_live_trades,
@@ -54,6 +56,41 @@ def _ny_today() -> str:
     from datetime import datetime
     from zoneinfo import ZoneInfo
     return datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+
+
+def _compute_apex_day_pnl(positions: list[dict]) -> tuple[float, list[str]]:
+    """
+    APEX-side day P&L, independent of the broker's equity/last_equity
+    snapshot: realized pnl already booked today (from live_trades, our own
+    ledger) plus unrealized pnl for OPEN rows matched to a current broker
+    position. Compared against broker.get_account()'s day_pnl to catch a
+    2026-08-11-HON-shaped divergence (broker snapshot drops a held position;
+    ledger and portfolio-history both stay clean) at the moment it happens
+    rather than waiting on the separate untracked-position checker.
+
+    Returns (apex_day_pnl, tickers_open_in_db_but_missing_from_broker) — the
+    missing list is itself evidence, not folded silently into the pnl sum as
+    zero (that would hide exactly the defect this is meant to catch).
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    ny_midnight = datetime.now(ZoneInfo("America/New_York")).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    ).astimezone(timezone.utc).isoformat()
+
+    realized = sum(t["pnl"] for t in get_live_trades_exited_since(ny_midnight))
+
+    positions_by_ticker = {p["ticker"]: p for p in positions}
+    unrealized = 0.0
+    missing = []
+    for t in get_open_live_trades():
+        pos = positions_by_ticker.get(t["ticker"])
+        if pos is None:
+            missing.append(t["ticker"])
+            continue
+        unrealized += pos["unrealized_pnl"] or 0.0
+
+    return round(realized + unrealized, 2), missing
 
 
 def run() -> list[dict]:
@@ -100,10 +137,38 @@ def run() -> list[dict]:
         logger.error(f"Live gate: could not reach Alpaca — {e}")
         return []
 
+    # Dual P&L logging (2026-08-11 HON third snapshot-omission) — broker's
+    # equity/last_equity delta alongside APEX's own realized+unrealized,
+    # every cycle, so a divergence is a labeled data-quality event at the
+    # moment it happens rather than a loss-cap halt requiring investigation.
+    try:
+        positions = broker.get_positions()
+    except Exception as e:
+        logger.warning(f"Live gate: could not fetch positions for dual P&L check — {e}")
+        positions = []
+    apex_day_pnl, missing_from_broker = _compute_apex_day_pnl(positions)
+    divergence = round(acct["day_pnl"] - apex_day_pnl, 2)
+    logger.info(f"Live gate: day P&L — broker ${acct['day_pnl']:.2f} vs APEX ${apex_day_pnl:.2f} "
+                f"(divergence ${divergence:.2f}" +
+                (f", missing from broker: {missing_from_broker}" if missing_from_broker else "") + ")")
+
     # Daily loss cap check
     day_loss = abs(min(acct["day_pnl"], 0))
     if day_loss >= cfg["daily_loss_cap"]:
         today = _ny_today()
+        if missing_from_broker or abs(divergence) >= LIVE_DATA_QUALITY_DIVERGENCE:
+            # The broker-reported loss doesn't hold up against APEX's own
+            # ledger — halt with the same effect, but don't call it a loss.
+            logger.error(
+                f"Live gate: halted — DATA QUALITY: broker day P&L ${acct['day_pnl']:.2f} "
+                f"vs APEX ${apex_day_pnl:.2f} (divergence ${divergence:.2f}) exceeds "
+                f"${LIVE_DATA_QUALITY_DIVERGENCE:.2f}"
+                + (f"; missing from broker: {missing_from_broker}" if missing_from_broker else "")
+            )
+            if set_alert_latch(f"data_quality:{today}"):
+                from backend.alerts import alert_data_quality_divergence
+                alert_data_quality_divergence(acct["day_pnl"], apex_day_pnl, missing_from_broker)
+            return []
         logger.warning(f"Live gate: daily loss cap hit — day loss ${day_loss:.2f} >= cap ${cfg['daily_loss_cap']:.2f}")
         if set_alert_latch(f"loss_cap:{today}"):
             from backend.alerts import alert_daily_loss_cap

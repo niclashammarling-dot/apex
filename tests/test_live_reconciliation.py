@@ -699,6 +699,13 @@ class TestGateRefusal:
                     "backend.brokers.alpaca.get_account",
                     return_value={"trading_blocked": False, "account_blocked": False, "day_pnl": -500.0},
                 ))
+                stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
+                # APEX-side reconstruction agrees with the broker (within the
+                # data-quality threshold) — this is a genuine loss, not a
+                # divergence, so it must classify as a loss-cap halt, not a
+                # data-quality halt (see TestGateRefusal's data-quality tests).
+                stack.enter_context(patch("backend.gate.gate_runner_live._compute_apex_day_pnl",
+                                           return_value=(-480.0, [])))
                 stack.enter_context(patch(
                     "backend.live_config.get_live_config",
                     return_value={"daily_loss_cap": 100.0},
@@ -715,6 +722,129 @@ class TestGateRefusal:
 
         clear_alert_latch("loss_cap:2026-08-07")
         clear_alert_latch("loss_cap:2026-08-08")
+
+
+class TestDataQualityDivergence:
+    """
+    2026-08-11 HON third snapshot-omission: broker day P&L hit the loss cap
+    on a phantom $978 drop while APEX's own ledger (realized+unrealized) said
+    $0. gate_runner_live must relabel a divergent loss-cap trip as a
+    data-quality halt instead of a genuine one — same halt, honest reason.
+    """
+
+    def _run(self, day_pnl: float, apex_pnl: float, missing: list[str],
+              cap: float = 100.0, latch_day: str = "2026-08-11"):
+        """Runs gate_runner_live.run() once under the given inputs. Does not
+        touch alert latches — callers own latch setup/teardown so day-capping
+        can be exercised across repeated calls (see test_data_quality_alert_is_day_capped)."""
+        from backend.gate import gate_runner_live
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("backend.gate.gate_runner_live.LIVE_ENABLED", True))
+            stack.enter_context(patch(
+                "backend.gate.gate_runner_live.get_unreconciled_live_trades", return_value=[],
+            ))
+            stack.enter_context(patch(
+                "backend.brokers.alpaca.get_account",
+                return_value={"trading_blocked": False, "account_blocked": False, "day_pnl": day_pnl},
+            ))
+            stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
+            stack.enter_context(patch("backend.gate.gate_runner_live._compute_apex_day_pnl",
+                                       return_value=(apex_pnl, missing)))
+            stack.enter_context(patch(
+                "backend.live_config.get_live_config", return_value={"daily_loss_cap": cap},
+            ))
+            stack.enter_context(patch("backend.db.get_ticker_thresholds", return_value={}))
+            stack.enter_context(patch("backend.gate.gate_runner_live._ny_today", return_value=latch_day))
+            loss_cap_mock = stack.enter_context(patch("backend.alerts.alert_daily_loss_cap"))
+            dq_mock = stack.enter_context(patch("backend.alerts.alert_data_quality_divergence"))
+            result = gate_runner_live.run()
+
+        return result, loss_cap_mock, dq_mock
+
+    def test_large_divergence_reclassifies_as_data_quality(self):
+        """Broker says -$978 loss, APEX's own ledger says $0 — HON's exact shape."""
+        from backend.db import clear_alert_latch
+        clear_alert_latch("data_quality:2026-08-11")
+        result, loss_cap_mock, dq_mock = self._run(day_pnl=-978.32, apex_pnl=0.0, missing=[])
+        clear_alert_latch("data_quality:2026-08-11")
+        assert result == []
+        dq_mock.assert_called_once_with(-978.32, 0.0, [])
+        loss_cap_mock.assert_not_called()
+
+    def test_missing_from_broker_forces_data_quality_even_if_dollar_gap_small(self):
+        """A DB-open ticker absent from the broker snapshot is itself the
+        defect signature, independent of how large the dollar divergence is."""
+        from backend.db import clear_alert_latch
+        clear_alert_latch("data_quality:2026-08-11")
+        result, loss_cap_mock, dq_mock = self._run(day_pnl=-110.0, apex_pnl=-100.0, missing=["HON"])
+        clear_alert_latch("data_quality:2026-08-11")
+        assert result == []
+        dq_mock.assert_called_once_with(-110.0, -100.0, ["HON"])
+        loss_cap_mock.assert_not_called()
+
+    def test_agreeing_ledger_stays_a_genuine_loss_cap_halt(self):
+        """Broker and APEX agree (within threshold) — this is a real loss,
+        must not be relabeled as a data-quality event."""
+        from backend.db import clear_alert_latch
+        clear_alert_latch("loss_cap:2026-08-11")
+        result, loss_cap_mock, dq_mock = self._run(day_pnl=-500.0, apex_pnl=-480.0, missing=[])
+        clear_alert_latch("loss_cap:2026-08-11")
+        assert result == []
+        loss_cap_mock.assert_called_once_with(500.0, 100.0)
+        dq_mock.assert_not_called()
+
+    def test_data_quality_alert_is_day_capped(self):
+        from backend.db import clear_alert_latch
+        clear_alert_latch("data_quality:2026-08-11")
+        clear_alert_latch("data_quality:2026-08-12")
+
+        _, _, dq_mock1 = self._run(day_pnl=-978.32, apex_pnl=0.0, missing=[], latch_day="2026-08-11")
+        assert dq_mock1.call_count == 1
+        _, _, dq_mock2 = self._run(day_pnl=-978.32, apex_pnl=0.0, missing=[], latch_day="2026-08-11")
+        assert dq_mock2.call_count == 0  # same day, still halted: latched, no re-alert
+        _, _, dq_mock3 = self._run(day_pnl=-978.32, apex_pnl=0.0, missing=[], latch_day="2026-08-12")
+        assert dq_mock3.call_count == 1  # new trading day: alerts again
+
+        clear_alert_latch("data_quality:2026-08-11")
+        clear_alert_latch("data_quality:2026-08-12")
+
+
+class TestApexDayPnl:
+    """_compute_apex_day_pnl: realized (booked today) + unrealized (matched
+    open rows), with broker-missing tickers surfaced rather than zero-filled."""
+
+    def test_realized_and_unrealized_sum(self):
+        from backend.gate import gate_runner_live
+        with ExitStack() as stack:
+            stack.enter_context(patch(
+                "backend.gate.gate_runner_live.get_live_trades_exited_since",
+                return_value=[{"pnl": 12.5}, {"pnl": -4.0}],
+            ))
+            stack.enter_context(patch(
+                "backend.gate.gate_runner_live.get_open_live_trades",
+                return_value=[{"ticker": "MSFT"}, {"ticker": "CRM"}],
+            ))
+            pnl, missing = gate_runner_live._compute_apex_day_pnl([
+                {"ticker": "MSFT", "unrealized_pnl": -4.8},
+                {"ticker": "CRM", "unrealized_pnl": -1.6},
+            ])
+        assert pnl == pytest.approx(12.5 - 4.0 - 4.8 - 1.6)
+        assert missing == []
+
+    def test_open_trade_missing_from_broker_is_surfaced_not_zero_filled(self):
+        from backend.gate import gate_runner_live
+        with ExitStack() as stack:
+            stack.enter_context(patch(
+                "backend.gate.gate_runner_live.get_live_trades_exited_since", return_value=[],
+            ))
+            stack.enter_context(patch(
+                "backend.gate.gate_runner_live.get_open_live_trades",
+                return_value=[{"ticker": "HON"}],
+            ))
+            pnl, missing = gate_runner_live._compute_apex_day_pnl([])  # HON absent from broker
+        assert pnl == 0.0
+        assert missing == ["HON"]
 
 
 class TestAuditCheck66:

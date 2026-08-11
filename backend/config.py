@@ -119,6 +119,12 @@ LIVE_MAX_POSITION_SIZE   = float(os.getenv("LIVE_MAX_POSITION_SIZE", "0.10"))
 LIVE_DAILY_LOSS_CAP      = float(os.getenv("LIVE_DAILY_LOSS_CAP", "200.0"))
 LIVE_TAKE_PROFIT_PCT     = float(os.getenv("LIVE_TAKE_PROFIT_PCT", "0.12"))
 LIVE_STOP_LOSS_PCT       = float(os.getenv("LIVE_STOP_LOSS_PCT", "0.04"))
+# A daily-loss-cap trip where broker-reported day P&L and APEX's own
+# realized+unrealized reconstruction diverge by more than this is treated as
+# a data-quality halt, not a genuine loss-cap halt (2026-08-11 HON third
+# snapshot-omission: $978 broker-side day-loss vs. $0 APEX-side — see
+# gate_runner_live._compute_apex_day_pnl).
+LIVE_DATA_QUALITY_DIVERGENCE = float(os.getenv("LIVE_DATA_QUALITY_DIVERGENCE", "150.0"))
 
 # --- Sectors ---
 SECTORS = {

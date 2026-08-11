@@ -1662,6 +1662,23 @@ def get_open_live_trades() -> list[dict]:
         conn.close()
 
 
+def get_live_trades_exited_since(cutoff_iso: str) -> list[dict]:
+    """Live trades with a booked exit (pnl IS NOT NULL) at or after cutoff_iso.
+    Excludes UNRECONCILED rows — those have no booked pnl by design (no
+    fabricated exit), so the NOT NULL filter drops them naturally rather than
+    requiring an explicit outcome exclusion."""
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT * FROM live_trades
+            WHERE exited_at >= ? AND pnl IS NOT NULL
+            ORDER BY exited_at ASC
+        """, (cutoff_iso,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def get_all_live_trades() -> list[dict]:
     conn = get_db()
     try:

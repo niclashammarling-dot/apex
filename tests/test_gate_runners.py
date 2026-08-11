@@ -395,6 +395,11 @@ def _live_patches(candidates, open_tickers=None, failed_tickers=None,
         # Alerts
         patch("backend.alerts.alert_daily_loss_cap"),                                   # 15
         patch("backend.alerts.alert_trade_executed"),                                   # 16
+        patch("backend.alerts.alert_data_quality_divergence"),
+        # Dual P&L check (2026-08-11) — real DB calls otherwise; harness has
+        # no reason to model live_trades rows, so treat the broker figure as
+        # unverified-but-agreeing rather than exercising the temp test DB.
+        patch("backend.gate.gate_runner_live._compute_apex_day_pnl", return_value=(0.0, [])),
         # Lazy imports for rotation + Bayesian — patch at source
         patch("backend.sector_transitions.compute_ticker_rotation_scores", return_value={}),  # 17
         patch("backend.sector_transitions.get_rotation_forecast",
