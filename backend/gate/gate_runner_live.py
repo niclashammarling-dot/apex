@@ -103,7 +103,62 @@ def run() -> list[dict]:
         logger.debug("Live gate: LIVE_ENABLED=false — skipping")
         return []
 
-    # UNRECONCILED gate — checked before touching the broker at all. A position
+    from backend.brokers import alpaca as broker
+
+    # Dual P&L logging (2026-08-11 HON third snapshot-omission) — broker's
+    # equity/last_equity delta alongside APEX's own realized+unrealized.
+    # Deliberately sits above the UNRECONCILED early return below: this is
+    # read-only observability (two GETs and a log line), not a trading
+    # action, and the instrument exists specifically to measure snapshot-vs-
+    # ledger divergence — parking it behind the halt meant it went dark for
+    # exactly the hours a snapshot-vs-ledger problem was active during this
+    # incident, the one window its data would have mattered most. Trading
+    # decisions (order placement, cancellation) still respect every gate
+    # below in the same order as before; only this measurement moved earlier.
+    #
+    # acct is fetched once here and reused below for the trading pre-flight
+    # (trading_blocked/account_blocked) — not re-fetched.
+    acct = None
+    try:
+        acct = broker.get_account()
+    except Exception as e:
+        logger.warning(f"Live gate: could not reach Alpaca for dual P&L check — {e}")
+
+    positions_read_ok = apex_pnl_read_ok = False
+    apex_day_pnl, missing_from_broker, divergence = None, [], None
+    if acct is not None:
+        # A failed positions read is tracked explicitly, not folded into
+        # "positions=[]". If get_positions() throws while there happen to be
+        # zero OPEN live_trades rows, _compute_apex_day_pnl's missing-ticker
+        # mechanism has nothing to compare against and would report a clean
+        # divergence — indistinguishable from a genuinely quiet day.
+        # positions_read_ok makes that failure a first-class signal instead
+        # of a silent zero.
+        positions_read_ok = True
+        try:
+            positions = broker.get_positions()
+        except Exception as e:
+            logger.warning(f"Live gate: could not fetch positions for dual P&L check — {e}")
+            positions = []
+            positions_read_ok = False
+
+        apex_pnl_read_ok = True
+        try:
+            apex_day_pnl, missing_from_broker = _compute_apex_day_pnl(positions)
+        except Exception as e:
+            logger.error(f"Live gate: could not compute APEX-side day P&L — {e}")
+            apex_day_pnl, missing_from_broker = None, []
+            apex_pnl_read_ok = False
+
+        if apex_pnl_read_ok:
+            divergence = round(acct["day_pnl"] - apex_day_pnl, 2)
+            logger.info(f"Live gate: day P&L — broker ${acct['day_pnl']:.2f} vs APEX ${apex_day_pnl:.2f} "
+                        f"(divergence ${divergence:.2f}" +
+                        (f", missing from broker: {missing_from_broker}" if missing_from_broker else "") + ")")
+        else:
+            logger.warning("Live gate: skipping divergence check — APEX-side day P&L unavailable")
+
+    # UNRECONCILED gate — the first thing that can block trading. A position
     # that vanished with no fill/order/activity trail (see 2026-08-06 HON
     # incident, CHECK 66) must not release the halt just because a day boundary
     # resets last_equity or the broker quietly restores the position. Only
@@ -121,57 +176,20 @@ def run() -> list[dict]:
             )
         return []
 
-    from backend.brokers import alpaca as broker
     from backend.db import get_ticker_thresholds
     from backend.live_config import get_live_config
     cfg = get_live_config()
     sector_thresholds = get_ticker_thresholds()
 
-    # Pre-flight: verify account is tradeable before wasting LLM calls
-    try:
-        acct = broker.get_account()
-        if acct["trading_blocked"] or acct["account_blocked"]:
-            logger.warning("Live gate: Alpaca account is blocked — skipping cycle")
-            return []
-    except Exception as e:
-        logger.error(f"Live gate: could not reach Alpaca — {e}")
+    # Pre-flight: verify account is tradeable before wasting LLM calls.
+    # Reuses the acct fetched above for dual P&L logging — a failure there
+    # already means this can't succeed either.
+    if acct is None:
+        logger.error("Live gate: could not reach Alpaca — skipping cycle")
         return []
-
-    # Dual P&L logging (2026-08-11 HON third snapshot-omission) — broker's
-    # equity/last_equity delta alongside APEX's own realized+unrealized,
-    # every cycle, so a divergence is a labeled data-quality event at the
-    # moment it happens rather than a loss-cap halt requiring investigation.
-    #
-    # A failed read is tracked explicitly, not folded into "positions=[]".
-    # If get_positions() throws while there happen to be zero OPEN live_trades
-    # rows, _compute_apex_day_pnl's missing-ticker mechanism has nothing to
-    # compare against and would report a clean divergence — indistinguishable
-    # from a genuinely quiet day. positions_read_ok makes that failure a
-    # first-class signal instead of a silent zero.
-    positions_read_ok = True
-    try:
-        positions = broker.get_positions()
-    except Exception as e:
-        logger.warning(f"Live gate: could not fetch positions for dual P&L check — {e}")
-        positions = []
-        positions_read_ok = False
-
-    apex_pnl_read_ok = True
-    try:
-        apex_day_pnl, missing_from_broker = _compute_apex_day_pnl(positions)
-    except Exception as e:
-        logger.error(f"Live gate: could not compute APEX-side day P&L — {e}")
-        apex_day_pnl, missing_from_broker = None, []
-        apex_pnl_read_ok = False
-
-    divergence = None
-    if apex_pnl_read_ok:
-        divergence = round(acct["day_pnl"] - apex_day_pnl, 2)
-        logger.info(f"Live gate: day P&L — broker ${acct['day_pnl']:.2f} vs APEX ${apex_day_pnl:.2f} "
-                    f"(divergence ${divergence:.2f}" +
-                    (f", missing from broker: {missing_from_broker}" if missing_from_broker else "") + ")")
-    else:
-        logger.warning("Live gate: skipping divergence check — APEX-side day P&L unavailable")
+    if acct["trading_blocked"] or acct["account_blocked"]:
+        logger.warning("Live gate: Alpaca account is blocked — skipping cycle")
+        return []
 
     # Data-quality gate — evaluated every cycle, independent of the loss-cap
     # threshold. A wrong broker snapshot corrupts position sizing (which reads

@@ -628,6 +628,15 @@ class TestGateRefusal:
     """gate_runner_live.run() must refuse all new entries while UNRECONCILED rows exist."""
 
     def test_gate_halts_on_unreconciled(self):
+        """
+        2026-08-11 (second review pass): the UNRECONCILED halt still blocks
+        every trading action, but broker.get_account()/get_positions() are
+        now called before it — dual P&L logging deliberately sits above this
+        early return (read-only observability, not a trading action), so it
+        keeps collecting broker-vs-ledger divergence data during exactly the
+        incident it exists to measure. account_mock is asserted called, not
+        uncalled — the inverse of this test's pre-move assertion.
+        """
         from backend.db import clear_alert_latch
         clear_alert_latch("unreconciled:2026-08-07")
 
@@ -639,16 +648,24 @@ class TestGateRefusal:
             ))
             stack.enter_context(patch("backend.gate.gate_runner_live._ny_today", return_value="2026-08-07"))
             alert_mock = stack.enter_context(patch("backend.alerts.alert_gate_blocked"))
-            # If the halt didn't short-circuit, run() would reach broker.get_account()
-            # next and this mock absence would raise — proving the halt fired first.
-            account_mock = stack.enter_context(patch("backend.brokers.alpaca.get_account"))
+            account_mock = stack.enter_context(patch(
+                "backend.brokers.alpaca.get_account",
+                return_value={"trading_blocked": False, "account_blocked": False, "day_pnl": -978.32}))
+            stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
+            stack.enter_context(patch("backend.gate.gate_runner_live._compute_apex_day_pnl",
+                                       return_value=(0.0, [])))
+            candidates_mock = stack.enter_context(patch(
+                "backend.gate.gate_runner_live.get_lock1_candidates"))
 
             from backend.gate import gate_runner_live
             result = gate_runner_live.run()
 
         assert result == []
         alert_mock.assert_called_once()
-        account_mock.assert_not_called()  # halted before touching the broker at all
+        account_mock.assert_called_once()  # dual logging reads the broker even while halted
+        # ...but the halt still fires before anything past it — no candidates
+        # were ever evaluated, which is the actual guarantee this test protects.
+        candidates_mock.assert_not_called()
         clear_alert_latch("unreconciled:2026-08-07")
 
     def test_unreconciled_alert_is_day_capped_not_permanently_suppressed(self):
@@ -672,7 +689,15 @@ class TestGateRefusal:
                 ))
                 stack.enter_context(patch("backend.gate.gate_runner_live._ny_today", return_value=day))
                 alert_mock = stack.enter_context(patch("backend.alerts.alert_gate_blocked"))
-                stack.enter_context(patch("backend.brokers.alpaca.get_account"))
+                # Dual P&L logging now reads the broker even during this halt
+                # (see test_gate_halts_on_unreconciled) — needs a real dict,
+                # not a bare Mock, for acct["day_pnl"] etc. to work.
+                stack.enter_context(patch(
+                    "backend.brokers.alpaca.get_account",
+                    return_value={"trading_blocked": False, "account_blocked": False, "day_pnl": 0.0}))
+                stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
+                stack.enter_context(patch("backend.gate.gate_runner_live._compute_apex_day_pnl",
+                                           return_value=(0.0, [])))
                 gate_runner_live.run()
                 return alert_mock.call_count
 
