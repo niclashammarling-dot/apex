@@ -243,20 +243,29 @@ def run() -> list[dict]:
         _persist_multiplier_stats({}, None, [], runner="live")
         return []
 
-    # Skip tickers already held, in gate cooloff, or in exit cooloff
-    open_tickers   = get_open_live_tickers()
-    failed_tickers = get_recently_failed_live_tickers(cfg.get("gate_cooloff_hours", 4))
-    exited_tickers = get_recently_exited_live_tickers(
+    # Skip tickers already held, in gate cooloff, in exit cooloff, or on the
+    # live-only quarantine list (LIVE_TICKER_BLOCKLIST — broker-integrity
+    # holds, not signal-quality exclusions; see backend/config.py).
+    from backend.config import LIVE_TICKER_BLOCKLIST
+    open_tickers    = get_open_live_tickers()
+    failed_tickers  = get_recently_failed_live_tickers(cfg.get("gate_cooloff_hours", 4))
+    exited_tickers  = get_recently_exited_live_tickers(
         sl_hours=cfg.get("exit_cooloff_hours", 24),
         tp_hours=cfg.get("tp_cooloff_hours", 168),
     )
-    blocked = open_tickers | failed_tickers | exited_tickers
+    blocklisted_tickers = set(LIVE_TICKER_BLOCKLIST)
+    blocked = open_tickers | failed_tickers | exited_tickers | blocklisted_tickers
     skipped = [c for c in candidates if c["ticker"] in blocked]
     candidates = [c for c in candidates if c["ticker"] not in blocked]
 
     ts = datetime.now(timezone.utc).isoformat()
     for c in skipped:
-        decision = "SKIPPED_OPEN" if c["ticker"] in open_tickers else "SKIPPED_COOLOFF"
+        if c["ticker"] in blocklisted_tickers:
+            decision = "SKIPPED_BLOCKLIST"
+        elif c["ticker"] in open_tickers:
+            decision = "SKIPPED_OPEN"
+        else:
+            decision = "SKIPPED_COOLOFF"
         insert_live_gate_result({
             "timestamp":             ts,
             "ticker":                c["ticker"],
@@ -285,7 +294,8 @@ def run() -> list[dict]:
         logger.info(f"Live gate runner: skipped {len(skipped)} ticker(s) "
                     f"(open={len(open_tickers & skipped_set)}, "
                     f"cooloff={len(failed_tickers & skipped_set)}, "
-                    f"exit_cooloff={len(exited_tickers & skipped_set)})")
+                    f"exit_cooloff={len(exited_tickers & skipped_set)}, "
+                    f"blocklist={len(blocklisted_tickers & skipped_set)})")
 
     if not candidates:
         logger.info("Live gate runner: all candidates skipped (open positions / cooloff)")

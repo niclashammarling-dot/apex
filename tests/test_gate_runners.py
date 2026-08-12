@@ -539,6 +539,21 @@ class TestLiveGateRunner:
         assert results == []
         assert mocks[9].call_count == 2
 
+    def test_blocklisted_ticker_skipped(self):
+        """
+        LIVE_TICKER_BLOCKLIST (backend/config.py) — live-only quarantine,
+        distinct from open/cooloff. HON added 2026-08-12 pending Alpaca's
+        answer on the account/positions snapshot omissions; not in the
+        blocklist by default for any other ticker, so patch.dict rather
+        than relying on the live config.
+        """
+        with patch.dict("backend.config.LIVE_TICKER_BLOCKLIST",
+                         {"HON": "test reason"}, clear=True):
+            results, mocks = _run_live(candidates=[_signal("HON", sector="Industrials")])
+        assert results == []
+        saved = mocks[9].call_args[0][0]
+        assert saved["gate_decision"] == "SKIPPED_BLOCKLIST"
+
     # ── Pipeline outcomes ─────────────────────────────────────────────────────
 
     def test_eligibility_fail(self):
