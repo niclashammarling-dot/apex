@@ -20,6 +20,20 @@ def pytest_configure(config):
     tmp = tempfile.mkdtemp(prefix="apex_test_")
     db_module.DB_PATH = Path(tmp) / "apex_test.db"
 
+    # Same reasoning, one level later: regime_bayes.py's two JSON/JSONL
+    # runtime outputs were git-tracked (not gitignored like apex.db), which
+    # let test runs silently write real-shaped content to production paths
+    # under data/ — indistinguishable in `git status` from genuine live
+    # accumulation, and the reason regime_signal_trace.jsonl sat pinned at
+    # its 2026-07-16 committed content through 5+ weeks of live daily
+    # writes (each session's routine "clean up test pollution" reflex
+    # erasing it before anyone diffed first). Untracking+gitignoring closes
+    # the destroy-by-git-checkout path; this closes the write-in-the-first-
+    # place path. See 2026-08-16 CHECKS.md trace-gap entry.
+    import backend.regime.regime_bayes as regime_module
+    regime_module.RESULT_CACHE_PATH = Path(tmp) / "regime_result_cache.json"
+    regime_module.SIGNAL_TRACE_PATH = Path(tmp) / "regime_signal_trace.jsonl"
+
 
 @pytest.fixture(autouse=True, scope="session")
 def _never_send_real_alerts():
