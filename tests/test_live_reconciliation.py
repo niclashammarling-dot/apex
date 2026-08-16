@@ -98,6 +98,7 @@ class TestOrderStatusExtraction:
             cost_basis = "997.68"
             unrealized_pl = "-17.68"
             unrealized_plpc = "-0.0177"
+            unrealized_intraday_pl = "-3.20"
             change_today = "0.01"
 
         class _FakeLeg:
@@ -929,24 +930,92 @@ class TestDataQualityDivergence:
 
 class TestApexDayPnl:
     """_compute_apex_day_pnl: realized (booked today) + unrealized (matched
-    open rows), with broker-missing tickers surfaced rather than zero-filled."""
+    open rows), with broker-missing tickers surfaced rather than zero-filled.
 
-    def test_realized_and_unrealized_sum(self):
+    Both terms must be genuine daily figures (fixed 2026-08-16, see
+    2026-08-12-apex-dual-logging-daily-pnl-conflation-prefix-reference):
+    unrealized reads unrealized_intraday_pnl, not unrealized_pnl; realized
+    uses entry-to-exit pnl only for same-day entries, prior-close-to-exit
+    for carried-over positions."""
+
+    def test_realized_and_unrealized_sum_same_day_entries(self):
+        """Same-day entry + exit: entry-to-exit pnl already is a daily
+        figure, no prior-close lookup needed."""
+        from datetime import datetime, timezone
+
         from backend.gate import gate_runner_live
+        today_iso = datetime.now(timezone.utc).isoformat()
         with ExitStack() as stack:
             stack.enter_context(patch(
                 "backend.gate.gate_runner_live.get_live_trades_exited_since",
-                return_value=[{"pnl": 12.5}, {"pnl": -4.0}],
+                return_value=[
+                    {"pnl": 12.5, "timestamp": today_iso, "ticker": "AAA",
+                     "exit_price": 0.0, "qty": 0.0},
+                    {"pnl": -4.0, "timestamp": today_iso, "ticker": "BBB",
+                     "exit_price": 0.0, "qty": 0.0},
+                ],
             ))
             stack.enter_context(patch(
                 "backend.gate.gate_runner_live.get_open_live_trades",
                 return_value=[{"ticker": "MSFT"}, {"ticker": "CRM"}],
             ))
             pnl, missing = gate_runner_live._compute_apex_day_pnl([
-                {"ticker": "MSFT", "unrealized_pnl": -4.8},
-                {"ticker": "CRM", "unrealized_pnl": -1.6},
+                {"ticker": "MSFT", "unrealized_intraday_pnl": -4.8},
+                {"ticker": "CRM", "unrealized_intraday_pnl": -1.6},
             ])
         assert pnl == pytest.approx(12.5 - 4.0 - 4.8 - 1.6)
+        assert missing == []
+
+    def test_carried_over_exit_uses_prior_close_not_entry_price(self):
+        """Position opened on an earlier day, exited today: realized
+        contribution must be exit_price vs. prior_close, not vs. entry —
+        entry-to-exit would double-count the pre-today portion of the move
+        (the defect the 2026-08-12 HON reading exposed: +$16.86 true daily
+        vs. -$60.84 lifetime on the same exit)."""
+        from backend.gate import gate_runner_live
+        with ExitStack() as stack:
+            stack.enter_context(patch(
+                "backend.gate.gate_runner_live.get_live_trades_exited_since",
+                return_value=[
+                    {"pnl": -60.84, "timestamp": "2026-08-04T17:14:31+00:00",
+                     "ticker": "HON", "exit_price": 234.21, "qty": 4},
+                ],
+            ))
+            stack.enter_context(patch(
+                "backend.gate.gate_runner_live.get_open_live_trades",
+                return_value=[],
+            ))
+            stack.enter_context(patch(
+                "backend.brokers.alpaca.get_prior_close",
+                return_value=230.005,
+            ))
+            pnl, missing = gate_runner_live._compute_apex_day_pnl([])
+        assert pnl == pytest.approx((234.21 - 230.005) * 4)
+        assert missing == []
+
+    def test_carried_over_exit_falls_back_to_lifetime_pnl_when_no_prior_close(self):
+        """get_prior_close returning None (data-fetch failure) must not
+        crash or silently zero the leg — falls back to lifetime pnl, a
+        known-imprecise but non-fatal degradation."""
+        from backend.gate import gate_runner_live
+        with ExitStack() as stack:
+            stack.enter_context(patch(
+                "backend.gate.gate_runner_live.get_live_trades_exited_since",
+                return_value=[
+                    {"pnl": -60.84, "timestamp": "2026-08-04T17:14:31+00:00",
+                     "ticker": "HON", "exit_price": 234.21, "qty": 4},
+                ],
+            ))
+            stack.enter_context(patch(
+                "backend.gate.gate_runner_live.get_open_live_trades",
+                return_value=[],
+            ))
+            stack.enter_context(patch(
+                "backend.brokers.alpaca.get_prior_close",
+                return_value=None,
+            ))
+            pnl, missing = gate_runner_live._compute_apex_day_pnl([])
+        assert pnl == pytest.approx(-60.84)
         assert missing == []
 
     def test_open_trade_missing_from_broker_is_surfaced_not_zero_filled(self):

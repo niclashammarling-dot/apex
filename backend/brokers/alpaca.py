@@ -86,6 +86,12 @@ def get_positions() -> list[dict]:
                 "cost_basis":       float(p.cost_basis),
                 "unrealized_pnl":   float(p.unrealized_pl) if p.unrealized_pl else None,
                 "unrealized_pct":   float(p.unrealized_plpc) if p.unrealized_plpc else None,
+                # Since-entry P&L (unrealized_pnl above) is the wrong term for a
+                # daily comparison on a position more than one day old — this is
+                # Alpaca's own daily figure (today's mark vs. prior close), the
+                # field _compute_apex_day_pnl needs instead. See
+                # 2026-08-12-apex-dual-logging-daily-pnl-conflation-prefix-reference.
+                "unrealized_intraday_pnl": float(p.unrealized_intraday_pl) if p.unrealized_intraday_pl else None,
                 "change_today":     float(p.change_today) if p.change_today else None,
             }
             for p in positions
@@ -268,6 +274,56 @@ def get_portfolio_history(period: str = "1M") -> list[dict]:
     except Exception as e:
         logger.error(f"Alpaca get_portfolio_history failed: {e}")
         raise
+
+
+def get_prior_close(ticker: str) -> float | None:
+    """
+    Most recent completed trading session's closing price for ticker, as of
+    now — the reference point for computing a same-day exit's *daily* P&L
+    contribution (exit_price - prior_close) rather than its lifetime one
+    (exit_price - entry_price). Needed only for positions that were opened
+    on an earlier calendar day and exited today; a position opened and
+    exited same-day has no prior-close leg to subtract (entry price already
+    is today's reference).
+
+    Returns None on any data-fetch failure rather than raising — callers
+    must treat None as "cannot compute daily realized for this exit," not
+    silently fall back to a wrong number. See
+    2026-08-12-apex-dual-logging-daily-pnl-conflation-prefix-reference.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from alpaca.data.historical import StockHistoricalDataClient
+    from alpaca.data.requests import StockBarsRequest
+    from alpaca.data.timeframe import TimeFrame
+
+    from backend.config import ALPACA_API_KEY, ALPACA_SECRET_KEY
+
+    try:
+        client = StockHistoricalDataClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
+        now = datetime.now(timezone.utc)
+        req = StockBarsRequest(
+            symbol_or_symbols=ticker,
+            timeframe=TimeFrame.Day,
+            start=now - timedelta(days=10),
+            end=now,
+        )
+        bars = client.get_stock_bars(req)
+        rows = bars[ticker] if ticker in bars.data else []
+        if len(rows) < 2:
+            logger.warning(f"Alpaca get_prior_close [{ticker}]: fewer than 2 daily bars returned")
+            return None
+        # Most recent complete session strictly before today — the last bar
+        # is often today's still-forming session, not yesterday's close.
+        today = now.date()
+        prior_bars = [b for b in rows if b.timestamp.date() < today]
+        if not prior_bars:
+            logger.warning(f"Alpaca get_prior_close [{ticker}]: no bar dated before today")
+            return None
+        return float(prior_bars[-1].close)
+    except Exception as e:
+        logger.error(f"Alpaca get_prior_close [{ticker}] failed: {e}")
+        return None
 
 
 def cancel_open_orders(ticker: str) -> int:

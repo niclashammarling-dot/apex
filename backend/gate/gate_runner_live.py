@@ -68,17 +68,57 @@ def _compute_apex_day_pnl(positions: list[dict]) -> tuple[float, list[str]]:
     ledger and portfolio-history both stay clean) at the moment it happens
     rather than waiting on the separate untracked-position checker.
 
+    Both terms are genuine daily figures, not lifetime ones (fixed
+    2026-08-16, see
+    2026-08-12-apex-dual-logging-daily-pnl-conflation-prefix-reference —
+    the pre-fix version summed unrealized_pnl (since-entry) and pnl
+    (entry-to-exit), which diverges from broker's true day_pnl in
+    proportion to how far a position has drifted from entry, not to any
+    data-quality problem; a threshold built on that number can't tell the
+    two apart):
+      - Unrealized: unrealized_intraday_pnl (today's mark vs. prior close),
+        not unrealized_pnl (since-entry).
+      - Realized: for exits where entry was also today, entry-to-exit pnl
+        already is a daily figure — used as-is. For exits carried over from
+        an earlier day, exit_price vs. prior_close (not vs. entry_price) —
+        entry-to-exit would double-count the pre-today portion of the move.
+
     Returns (apex_day_pnl, tickers_open_in_db_but_missing_from_broker) — the
     missing list is itself evidence, not folded silently into the pnl sum as
     zero (that would hide exactly the defect this is meant to catch).
     """
     from datetime import datetime
     from zoneinfo import ZoneInfo
+
+    from backend.brokers.alpaca import get_prior_close
+
+    ny_today = datetime.now(ZoneInfo("America/New_York")).date()
     ny_midnight = datetime.now(ZoneInfo("America/New_York")).replace(
         hour=0, minute=0, second=0, microsecond=0
     ).astimezone(timezone.utc).isoformat()
 
-    realized = sum(t["pnl"] for t in get_live_trades_exited_since(ny_midnight))
+    realized = 0.0
+    for t in get_live_trades_exited_since(ny_midnight):
+        entry_date = datetime.fromisoformat(t["timestamp"]).astimezone(
+            ZoneInfo("America/New_York")
+        ).date()
+        if entry_date == ny_today:
+            # Opened and exited same day — entry price already is today's
+            # reference point, entry-to-exit is a daily figure as-is.
+            realized += t["pnl"]
+            continue
+        prior_close = get_prior_close(t["ticker"])
+        if prior_close is None:
+            # Can't compute a daily figure for this exit — fall back to the
+            # lifetime pnl rather than dropping it, but this is a known-
+            # imprecise term when it happens (logged, not silent).
+            logger.warning(
+                f"Live gate: no prior close for {t['ticker']} exit — "
+                "using lifetime pnl for this leg's realized contribution"
+            )
+            realized += t["pnl"]
+            continue
+        realized += (t["exit_price"] - prior_close) * t["qty"]
 
     positions_by_ticker = {p["ticker"]: p for p in positions}
     unrealized = 0.0
@@ -88,7 +128,7 @@ def _compute_apex_day_pnl(positions: list[dict]) -> tuple[float, list[str]]:
         if pos is None:
             missing.append(t["ticker"])
             continue
-        unrealized += pos["unrealized_pnl"] or 0.0
+        unrealized += pos["unrealized_intraday_pnl"] or 0.0
 
     return round(realized + unrealized, 2), missing
 
