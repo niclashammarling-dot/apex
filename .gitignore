@@ -26,6 +26,16 @@ data/backtest_cache/
 backend/data/*.db
 logs/
 
+# Regime EOD outputs — runtime state written by _save_result /
+# _append_signal_trace, same reasoning as apex.db above: a git-tracked
+# runtime output is destroyable by any `git checkout -- data/` (e.g. routine
+# test-pollution cleanup), which is what pinned both files at their 2026-07-16
+# committed content through 5+ weeks of live daily writes with the erasure
+# never distinguishable from a genuinely failed write. See
+# 2026-08-16-apex-trace-gap-erasure-not-failure (audit/CHECKS.md).
+data/regime_signal_trace.jsonl
+data/regime_result_cache.json
+
 # WSL metadata
 *:Zone.Identifier
 
