@@ -15,19 +15,29 @@ from __future__ import annotations
 from itertools import product
 
 from backend.backtest.engine_fast import precompute, run
-from backend.config import (
-    PROFIT_LOCK_TRAIL_PCT,
-    PROFIT_LOCK_TRIGGER_PCT,
-    STOP_LOSS_PCT,
-    TAKE_PROFIT_PCT,
-    TIME_STOP_DAYS,
-)
+from backend.config import TIME_STOP_DAYS
+from backend.live_config import get_live_config
 
 # ── Sweep config ───────────────────────────────────────────────────────────────
+# TP/SL/profit-lock read from the live runtime config (2026-08-18 fix), not
+# config.py's static defaults — this sweep was previously running on 6%/5%
+# (config.py) while live actually runs 6%/6% (live_config.json), a distinct
+# instance of the same defect the ratchet-sweep tooling carried. See
+# 2026-08-17-apex-backtest-tooling-incident-four-lessons (Vaultnix), item 2.
 
 START = "2021-01-01"
 END   = "2026-06-01"
 
+_cfg = get_live_config()
+TAKE_PROFIT_PCT         = _cfg["take_profit_pct"]
+STOP_LOSS_PCT           = _cfg["stop_loss_pct"]
+PROFIT_LOCK_TRIGGER_PCT = _cfg["profit_lock_trigger_pct"]
+PROFIT_LOCK_TRAIL_PCT   = _cfg["profit_lock_trail_pct"]
+
+# No longer a source of distortion now that engine_fast.py's ratchet fires
+# independent of trailing_stop_pct when profit-lock is configured (2026-08-18
+# engine fix) — kept only as the legacy bare-TSL fallback value, never
+# actually reached while profit_lock_trigger_pct/trail_pct are both set below.
 TRAILING_STOP_PCT = 0.09
 
 SL_DAYS_VALUES = [0, 1, 3, 5, 7, 10]
@@ -89,6 +99,8 @@ def main() -> None:
     pc = precompute(START, END)
 
     shared = dict(
+        take_profit_pct=TAKE_PROFIT_PCT,
+        stop_loss_pct=STOP_LOSS_PCT,
         trailing_stop_pct=TRAILING_STOP_PCT,
         profit_lock_trigger_pct=PROFIT_LOCK_TRIGGER_PCT,
         profit_lock_trail_pct=PROFIT_LOCK_TRAIL_PCT,
