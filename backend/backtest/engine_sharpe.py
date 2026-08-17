@@ -52,6 +52,7 @@ from backend.backtest.engine_fast import (
     _compute_metrics,
     _mark_to_market_fast,
     _sector_exposure,
+    _trading_days_count,
 )
 from backend.config import (
     DAILY_LOSS_CAP,
@@ -348,6 +349,7 @@ def run(
             pnl=round(pnl, 2),       pnl_pct=round(pnl_pct, 4),
             outcome=outcome,          exit_reason="END_OF_BACKTEST",
             signal_score=trade["signal_score"],
+            days_held=_trading_days_count(trade["entry_date"], end_date),
         ))
 
     # ── Metrics ───────────────────────────────────────────────────────────────

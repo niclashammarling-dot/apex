@@ -129,6 +129,9 @@ class TradeRecord(TypedDict):
     outcome: str           # OPEN | WIN | LOSS | EXPIRED
     exit_reason: str | None
     signal_score: float
+    days_held: int | None  # None for still-open trades; computed but never
+                            # stored here until 2026-08-18 — every sweep's
+                            # avg_hold read a phantom .get("days_held") 0
 
 
 class BacktestResult(TypedDict):
@@ -433,6 +436,7 @@ def run(
             pnl=round(pnl, 2), pnl_pct=round(pnl_pct, 4),
             outcome=outcome, exit_reason="END_OF_BACKTEST",
             signal_score=trade["signal_score"],
+            days_held=_trading_days_count(trade["entry_date"], end_date),
         ))
 
     return _compute_metrics(
@@ -534,13 +538,24 @@ def _check_exits(
     profit_lock_trigger_pct: float | None = None,
     profit_lock_trail_pct: float | None = None,
 ) -> list[dict]:
+    # Malformed profit-lock config: one set without the other previously did
+    # nothing silently (the old `if trigger and trail` guard swallowed it).
+    # Raise instead — closes the "accepts kwargs it doesn't apply" gap found
+    # 2026-08-17 in etf_penalty_sweep.py's call pattern.
+    if bool(profit_lock_trigger_pct) != bool(profit_lock_trail_pct):
+        raise ValueError(
+            f"profit_lock_trigger_pct and profit_lock_trail_pct must both be "
+            f"set or both be None — got trigger={profit_lock_trigger_pct!r} "
+            f"trail={profit_lock_trail_pct!r}"
+        )
+
     closed = []
     for trade in list(open_trades):
         current = _price_on(raw_data, trade["ticker"], today)
         if current is None:
             continue
 
-        # Update peak price for trailing stop
+        # Update peak price for trailing stop / profit-lock ratchet
         if current > trade.get("peak_price", trade["entry_price"]):
             trade["peak_price"] = current
 
@@ -549,19 +564,44 @@ def _check_exits(
 
         eff_tp = trade.get("tp", take_profit_pct)
         eff_sl = trade.get("sl", stop_loss_pct)
+        peak = trade.get("peak_price", trade["entry_price"])
+        peak_gain = (peak - trade["entry_price"]) / trade["entry_price"]
+
+        # Profit-lock ratchet: the fixed SL is the unconditional floor until
+        # peak gain clears the trigger threshold, at which point the ratchet
+        # (trail off peak) takes over completely. Matches wallet.py's actual
+        # post-2026-06-03 exit chain (TP -> SL unconditional -> profit-lock
+        # trail -> TIME; see 2026-06-03-apex-trailing-stop-sl-floor-bypass) —
+        # NOT the pre-fix behaviour this function carried until 2026-08-18,
+        # where `trailing_stop_pct is not None` replaced the fixed-SL branch
+        # entirely for the whole trade lifetime regardless of whether the
+        # ratchet had actually triggered. That defect meant every sweep run
+        # through this function (or engine_fast.py's identical copy) was
+        # evaluating an exit rule production hasn't run since June.
+        ratchet_active = bool(
+            profit_lock_trigger_pct and profit_lock_trail_pct
+            and peak_gain >= profit_lock_trigger_pct
+        )
 
         if pnl_pct >= eff_tp:
             reason, outcome = "TP", "WIN"
-        elif trailing_stop_pct is not None:
-            # Trailing stop replaces fixed SL — matches wallet.py / live_trades_tracker behaviour
-            peak = trade.get("peak_price", trade["entry_price"])
+        elif ratchet_active:
             trail_pct = (peak - current) / peak
-            # Profit-lock: tighten trail once peak gain clears trigger threshold
-            eff_tsl = trailing_stop_pct
-            if profit_lock_trigger_pct and profit_lock_trail_pct:
-                if (peak - trade["entry_price"]) / trade["entry_price"] >= profit_lock_trigger_pct:
-                    eff_tsl = profit_lock_trail_pct
-            if trail_pct >= eff_tsl:
+            if trail_pct >= profit_lock_trail_pct:
+                reason, outcome = "TSL", "WIN" if pnl_pct >= 0 else "LOSS"
+            elif days_held >= time_stop_days:
+                reason, outcome = "TIME", "EXPIRED"
+            else:
+                continue
+        elif trailing_stop_pct is not None and not (profit_lock_trigger_pct and profit_lock_trail_pct):
+            # Legacy bare-trailing-stop mode, preserved for backward
+            # compatibility with callers testing a plain TSL with no
+            # profit-lock tiering (pre-2026-05-27 live behaviour). Only
+            # reachable when profit-lock isn't configured at all — when it
+            # is, the fixed SL above is the pre-trigger floor, matching
+            # production; trailing_stop_pct is not consulted in that case.
+            trail_pct = (peak - current) / peak
+            if trail_pct >= trailing_stop_pct:
                 reason, outcome = "TSL", "WIN" if pnl_pct >= 0 else "LOSS"
             elif days_held >= time_stop_days:
                 reason, outcome = "TIME", "EXPIRED"
@@ -583,6 +623,7 @@ def _check_exits(
             pnl=round(pnl, 2), pnl_pct=round(pnl_pct, 4),
             outcome=outcome, exit_reason=reason,
             signal_score=trade["signal_score"],
+            days_held=days_held,
         )
         closed.append({"_trade": trade, "record": record})
     return closed
