@@ -199,7 +199,13 @@ def compare_performance():
             from backend.db import get_all_live_trades
             acct      = broker.get_account()
             lt        = get_all_live_trades()
-            closed_lt = [t for t in lt if t["outcome"] in ("WIN", "LOSS")]
+            # exit_confidence == 'unverified' excludes the RECONCILIATION-tagged
+            # batch (2026-08-18) — none of those seven rows have a corroborating
+            # Alpaca fill. Excluded from stats, not deleted; /live/trades still
+            # shows every row including these.
+            closed_lt = [t for t in lt
+                         if t["outcome"] in ("WIN", "LOSS")
+                         and t.get("exit_confidence") != "unverified"]
             open_lt   = [t for t in lt if t["outcome"] == "OPEN"]
             wins      = [t for t in closed_lt if t["outcome"] == "WIN"]
             losses    = [t for t in closed_lt if t["outcome"] == "LOSS"]
