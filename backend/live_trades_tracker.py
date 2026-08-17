@@ -333,7 +333,7 @@ def check_live_exits() -> list[dict]:
             except Exception as e:
                 if "position not found" in str(e).lower() or "40410000" in str(e):
                     logger.warning(f"Live time-stop [{ticker}]: position not found on broker — reconciling")
-                    exit_price, exit_reason, exited_at = _find_exit_from_orders(ticker, broker)
+                    exit_price, exit_reason, exited_at = _find_exit_from_orders(ticker, broker, trade["timestamp"])
                     if exit_price is None:
                         logger.warning(f"Live time-stop [{ticker}]: position gone but no filled order — skipping")
                         continue
@@ -401,7 +401,7 @@ def check_live_exits() -> list[dict]:
             # this is a suspected bad read, not a confirmed close — leave the
             # resting order in place (harmless: it can't fill against nothing)
             # and fall through to the freeze/alert below instead of acting.
-            exit_price, exit_reason, exited_at = _find_exit_from_orders(ticker, broker)
+            exit_price, exit_reason, exited_at = _find_exit_from_orders(ticker, broker, trade["timestamp"])
             if exit_price is not None:
                 try:
                     cancelled = broker.cancel_open_orders(ticker)
@@ -644,10 +644,33 @@ def _find_filled_sell_leg(order: dict) -> dict | None:
     return None
 
 
-def _find_exit_from_orders(ticker: str, broker) -> tuple[float | None, str, str]:
+def _find_exit_from_orders(ticker: str, broker, entry_timestamp: str) -> tuple[float | None, str, str]:
     """
     Search recent Alpaca orders for the most recent filled sell order for ticker.
-    Returns (exit_price, exit_reason, exited_at). exit_price is None if not found.
+    Returns (exit_price, exit_reason, exited_at). exit_price is None if not found
+    OR if the only candidate fill fails one of the two invariants below.
+
+    Two invariants added 2026-08-18 after the LLY incident (row 25, entered
+    2026-06-26, silently assigned row 8's real exit — same ticker, a fill
+    from a *different* trade closed 2026-05-28, a month before row 25's own
+    entry — because this function matched on ticker alone with no check that
+    the fill postdated the trade it was being attached to, or that it hadn't
+    already been consumed by an earlier-closed trade for the same ticker):
+
+    1. The fill must be timestamped after this trade's own entry. A fill that
+       predates entry cannot possibly be this trade's exit, no matter how
+       plausible the price looks.
+    2. The fill must not already be recorded as another live_trades row's
+       exit (same exit_price + exited_at pair) — Alpaca's paper-account order
+       history can be thin enough to return a stale fill already consumed by
+       a prior trade for the same ticker.
+
+    If no fill satisfies both, this returns (None, "MANUAL", <now>) — same as
+    "no fill found" — which routes callers to the existing freeze-and-alert
+    path (mark_live_trade_unreconciled) rather than fabricating an exit. This
+    is the same freeze-not-fabricate discipline already in place for the
+    zero-candidates case; a fill that fails these invariants is not weaker
+    evidence than none at all, it's evidence about a different trade.
     """
     try:
         orders = broker.get_orders(limit=100, nested=True)
@@ -668,23 +691,53 @@ def _find_exit_from_orders(ticker: str, broker) -> tuple[float | None, str, str]
         and "sell" in (o.get("side") or "").lower()
         and (o.get("filled_price") or o.get("filled_avg_price"))
     ]
-    if not filled_sells:
-        return None, "MANUAL", datetime.now(timezone.utc).isoformat()
 
-    # Most recent by filled_at, falling back to submitted_at
-    best = max(filled_sells, key=lambda o: o.get("filled_at") or o.get("submitted_at") or "")
-    exit_price = best.get("filled_price") or best.get("filled_avg_price")
-    exited_at  = best.get("filled_at") or datetime.now(timezone.utc).isoformat()
+    # Invariant 1: fill must postdate this trade's own entry.
+    filled_sells = [
+        o for o in filled_sells
+        if (o.get("filled_at") or o.get("submitted_at") or "") > entry_timestamp
+    ]
 
-    order_type = (best.get("type") or best.get("order_type") or "").lower()
-    if "limit" in order_type:
-        exit_reason = "TP"
-    elif "stop" in order_type:
-        exit_reason = "SL"
-    else:
-        exit_reason = "MANUAL"
+    # Invariant 2: fill must not already be consumed by another trade's
+    # recorded exit. Sorted newest-first so the first candidate that clears
+    # both invariants is used; a stale/consumed fill doesn't disqualify a
+    # genuinely newer one for the same ticker.
+    filled_sells.sort(key=lambda o: o.get("filled_at") or o.get("submitted_at") or "", reverse=True)
 
-    return exit_price, exit_reason, exited_at
+    for candidate in filled_sells:
+        exit_price = candidate.get("filled_price") or candidate.get("filled_avg_price")
+        exited_at  = candidate.get("filled_at") or datetime.now(timezone.utc).isoformat()
+
+        from backend.db import get_db
+        conn = get_db()
+        try:
+            already_consumed = conn.execute(
+                "SELECT 1 FROM live_trades WHERE exit_price = ? AND exited_at = ? LIMIT 1",
+                (exit_price, exited_at),
+            ).fetchone()
+        finally:
+            conn.close()
+        if already_consumed:
+            logger.warning(
+                f"_find_exit_from_orders [{ticker}]: candidate fill "
+                f"(price={exit_price}, at={exited_at}) already recorded as "
+                f"another trade's exit — skipping, not reusing"
+            )
+            continue
+
+        order_type = (candidate.get("type") or candidate.get("order_type") or "").lower()
+        if "limit" in order_type:
+            exit_reason = "TP"
+        elif "stop" in order_type:
+            exit_reason = "SL"
+        else:
+            exit_reason = "MANUAL"
+
+        return exit_price, exit_reason, exited_at
+
+    # No candidate cleared both invariants — same disposition as "no fill
+    # found at all": freeze and alert, don't fabricate.
+    return None, "MANUAL", datetime.now(timezone.utc).isoformat()
 
 
 def _current_price(ticker: str) -> float | None:
