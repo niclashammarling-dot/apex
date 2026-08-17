@@ -227,6 +227,15 @@ def run(
 
     logger.info(f"Backtest: loading data {start} → {end} (tp={tp:.0%} sl={sl:.0%} days={tdays} l1={l1})")
 
+    # Authoritative universe, not the static config.py fallback — SECTORS is
+    # fallback-only per the 2026-05-14 fix that made the live signal path
+    # prefer tickers.json/get_sectors() at read time. This function imported
+    # SECTORS directly and never received that fix (found 2026-08-18: 93
+    # tickers here vs. 104 in tickers.json, a third occurrence of the same
+    # stale-static-source defect this session already found twice elsewhere).
+    from backend.ticker_config import get_sectors
+    SECTORS = get_sectors()
+
     # Download full history for all tickers + SPY + sector ETFs (+ VIX if macro filter active)
     lookback_start = start - timedelta(days=130)  # 130d buffer for 90d rolling indicators + MA50
     etf_tickers    = [cfg["etf"] for cfg in SECTORS.values()]

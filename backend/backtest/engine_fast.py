@@ -119,6 +119,12 @@ def run(
     if end <= start:
         raise ValueError("end_date must be after start_date")
 
+    # Authoritative universe, not the static config.py fallback — see
+    # engine.py::run() for the full note on this defect (2026-08-18). Bound
+    # before the precomputed/else split since both branches reference it.
+    from backend.ticker_config import get_sectors
+    SECTORS = get_sectors()
+
     if precomputed is not None:
         raw_data      = precomputed["raw_data"]
         ticker_sector = precomputed["ticker_sector"]
@@ -371,6 +377,9 @@ def precompute(start_date: str, end_date: str) -> dict:
     """
     start = date.fromisoformat(start_date)
     end   = date.fromisoformat(end_date)
+
+    from backend.ticker_config import get_sectors
+    SECTORS = get_sectors()
 
     lookback_start = start - timedelta(days=130)
     etf_tickers    = [cfg["etf"] for cfg in SECTORS.values()]
