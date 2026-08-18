@@ -154,6 +154,9 @@ def _live_stats(since: str) -> dict:
     from backend.db import get_db
     conn = get_db()
     try:
+        # exit_confidence != 'unverified' excludes the RECONCILIATION-tagged
+        # batch (2026-08-18) — same filter as get_live_equity_curve() and
+        # /live/compare; without it this report silently disagreed with both.
         closed = conn.execute("""
             SELECT
                 COUNT(*) AS total,
@@ -164,6 +167,7 @@ def _live_stats(since: str) -> dict:
                 COALESCE(SUM(CASE WHEN exit_reason='REGIME' THEN pnl ELSE 0 END), 0) AS regime_pnl
             FROM live_trades
             WHERE exited_at >= ? AND outcome IN ('WIN','LOSS','EXPIRED')
+              AND exit_confidence != 'unverified'
         """, (since,)).fetchone()
 
         open_row = conn.execute("""
