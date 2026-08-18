@@ -56,6 +56,7 @@ class TradeRecord(TypedDict):
     outcome: str           # OPEN | WIN | LOSS | EXPIRED
     exit_reason: str | None
     signal_score: float
+    days_held: int | None
 
 
 class BacktestResult(TypedDict):
@@ -117,6 +118,12 @@ def run(
 
     if end <= start:
         raise ValueError("end_date must be after start_date")
+
+    # Authoritative universe, not the static config.py fallback — see
+    # engine.py::run() for the full note on this defect (2026-08-18). Bound
+    # before the precomputed/else split since both branches reference it.
+    from backend.ticker_config import get_sectors
+    SECTORS = get_sectors()
 
     if precomputed is not None:
         raw_data      = precomputed["raw_data"]
@@ -309,6 +316,7 @@ def run(
             pnl=round(pnl, 2), pnl_pct=round(pnl_pct, 4),
             outcome=outcome, exit_reason="END_OF_BACKTEST",
             signal_score=trade["signal_score"],
+            days_held=_trading_days_count(trade["entry_date"], end_date),
         ))
 
     return _compute_metrics(
@@ -369,6 +377,9 @@ def precompute(start_date: str, end_date: str) -> dict:
     """
     start = date.fromisoformat(start_date)
     end   = date.fromisoformat(end_date)
+
+    from backend.ticker_config import get_sectors
+    SECTORS = get_sectors()
 
     lookback_start = start - timedelta(days=130)
     etf_tickers    = [cfg["etf"] for cfg in SECTORS.values()]
@@ -704,6 +715,15 @@ def _check_exits_fast(
     profit_lock_trigger_pct: float | None = None,
     profit_lock_trail_pct:   float | None = None,
 ) -> list[dict]:
+    # See engine.py::_check_exits for the full derivation of this fix
+    # (2026-08-17/18) — this function carried the identical defect.
+    if bool(profit_lock_trigger_pct) != bool(profit_lock_trail_pct):
+        raise ValueError(
+            f"profit_lock_trigger_pct and profit_lock_trail_pct must both be "
+            f"set or both be None — got trigger={profit_lock_trigger_pct!r} "
+            f"trail={profit_lock_trail_pct!r}"
+        )
+
     closed = []
     for trade in list(open_trades):
         current = price_cache.get((trade["ticker"], today_str))
@@ -717,18 +737,32 @@ def _check_exits_fast(
         days_held = _trading_days_count(trade["entry_date"], today_str)
         eff_tp    = trade.get("tp", take_profit_pct)
         eff_sl    = trade.get("sl", stop_loss_pct)
+        peak      = trade.get("peak_price", trade["entry_price"])
+        peak_gain = (peak - trade["entry_price"]) / trade["entry_price"]
+
+        # Fixed SL is the unconditional floor until peak gain clears the
+        # profit-lock trigger — matches wallet.py's actual exit chain, not
+        # the pre-fix trailing_stop_pct-replaces-SL behaviour this function
+        # carried until 2026-08-18.
+        ratchet_active = bool(
+            profit_lock_trigger_pct and profit_lock_trail_pct
+            and peak_gain >= profit_lock_trigger_pct
+        )
 
         if pnl_pct >= eff_tp:
             reason, outcome = "TP", "WIN"
-        elif trailing_stop_pct is not None:
-            # Trailing stop replaces fixed SL (matches wallet.py check_exits logic)
-            peak      = trade.get("peak_price", trade["entry_price"])
+        elif ratchet_active:
             trail_pct = (peak - current) / peak
-            eff_tsl   = trailing_stop_pct
-            if profit_lock_trigger_pct and profit_lock_trail_pct:
-                if (peak - trade["entry_price"]) / trade["entry_price"] >= profit_lock_trigger_pct:
-                    eff_tsl = profit_lock_trail_pct
-            if trail_pct >= eff_tsl:
+            if trail_pct >= profit_lock_trail_pct:
+                reason, outcome = "TSL", "WIN" if pnl_pct >= 0 else "LOSS"
+            elif days_held >= time_stop_days:
+                reason, outcome = "TIME", "EXPIRED"
+            else:
+                continue
+        elif trailing_stop_pct is not None and not (profit_lock_trigger_pct and profit_lock_trail_pct):
+            # Legacy bare-trailing-stop mode, backward compat — see engine.py.
+            trail_pct = (peak - current) / peak
+            if trail_pct >= trailing_stop_pct:
                 reason, outcome = "TSL", "WIN" if pnl_pct >= 0 else "LOSS"
             elif days_held >= time_stop_days:
                 reason, outcome = "TIME", "EXPIRED"
@@ -750,6 +784,7 @@ def _check_exits_fast(
             pnl=round(pnl, 2), pnl_pct=round(pnl_pct, 4),
             outcome=outcome, exit_reason=reason,
             signal_score=trade["signal_score"],
+            days_held=days_held,
         )
         closed.append({"_trade": trade, "record": record})
     return closed

@@ -332,6 +332,25 @@ def init_db() -> None:
         # price updates, and position events do not clear it. Once the ratchet
         # fires, subsequent cycles skip the check entirely via this flag.
         _add_column_if_missing(conn, "live_trades", "profit_lock_activated", "INTEGER DEFAULT 0")
+        # Confidence flag — 2026-08-18, RECONCILIATION-tagged rows (7 exits
+        # booked 2026-07-07, all in one batch, from a fabrication path closed
+        # 2026-08-06). Zero of the seven have a corroborating fill in
+        # /account/activities/FILL for their entire entry-to-exit window —
+        # checked directly against the live Alpaca account, not assumed.
+        # 'confirmed' is the default for every other row (real fills or the
+        # freeze-not-fabricate UNRECONCILED path); 'unverified' marks rows
+        # whose exit_price/pnl were never corroborated. The flag preserves
+        # what happened (the raw row keeps its RECONCILIATION exit_reason and
+        # numbers — nothing is deleted or silently dropped), and two
+        # consumers (get_live_equity_curve, /live/compare) exclude
+        # 'unverified' rows by default so a future reader can see that four
+        # of the batch's rows were flagged WIN on unconfirmed exits without
+        # having to independently re-derive it.
+        _add_column_if_missing(conn, "live_trades", "exit_confidence", "TEXT DEFAULT 'confirmed'")
+        conn.execute("""
+            UPDATE live_trades SET exit_confidence = 'unverified'
+            WHERE exit_reason = 'RECONCILIATION'
+        """)
         conn.commit()
     finally:
         conn.close()
@@ -1163,11 +1182,15 @@ def get_live_equity_curve(unrealised_total: float = 0.0, since: str | None = Non
     starting_balance     = cfg.get("starting_balance", 100_000.0)
     conn = get_db()
     try:
+        # exit_confidence != 'unverified' excludes rows whose exit was never
+        # corroborated against a real fill (2026-08-18) — see the
+        # RECONCILIATION-batch note on the exit_confidence column above.
         if since:
             closed = conn.execute("""
                 SELECT exited_at AS ts, pnl
                 FROM live_trades
                 WHERE outcome IN ('WIN', 'LOSS') AND exited_at IS NOT NULL
+                  AND exit_confidence != 'unverified'
                   AND timestamp >= ?
                 ORDER BY exited_at ASC
             """, (since,)).fetchall()
@@ -1176,6 +1199,7 @@ def get_live_equity_curve(unrealised_total: float = 0.0, since: str | None = Non
                 SELECT exited_at AS ts, pnl
                 FROM live_trades
                 WHERE outcome IN ('WIN', 'LOSS') AND exited_at IS NOT NULL
+                  AND exit_confidence != 'unverified'
                 ORDER BY exited_at ASC
             """).fetchall()
 
