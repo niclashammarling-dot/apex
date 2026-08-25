@@ -86,7 +86,7 @@ def _fetch_prices(tickers: list[str]) -> dict[str, float]:
         return {}
 
 
-def _demo_stats(since: str) -> dict:
+def _demo_stats(since: str, until: str) -> dict:
     from backend.config import STARTING_BALANCE
     from backend.db import get_db
     conn = get_db()
@@ -100,8 +100,8 @@ def _demo_stats(since: str) -> dict:
                 SUM(CASE WHEN exit_reason='REGIME' THEN 1 ELSE 0 END) AS regime_exits,
                 COALESCE(SUM(CASE WHEN exit_reason='REGIME' THEN pnl ELSE 0 END), 0) AS regime_pnl
             FROM trades
-            WHERE exited_at >= ? AND outcome IN ('WIN','LOSS','EXPIRED')
-        """, (since,)).fetchone()
+            WHERE exited_at >= ? AND exited_at < ? AND outcome IN ('WIN','LOSS','EXPIRED')
+        """, (since, until)).fetchone()
 
         open_rows = conn.execute("""
             SELECT ticker, shares, amount FROM trades WHERE outcome = 'OPEN'
@@ -150,7 +150,7 @@ def _demo_stats(since: str) -> dict:
         conn.close()
 
 
-def _live_stats(since: str) -> dict:
+def _live_stats(since: str, until: str) -> dict:
     from backend.db import get_db
     conn = get_db()
     try:
@@ -166,9 +166,9 @@ def _live_stats(since: str) -> dict:
                 SUM(CASE WHEN exit_reason='REGIME' THEN 1 ELSE 0 END) AS regime_exits,
                 COALESCE(SUM(CASE WHEN exit_reason='REGIME' THEN pnl ELSE 0 END), 0) AS regime_pnl
             FROM live_trades
-            WHERE exited_at >= ? AND outcome IN ('WIN','LOSS','EXPIRED')
+            WHERE exited_at >= ? AND exited_at < ? AND outcome IN ('WIN','LOSS','EXPIRED')
               AND exit_confidence != 'unverified'
-        """, (since,)).fetchone()
+        """, (since, until)).fetchone()
 
         open_row = conn.execute("""
             SELECT COUNT(*) AS cnt FROM live_trades WHERE outcome = 'OPEN'
@@ -187,7 +187,7 @@ def _live_stats(since: str) -> dict:
         conn.close()
 
 
-def _gate_funnel(since: str) -> dict:
+def _gate_funnel(since: str, until: str) -> dict:
     """Demo gate pass rates for the week."""
     from backend.db import get_db
     conn = get_db()
@@ -203,14 +203,14 @@ def _gate_funnel(since: str) -> dict:
                 SUM(CASE WHEN lock2_pass=1 AND lock3_pass=0 THEN 1 ELSE 0 END) AS l3_fail,
                 SUM(CASE WHEN lock3_pass=1 THEN 1 ELSE 0 END) AS traded
             FROM signals
-            WHERE timestamp >= ? AND gate_decision IS NOT NULL
-        """, (since,)).fetchone()
+            WHERE timestamp >= ? AND timestamp < ? AND gate_decision IS NOT NULL
+        """, (since, until)).fetchone()
         return dict(row) if row else {}
     finally:
         conn.close()
 
 
-def _live_gate_funnel(since: str) -> dict:
+def _live_gate_funnel(since: str, until: str) -> dict:
     from backend.db import get_db
     conn = get_db()
     try:
@@ -225,31 +225,31 @@ def _live_gate_funnel(since: str) -> dict:
                 SUM(CASE WHEN lock2_pass=1 AND lock3_pass=0 THEN 1 ELSE 0 END) AS l3_fail,
                 SUM(CASE WHEN lock3_pass=1 THEN 1 ELSE 0 END) AS traded
             FROM live_gate_history
-            WHERE timestamp >= ? AND gate_decision IS NOT NULL
-        """, (since,)).fetchone()
+            WHERE timestamp >= ? AND timestamp < ? AND gate_decision IS NOT NULL
+        """, (since, until)).fetchone()
         return dict(row) if row else {}
     finally:
         conn.close()
 
 
-def _top_sector(since: str) -> tuple[str, float] | None:
+def _top_sector(since: str, until: str) -> tuple[str, float] | None:
     from backend.db import get_db
     conn = get_db()
     try:
         row = conn.execute("""
             SELECT sector, ROUND(AVG(avg_score), 4) AS score
             FROM sector_snapshots
-            WHERE timestamp >= ?
+            WHERE timestamp >= ? AND timestamp < ?
             GROUP BY sector
             ORDER BY score DESC
             LIMIT 1
-        """, (since,)).fetchone()
+        """, (since, until)).fetchone()
         return (row["sector"], row["score"]) if row else None
     finally:
         conn.close()
 
 
-def _threshold_status(since: str) -> dict:
+def _threshold_status(since: str, until: str) -> dict:
     """
     Per-sector Lock 1 threshold status.
 
@@ -273,8 +273,8 @@ def _threshold_status(since: str) -> dict:
     try:
         rows = conn.execute("""
             SELECT sector, signal_score FROM ticker_history
-            WHERE day >= DATE(?)
-        """, (since[:10],)).fetchall()
+            WHERE day >= DATE(?) AND day < DATE(?)
+        """, (since[:10], until[:10])).fetchall()
     finally:
         conn.close()
 
@@ -468,15 +468,16 @@ def _gpt4o_commentary(
 def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) -> tuple[str, str, str]:
     """Return (subject, html_body, plain_body)."""
     since  = _week_start_iso()
+    until  = (datetime.fromisoformat(since) + timedelta(days=7)).isoformat()
     now    = datetime.now(timezone.utc)
     week_label = now.strftime("Week ending %B %d, %Y")
 
-    demo  = _demo_stats(since)
-    live  = _live_stats(since)
-    dfunnel = _gate_funnel(since)
-    lfunnel = _live_gate_funnel(since)
-    top_sector = _top_sector(since)
-    thresh_status = _threshold_status(since)
+    demo  = _demo_stats(since, until)
+    live  = _live_stats(since, until)
+    dfunnel = _gate_funnel(since, until)
+    lfunnel = _live_gate_funnel(since, until)
+    top_sector = _top_sector(since, until)
+    thresh_status = _threshold_status(since, until)
     sweep_top  = _sweep_best()
 
     commentary = _gpt4o_commentary(
@@ -797,7 +798,8 @@ def send_weekly_report() -> None:
     flagged: list[str] = []
     try:
         since = _week_start_iso()
-        status = _threshold_status(since)
+        until = (datetime.fromisoformat(since) + timedelta(days=7)).isoformat()
+        status = _threshold_status(since, until)
         # Only recalibrate upward drift (scores expanded — threshold too loose).
         # Low pass rates during a broad selloff are the regime floor working correctly;
         # recalibrating down would make the system most permissive right after a crash.

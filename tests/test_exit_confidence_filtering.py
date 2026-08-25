@@ -106,7 +106,7 @@ class TestExitConfidenceFiltering:
     def test_weekly_report_excludes_unverified(self):
         from backend.weekly_report import _live_stats
 
-        before = _live_stats(since="2026-01-01")["realized_pnl"]
+        before = _live_stats(since="2026-01-01", until="2099-01-01")["realized_pnl"]
         _insert_confirmed_and_unverified("E")
-        after = _live_stats(since="2026-01-01")["realized_pnl"]
+        after = _live_stats(since="2026-01-01", until="2099-01-01")["realized_pnl"]
         assert round(after - before, 2) == 6.0
