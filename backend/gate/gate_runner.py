@@ -80,6 +80,7 @@ def run() -> list[dict]:
             "l2_summary": None, "macro_reason": None,
             "ticker_signal": None, "earnings_near": None, "days_to_earnings": None,
             "lock3_sentiment_score": None, "lock3_conviction": None,
+            "overflow_slot": False,
         })
 
     if skipped:
