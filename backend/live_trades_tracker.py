@@ -332,10 +332,84 @@ def check_live_exits() -> list[dict]:
                 exit_price = float(result.get("filled_avg_price") or current or entry_price)
             except Exception as e:
                 if "position not found" in str(e).lower() or "40410000" in str(e):
-                    logger.warning(f"Live time-stop [{ticker}]: position not found on broker — reconciling")
-                    exit_price, exit_reason, exited_at = _find_exit_from_orders(ticker, broker, trade["timestamp"])
+                    # alpaca_positions is a snapshot taken at the top of this
+                    # cycle, before this trade's close_position() call — if it
+                    # showed the ticker present, this is two broker reads
+                    # disagreeing on the same symbol within one cycle, not
+                    # ordinary order-history lag. Named explicitly (2026-08-23)
+                    # because it's stronger evidence of a genuine fault than
+                    # either read alone, and had no distinct signal before.
+                    contradiction = alpaca_positions is not None and ticker in alpaca_positions
+                    if contradiction:
+                        logger.error(f"Live time-stop [{ticker}]: CONTRADICTION — this cycle's "
+                                      f"positions snapshot shows {ticker} held, but close_position() "
+                                      f"just reported it not found")
+                    else:
+                        logger.warning(f"Live time-stop [{ticker}]: position not found on broker — reconciling")
+                    exit_price, exit_reason, exited_at, evidence = \
+                        _find_exit_from_orders(ticker, broker, trade["timestamp"])
+
+                    # A contradiction is never resolved by a third feed
+                    # silently (2026-08-23) — even a corroborating fill from
+                    # activities would book an exit while the position may
+                    # still sit in the broker's own current-positions view,
+                    # running the HON shape in the opposite direction (APEX
+                    # goes flat in the DB while the broker still reports the
+                    # row held). Two broker feeds directly disagreeing about
+                    # whether a position exists is a human question, not
+                    # something _find_exit_from_orders' evidence — however
+                    # strong — gets to settle on its own.
+                    if contradiction:
+                        note = (
+                            f"CONTRADICTION: this cycle's positions snapshot showed {ticker} held, "
+                            f"but close_position() reported it not found at "
+                            f"{datetime.now(timezone.utc).isoformat()}. "
+                            f"_find_exit_from_orders evidence={evidence}"
+                            + (f", candidate exit=${exit_price:.2f} at {exited_at} "
+                               f"(NOT booked — contradiction overrides corroboration)"
+                               if exit_price is not None else ", no candidate fill either")
+                            + f". entry ${trade['entry_price']:.2f} x {trade['qty']:g} on order {order_id}. "
+                            "Two broker reads disagree about whether this position exists — resolve manually."
+                        )
+                        logger.error(f"Live time-stop [{ticker}]: UNRECONCILED (contradiction) — {note}")
+                        mark_live_trade_unreconciled(trade["id"], note)
+                        try:
+                            from backend.alerts import alert_position_unreconciled
+                            alert_position_unreconciled(ticker, trade["entry_price"], trade["qty"], note)
+                        except Exception as _ae:
+                            logger.warning(f"Live time-stop [{ticker}]: alert failed — {_ae}")
+                        continue
+
+                    if evidence == "exit_in_progress":
+                        # Positive evidence the exit is actually happening,
+                        # not evidence of nothing — freezing the whole
+                        # account over an order doing exactly what it should
+                        # is the freeze-isn't-free cost paid for no reason.
+                        # Bounded retry: leave the trade OPEN, no alert, the
+                        # completing fill row should show up next cycle.
+                        logger.info(f"Live time-stop [{ticker}]: sell order still filling per "
+                                    f"account-activities — retrying next cycle, not freezing")
+                        continue
+
                     if exit_price is None:
-                        logger.warning(f"Live time-stop [{ticker}]: position gone but no filled order — skipping")
+                        # 2026-08-23: this used to warn and continue, retrying
+                        # silently next cycle — the weaker response of the two
+                        # call sites despite having the stronger evidence (APEX
+                        # itself just attempted a destructive close against a
+                        # position of uncertain state). Site 2's freeze/alert
+                        # is symmetric with this outcome.
+                        note = (
+                            f"time-stop close_position() reported {ticker} not found at "
+                            f"{datetime.now(timezone.utc).isoformat()}; {_evidence_clause(evidence)} "
+                            f"(entry ${trade['entry_price']:.2f} x {trade['qty']:g} on order {order_id})"
+                        )
+                        logger.error(f"Live time-stop [{ticker}]: UNRECONCILED — {note}")
+                        mark_live_trade_unreconciled(trade["id"], note)
+                        try:
+                            from backend.alerts import alert_position_unreconciled
+                            alert_position_unreconciled(ticker, trade["entry_price"], trade["qty"], note)
+                        except Exception as _ae:
+                            logger.warning(f"Live time-stop [{ticker}]: alert failed — {_ae}")
                         continue
                     pnl     = round((exit_price - entry_price) * trade["qty"], 2)
                     outcome = "WIN" if pnl > 0 else "LOSS"
@@ -401,7 +475,7 @@ def check_live_exits() -> list[dict]:
             # this is a suspected bad read, not a confirmed close — leave the
             # resting order in place (harmless: it can't fill against nothing)
             # and fall through to the freeze/alert below instead of acting.
-            exit_price, exit_reason, exited_at = _find_exit_from_orders(ticker, broker, trade["timestamp"])
+            exit_price, exit_reason, exited_at, evidence = _find_exit_from_orders(ticker, broker, trade["timestamp"])
             if exit_price is not None:
                 try:
                     cancelled = broker.cancel_open_orders(ticker)
@@ -410,6 +484,13 @@ def check_live_exits() -> list[dict]:
                                     f"remaining after confirmed exit")
                 except Exception as _ce:
                     logger.warning(f"Live exit reconciliation [{ticker}]: could not cancel orders — {_ce}")
+            if exit_price is None and evidence == "exit_in_progress":
+                # Positive evidence the exit is actually happening, not
+                # evidence of nothing — see the time-stop path's identical
+                # branch above. Bounded retry, no freeze, no alert.
+                logger.info(f"Live exit reconciliation [{ticker}]: sell order still filling per "
+                            f"account-activities — retrying next cycle, not freezing")
+                continue
             if exit_price is None:
                 # Position gone from the broker but no fill, order, or account
                 # activity anywhere explains it (order history exhausted, bracket
@@ -422,7 +503,7 @@ def check_live_exits() -> list[dict]:
                 # broker support/dashboard before this trade record is touched again.
                 note = (
                     f"position gone from broker at {datetime.now(timezone.utc).isoformat()}; "
-                    f"no fill/order/activity record found (entry ${trade['entry_price']:.2f} "
+                    f"{_evidence_clause(evidence)} (entry ${trade['entry_price']:.2f} "
                     f"x {trade['qty']:g} on order {order_id})"
                 )
                 logger.error(f"Live exit reconciliation [{ticker}]: UNRECONCILED — {note}")
@@ -635,6 +716,30 @@ def cancel_orphan_brackets() -> int:
     return cancelled
 
 
+def _evidence_clause(evidence: str) -> str:
+    """
+    Human-readable clause for an UNRECONCILED note's evidence field —
+    2026-08-23. "Confirmed absent" and "couldn't check" both freeze the
+    trade but are not the same fact, and whoever triages this cold (the
+    time-stop path has never fired in production as of this writing —
+    max_hold_days=25 against a 33-trading-day-old account — so its first
+    real firing may be weeks out, long after this session is forgotten)
+    needs the distinction spelled out in the note itself, not re-derived
+    from the code.
+    """
+    return {
+        "both_feeds_empty":       "CONFIRMED ABSENT — both the orders feed and the account-activities "
+                                   "feed were read successfully and neither shows a corroborating fill",
+        "orders_unavailable":     "UNVERIFIED — the orders feed itself could not be read; "
+                                   "account-activities was never reached to check either",
+        "activities_unavailable": "PARTIALLY VERIFIED — the orders feed was empty but account-activities "
+                                   "could not be read to corroborate that; treat as unconfirmed, not absent",
+        "exit_in_progress":       "EXIT IN PROGRESS, not absent — a sell order for this ticker is actively "
+                                   "filling per account-activities (leaves_qty > 0); this should not have "
+                                   "reached a freeze path at all — see the calling code",
+    }.get(evidence, evidence)
+
+
 def _find_filled_sell_leg(order: dict) -> dict | None:
     """Return the first filled sell leg from a bracket order, or None."""
     for leg in order.get("legs") or []:
@@ -644,18 +749,45 @@ def _find_filled_sell_leg(order: dict) -> dict | None:
     return None
 
 
-def _find_exit_from_orders(ticker: str, broker, entry_timestamp: str) -> tuple[float | None, str, str]:
+def _find_exit_from_orders(ticker: str, broker, entry_timestamp: str) -> tuple[float | None, str, str, str]:
     """
-    Search recent Alpaca orders for the most recent filled sell order for ticker.
-    Returns (exit_price, exit_reason, exited_at). exit_price is None if not found
-    OR if the only candidate fill fails one of the two invariants below.
+    Search recent Alpaca orders, then /account/activities, for the most
+    recent filled sell for ticker. Returns
+    (exit_price, exit_reason, exited_at, evidence).
+
+    `evidence` names which state produced the result, because a None here
+    is not one thing (2026-08-23 — the "empty/failed read indistinguishable
+    from a genuine zero" class, re-identified inside this function's own
+    degradation path once its None started triggering a freeze):
+      - "found"                — a fill cleared both invariants; exit_price
+        is set.
+      - "both_feeds_empty"     — orders AND activities were both read
+        successfully and neither had a usable fill. Two independent
+        confirmations of absence — the strongest form of "no fill."
+      - "orders_unavailable"   — get_orders() itself failed; nothing
+        checked at all.
+      - "activities_unavailable" — orders was empty but the activities
+        corroboration call failed; only one feed was actually checked.
+      - "exit_in_progress"     — activities shows a sell order for this
+        ticker actively filling (leaves_qty > 0 on its latest row) but not
+        yet complete. Positive evidence the position is genuinely closing,
+        not evidence of nothing — callers must NOT freeze on this the way
+        they freeze on the other None states; bounded retry next cycle
+        instead (2026-08-23: freezing the whole account over an order
+        doing exactly what it should is the freeze-isn't-free cost paid
+        for no reason).
+    Callers must not treat "orders_unavailable"/"activities_unavailable"
+    the same as "both_feeds_empty" in an alert or note — "couldn't verify"
+    and "confirmed absent" call for different confidence language even
+    though both freeze the trade.
 
     Two invariants added 2026-08-18 after the LLY incident (row 25, entered
     2026-06-26, silently assigned row 8's real exit — same ticker, a fill
     from a *different* trade closed 2026-05-28, a month before row 25's own
     entry — because this function matched on ticker alone with no check that
     the fill postdated the trade it was being attached to, or that it hadn't
-    already been consumed by an earlier-closed trade for the same ticker):
+    already been consumed by an earlier-closed trade for the same ticker),
+    applied identically to both feeds:
 
     1. The fill must be timestamped after this trade's own entry. A fill that
        predates entry cannot possibly be this trade's exit, no matter how
@@ -664,19 +796,12 @@ def _find_exit_from_orders(ticker: str, broker, entry_timestamp: str) -> tuple[f
        exit (same exit_price + exited_at pair) — Alpaca's paper-account order
        history can be thin enough to return a stale fill already consumed by
        a prior trade for the same ticker.
-
-    If no fill satisfies both, this returns (None, "MANUAL", <now>) — same as
-    "no fill found" — which routes callers to the existing freeze-and-alert
-    path (mark_live_trade_unreconciled) rather than fabricating an exit. This
-    is the same freeze-not-fabricate discipline already in place for the
-    zero-candidates case; a fill that fails these invariants is not weaker
-    evidence than none at all, it's evidence about a different trade.
     """
     try:
         orders = broker.get_orders(limit=100, nested=True)
     except Exception as e:
         logger.warning(f"_find_exit_from_orders [{ticker}]: get_orders failed — {e}")
-        return None, "MANUAL", datetime.now(timezone.utc).isoformat()
+        return None, "MANUAL", datetime.now(timezone.utc).isoformat(), "orders_unavailable"
 
     # Flatten: include top-level orders + nested bracket legs so TP/SL fills are visible
     flat: list[dict] = []
@@ -733,11 +858,107 @@ def _find_exit_from_orders(ticker: str, broker, entry_timestamp: str) -> tuple[f
         else:
             exit_reason = "MANUAL"
 
-        return exit_price, exit_reason, exited_at
+        return exit_price, exit_reason, exited_at, "found"
 
-    # No candidate cleared both invariants — same disposition as "no fill
-    # found at all": freeze and alert, don't fabricate.
-    return None, "MANUAL", datetime.now(timezone.utc).isoformat()
+    # Orders feed found nothing usable. Before declaring "no fill" —
+    # corroborate against /account/activities, an independent read of the
+    # same account (2026-08-23, both call sites of this function). The
+    # HON arc's founding lesson (2026-08-06) is that orders is exactly the
+    # feed that can go empty while a position genuinely closed cleanly — a
+    # canceled OCO leg carries null fill fields in the orders feed, while
+    # activities stayed correct to the penny throughout that whole incident.
+    # Both feeds agreeing on empty is materially stronger evidence than
+    # orders alone; a fill visible in activities but not orders means the
+    # orders feed was the one that was empty, not the account.
+    #
+    # No ticker filter exists on this Alpaca endpoint (confirmed against the
+    # SDK's own request model — see get_activities()'s docstring), so this
+    # reads account-wide and filters by ticker here, same as the orders
+    # flatten step above. `after=entry_timestamp` both scopes the read and
+    # enforces invariant 1 at the source.
+    try:
+        activities = broker.get_activities("FILL", after=entry_timestamp)
+    except Exception as e:
+        logger.warning(f"_find_exit_from_orders [{ticker}]: activities corroboration unavailable — {e}")
+        return None, "MANUAL", datetime.now(timezone.utc).isoformat(), "activities_unavailable"
+
+    sell_fills = [
+        a for a in activities
+        if a.get("ticker") == ticker
+        and a.get("side") == "sell" and a.get("price")
+        and (a.get("filled_at") or "") > entry_timestamp
+    ]
+
+    # Group by order — a single sell order can produce several partial-fill
+    # rows before it's done (2026-08-23; TradeActivity carries leaves_qty/
+    # cum_qty precisely because of this). Taking the first matching row's
+    # price would book one slice's price instead of the volume-weighted
+    # average across the whole exit; a row with leaves_qty > 0 means the
+    # order hasn't finished filling yet, not that it produced no evidence.
+    by_order: dict[str, list[dict]] = {}
+    for a in sell_fills:
+        by_order.setdefault(a.get("order_id") or a.get("filled_at"), []).append(a)
+
+    # Newest order group first, by its most recent row's timestamp.
+    groups = sorted(
+        by_order.values(),
+        key=lambda rows: max(r.get("filled_at") or "" for r in rows),
+        reverse=True,
+    )
+
+    saw_in_progress = False
+    for rows in groups:
+        latest = max(rows, key=lambda r: r.get("filled_at") or "")
+        if (latest.get("leaves_qty") or 0) > 0:
+            # Positive evidence the position is genuinely closing, not lost
+            # — a materially different state from "nothing explains this."
+            # Not booked (the price isn't final yet) and not the trigger for
+            # the both-feeds-empty freeze either; see "exit_in_progress"
+            # below.
+            saw_in_progress = True
+            logger.info(f"_find_exit_from_orders [{ticker}]: sell order "
+                        f"{latest.get('order_id')} still filling "
+                        f"(leaves_qty={latest['leaves_qty']}) — not a completed exit yet")
+            continue
+
+        total_qty = sum(r.get("qty") or 0 for r in rows)
+        if total_qty <= 0:
+            continue
+        exit_price = round(sum((r.get("qty") or 0) * (r.get("price") or 0) for r in rows) / total_qty, 4)
+        exited_at  = latest.get("filled_at")
+
+        from backend.db import get_db
+        conn = get_db()
+        try:
+            already_consumed = conn.execute(
+                "SELECT 1 FROM live_trades WHERE exit_price = ? AND exited_at = ? LIMIT 1",
+                (exit_price, exited_at),
+            ).fetchone()
+        finally:
+            conn.close()
+        if already_consumed:
+            continue
+
+        logger.info(f"_find_exit_from_orders [{ticker}]: orders feed empty, activities feed "
+                    f"found a corroborating fill (${exit_price}, {len(rows)} slice(s)) — using it")
+        return exit_price, "MANUAL", exited_at, "found"
+
+    if saw_in_progress:
+        # A sell order for this ticker is actively filling — this is not an
+        # absence of evidence, it's evidence the exit hasn't finished. Freezing
+        # the whole account (CHECK 66) over an order that's in the middle of
+        # doing exactly what it should is the "the freeze isn't free" cost
+        # named at review, paid for no reason: the next cycle will very likely
+        # see the completing row. Callers must not freeze on this — bounded
+        # retry, not UNRECONCILED.
+        return None, "MANUAL", datetime.now(timezone.utc).isoformat(), "exit_in_progress"
+
+    # No candidate cleared both invariants in either feed, and both feeds
+    # were actually read successfully — two independent confirmations of
+    # absence, not one. Freeze and alert, don't fabricate.
+    logger.warning(f"_find_exit_from_orders [{ticker}]: orders and activities both show "
+                    f"no corroborating fill since entry")
+    return None, "MANUAL", datetime.now(timezone.utc).isoformat(), "both_feeds_empty"
 
 
 def _current_price(ticker: str) -> float | None:
