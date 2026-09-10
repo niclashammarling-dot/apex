@@ -18,9 +18,12 @@ from loguru import logger
 from backend.brokers.alpaca import OrderTerminalError
 from backend.config import LIVE_ENABLED
 from backend.db import (
+    clear_alert_latch,
     close_live_trade,
+    get_alert_latch_age_hours,
     get_open_live_trades,
     mark_live_trade_unreconciled,
+    set_alert_latch,
     set_live_trade_profit_lock_activated,
     update_live_trade_peak_price,
 )
@@ -52,6 +55,14 @@ _TERMINAL_ORDER_STATUSES = {
     OrderStatus.DONE_FOR_DAY.value,
     OrderStatus.REJECTED.value,
 }
+
+# Wall-clock cap on how long "exit_in_progress" (a sell order actively
+# filling per /account/activities, evidence of the exit happening rather
+# than of nothing) can suppress the freeze path — 2026-09-10, added at
+# design review. A genuinely stuck partial fill must eventually surface as
+# UNRECONCILED rather than retry silently forever; 24h covers several
+# cycles of ordinary lag while still catching a same-day stall.
+EXIT_IN_PROGRESS_MAX_AGE_HOURS = 24.0
 
 
 def _trading_days_since(iso_timestamp: str) -> int:
@@ -372,6 +383,7 @@ def check_live_exits() -> list[dict]:
                             "Two broker reads disagree about whether this position exists — resolve manually."
                         )
                         logger.error(f"Live time-stop [{ticker}]: UNRECONCILED (contradiction) — {note}")
+                        clear_alert_latch(f"exit_in_progress:{trade['id']}")
                         mark_live_trade_unreconciled(trade["id"], note)
                         try:
                             from backend.alerts import alert_position_unreconciled
@@ -386,10 +398,20 @@ def check_live_exits() -> list[dict]:
                         # account over an order doing exactly what it should
                         # is the freeze-isn't-free cost paid for no reason.
                         # Bounded retry: leave the trade OPEN, no alert, the
-                        # completing fill row should show up next cycle.
-                        logger.info(f"Live time-stop [{ticker}]: sell order still filling per "
-                                    f"account-activities — retrying next cycle, not freezing")
-                        continue
+                        # completing fill row should show up next cycle —
+                        # bounded by EXIT_IN_PROGRESS_MAX_AGE_HOURS (2026-09-10,
+                        # design review), not open-ended; a genuinely stuck
+                        # partial fill still has to surface eventually.
+                        if not _exit_in_progress_escalate(trade["id"]):
+                            logger.info(f"Live time-stop [{ticker}]: sell order still filling per "
+                                        f"account-activities — retrying next cycle, not freezing")
+                            continue
+                        logger.warning(f"Live time-stop [{ticker}]: exit_in_progress exceeded "
+                                        f"{EXIT_IN_PROGRESS_MAX_AGE_HOURS:.0f}h cap — escalating to freeze")
+                        evidence = "exit_in_progress_stale"
+                        clear_alert_latch(f"exit_in_progress:{trade['id']}")
+                    else:
+                        clear_alert_latch(f"exit_in_progress:{trade['id']}")
 
                     if exit_price is None:
                         # 2026-08-23: this used to warn and continue, retrying
@@ -411,6 +433,7 @@ def check_live_exits() -> list[dict]:
                         except Exception as _ae:
                             logger.warning(f"Live time-stop [{ticker}]: alert failed — {_ae}")
                         continue
+                    clear_alert_latch(f"exit_in_progress:{trade['id']}")
                     pnl     = round((exit_price - entry_price) * trade["qty"], 2)
                     outcome = "WIN" if pnl > 0 else "LOSS"
                     logger.info(f"Live exit reconciliation [{ticker}]: time-stop found position gone externally, exit=${exit_price:.2f}")
@@ -487,10 +510,19 @@ def check_live_exits() -> list[dict]:
             if exit_price is None and evidence == "exit_in_progress":
                 # Positive evidence the exit is actually happening, not
                 # evidence of nothing — see the time-stop path's identical
-                # branch above. Bounded retry, no freeze, no alert.
-                logger.info(f"Live exit reconciliation [{ticker}]: sell order still filling per "
-                            f"account-activities — retrying next cycle, not freezing")
-                continue
+                # branch above. Bounded retry, no freeze, no alert — bounded
+                # by EXIT_IN_PROGRESS_MAX_AGE_HOURS (2026-09-10, design
+                # review), same cap and same persisted-latch mechanism.
+                if not _exit_in_progress_escalate(trade["id"]):
+                    logger.info(f"Live exit reconciliation [{ticker}]: sell order still filling per "
+                                f"account-activities — retrying next cycle, not freezing")
+                    continue
+                logger.warning(f"Live exit reconciliation [{ticker}]: exit_in_progress exceeded "
+                                f"{EXIT_IN_PROGRESS_MAX_AGE_HOURS:.0f}h cap — escalating to freeze")
+                evidence = "exit_in_progress_stale"
+                clear_alert_latch(f"exit_in_progress:{trade['id']}")
+            elif exit_price is not None:
+                clear_alert_latch(f"exit_in_progress:{trade['id']}")
             if exit_price is None:
                 # Position gone from the broker but no fill, order, or account
                 # activity anywhere explains it (order history exhausted, bracket
@@ -507,6 +539,7 @@ def check_live_exits() -> list[dict]:
                     f"x {trade['qty']:g} on order {order_id})"
                 )
                 logger.error(f"Live exit reconciliation [{ticker}]: UNRECONCILED — {note}")
+                clear_alert_latch(f"exit_in_progress:{trade['id']}")
                 mark_live_trade_unreconciled(trade["id"], note)
                 try:
                     from backend.alerts import alert_position_unreconciled
@@ -716,6 +749,33 @@ def cancel_orphan_brackets() -> int:
     return cancelled
 
 
+def _exit_in_progress_escalate(trade_id: int) -> bool:
+    """
+    Returns True once "exit_in_progress" has been standing on this trade for
+    longer than EXIT_IN_PROGRESS_MAX_AGE_HOURS — the caller should stop
+    retrying and fall through to the freeze path. False means keep retrying.
+
+    Persisted via alert_latches' (key, set_at) shape rather than an
+    in-memory counter — 2026-09-10, design review. A per-process retry
+    count resets to zero on restart, which is exactly the 2026-08-07
+    alert-latch-flood failure mode (an in-memory set couldn't tell a real
+    recurrence from a redeploy) applied to this cap instead of an alert.
+    A stuck partial fill that happens to coincide with a restart must not
+    get its clock reset back to zero by that restart.
+
+    First call for a given trade_id latches "now" as first-seen and
+    returns False (age 0h); every call after that reads the persisted
+    first-seen time back. Caller is responsible for clearing the latch via
+    clear_alert_latch() once the trade leaves this state (found, or this
+    function itself returns True and the trade freezes) — see both
+    check_live_exits() call sites.
+    """
+    key = f"exit_in_progress:{trade_id}"
+    set_alert_latch(key)  # no-op if already latched; records first-seen once
+    age_hours = get_alert_latch_age_hours(key)
+    return age_hours is not None and age_hours >= EXIT_IN_PROGRESS_MAX_AGE_HOURS
+
+
 def _evidence_clause(evidence: str) -> str:
     """
     Human-readable clause for an UNRECONCILED note's evidence field —
@@ -737,6 +797,11 @@ def _evidence_clause(evidence: str) -> str:
         "exit_in_progress":       "EXIT IN PROGRESS, not absent — a sell order for this ticker is actively "
                                    "filling per account-activities (leaves_qty > 0); this should not have "
                                    "reached a freeze path at all — see the calling code",
+        "exit_in_progress_stale": f"STUCK — a sell order for this ticker was actively filling per "
+                                   f"account-activities but never completed within "
+                                   f"{EXIT_IN_PROGRESS_MAX_AGE_HOURS:.0f}h of first being seen; escalated "
+                                   f"from bounded retry to freeze (2026-09-10 cap) — check whether the "
+                                   f"order is genuinely stuck or activities stopped reflecting it",
     }.get(evidence, evidence)
 
 
@@ -775,7 +840,12 @@ def _find_exit_from_orders(ticker: str, broker, entry_timestamp: str) -> tuple[f
         they freeze on the other None states; bounded retry next cycle
         instead (2026-08-23: freezing the whole account over an order
         doing exactly what it should is the freeze-isn't-free cost paid
-        for no reason).
+        for no reason). This function never returns "exit_in_progress_stale"
+        itself — that value is assigned by the caller (2026-09-10, design
+        review) when _exit_in_progress_escalate() finds this state has
+        outlasted EXIT_IN_PROGRESS_MAX_AGE_HOURS; the wall-clock cap lives
+        at the call sites because they're what "bounded" retry needs
+        bounding, not this function's own read.
     Callers must not treat "orders_unavailable"/"activities_unavailable"
     the same as "both_feeds_empty" in an alert or note — "couldn't verify"
     and "confirmed absent" call for different confidence language even

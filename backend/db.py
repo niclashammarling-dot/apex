@@ -1511,6 +1511,29 @@ def clear_alert_latch(key: str) -> None:
         conn.close()
 
 
+def get_alert_latch_age_hours(key: str) -> float | None:
+    """
+    Hours since `key` was first latched (set_alert_latch's `set_at`), or
+    None if no latch is currently set. 2026-09-10, added for the
+    exit_in_progress staleness cap: the persisted `set_at` is what makes
+    this survive a process restart, same reasoning as set_alert_latch's own
+    docstring — a caller using this to bound a retry loop must not have
+    that bound reset to zero by the exact event (a restart) most likely to
+    happen while something is stuck.
+    """
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT set_at FROM alert_latches WHERE key = ?", (key,)
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return None
+    set_at = datetime.fromisoformat(row["set_at"])
+    return (datetime.now(timezone.utc) - set_at).total_seconds() / 3600.0
+
+
 def clear_alert_latches_except(prefix: str, keep_keys: set[str]) -> None:
     """
     Release all latches under `prefix` (e.g. "untracked:") not in keep_keys —

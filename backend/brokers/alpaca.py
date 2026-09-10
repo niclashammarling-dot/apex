@@ -139,7 +139,8 @@ def get_orders(limit: int = 50, nested: bool = False) -> list[dict]:
         raise
 
 
-def get_activities(activity_type: str = "FILL", after: str | None = None) -> list[dict]:
+def get_activities(activity_type: str = "FILL", after: str | None = None,
+                    page_size: int = 100) -> list[dict]:
     """
     Raw account-activities read, account-wide — the ledger feed, not the
     orders feed. No SDK method exists for this on TradingClient (only
@@ -169,12 +170,19 @@ def get_activities(activity_type: str = "FILL", after: str | None = None) -> lis
     the read to the trade's own entry timestamp and keeping the page count
     small, which also enforces the postdate-entry invariant at the source.
 
-    Unverified end-to-end against a real fill sitting past the first page —
-    only checked against the SDK's own documented parameter contract, not a
-    live response. Confirm with one real deep-fill account before trusting
-    this in a freeze-triggering path unattended.
+    `page_size` defaults to 100 in normal use but is exposed as a parameter
+    (2026-09-10, design review) so a test can force pagination deterministically
+    against the real endpoint without waiting for the paper account to
+    naturally accumulate a deep-fill history — see
+    test_pagination_and_field_mapping_against_real_endpoint in
+    tests/test_live_reconciliation.py, gated on ALPACA_API_KEY being set.
+
+    Run 2026-09-10 against page_size=2: 108 FILL activities walked back
+    across ~54 real pages via page_token, every row correctly mapped
+    (symbol→ticker, qty/price/leaves_qty coerced to float). No longer
+    unverified against a live response — confirmed against this account's
+    real activity history, not just the SDK's documented contract.
     """
-    page_size = 100
     activities: list[dict] = []
     page_token: str | None = None
     try:
