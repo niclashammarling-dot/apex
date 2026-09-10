@@ -6,12 +6,14 @@ Also covers the mirror direction (broker holds an untracked position) and
 the resolve_unreconciled() sign-off path.
 """
 from contextlib import ExitStack
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from backend.db import (
     close_live_trade,
+    get_db,
     get_open_live_trades,
     get_unreconciled_live_trades,
     init_db,
@@ -22,6 +24,29 @@ from backend.db import (
 )
 
 init_db()
+
+
+@pytest.fixture(autouse=True)
+def _clean_live_trades_between_tests():
+    """
+    2026-09-10, design review: conftest.py's DB redirect is session-scoped
+    with no per-test reset, so every _open_trade() row this file's tests
+    create stayed OPEN for the rest of the suite — confirmed directly: the
+    escalation and contradiction tests below pass individually and fail
+    under the full suite with extra alert_mock calls traced to leftover
+    rows from earlier tests being swept up by a later check_live_exits().
+    Function-scoped, this file only — the temp DB file itself stays shared
+    (that part is fine and cheap), only the rows this file's own tests
+    create get cleared between tests so they can't leak into each other.
+    """
+    yield
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM live_trades")
+        conn.execute("DELETE FROM alert_latches")
+        conn.commit()
+    finally:
+        conn.close()
 
 
 class TestOrderStatusExtraction:
@@ -254,6 +279,167 @@ class TestOrderStatusExtraction:
         assert "cancelled" not in _PENDING_ORDER_STATUSES
 
 
+class TestGetActivities:
+    """
+    2026-08-23 review: _find_exit_from_orders' activities-corroboration
+    tests mock broker.get_activities() directly and assert against dicts
+    shaped by the code's own assumption ("ticker" key) — that can't catch
+    get_activities() itself mapping the wrong raw field. This exercises the
+    real function against raw JSON shaped like Alpaca's documented
+    TradeActivity fields (id, account_id, activity_type, transaction_time,
+    type, price, qty, side, symbol, leaves_qty, order_id, cum_qty,
+    order_status — confirmed against alpaca-py 0.44.0's TradeActivity
+    pydantic model, which has no alias config, so the raw wire key equals
+    the model attribute name: "symbol", not "ticker").
+    """
+
+    def _raw_fill(self, symbol="AAPL", side="sell", qty="4", price="200.50",
+                   transaction_time="2026-08-20T15:00:00Z", leaves_qty="0",
+                   order_id="ord-raw-1", activity_id="20260820000000000::abc123"):
+        return {
+            "id": activity_id,
+            "account_id": "11111111-1111-1111-1111-111111111111",
+            "activity_type": "FILL",
+            "transaction_time": transaction_time,
+            "type": "fill",
+            "price": price,
+            "qty": qty,
+            "side": side,
+            "symbol": symbol,
+            "leaves_qty": leaves_qty,
+            "order_id": order_id,
+            "cum_qty": qty,
+            "order_status": "filled",
+        }
+
+    def test_symbol_field_maps_to_ticker_key(self):
+        """
+        The exact bug shape flagged at review: if get_activities() read
+        a["ticker"] instead of a["symbol"], this would silently return None
+        for every row's ticker field, forever, on real Alpaca data.
+        """
+        with patch("backend.brokers.alpaca._client") as client_mock:
+            # Real Alpaca (confirmed against BrokerClient's own iterator,
+            # alpaca-py 0.44.0: "the api returns [] when it's done") only
+            # terminates on an empty page, never on a short-but-nonempty
+            # one — so even a single-row response needs a trailing []
+            # here, or a Mock's fixed return_value would make get_activities'
+            # while-True loop spin forever against its own correct logic.
+            # (Caught exactly this way, 2026-08-23: the first version of
+            # this test hung the suite.)
+            client_mock.return_value.get.side_effect = [[self._raw_fill(symbol="AAPL")], []]
+            from backend.brokers.alpaca import get_activities
+            result = get_activities("FILL")
+
+        assert len(result) == 1
+        assert result[0]["ticker"] == "AAPL"
+        assert result[0]["side"] == "sell"
+        assert result[0]["price"] == 200.50
+        assert result[0]["qty"] == 4.0
+        assert result[0]["leaves_qty"] == 0.0
+        assert result[0]["order_id"] == "ord-raw-1"
+
+    def test_pagination_follows_page_token_until_empty_page(self):
+        """
+        Confirmed against the real SDK's own iterator (alpaca-py 0.44.0,
+        BrokerClient._get_account_activities_iterator: "the api returns []
+        when it's done") — termination is on an empty page, not a short
+        one. A full page followed by a short-but-nonempty page must NOT
+        terminate the loop; only the trailing [] does.
+        """
+        with patch("backend.brokers.alpaca._client") as client_mock:
+            full_page  = [self._raw_fill(activity_id=f"id-{i}", symbol="AAPL") for i in range(100)]
+            short_page = [self._raw_fill(activity_id="id-last", symbol="MSFT")]
+            client_mock.return_value.get.side_effect = [full_page, short_page, []]
+
+            from backend.brokers.alpaca import get_activities
+            result = get_activities("FILL")
+
+        assert len(result) == 101
+        assert client_mock.return_value.get.call_count == 3
+        second_call_params = client_mock.return_value.get.call_args_list[1][0][1]
+        assert second_call_params["page_token"] == "id-99"
+        third_call_params = client_mock.return_value.get.call_args_list[2][0][1]
+        assert third_call_params["page_token"] == "id-last"
+
+    def test_after_param_passed_through_no_symbol_param_sent(self):
+        """
+        Confirms the endpoint is called with after= and never with a
+        symbol/symbols param — no such filter exists on this Alpaca
+        endpoint (see get_activities()'s docstring); sending one would
+        silently do nothing and hide that ticker filtering is required
+        client-side.
+        """
+        with patch("backend.brokers.alpaca._client") as client_mock:
+            client_mock.return_value.get.side_effect = [[]]
+            from backend.brokers.alpaca import get_activities
+            get_activities("FILL", after="2026-08-18T00:00:00+00:00")
+
+        path, params = client_mock.return_value.get.call_args[0]
+        assert path == "/account/activities/FILL"
+        assert params["after"] == "2026-08-18T00:00:00+00:00"
+        assert "symbol" not in params
+        assert "symbols" not in params
+
+
+def _has_alpaca_credentials() -> bool:
+    """
+    Checked via backend.config (which runs load_dotenv() at import) rather
+    than os.getenv() directly — 2026-09-10, caught while writing this gate:
+    a bare os.getenv() here can read an empty environment if backend.config
+    hasn't been imported by anything else yet at collection time, silently
+    skipping this test even when .env has real credentials.
+    """
+    from backend.config import ALPACA_API_KEY, ALPACA_SECRET_KEY
+    return bool(ALPACA_API_KEY and ALPACA_SECRET_KEY)
+
+
+@pytest.mark.skipif(
+    not _has_alpaca_credentials(),
+    reason="requires real paper-account Alpaca credentials",
+)
+class TestGetActivitiesLivePagination:
+    """
+    2026-09-10, design review: get_activities()'s own docstring named this
+    exact gap — verified against the SDK's documented parameter contract,
+    never against a live response, because this paper account (~70 total
+    activities) may not naturally hold enough history to force a second
+    page at the default page_size=100. Waiting for it to grow one is an
+    open-ended precondition; forcing a small page_size against the real
+    endpoint turns it into a five-minute test that exercises the exact
+    code path the docstring flags — pagination via page_token AND the
+    symbol->ticker field mapping, together, against Alpaca's real response
+    shape, not a hand-built mock of it.
+
+    Skipped everywhere except a session with real ALPACA_API_KEY/
+    ALPACA_SECRET_KEY set — never runs in CI or the default local suite,
+    same gating pattern as the rest of this file's mocked-broker tests
+    use to stay hermetic by default.
+    """
+
+    def test_pagination_and_field_mapping_against_real_endpoint(self):
+        from backend.brokers.alpaca import get_activities
+
+        # page_size=2 all but guarantees a real multi-page walk against an
+        # account holding dozens of FILL activities — the point is to force
+        # the page_token loop to actually execute at least once against the
+        # live endpoint, not to assert a specific count (this account's
+        # history is out of this test's control and will keep growing).
+        result = get_activities("FILL", page_size=2)
+
+        assert isinstance(result, list)
+        if not result:
+            pytest.skip("paper account has zero FILL activities — nothing to verify field mapping against")
+
+        for row in result:
+            # The exact bug shape the mocked test_symbol_field_maps_to_ticker_key
+            # covers, here against a real response instead of a hand-built one.
+            assert "ticker" in row and row["ticker"], f"row missing ticker: {row}"
+            assert row["side"] in ("buy", "sell"), f"unexpected side value: {row}"
+            assert isinstance(row["price"], float) or row["price"] is None
+            assert isinstance(row["qty"], float) or row["qty"] is None
+
+
 class TestProfitLockRatchetLegSelection:
     """
     _maybe_ratchet_bracket_sl operates on existing open positions (BA, CVX,
@@ -368,9 +554,18 @@ class TestProfitLockRatchetLegSelection:
         assert called_leg_id == "d9c160d8-b2af-4a77-96d5-d9003b17ebe8"
 
 
-def _open_trade(ticker="HON", entry_price=249.13, qty=4.0, order_id="ord-hon-1"):
+def _open_trade(ticker="HON", entry_price=249.13, qty=4.0, order_id="ord-hon-1",
+                 timestamp="2026-08-04T17:14:31+00:00"):
+    """
+    `timestamp` is a real absolute date, not a fixture — kept fixed rather
+    than relative-to-now because several tests' own `get_activities()` mock
+    fixtures pin fill dates in the same neighborhood (e.g. "2026-08-2x") and
+    must postdate whatever this default is (invariant 1) for those tests to
+    mean what they say. See `_open_trade_recent()` below for the tests that
+    need this to stay young relative to real elapsed time instead.
+    """
     trade_id = insert_live_trade({
-        "timestamp":       "2026-08-04T17:14:31+00:00",
+        "timestamp":       timestamp,
         "ticker":          ticker,
         "sector":          "Industrials",
         "alpaca_order_id": order_id,
@@ -383,6 +578,27 @@ def _open_trade(ticker="HON", entry_price=249.13, qty=4.0, order_id="ord-hon-1")
     return trade_id
 
 
+def _recent_timestamp():
+    """
+    2026-09-10, design review: the four `max_hold_days=25` tests in
+    TestReconciliationFreeze below need an entry timestamp that stays
+    *young* relative to whenever the suite actually runs, so they keep
+    landing in the reconciliation-fallback branch (elapsed < max_hold_days)
+    they were written to test instead of drifting into the time-stop branch
+    as real calendar days pass. Confirmed directly: three of the four had
+    drifted past 25 elapsed trading days from their old fixed 2026-08-04
+    default and were calling the real, unmocked close_position() against
+    the paper-account Alpaca endpoint — genuine API responses in the
+    failure logs, not a mock's. The fourth (ZOMB) was doing the same thing
+    but happened to still pass, because Alpaca's real "symbol not found"
+    error for a fake ticker also matches the "40410000" substring this
+    code treats as "position not found" — an accident of two different
+    real error conditions sharing an error code, not the mocked behavior
+    the test was written against.
+    """
+    return (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+
+
 class TestReconciliationFreeze:
     """
     check_live_exits(): a position gone from the broker with no fill found
@@ -390,7 +606,7 @@ class TestReconciliationFreeze:
     """
 
     def test_no_fill_found_freezes_not_fabricates(self):
-        trade_id = _open_trade()
+        trade_id = _open_trade(timestamp=_recent_timestamp())
 
         with ExitStack() as stack:
             stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
@@ -405,6 +621,7 @@ class TestReconciliationFreeze:
                                        return_value={"status": "filled", "filled_qty": 4, "legs": []}))
             cancel_mock = stack.enter_context(patch("backend.brokers.alpaca.cancel_open_orders", return_value=2))
             stack.enter_context(patch("backend.brokers.alpaca.get_orders", return_value=[]))  # no fill anywhere
+            stack.enter_context(patch("backend.brokers.alpaca.get_activities", return_value=[]))  # nor here
             stack.enter_context(patch("backend.live_trades_tracker._current_price", return_value=248.12))
             close_mock = stack.enter_context(patch("backend.live_trades_tracker.close_live_trade"))
             alert_mock = stack.enter_context(patch("backend.alerts.alert_position_unreconciled"))
@@ -449,7 +666,7 @@ class TestReconciliationFreeze:
         leave the row permanently OPEN in the shared test DB and pollute
         every later test's get_open_live_trades() with a phantom MSFT row.
         """
-        trade_id = _open_trade(ticker="MSFT", order_id="ord-msft-1")
+        trade_id = _open_trade(ticker="MSFT", order_id="ord-msft-1", timestamp=_recent_timestamp())
 
         with ExitStack() as stack:
             stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
@@ -460,9 +677,13 @@ class TestReconciliationFreeze:
                                        return_value={"status": "filled", "filled_qty": 4, "legs": []}))
             cancel_mock = stack.enter_context(patch("backend.brokers.alpaca.cancel_open_orders", return_value=1))
             # A genuine filled TP sell corroborates the position actually closed.
+            # filled_at must postdate the trade's own entry (invariant 1) — computed
+            # relative to now, same reasoning as _recent_timestamp() above, rather
+            # than a fixed historical date that would eventually predate entry too.
+            fill_time = (datetime.now(timezone.utc) - timedelta(hours=12)).isoformat()
             stack.enter_context(patch("backend.brokers.alpaca.get_orders", return_value=[
                 {"ticker": "MSFT", "side": "sell", "type": "limit",
-                 "filled_price": 270.0, "filled_at": "2026-08-11T14:00:00+00:00", "legs": []},
+                 "filled_price": 270.0, "filled_at": fill_time, "legs": []},
             ]))
 
             from backend.live_trades_tracker import check_live_exits
@@ -482,7 +703,7 @@ class TestReconciliationFreeze:
         `continue` (skip reconciliation) on every cycle, forever. It must
         instead proceed straight to reconciliation and freeze/alert.
         """
-        trade_id = _open_trade(ticker="ZOMB", order_id="ord-zombie-1")
+        trade_id = _open_trade(ticker="ZOMB", order_id="ord-zombie-1", timestamp=_recent_timestamp())
 
         with ExitStack() as stack:
             stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
@@ -493,6 +714,7 @@ class TestReconciliationFreeze:
                                        return_value={"status": "canceled", "filled_qty": 0, "legs": []}))
             stack.enter_context(patch("backend.brokers.alpaca.cancel_open_orders", return_value=0))
             stack.enter_context(patch("backend.brokers.alpaca.get_orders", return_value=[]))
+            stack.enter_context(patch("backend.brokers.alpaca.get_activities", return_value=[]))
             stack.enter_context(patch("backend.live_trades_tracker._current_price", return_value=None))
             alert_mock = stack.enter_context(patch("backend.alerts.alert_position_unreconciled"))
             stack.enter_context(patch("backend.alerts.alert_position_untracked"))
@@ -511,7 +733,7 @@ class TestReconciliationFreeze:
         fall into "still pending" (the exact failure mode being fixed) or
         get misclassified without a trace.
         """
-        trade_id = _open_trade(ticker="NEWSTAT", order_id="ord-newstatus-1")
+        trade_id = _open_trade(ticker="NEWSTAT", order_id="ord-newstatus-1", timestamp=_recent_timestamp())
 
         with ExitStack() as stack:
             stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
@@ -522,6 +744,7 @@ class TestReconciliationFreeze:
                                        return_value={"status": "some_future_status", "filled_qty": 0, "legs": []}))
             stack.enter_context(patch("backend.brokers.alpaca.cancel_open_orders", return_value=0))
             stack.enter_context(patch("backend.brokers.alpaca.get_orders", return_value=[]))
+            stack.enter_context(patch("backend.brokers.alpaca.get_activities", return_value=[]))
             stack.enter_context(patch("backend.live_trades_tracker._current_price", return_value=None))
             stack.enter_context(patch("backend.alerts.alert_position_unreconciled"))
             stack.enter_context(patch("backend.alerts.alert_position_untracked"))
@@ -533,6 +756,295 @@ class TestReconciliationFreeze:
         assert any("unrecognized order status" in str(c.args[0]).lower()
                    for c in warn_mock.call_args_list)
         assert any(t["id"] == trade_id for t in get_unreconciled_live_trades())
+
+
+class TestTimeStopReconciliationEscalation:
+    """
+    2026-08-23: the time-stop path's own "position not found" branch used to
+    warn and continue on a "no fill anywhere" result — the weaker of the two
+    _find_exit_from_orders call sites despite having the stronger evidence
+    (APEX itself just attempted a destructive close_position() against a
+    position of uncertain state). Must now freeze/alert symmetrically with
+    the position-reconciliation call site.
+    """
+
+    def test_time_stop_no_fill_freezes_not_silently_retries(self):
+        trade_id = _open_trade(ticker="TSTOP", order_id="ord-tstop-1")
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
+            stack.enter_context(patch("backend.live_config.get_live_config",
+                                       return_value={"max_hold_days": 0}))  # force time-stop path
+            stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[{"ticker": "TSTOP"}]))
+            stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
+                                       return_value={"status": "filled", "filled_qty": 4, "legs": []}))
+            stack.enter_context(patch("backend.brokers.alpaca.close_position",
+                                       side_effect=Exception("position not found")))
+            stack.enter_context(patch("backend.brokers.alpaca.get_orders", return_value=[]))
+            stack.enter_context(patch("backend.brokers.alpaca.get_activities", return_value=[]))
+            stack.enter_context(patch("backend.live_trades_tracker._current_price", return_value=None))
+            alert_mock = stack.enter_context(patch("backend.alerts.alert_position_unreconciled"))
+            stack.enter_context(patch("backend.alerts.alert_position_untracked"))
+
+            from backend.live_trades_tracker import check_live_exits
+            closed = check_live_exits()
+
+        assert closed == []
+        alert_mock.assert_called_once()
+        assert alert_mock.call_args[0][0] == "TSTOP"
+        unreconciled = get_unreconciled_live_trades()
+        assert any(t["id"] == trade_id for t in unreconciled)
+
+    def test_time_stop_contradiction_logged_when_positions_snapshot_disagrees(self):
+        """
+        The cycle's own positions snapshot showed the ticker held, then
+        close_position() reported it not found — two broker reads
+        disagreeing within one cycle. Must be logged as the distinct
+        CONTRADICTION case, not the ordinary lag warning.
+        """
+        _open_trade(ticker="CONTRA", order_id="ord-contra-1")
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
+            stack.enter_context(patch("backend.live_config.get_live_config",
+                                       return_value={"max_hold_days": 0}))
+            stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[{"ticker": "CONTRA"}]))
+            stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
+                                       return_value={"status": "filled", "filled_qty": 4, "legs": []}))
+            stack.enter_context(patch("backend.brokers.alpaca.close_position",
+                                       side_effect=Exception("position not found")))
+            stack.enter_context(patch("backend.brokers.alpaca.get_orders", return_value=[]))
+            stack.enter_context(patch("backend.brokers.alpaca.get_activities", return_value=[]))
+            stack.enter_context(patch("backend.live_trades_tracker._current_price", return_value=None))
+            stack.enter_context(patch("backend.alerts.alert_position_unreconciled"))
+            stack.enter_context(patch("backend.alerts.alert_position_untracked"))
+            error_mock = stack.enter_context(patch("backend.live_trades_tracker.logger.error"))
+
+            from backend.live_trades_tracker import check_live_exits
+            check_live_exits()
+
+        assert any("CONTRADICTION" in str(c.args[0]) for c in error_mock.call_args_list)
+
+    def test_contradiction_with_corroborating_fill_still_freezes_not_books(self):
+        """
+        The dangerous case named at review (2026-08-23): positions snapshot
+        shows the ticker held, close_position() says not found, AND
+        activities produces what looks like a genuine corroborating fill.
+        Booking that exit would run the HON shape in the opposite direction
+        — APEX goes flat in the DB while the broker's own positions read
+        still reports the row held. A contradiction must freeze
+        unconditionally; a third feed doesn't get to resolve it silently.
+        """
+        trade_id = _open_trade(ticker="CONTRAFILL", entry_price=100.0, order_id="ord-contrafill-1")
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
+            stack.enter_context(patch("backend.live_config.get_live_config",
+                                       return_value={"max_hold_days": 0}))
+            stack.enter_context(patch("backend.brokers.alpaca.get_positions",
+                                       return_value=[{"ticker": "CONTRAFILL"}]))  # broker says held
+            stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
+                                       return_value={"status": "filled", "filled_qty": 4, "legs": []}))
+            stack.enter_context(patch("backend.brokers.alpaca.close_position",
+                                       side_effect=Exception("position not found")))  # broker says gone
+            stack.enter_context(patch("backend.brokers.alpaca.get_orders", return_value=[]))
+            stack.enter_context(patch("backend.brokers.alpaca.get_activities", return_value=[
+                {"ticker": "CONTRAFILL", "side": "sell", "price": 105.0, "qty": 4.0,
+                 "filled_at": "2026-08-23T14:00:00+00:00"},   # third feed says "here's your exit"
+            ]))
+            stack.enter_context(patch("backend.live_trades_tracker._current_price", return_value=None))
+            alert_mock = stack.enter_context(patch("backend.alerts.alert_position_unreconciled"))
+            stack.enter_context(patch("backend.alerts.alert_position_untracked"))
+            close_mock = stack.enter_context(patch("backend.live_trades_tracker.close_live_trade"))
+
+            from backend.live_trades_tracker import check_live_exits
+            closed = check_live_exits()
+
+        # No exit booked despite the corroborating fill — the contradiction
+        # overrides it.
+        assert closed == []
+        close_mock.assert_not_called()
+
+        # Froze and alerted instead.
+        alert_mock.assert_called_once()
+        assert alert_mock.call_args[0][0] == "CONTRAFILL"
+        note = alert_mock.call_args[0][3]
+        assert "CONTRADICTION" in note
+        assert "NOT booked" in note
+        assert "105" in note   # the candidate fill is recorded for triage, not silently dropped
+
+        unreconciled = get_unreconciled_live_trades()
+        assert any(t["id"] == trade_id for t in unreconciled)
+        assert unreconciled[0]["exit_price"] is None   # still nothing fabricated/booked
+
+    def test_time_stop_corroborated_by_activities_still_books_exit(self):
+        """
+        Orders feed empty, but activities corroborates a genuine sell fill —
+        the position closed cleanly and the orders feed was the empty one,
+        not the account. Must book the exit, not freeze.
+        """
+        trade_id = _open_trade(ticker="ACTFILL", entry_price=100.0, order_id="ord-actfill-1")
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
+            stack.enter_context(patch("backend.live_config.get_live_config",
+                                       return_value={"max_hold_days": 0}))
+            stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
+            stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
+                                       return_value={"status": "filled", "filled_qty": 4, "legs": []}))
+            stack.enter_context(patch("backend.brokers.alpaca.close_position",
+                                       side_effect=Exception("position not found")))
+            stack.enter_context(patch("backend.brokers.alpaca.get_orders", return_value=[]))
+            stack.enter_context(patch("backend.brokers.alpaca.get_activities", return_value=[
+                {"ticker": "ACTFILL", "side": "sell", "price": 105.0, "qty": 4.0,
+                 "filled_at": "2026-08-23T14:00:00+00:00"},
+            ]))
+            stack.enter_context(patch("backend.live_trades_tracker._current_price", return_value=None))
+            alert_mock = stack.enter_context(patch("backend.alerts.alert_position_unreconciled"))
+            stack.enter_context(patch("backend.alerts.alert_position_untracked"))
+            # close_live_trade runs for real here (not mocked) — mocking it
+            # would leave the row permanently OPEN in the shared test DB and
+            # pollute every later test's get_open_live_trades() with a
+            # phantom ACTFILL row (same reasoning as
+            # test_corroborated_exit_still_cancels_remaining_leg above).
+
+            from backend.live_trades_tracker import check_live_exits
+            closed = check_live_exits()
+
+        alert_mock.assert_not_called()
+        assert any(c["ticker"] == "ACTFILL" for c in closed)
+        assert any(c["ticker"] == "ACTFILL" and c["pnl"] == round((105.0 - 100.0) * 4, 2) for c in closed)
+        assert trade_id not in [t["id"] for t in get_open_live_trades()]
+        assert trade_id not in [t["id"] for t in get_unreconciled_live_trades()]
+
+    def test_time_stop_exit_in_progress_retries_bounded_does_not_freeze(self):
+        """
+        2026-08-23 review: a sell order actively filling (leaves_qty > 0,
+        no completing row yet) is positive evidence the exit is happening,
+        not evidence of nothing. Must not freeze the account over it —
+        bounded retry, trade stays OPEN, no alert.
+        """
+        trade_id = _open_trade(ticker="INPROG", entry_price=100.0, order_id="ord-inprog-1")
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
+            stack.enter_context(patch("backend.live_config.get_live_config",
+                                       return_value={"max_hold_days": 0}))
+            stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
+            stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
+                                       return_value={"status": "filled", "filled_qty": 4, "legs": []}))
+            stack.enter_context(patch("backend.brokers.alpaca.close_position",
+                                       side_effect=Exception("position not found")))
+            stack.enter_context(patch("backend.brokers.alpaca.get_orders", return_value=[]))
+            stack.enter_context(patch("backend.brokers.alpaca.get_activities", return_value=[
+                {"ticker": "INPROG", "side": "sell", "price": 100.0, "qty": 2.0,
+                 "filled_at": "2026-08-23T14:00:00+00:00", "order_id": "ord-x", "leaves_qty": 2.0},
+            ]))
+            stack.enter_context(patch("backend.live_trades_tracker._current_price", return_value=None))
+            alert_mock = stack.enter_context(patch("backend.alerts.alert_position_unreconciled"))
+            stack.enter_context(patch("backend.alerts.alert_position_untracked"))
+            close_mock = stack.enter_context(patch("backend.live_trades_tracker.close_live_trade"))
+
+            from backend.live_trades_tracker import check_live_exits
+            closed = check_live_exits()
+
+        assert closed == []
+        close_mock.assert_not_called()
+        alert_mock.assert_not_called()
+        assert trade_id not in [t["id"] for t in get_unreconciled_live_trades()]
+
+    def test_time_stop_exit_in_progress_escalates_past_wall_clock_cap(self):
+        """
+        2026-09-10, design review: the bounded retry above must actually be
+        bounded. Simulates the cap having elapsed by backdating the
+        persisted exit_in_progress latch directly (the same mechanism a
+        real multi-day stall would produce) rather than sleeping in the
+        test — confirms escalation reads real elapsed wall-clock time, not
+        an in-memory counter that a process restart would reset to zero.
+        """
+        from backend.db import get_db
+        from backend.live_trades_tracker import EXIT_IN_PROGRESS_MAX_AGE_HOURS
+
+        trade_id = _open_trade(ticker="STUCK", entry_price=100.0, order_id="ord-stuck-1")
+
+        # First cycle: latches first-seen "now", retries, no alert — same
+        # path as the bounded-retry test above.
+        with ExitStack() as stack:
+            stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
+            stack.enter_context(patch("backend.live_config.get_live_config",
+                                       return_value={"max_hold_days": 0}))
+            stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
+            stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
+                                       return_value={"status": "filled", "filled_qty": 4, "legs": []}))
+            stack.enter_context(patch("backend.brokers.alpaca.close_position",
+                                       side_effect=Exception("position not found")))
+            stack.enter_context(patch("backend.brokers.alpaca.get_orders", return_value=[]))
+            stack.enter_context(patch("backend.brokers.alpaca.get_activities", return_value=[
+                {"ticker": "STUCK", "side": "sell", "price": 100.0, "qty": 2.0,
+                 "filled_at": "2026-08-23T14:00:00+00:00", "order_id": "ord-y", "leaves_qty": 2.0},
+            ]))
+            stack.enter_context(patch("backend.live_trades_tracker._current_price", return_value=None))
+            alert_mock = stack.enter_context(patch("backend.alerts.alert_position_unreconciled"))
+            stack.enter_context(patch("backend.alerts.alert_position_untracked"))
+
+            from backend.live_trades_tracker import check_live_exits
+            check_live_exits()
+
+        alert_mock.assert_not_called()
+
+        # Backdate the latch past the cap — simulates a stall that has
+        # outlasted several cycles (and possibly a restart) without ever
+        # producing a completing fill row.
+        conn = get_db()
+        try:
+            stale_time = (datetime.now(timezone.utc)
+                          - timedelta(hours=EXIT_IN_PROGRESS_MAX_AGE_HOURS + 1)).isoformat()
+            conn.execute("UPDATE alert_latches SET set_at = ? WHERE key = ?",
+                         (stale_time, f"exit_in_progress:{trade_id}"))
+            conn.commit()
+        finally:
+            conn.close()
+
+        # Second cycle: same still-filling evidence, but the cap has now
+        # elapsed — must escalate to freeze/alert instead of retrying again.
+        with ExitStack() as stack:
+            stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
+            stack.enter_context(patch("backend.live_config.get_live_config",
+                                       return_value={"max_hold_days": 0}))
+            stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
+            stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
+                                       return_value={"status": "filled", "filled_qty": 4, "legs": []}))
+            stack.enter_context(patch("backend.brokers.alpaca.close_position",
+                                       side_effect=Exception("position not found")))
+            stack.enter_context(patch("backend.brokers.alpaca.get_orders", return_value=[]))
+            stack.enter_context(patch("backend.brokers.alpaca.get_activities", return_value=[
+                {"ticker": "STUCK", "side": "sell", "price": 100.0, "qty": 2.0,
+                 "filled_at": "2026-08-23T14:00:00+00:00", "order_id": "ord-y", "leaves_qty": 2.0},
+            ]))
+            stack.enter_context(patch("backend.live_trades_tracker._current_price", return_value=None))
+            alert_mock = stack.enter_context(patch("backend.alerts.alert_position_unreconciled"))
+            stack.enter_context(patch("backend.alerts.alert_position_untracked"))
+
+            from backend.live_trades_tracker import check_live_exits
+            check_live_exits()
+
+        alert_mock.assert_called_once()
+        note = alert_mock.call_args[0][3]
+        assert "STUCK" in note.upper() and "24" in note
+        unreconciled = get_unreconciled_live_trades()
+        assert any(t["id"] == trade_id for t in unreconciled)
+
+        # Latch cleared on escalation — a future reopen of this trade
+        # starts its own clock rather than inheriting a stale first-seen.
+        row = conn = get_db()
+        try:
+            latch = conn.execute(
+                "SELECT 1 FROM alert_latches WHERE key = ?",
+                (f"exit_in_progress:{trade_id}",),
+            ).fetchone()
+        finally:
+            conn.close()
+        assert latch is None
 
 
 class TestAlertLatches:

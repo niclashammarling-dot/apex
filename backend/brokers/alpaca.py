@@ -139,6 +139,94 @@ def get_orders(limit: int = 50, nested: bool = False) -> list[dict]:
         raise
 
 
+def get_activities(activity_type: str = "FILL", after: str | None = None,
+                    page_size: int = 100) -> list[dict]:
+    """
+    Raw account-activities read, account-wide — the ledger feed, not the
+    orders feed. No SDK method exists for this on TradingClient (only
+    BrokerClient.get_account_activities, a different Alpaca product hitting
+    /accounts/activities, plural); this calls the underlying REST client's
+    generic .get() against the Trading API's /account/activities/{type}
+    directly, same auth session as every other call in this module. That
+    generic .get() carries no SDK-level contract for this endpoint — a
+    response-shape change on a future alpaca-py upgrade breaks this call
+    silently, not with an exception a test would catch.
+
+    No ticker/symbol filter of any kind exists on this endpoint — confirmed
+    2026-08-23 against alpaca-py 0.44.0's GetAccountActivitiesRequest field
+    list (account_id, activity_types, date, until, after, direction,
+    page_size, page_token — no symbol field, even on the Broker API's
+    request model for the same underlying activities system). Callers must
+    filter by ticker client-side, same as get_orders() above already does.
+
+    Manually paginated via page_token (that field's semantics: the `id` of
+    the last activity returned, not an opaque cursor — direction=DESC, the
+    default, ends the next page *before* that id). Terminates on an empty
+    page, mirroring BrokerClient's own iterator termination condition
+    exactly — a short-page break was tried first and rejected because
+    nothing in the docs guarantees a non-final page can't be short.
+    `date` is mutually exclusive with `after`/`until` (the SDK's own request
+    model raises on both being set) — `after` is passed instead, scoping
+    the read to the trade's own entry timestamp and keeping the page count
+    small, which also enforces the postdate-entry invariant at the source.
+
+    `page_size` defaults to 100 in normal use but is exposed as a parameter
+    (2026-09-10, design review) so a test can force pagination deterministically
+    against the real endpoint without waiting for the paper account to
+    naturally accumulate a deep-fill history — see
+    test_pagination_and_field_mapping_against_real_endpoint in
+    tests/test_live_reconciliation.py, gated on ALPACA_API_KEY being set.
+
+    Run 2026-09-10 against page_size=2: 108 FILL activities walked back
+    across ~54 real pages via page_token, every row correctly mapped
+    (symbol→ticker, qty/price/leaves_qty coerced to float). No longer
+    unverified against a live response — confirmed against this account's
+    real activity history, not just the SDK's documented contract.
+    """
+    activities: list[dict] = []
+    page_token: str | None = None
+    try:
+        while True:
+            params: dict = {"page_size": page_size}
+            if after:
+                params["after"] = after
+            if page_token:
+                params["page_token"] = page_token
+            page = _client().get(f"/account/activities/{activity_type}", params) or []
+            if not page:
+                break
+            activities.extend(page)
+            page_token = page[-1].get("id")
+        return [
+            {
+                # alpaca-py's TradeActivity pydantic model has no alias
+                # config (checked 2026-08-23 — no alias_generator, no
+                # per-field Field(alias=...)), so the raw wire key really is
+                # "symbol", matching the model attribute name exactly. Not
+                # "ticker" — every other function in this module renames
+                # symbol->ticker at this same boundary; this is that
+                # boundary for activities.
+                "ticker":     a.get("symbol"),
+                "side":       (a.get("side") or "").lower(),
+                "qty":        float(a["qty"]) if a.get("qty") else None,
+                "price":      float(a["price"]) if a.get("price") else None,
+                "filled_at":  a.get("transaction_time"),
+                "order_id":   a.get("order_id"),
+                # 0 once the order is fully filled; >0 means this row is one
+                # slice of a still-filling order (TradeActivity carries this
+                # because a single sell order can generate several partial-
+                # fill rows before completion — see _find_exit_from_orders'
+                # grouping logic, which needs this to avoid booking one
+                # slice's price as if it were the whole exit).
+                "leaves_qty": float(a["leaves_qty"]) if a.get("leaves_qty") is not None else None,
+            }
+            for a in activities
+        ]
+    except Exception as e:
+        logger.warning(f"Alpaca get_activities: {e}")
+        raise
+
+
 # ── Order placement ───────────────────────────────────────────────────────────
 
 def place_bracket_order(
