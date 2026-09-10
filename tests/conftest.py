@@ -1,6 +1,7 @@
 """
-Test configuration — redirects all DB access to a temporary file, and blocks
-every test from ever dispatching a real alert.
+Test configuration — redirects all DB access and every known runtime
+data/ file read/write to a temp directory, and blocks every test from
+ever dispatching a real alert.
 
 Must use pytest_configure (not a fixture) so the path is set before
 test modules are imported. test_wallet.py calls init_db() and imports
@@ -33,6 +34,28 @@ def pytest_configure(config):
     import backend.regime.regime_bayes as regime_module
     regime_module.RESULT_CACHE_PATH = Path(tmp) / "regime_result_cache.json"
     regime_module.SIGNAL_TRACE_PATH = Path(tmp) / "regime_signal_trace.jsonl"
+
+    # Same pattern, remainder of the class (2026-09-10): confirmed directly
+    # this session — three separate test runs against the un-redirected
+    # data/ paths below wrote real content to tracked, live-consumed files
+    # (bayesian_multiplier_stats.json feeds live sizing), caught only by
+    # `git status` after the fact, not by anything in the test harness.
+    # Each read/write site references its module attribute at call time
+    # (confirmed by inspection — not a function-default captured at import),
+    # same as RESULT_CACHE_PATH/SIGNAL_TRACE_PATH above, so reassigning here
+    # redirects every call site with no code change in the modules themselves.
+    import backend.gate.gate_runner as gate_runner_module
+    gate_runner_module._MULTIPLIER_STATS_PATH = Path(tmp) / "bayesian_multiplier_stats.json"
+
+    import backend.regime.ipo_sentiment as ipo_sentiment_module
+    ipo_sentiment_module.CACHE_PATH   = Path(tmp) / "ipo_sentiment_cache.json"
+    ipo_sentiment_module.HISTORY_PATH = Path(tmp) / "ipo_sentiment_history.json"
+
+    import backend.weekly_report as weekly_report_module
+    weekly_report_module._SENT_MARKER = Path(tmp) / "weekly_report_sent.txt"
+
+    import backend.ticker_threshold_calibration as calibration_module
+    calibration_module._CALIBRATION_MARKER = Path(tmp) / "calibration_done.txt"
 
 
 @pytest.fixture(autouse=True, scope="session")

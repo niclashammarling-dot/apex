@@ -1,11 +1,13 @@
 """
-Code-health mechanical checks — CHECKs 3, 6, 10, 12, 16, 30, 31, 45, 48.
+Code-health mechanical checks — CHECKs 3, 6, 10, 12, 16, 30, 31, 45, 48, 49,
+50, 58, 59, 60, 61, 62, 74.
 
 Covers: fractional qty in broker, test DB isolation, ticker signal data
 coverage, Lock3 context key parity, yfinance scalar extraction pattern,
 startup live regime exit reconciliation, live bracket TIF/exit fallback,
-static code analysis (ruff + connection-leak patterns), and L4 yfinance
-retry coverage.
+static code analysis (ruff + connection-leak patterns), L4 yfinance retry
+coverage, and — CHECK 74 — a static scan of tests/ for hardcoded dates
+exposed to a decaying (>=, <=, <, >, timedelta) wall-clock comparison.
 """
 import re
 
@@ -693,6 +695,145 @@ def check62():
              "session reuse can inject MultiIndex structure into single-ticker downloads")
 
 
+def check74():
+    """
+    Static scan for the decaying-comparison test shape (2026-09-10, design
+    review of recovered/activities-reader): a test hardcodes a past date,
+    and backend code compares a value derived from it against
+    date.today()/datetime.now() using >=, <=, <, >, or timedelta arithmetic
+    — not ==. As real days pass, the fixed date silently drifts across
+    that threshold and the test starts exercising a different branch with
+    no error anywhere. Three confirmed instances the same session: three
+    TestReconciliationFreeze tests (max_hold_days=25) whose entry date
+    aged past its window and started hitting the real, unmocked Alpaca
+    endpoint instead of the mocked reconciliation path they were written
+    to test.
+
+    Deliberately narrow to the decaying operators, not "any hardcoded date
+    near a wall-clock read" — a bare == against a fixed past date can only
+    ever coincidentally match (astronomically unlikely, and once the
+    calendar passes it, permanently safe going forward, never drifting
+    back toward a false positive). Flagging that shape too would be the
+    same false-positive-erodes-trust failure the lint's exact-match
+    ghost-compile detector already produced once this month — see
+    2026-09-01 in the vault.
+
+    Two-pass, both static, no runtime dependency. Backend-side pass has two
+    tiers, because the real 2026-09-10 instance split the clock read and
+    the decaying comparison across two functions — `_trading_days_since()`
+    reads date.today() internally with no comparison of its own; the
+    decaying `>= max_hold_days` happens one level up, in its caller, against
+    that function's *return value*, not against date.today() by name:
+      Tier A (direct): a function whose OWN body contains both a wall-clock
+        read (date.today()/datetime.now()) and a decaying comparison (>=,
+        <=, <, >, or timedelta) against it.
+      Tier B (indirect): a function that calls a Tier-A-or-clock-reading
+        function and applies a decaying comparison directly to that call's
+        result (`some_func(...) >= x` or `x <= some_func(...)`).
+    Then: scan tests/ for files that hardcode an absolute ISO date/datetime
+    literal AND call one of those specific flagged function names (as
+    `name(` or `.name(`, not just the substring anywhere in the file — an
+    earlier, module-granularity version of this check flagged
+    test_gate_runners.py for merely mentioning "scheduler" in an unrelated
+    patch target, the exact false-positive-by-coincidence shape this check
+    exists to avoid producing itself), with no
+    patch(...date.today...)/patch(...datetime.now...) in the same file (a
+    patched clock isn't exposed to real elapsed time).
+
+    File-level granularity for the finding itself, not per-test-function —
+    a human triages from there; the check's job is to make sure this class
+    doesn't reopen silently the next time a new test picks a fixed date.
+    """
+    import ast
+
+    _CLOCK = r'date\.today\(\)|datetime\.now\(\)'
+    # Deliberately requires the operator (or the timedelta arithmetic) to
+    # sit directly against the clock read itself, not just co-occur
+    # anywhere in a large function — a backtest engine's run() uses
+    # timedelta pervasively for synthetic historical dates with zero
+    # relation to real elapsed time; a bare "timedelta appears somewhere"
+    # trigger flagged exactly that, a second false-positive shape caught
+    # while building this check.
+    decay_op = re.compile(
+        rf'(>=|<=|<(?!=)|>(?!=))\s*({_CLOCK})'
+        rf'|({_CLOCK})\s*(>=|<=|<(?!=)|>(?!=))'
+        rf'|({_CLOCK})\s*[-+]\s*timedelta'
+    )
+    clock_read = re.compile(_CLOCK)
+
+    # First sub-pass: which functions read the clock at all (Tier A pool +
+    # the callees Tier B looks for), and which functions are Tier-A
+    # decaying on their own.
+    clock_reading_functions = set()
+    tier_a = set()
+    function_sources: dict[str, str] = {}
+    backend_dir = REPO / "backend"
+    if backend_dir.exists():
+        for path in backend_dir.rglob("*.py"):
+            try:
+                source = path.read_text(errors="ignore")
+                tree = ast.parse(source)
+            except Exception:
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                segment = ast.get_source_segment(source, node) or ""
+                function_sources[node.name] = segment
+                if clock_read.search(segment):
+                    clock_reading_functions.add(node.name)
+                    if decay_op.search(segment):
+                        tier_a.add(node.name)
+
+    # Second sub-pass: Tier B — a function calling one of the clock-reading
+    # functions and comparing that call's result with a decaying operator,
+    # even though the caller's own body never mentions date.today()/
+    # datetime.now() by name.
+    tier_b = set()
+    if clock_reading_functions:
+        for name in clock_reading_functions:
+            call_adjacent_compare = re.compile(
+                rf'{re.escape(name)}\([^)]*\)\s*(>=|<=|<(?!=)|>(?!=))'
+                rf'|(>=|<=|<(?!=)|>(?!=))\s*{re.escape(name)}\('
+            )
+            for caller, segment in function_sources.items():
+                if caller == name:
+                    continue
+                if call_adjacent_compare.search(segment):
+                    tier_b.add(caller)
+
+    decaying_functions = tier_a | tier_b
+    if not decaying_functions:
+        return
+
+    iso_date   = re.compile(r'"20\d\d-\d\d-\d\d')
+    clock_mock = re.compile(r'patch\([^)]*(date\.today|datetime\.now)')
+    tests_dir  = REPO / "tests"
+    if not tests_dir.exists():
+        return
+
+    call_patterns = {name: re.compile(rf'[.\s]{re.escape(name)}\s*\(')
+                      for name in decaying_functions}
+
+    for path in tests_dir.glob("test_*.py"):
+        try:
+            text = path.read_text(errors="ignore")
+        except Exception:
+            continue
+        if not iso_date.search(text):
+            continue
+        referenced = sorted(n for n, pat in call_patterns.items() if pat.search(text))
+        if not referenced:
+            continue
+        if clock_mock.search(text):
+            continue  # clock is patched somewhere in this file — not exposed
+        rel = str(path.relative_to(REPO))
+        flag(74, "Decaying date-comparison test shape", "WARNING", rel,
+             f"hardcoded absolute date(s) alongside a call into decaying "
+             f"wall-clock function(s) {', '.join(referenced)} — verify this "
+             f"still exercises the intended branch, not one it drifted into")
+
+
 def run() -> None:
     check3()
     check6()
@@ -710,3 +851,4 @@ def run() -> None:
     check60()
     check61()
     check62()
+    check74()

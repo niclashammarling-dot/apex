@@ -160,7 +160,7 @@ def update_registry():
 _ALL_CHECKS = {
     3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17,
     21, 22, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
-    35, 36, 37, 38, 39, 40, 41, 42, 45, 57,
+    35, 36, 37, 38, 39, 40, 41, 42, 45, 57, 74,
 }
 
 _CHECK_NAMES = {
@@ -199,6 +199,7 @@ _CHECK_NAMES = {
     42: "New-sector integrity",
     45: "Static code analysis",
     57: "SIC_TO_SECTOR/SECTORS parity",
+    74: "Decaying date-comparison test shape",
 }
 
 
