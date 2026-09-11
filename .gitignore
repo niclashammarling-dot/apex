@@ -53,3 +53,10 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+# Runtime state written by the live app — untracked 2026-09-11, same reasoning as regime_signal_trace.jsonl (2026-08-16):
+# tracked live state reports as a perpetual modification and is one `git checkout -- data/` from erasure.
+data/bayesian_multiplier_stats.json
+data/calibration_done.txt
+data/ipo_sentiment_cache.json
+data/ipo_sentiment_history.json
+data/weekly_report_sent.txt
