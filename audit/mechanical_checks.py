@@ -14,10 +14,13 @@ Domain modules:
   checks_code    — CHECKs 3, 6, 10, 12, 16, 30, 31, 45  (broker, tests, yfinance, wiring, static analysis)
   (CHECK 32 git sync lives directly here — it needs subprocess and is orchestrator-level)
 """
+import ast
+import re
 import subprocess
+from pathlib import Path
 from datetime import date, timedelta
 
-from audit._audit_core import REPO, TODAY, REPORT, findings, triggered, flag
+from audit._audit_core import REPO, TODAY, REPORT, findings, triggered, skipped, SKIPPED, flag
 from audit import checks_config, checks_gate, checks_data, checks_sector, checks_code
 
 
@@ -124,14 +127,18 @@ def update_registry():
     lines            = checks_path.read_text().splitlines()
     new_lines        = []
     retirement_candidates = []
+    skipped_nums = {s[0] for s in skipped}
 
     for line in lines:
         parts = [p.strip() for p in line.split("|")]
         if len(parts) >= 9 and parts[1].isdigit():
             num  = int(parts[1])
             name, added, prompted, files = parts[2], parts[3], parts[4], parts[5]
-            lt   = today if num in triggered else parts[6]
-            lc   = parts[7] if num in triggered else today
+            if num in skipped_nums:
+                lt, lc = parts[6], parts[7]      # did not evaluate: neither triggered nor clean
+            else:
+                lt = today if num in triggered else parts[6]
+                lc = parts[7] if num in triggered else today
             try:
                 days_since = (date.today() - date.fromisoformat(lt)).days
                 if days_since >= retirement_days:
@@ -156,14 +163,44 @@ def update_registry():
 
 # ── Report writer ─────────────────────────────────────────────────────────────
 
-# Complete set of mechanical checks — used for clean-row generation.
-_ALL_CHECKS = {
+# Clean-row generation. _ALL_CHECKS is DERIVED from what each module's run()
+# actually calls (2026-09-11) — the hand-maintained set below had drifted 26
+# checks behind execution (43, 44, 46–56, 58–69 ran but rendered no ✓ row when
+# clean, so a clean check was indistinguishable from an unregistered one).
+# Names come from CHECKS.md's table, with _CHECK_NAMES as the fallback.
+def _executed_checks() -> set:
+    nums = set()
+    for mod in (checks_config, checks_gate, checks_data, checks_sector, checks_code):
+        tree = ast.parse(Path(mod.__file__).read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "run":
+                for call in ast.walk(node):
+                    if isinstance(call, ast.Call) and isinstance(call.func, ast.Name):
+                        m = re.fullmatch(r"check(\d+)", call.func.id)
+                        if m:
+                            nums.add(int(m.group(1)))
+    nums.add(32)  # check32 lives in this module
+    return nums
+
+
+def _registry_names() -> dict:
+    names = {}
+    path = REPO / "audit/CHECKS.md"
+    if path.exists():
+        for line in path.read_text().splitlines():
+            parts = [p.strip() for p in line.split("|")]
+            if len(parts) >= 4 and parts[1].isdigit():
+                names.setdefault(int(parts[1]), parts[2])
+    return names
+
+
+_ALL_CHECKS_LEGACY = {
     3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17,
     21, 22, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
     35, 36, 37, 38, 39, 40, 41, 42, 45, 57, 74,
 }
 
-_CHECK_NAMES = {
+_CHECK_NAMES_LEGACY = {
     3:  "Fractional qty",
     4:  "Config parity",
     5:  "Sector name strings",
@@ -205,14 +242,22 @@ _CHECK_NAMES = {
 
 def write_report(retirement_candidates: list) -> None:
     REPORT.parent.mkdir(exist_ok=True)
+    _ALL_CHECKS = _executed_checks() | _ALL_CHECKS_LEGACY
+    _CHECK_NAMES = {**_registry_names(), **_CHECK_NAMES_LEGACY}
 
     rows = []
+    skipped_nums = {s[0] for s in skipped}
     for num in sorted(_ALL_CHECKS):
-        if num not in triggered:
-            rows.append(f"| {num} {_CHECK_NAMES[num]} | ✓ | — | — | — |")
+        if num not in triggered and num not in skipped_nums:
+            rows.append(f"| {num} {_CHECK_NAMES.get(num, f'CHECK {num}')} | ✓ | — | — | — |")
 
     for num, name, sev, file_line, finding in sorted(findings, key=lambda x: x[0]):
         rows.append(f"| {num} {name} | ⚠ | {sev} | {file_line} | {finding} |")
+
+    # SKIPPED: the check could not evaluate (runtime data file absent in this
+    # environment). Not a finding, not a pass — kept out of the issue count.
+    for num, name, file_line, reason in sorted(skipped, key=lambda x: x[0]):
+        rows.append(f"| {num} {name} | ○ | {SKIPPED} | {file_line} | {reason} |")
 
     retire_section = "None"
     if retirement_candidates:
@@ -224,9 +269,10 @@ def write_report(retirement_candidates: list) -> None:
     n_crit = sum(1 for _, _, s, _, _ in findings if s == "CRITICAL")
     n_warn = sum(1 for _, _, s, _, _ in findings if s == "WARNING")
     n_info = sum(1 for _, _, s, _, _ in findings if s == "INFO")
+    n_skip = len({s[0] for s in skipped})
 
     content = f"""# Batman's Report — {TODAY}
-{len(findings)} issues: {n_crit} critical, {n_warn} warnings, {n_info} info
+{len(findings)} issues: {n_crit} critical, {n_warn} warnings, {n_info} info — {n_skip} check(s) SKIPPED (could not evaluate: runtime data absent in this environment)
 *(LLM checks 1, 2, 7, 8 appended below by llm_checks.py)*
 
 | Check | Status | Sev | File:line | Finding |

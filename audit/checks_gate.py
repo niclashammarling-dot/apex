@@ -11,7 +11,7 @@ import re
 import sqlite3
 from datetime import date
 
-from audit._audit_core import REPO, flag
+from audit._audit_core import REPO, flag, require_data_file
 
 
 # ── CHECK 24 — Chain-runner wiring integrity ──────────────────────────────────
@@ -308,7 +308,7 @@ def check38():
     M = 5
 
     db = REPO / "data/apex.db"
-    if not db.exists():
+    if not require_data_file(38, "Live entry absence-of-activity", db):
         return
 
     try:
@@ -515,6 +515,11 @@ def check52():
              "Anthropic prepaid balance to enable runway monitoring")
         return
 
+    # Guard before backend.db touches the file: sqlite3.connect() would create
+    # an empty apex.db and the query would crash the whole mechanical run.
+    if not require_data_file(52, "Anthropic credit runway", REPO / "data/apex.db"):
+        return
+
     summary = get_l5_spend_summary()
 
     if summary["calls_7d"] == 0:
@@ -652,8 +657,8 @@ def check64() -> None:
     CHECK_WINDOW_DAYS = 21
     SIGNAL_THRESHOLD  = 0.10
 
-    db_path = Path(__file__).parent.parent / "data" / "apex.db"
-    if not db_path.exists():
+    db_path = REPO / "data" / "apex.db"
+    if not require_data_file(64, "bayes_margin drift", db_path):
         return
 
     cutoff = (date.today() - timedelta(days=CHECK_WINDOW_DAYS)).isoformat()
@@ -826,7 +831,7 @@ def check66() -> None:
                  "verify the halt is actually enforced inside the gate's entry point")
 
     db = REPO / "data/apex.db"
-    if not db.exists():
+    if not require_data_file(66, "live position/DB reconciliation integrity", db):
         return
     try:
         conn = sqlite3.connect(db)

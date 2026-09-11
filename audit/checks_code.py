@@ -11,7 +11,7 @@ exposed to a decaying (>=, <=, <, >, timedelta) wall-clock comparison.
 """
 import re
 
-from audit._audit_core import REPO, flag
+from audit._audit_core import REPO, flag, require_data_file
 
 
 # ── CHECK 3 — Fractional qty ──────────────────────────────────────────────────
@@ -466,9 +466,7 @@ def check50():
     import sqlite3
 
     db_path = REPO / "data" / "apex.db"
-    if not db_path.exists():
-        flag(50, "L4 group constraint (live data)", "WARNING", str(db_path),
-             "apex.db not found — cannot verify L4 group constraint on executed trades")
+    if not require_data_file(50, "L4 group constraint (live data)", db_path):
         return
 
     con = sqlite3.connect(db_path)

@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import requests
 
-from audit._audit_core import REPO, _most_recent_trading_day, flag
+from audit._audit_core import REPO, _most_recent_trading_day, flag, require_data_file
 
 
 # ── CHECK 14 — EOD regime freshness ──────────────────────────────────────────
@@ -25,7 +25,7 @@ def check14():
     Anything older means the catch-up also failed.
     """
     db = REPO / "data/apex.db"
-    if not db.exists():
+    if not require_data_file(14, "EOD regime freshness", db):
         return
     try:
         conn = sqlite3.connect(db)
@@ -61,9 +61,8 @@ def check15():
     marker       = REPO / "data/calibration_done.txt"
     current_week = datetime.now(timezone.utc).strftime("%G-W%V")
 
-    if not marker.exists():
-        flag(15, "Calibration freshness", "WARNING", "data/calibration_done.txt:—",
-             f"calibration marker missing — thresholds not calibrated this week ({current_week})")
+    if not require_data_file(15, "Calibration freshness", marker,
+                             hint="where the app runs, absence means calibration never wrote its marker"):
         return
 
     stored = marker.read_text().strip()
@@ -86,7 +85,7 @@ def check17():
         return
 
     db = REPO / "data/apex.db"
-    if not db.exists():
+    if not require_data_file(17, "Sentiment cache freshness", db):
         return
 
     try:
@@ -132,7 +131,7 @@ def check22():
 
     if is_trading:
         db_path = REPO / "data/apex.db"
-        if db_path.exists():
+        if require_data_file(22, "Yahoo data pipeline health", db_path):
             try:
                 conn = sqlite3.connect(str(db_path))
                 row  = conn.execute("SELECT MAX(timestamp) FROM sector_snapshots").fetchone()
@@ -158,12 +157,8 @@ def check22():
                      f"Could not query sector_snapshots: {e}")
 
     cache = REPO / "data/regime_result_cache.json"
-    if not cache.exists():
-        flag(22, "Yahoo data pipeline health", "WARNING",
-             "data/regime_result_cache.json",
-             "regime_result_cache.json missing — regime-bayes will show unavailable after any restart "
-             "until next EOD run")
-    else:
+    if require_data_file(22, "Yahoo data pipeline health", cache,
+                         hint="where the app runs, absence means regime-bayes shows unavailable after any restart until next EOD run"):
         try:
             cached     = json.loads(cache.read_text())
             cached_date = cached.get("date", "")
@@ -210,12 +205,9 @@ def check33():
     today      = date.today()
     is_trading = today.weekday() < 5
 
-    if not path.exists():
-        if is_trading:
-            flag(33, "Bayesian multiplier health", "WARNING",
-                 "data/bayesian_multiplier_stats.json",
-                 "Stats file missing — _persist_multiplier_stats() not called; "
-                 "gate runner may be down or the call was removed from gate_runner.run()")
+    if not require_data_file(33, "Bayesian multiplier health", path,
+                             hint="where the app runs, absence means _persist_multiplier_stats() was never called — "
+                                  "gate runner down or the call removed from gate_runner.run()"):
         return
 
     try:
@@ -280,7 +272,7 @@ def check35():
         return
 
     db = REPO / "data/apex.db"
-    if not db.exists():
+    if not require_data_file(35, "PCR collection freshness", db):
         return
 
     try:
@@ -334,7 +326,7 @@ def check39():
         return n
 
     db = REPO / "data/apex.db"
-    if not db.exists():
+    if not require_data_file(39, "Live peak_price integrity", db):
         return
 
     try:
@@ -390,7 +382,7 @@ def check44():
     validation signal.
     """
     db = REPO / "data/apex.db"
-    if not db.exists():
+    if not require_data_file(44, "Regime-conditioned aggregator weight validation", db):
         return
 
     try:
@@ -501,7 +493,7 @@ def check46():
     bracket SL ratcheted is exposed to a wide-stop exit on a fast move.
     """
     db = REPO / "data/apex.db"
-    if not db.exists():
+    if not require_data_file(46, "Profit-lock ratchet wiring", db):
         return
 
     try:
@@ -565,7 +557,7 @@ def check47():
     the trail was set but didn't protect the gain at all.
     """
     db = REPO / "data/apex.db"
-    if not db.exists():
+    if not require_data_file(47, "Profit-lock SL trail vs peak", db):
         return
 
     try:
@@ -646,7 +638,7 @@ def check55():
     happy-path log line. See PRE_FIX_CONTAMINATION_DATE in ipo_sentiment.py.
     """
     history_path = REPO / "data/ipo_sentiment_history.json"
-    if not history_path.exists():
+    if not require_data_file(55, "IPO sentiment consecutive-zero", history_path):
         return
 
     try:

@@ -10,7 +10,7 @@ import re
 import sqlite3
 from datetime import date, timedelta
 
-from audit._audit_core import REPO, flag
+from audit._audit_core import REPO, flag, require_data_file
 
 
 # ── CHECK 5 — Sector name strings ─────────────────────────────────────────────
@@ -158,7 +158,7 @@ def check36():
     WINDOW_DAYS    = 30
 
     db = REPO / "data/apex.db"
-    if not db.exists():
+    if not require_data_file(36, "L4 sub-check pass rates", db):
         return
 
     cutoff = (date.today() - timedelta(days=WINDOW_DAYS)).isoformat()
@@ -460,7 +460,7 @@ def check63():
     CRIT_FLOOR     = 0.55
 
     db = REPO / "data/apex.db"
-    if not db.exists():
+    if not require_data_file(63, "Healthcare composite dilution monitor", db):
         return
 
     try:
@@ -511,7 +511,7 @@ def _dilution_monitor(check_num: int, sector: str, added: str, baseline: float,
                        baseline_date: str, warn_floor: float, crit_floor: float,
                        confirm_note: str) -> None:
     db = REPO / "data/apex.db"
-    if not db.exists():
+    if not require_data_file(check_num, f"{sector} composite dilution monitor", db):
         return
     try:
         conn = sqlite3.connect(db)
@@ -615,7 +615,7 @@ def check65():
     feature was added — no false alarm on first deploy).
     """
     trace_path = REPO / "data" / "regime_signal_trace.jsonl"
-    if not trace_path.exists():
+    if not require_data_file(65, "posterior saturation monitor", trace_path):
         return
 
     try:
@@ -649,6 +649,13 @@ def check65():
         aggregate     = r.get("aggregate_score", 1.0)
         lr_ipo_raw    = r.get("lr_ipo_raw")
         ipo_share     = r.get("ipo_share")
+
+        # clamp_binding is two-sided: the floor (0.05) binding on a depressed
+        # sector is the regime gate working, not saturation. Only the ceiling
+        # side is this check's subject (first real-data run 2026-09-11 flagged
+        # six floor-clamps as CRITICAL "exceeded ceiling" at posterior 0.04).
+        if clamp_binding and pre_clamp is not None and pre_clamp < 0.5:
+            continue
 
         if clamp_binding:
             detail = (
