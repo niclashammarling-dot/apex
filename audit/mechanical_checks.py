@@ -349,6 +349,18 @@ def merge_state(path: Path) -> None:
              f"publish has not run for >{STATE_MAX_AGE_HOURS}h. App down, scheduler job "
              f"dead, or push failing. State-reading checks did not evaluate.")
         return
+    # The host's alert channel is the last link of both watchdog directions.
+    # It is verified by SMTP login nightly (no mail sent); dead → CRITICAL here,
+    # delivered through CI's own secrets, which don't share the host's .env.
+    ch = payload.get("alert_channel")
+    if not ch:
+        flag(73, "Audit-runner liveness watchdog", "WARNING", str(path),
+             "state report carries no alert_channel proof — host publish_state.py predates the check")
+    elif not ch.get("ok"):
+        flag(73, "Audit-runner liveness watchdog", "CRITICAL", str(path),
+             f"host alert channel DEAD (checked {ch.get('checked_at', '?')[:16]}): {ch.get('detail')} — "
+             f"every app alert (trades, loss cap, unreconciled positions, data gaps) is going nowhere. "
+             f"Regenerate ALERT_SMTP_PASS in the host's .env.")
     # Fresh: replace only this run's SKIPPED rows with the host's results for
     # those same checks. CI stays authoritative for everything it could
     # evaluate itself (code-shape checks run in both places; merging both

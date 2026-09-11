@@ -47,6 +47,22 @@ def run_checks() -> None:
     print(r.stdout.strip().splitlines()[-1])
 
 
+def stamp_alert_channel() -> None:
+    """Add a live proof of the alert channel to the state file (no email sent)."""
+    import json
+    sys.path.insert(0, str(REPO))
+    try:
+        from backend.alerts import verify_email_channel
+        ok, detail = verify_email_channel()
+    except Exception as e:
+        ok, detail = False, f"verify_email_channel unavailable: {e}"
+    payload = json.loads(STATE_FILE.read_text())
+    payload["alert_channel"] = {"ok": ok, "detail": detail,
+                                "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    STATE_FILE.write_text(json.dumps(payload, indent=1))
+    print(f"Alert channel: {'ok' if ok else 'DEAD'} — {detail}", file=None if ok else sys.stderr)
+
+
 def push_state() -> str:
     blob   = _git("hash-object", "-w", str(STATE_FILE))
     tree   = subprocess.run(["git", "mktree"], cwd=REPO, capture_output=True, text=True,
@@ -90,6 +106,7 @@ def _alert(text: str) -> None:
 
 def main() -> int:
     run_checks()
+    stamp_alert_channel()
     commit = push_state()
     print(f"Published {STATE_FILE.relative_to(REPO)} → origin/{BRANCH} @ {commit[:8]}")
     check_ci_liveness()

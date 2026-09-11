@@ -261,6 +261,29 @@ def _send_slack(webhook_url: str, title: str, body: str) -> bool:
         return False
 
 
+def verify_email_channel() -> tuple[bool, str]:
+    """
+    Prove the email channel can deliver WITHOUT sending anything: EHLO,
+    STARTTLS, LOGIN. Run nightly by audit/publish_state.py and reported to
+    CI, which fires CHECK 73 if it's false. Exists because the channel died
+    on 2026-09-03 (Gmail 535, dead app password) while the app ran normally
+    for eight days — five paper executions and six data-gap alerts dispatched
+    into nothing, each logged as benign. A watchdog whose last link is an
+    unverified channel watches faithfully and tells nobody.
+    """
+    cfg = _cfg()
+    if not (cfg["email_to"] and cfg["smtp_user"] and cfg["smtp_pass"]):
+        return False, "email channel not configured (ALERT_EMAIL_TO/ALERT_SMTP_USER/ALERT_SMTP_PASS)"
+    try:
+        with smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"], timeout=20) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(cfg["smtp_user"], cfg["smtp_pass"])
+        return True, f"SMTP login ok as {cfg['smtp_user']} via {cfg['smtp_host']}"
+    except Exception as e:
+        return False, f"SMTP login failed: {e}"
+
+
 def _send_email(cfg: dict, title: str, body: str, html_body: str | None = None) -> bool:
     try:
         msg = MIMEMultipart("alternative")
