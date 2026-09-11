@@ -239,7 +239,14 @@ def _dispatch(title: str, body: str) -> None:
         sent |= _send_email(cfg, title, body)
 
     if not sent:
-        logger.info(f"Alert (no channel configured) | {title} | {body}")
+        # "no channel configured" and "every configured channel failed" are
+        # different facts — the second was logged as the first for 8 days
+        # (2026-09-03→11, Gmail 535 on a dead app password) and read as benign.
+        configured = bool(cfg["slack_url"]) or bool(cfg["email_to"] and cfg["smtp_user"] and cfg["smtp_pass"])
+        if configured:
+            logger.error(f"Alert NOT DELIVERED (all configured channels failed) | {title} | {body}")
+        else:
+            logger.info(f"Alert (no channel configured) | {title} | {body}")
 
 
 def _send_slack(webhook_url: str, title: str, body: str) -> bool:

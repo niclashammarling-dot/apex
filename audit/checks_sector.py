@@ -431,6 +431,77 @@ def check57():
 
 # ── CHECK 63 — Healthcare composite dilution monitor ──────────────────────────
 
+
+# ── Market-wide-decline suppression for the dilution monitors (2026-09-11) ────
+# CHECKs 63/67/68/69 measure one thing: did adding tickers to a sector dilute
+# its composite avg_score below a floor pinned to the pre-addition baseline?
+# Since 2026-08-10 they have been firing on something else — a market-wide
+# composite decline across most sectors (found 2026-09-01 by querying
+# sector_snapshots directly; 8 of 11 sectors with data sat below 75% of their
+# own 60-day peak on 2026-09-11, Defense at 25%). A dilution diagnosis in that
+# regime is a confound, and nightly CRITICAL emails that are true-but-
+# misattributed train the reader to ignore the channel.
+#
+# Discharge condition is mechanical, not remembered: while at least half of
+# the sectors with data are "depressed" (current avg_score < DEPRESSED_RATIO ×
+# their own trailing PEAK_WINDOW_DAYS peak), dilution findings are recorded at
+# severity SUPPRESSED — still a triggered row (the floor IS breached, the
+# registry's last_triggered still advances), but not a CRITICAL/WARNING, so
+# no alert email and no fixer pass. When the market recovers and fewer than
+# half the sectors are depressed, the same findings return to CRITICAL/WARNING
+# with no one having to lift anything.
+
+DEPRESSED_RATIO   = 0.75
+PEAK_WINDOW_DAYS  = 60
+_decline_cache: dict = {}
+
+
+def _market_wide_decline() -> tuple[bool, str]:
+    """Return (suppress?, one-line evidence). Cached per run."""
+    if "v" in _decline_cache:
+        return _decline_cache["v"]
+    db = REPO / "data/apex.db"
+    result = (False, "no data")
+    if db.exists():
+        try:
+            conn = sqlite3.connect(db)
+            rows = conn.execute("""
+                WITH cur AS (
+                    SELECT sector, avg_score FROM sector_snapshots s
+                    WHERE timestamp = (SELECT MAX(timestamp) FROM sector_snapshots
+                                       WHERE sector = s.sector)
+                ), pk AS (
+                    SELECT sector, MAX(avg_score) AS peak FROM sector_snapshots
+                    WHERE timestamp >= date('now', ?) GROUP BY sector
+                )
+                SELECT cur.sector, cur.avg_score, pk.peak
+                FROM cur JOIN pk USING (sector) WHERE pk.peak > 0
+            """, (f"-{PEAK_WINDOW_DAYS} days",)).fetchall()
+            conn.close()
+            depressed = [r[0] for r in rows if r[1] < DEPRESSED_RATIO * r[2]]
+            total = len(rows)
+            suppress = total > 0 and len(depressed) * 2 >= total
+            result = (suppress,
+                      f"{len(depressed)}/{total} sectors below {DEPRESSED_RATIO:.0%} of their "
+                      f"{PEAK_WINDOW_DAYS}d peak ({', '.join(sorted(depressed))})")
+        except Exception as e:
+            result = (False, f"decline query failed: {e}")
+    _decline_cache["v"] = result
+    return result
+
+
+def _dilution_flag(check_num: int, name: str, sev: str, file_line: str, finding: str) -> None:
+    suppress, evidence = _market_wide_decline()
+    if suppress and sev in ("CRITICAL", "WARNING"):
+        flag(check_num, name, "SUPPRESSED", file_line,
+             f"[{sev} suppressed — market-wide decline: {evidence}. This monitor measures "
+             f"ticker-addition dilution; the floor breach is currently attributable to the "
+             f"broad decline, not the additions. Lifts itself when fewer than half the sectors "
+             f"are depressed.] {finding}")
+    else:
+        flag(check_num, name, sev, file_line, finding)
+
+
 def check63():
     """
     Monitor Healthcare avg_score for dilution from the ISRG/TMO addition (2026-07-01).
@@ -485,7 +556,7 @@ def check63():
     avg_score, ts = row[0], row[1]
 
     if avg_score < CRIT_FLOOR:
-        flag(63, "Healthcare composite dilution monitor", "CRITICAL",
+        _dilution_flag(63, "Healthcare composite dilution monitor", "CRITICAL",
              "data/apex.db:sector_snapshots",
              f"Healthcare avg_score={avg_score:.4f} (at {ts}) is below critical floor {CRIT_FLOOR}; "
              f"baseline was {BASELINE_VALUE} on {BASELINE_DATE} (pre-ISRG/TMO). "
@@ -493,7 +564,7 @@ def check63():
              f"below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove ISRG and TMO via "
              f"ticker_config.remove_ticker() and diagnose signal history before re-adding.")
     elif avg_score < WARN_FLOOR:
-        flag(63, "Healthcare composite dilution monitor", "WARNING",
+        _dilution_flag(63, "Healthcare composite dilution monitor", "WARNING",
              "data/apex.db:sector_snapshots",
              f"Healthcare avg_score={avg_score:.4f} (at {ts}) dropped below {WARN_FLOOR}; "
              f"baseline was {BASELINE_VALUE} on {BASELINE_DATE} (pre-ISRG/TMO). "
@@ -533,7 +604,7 @@ def _dilution_monitor(check_num: int, sector: str, added: str, baseline: float,
     avg_score, ts = row[0], row[1]
 
     if avg_score < crit_floor:
-        flag(check_num, f"{sector} composite dilution monitor", "CRITICAL",
+        _dilution_flag(check_num, f"{sector} composite dilution monitor", "CRITICAL",
              "data/apex.db:sector_snapshots",
              f"{sector} avg_score={avg_score:.4f} (at {ts}) is below critical floor {crit_floor}; "
              f"baseline was {baseline} on {baseline_date} (pre-{added}). "
@@ -541,7 +612,7 @@ def _dilution_monitor(check_num: int, sector: str, added: str, baseline: float,
              f"below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove {added} via "
              f"ticker_config.remove_ticker() and diagnose signal history before re-adding.")
     elif avg_score < warn_floor:
-        flag(check_num, f"{sector} composite dilution monitor", "WARNING",
+        _dilution_flag(check_num, f"{sector} composite dilution monitor", "WARNING",
              "data/apex.db:sector_snapshots",
              f"{sector} avg_score={avg_score:.4f} (at {ts}) dropped below {warn_floor}; "
              f"baseline was {baseline} on {baseline_date} (pre-{added}). "

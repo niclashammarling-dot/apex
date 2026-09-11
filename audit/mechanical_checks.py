@@ -272,10 +272,11 @@ def write_report(retirement_candidates: list) -> None:
     n_crit = sum(1 for _, _, s, _, _ in findings if s == "CRITICAL")
     n_warn = sum(1 for _, _, s, _, _ in findings if s == "WARNING")
     n_info = sum(1 for _, _, s, _, _ in findings if s == "INFO")
+    n_supp = sum(1 for _, _, s, _, _ in findings if s == "SUPPRESSED")
     n_skip = len({s[0] for s in skipped})
 
     content = f"""# Batman's Report — {TODAY}
-{len(findings)} issues: {n_crit} critical, {n_warn} warnings, {n_info} info — {n_skip} check(s) SKIPPED (could not evaluate: runtime data absent in this environment)
+{len(findings)} issues: {n_crit} critical, {n_warn} warnings, {n_info} info, {n_supp} suppressed — {n_skip} check(s) SKIPPED (could not evaluate: runtime data absent in this environment)
 *(LLM checks 1, 2, 7, 8 appended below by llm_checks.py)*
 
 | Check | Status | Sev | File:line | Finding |
