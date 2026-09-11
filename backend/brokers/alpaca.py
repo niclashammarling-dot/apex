@@ -18,6 +18,9 @@ from loguru import logger
 # _ModuleLock('alpaca.trading.enums')" — once that happens the process is
 # poisoned and every subsequent broker call hangs until restart).
 from alpaca.common.exceptions import APIError
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest
+from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderClass, OrderSide, QueryOrderStatus, TimeInForce
 from alpaca.trading.requests import (
@@ -380,10 +383,6 @@ def get_prior_close(ticker: str) -> float | None:
     2026-08-12-apex-dual-logging-daily-pnl-conflation-prefix-reference.
     """
     from datetime import datetime, timedelta, timezone
-
-    from alpaca.data.historical import StockHistoricalDataClient
-    from alpaca.data.requests import StockBarsRequest
-    from alpaca.data.timeframe import TimeFrame
 
     from backend.config import ALPACA_API_KEY, ALPACA_SECRET_KEY
 

@@ -370,7 +370,9 @@ def check48():
             if end:
                 funcs[node.name] = "\n".join(lines[node.lineno - 1: end])
 
-    retry_pattern = re.compile(r"for attempt in range\(2\)")
+    # Any retry count >= 2 satisfies the intent; the literal range(2) match
+    # went CRITICAL on 2026-07-16's widening to range(3) (found 2026-09-11).
+    retry_pattern = re.compile(r"for attempt in range\(([2-9]|\d{2,})\)")
     missing = []
     for fn in ("_fetch_options_chains", "_check_relative_strength", "_check_volume_accumulation"):
         body = funcs.get(fn, "")
