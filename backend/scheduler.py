@@ -221,6 +221,31 @@ def _sync_watchlist() -> None:
         logger.debug(f"Watchlist sync: {len(recovering)} recovering, {removed} removed")
 
 
+def publish_audit_state() -> None:
+    """
+    Run the mechanical audit checks here, where apex.db and the app-written
+    data files exist, and push the findings to the orphan branch audit-state
+    for CI to merge into the nightly report. See audit/publish_state.py —
+    runs in a subprocess so a failing check can't touch this process.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parent.parent
+    try:
+        r = subprocess.run([sys.executable, "-m", "audit.publish_state"],
+                           cwd=repo, capture_output=True, text=True, timeout=1200)
+    except subprocess.TimeoutExpired:
+        logger.error("publish_audit_state: timed out after 1200s")
+        return
+    if r.returncode != 0:
+        logger.error(f"publish_audit_state failed (rc={r.returncode}): "
+                     f"{(r.stderr or r.stdout).strip()[-800:]}")
+    else:
+        logger.info(f"publish_audit_state: {r.stdout.strip().splitlines()[-2:]}")
+
+
 def run_eod_regime() -> None:
     """
     End-of-day Bayesian regime update.
@@ -574,6 +599,15 @@ def start_scheduler() -> None:
         minute=0,
         id="prune_signals",
         replace_existing=True,
+    )
+    scheduler.add_job(
+        publish_audit_state,
+        "cron",
+        hour=20,
+        minute=0,           # 8 PM ET = 00:00 UTC — one hour before the CI audit's 01:00 UTC cron
+        id="publish_audit_state",
+        replace_existing=True,
+        misfire_grace_time=3600,
     )
     scheduler.add_job(
         recalibrate_thresholds,

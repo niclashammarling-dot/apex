@@ -15,6 +15,7 @@ Domain modules:
   (CHECK 32 git sync lives directly here — it needs subprocess and is orchestrator-level)
 """
 import ast
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -180,6 +181,8 @@ def _executed_checks() -> set:
                         if m:
                             nums.add(int(m.group(1)))
     nums.add(32)  # check32 lives in this module
+    if _state_merged:
+        nums.add(73)  # evaluated only in merge_state()
     return nums
 
 
@@ -288,12 +291,98 @@ def write_report(retirement_candidates: list) -> None:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+# ── State-report split (2026-09-11) ──────────────────────────────────────────
+# The nightly workflow runs on ubuntu-latest where apex.db and the app-written
+# data files don't exist, so every state-reading check is SKIPPED there. The
+# split: the app's host runs the same checks nightly with the data present and
+# publishes findings as JSON (`--emit-state`, pushed to the orphan branch
+# `audit-state` by audit/publish_state.py); CI fetches that file and merges it
+# (`--merge-state`) so the report carries real state findings. CI stays the
+# side that runs regardless of the app — if the state file is older than
+# STATE_MAX_AGE_HOURS, CHECK 73 fires CRITICAL from *outside* the app's failure
+# domain. That is the audit-runner liveness watchdog, as a property of the
+# split rather than a separate thing to keep alive.
+
+STATE_MAX_AGE_HOURS = 36
+_state_merged = False
+
+
+def emit_state(path: Path) -> None:
+    from datetime import datetime, timezone
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "host_commit": subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=REPO,
+                                      capture_output=True, text=True).stdout.strip(),
+        "findings": [list(f) for f in findings],
+        "skipped":  [list(s) for s in skipped],
+        "evaluated": sorted(_executed_checks() - {s[0] for s in skipped}),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=1))
+    print(f"State emitted: {len(findings)} finding(s), {len(skipped)} skipped, "
+          f"{len(payload['evaluated'])} evaluated → {path}")
+
+
+def merge_state(path: Path) -> None:
+    """Fold the host's state findings into this run; CHECK 73 on staleness."""
+    from datetime import datetime, timezone
+    global _state_merged
+    _state_merged = True
+    if not path.exists():
+        flag(73, "Audit-runner liveness watchdog", "CRITICAL", str(path),
+             "no state report fetched — the app host has never published one, or the "
+             "audit-state branch fetch failed. State-reading checks did not evaluate.")
+        return
+    try:
+        payload = json.loads(path.read_text())
+        generated = datetime.fromisoformat(payload["generated_at"])
+    except Exception as e:
+        flag(73, "Audit-runner liveness watchdog", "CRITICAL", str(path),
+             f"state report unreadable: {e}")
+        return
+    age_h = (datetime.now(timezone.utc) - generated).total_seconds() / 3600
+    if age_h > STATE_MAX_AGE_HOURS:
+        flag(73, "Audit-runner liveness watchdog", "CRITICAL", str(path),
+             f"state report is {age_h:.0f}h old (generated {payload['generated_at']}, "
+             f"host commit {payload.get('host_commit', '?')}) — the app host's nightly "
+             f"publish has not run for >{STATE_MAX_AGE_HOURS}h. App down, scheduler job "
+             f"dead, or push failing. State-reading checks did not evaluate.")
+        return
+    # Fresh: replace only this run's SKIPPED rows with the host's results for
+    # those same checks. CI stays authoritative for everything it could
+    # evaluate itself (code-shape checks run in both places; merging both
+    # would double every finding).
+    take = {s[0] for s in skipped} & set(payload.get("evaluated", []))
+    skipped[:] = [s for s in skipped if s[0] not in take]
+    for num, name, sev, file_line, finding in payload.get("findings", []):
+        if num in take:
+            flag(num, name, sev, file_line, f"{finding} [host, {payload['generated_at'][:16]}]")
+    print(f"State merged: {age_h:.1f}h old, {len(take)} check(s) taken from host")
+
+
+def main(argv: list[str] | None = None) -> None:
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--emit-state", type=Path, metavar="PATH",
+                    help="write findings/skipped as JSON and exit — no report, no registry write")
+    ap.add_argument("--merge-state", type=Path, metavar="PATH",
+                    help="fold a host-published state JSON into this run before reporting")
+    args = ap.parse_args(argv)
+
     checks_config.run()
     checks_gate.run()
     checks_data.run()
     checks_sector.run()
     checks_code.run()
     check32()
+    if args.emit_state:
+        emit_state(args.emit_state)
+        return
+    if args.merge_state:
+        merge_state(args.merge_state)
     retirement_candidates = update_registry()
     write_report(retirement_candidates or [])
+
+
+if __name__ == "__main__":
+    main()

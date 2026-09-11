@@ -60,3 +60,5 @@ data/calibration_done.txt
 data/ipo_sentiment_cache.json
 data/ipo_sentiment_history.json
 data/weekly_report_sent.txt
+# Host-published audit state — lives on the orphan branch audit-state, never on master
+audit/state/

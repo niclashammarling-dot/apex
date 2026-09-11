@@ -28,8 +28,19 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Fetch host-published audit state
+        # Orphan branch written nightly by the APEX host (audit/publish_state.py).
+        # A missing or stale file is not an error here — CHECK 73 reports it.
+        run: |
+          mkdir -p audit/state
+          if git fetch -q origin audit-state; then
+            git show FETCH_HEAD:latest.json > audit/state/latest.json && echo "fetched audit-state"
+          else
+            echo "audit-state branch not found"
+          fi
+
       - name: Run mechanical checks
-        run: python -m audit.mechanical_checks
+        run: python -m audit.mechanical_checks --merge-state audit/state/latest.json
 
       - name: Run LLM checks (GPT-4o)
         env:
