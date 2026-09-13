@@ -1,0 +1,29 @@
+name: APEX Tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite
+        # conftest.py redirects the DB to a temp file; no .env or network needed.
+        # A red run here is the floor — the suite was silently red for 11 weeks
+        # (2026-06-26 → 2026-09-13) with no consumer before this job existed.
+        env:
+          PYTHONPATH: .
+        run: pytest -q -p no:cacheprovider

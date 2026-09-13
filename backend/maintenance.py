@@ -11,6 +11,15 @@ from loguru import logger
 
 # ── Individual checks ─────────────────────────────────────────────────────────
 
+# Keys that legitimately exist on one side only. Each entry needs a reason —
+# an unexplained entry here is the drift this check exists to catch.
+_LIVE_ONLY_KEYS = {
+    # Live equity-curve start date (live_router passes it as `since` to get_live_equity_curve).
+    # Demo has no account, so a demo analogue would be a key that means nothing.
+    "live_account_since",
+}
+
+
 def check_config_parity() -> list[str]:
     """
     demo_config and live_config must expose the same set of keys.
@@ -22,7 +31,7 @@ def check_config_parity() -> list[str]:
     live_keys = set(live_config._KEYS)
     issues = []
     only_demo = demo_keys - live_keys
-    only_live = live_keys - demo_keys
+    only_live = live_keys - demo_keys - _LIVE_ONLY_KEYS
     if only_demo:
         issues.append(f"Keys in demo_config but missing from live_config: {sorted(only_demo)}")
     if only_live:

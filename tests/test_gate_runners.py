@@ -130,7 +130,7 @@ def _chain_fail_at(
 
 
 def _wallet_ctx():
-    return {"balance": 10000, "open_positions": 0, "sector_exposure": {}}
+    return {"balance": 10000, "starting_balance": 10000, "open_positions": 0, "sector_exposure": {}}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -163,7 +163,7 @@ def _demo_patches(candidates, open_tickers=None, failed_tickers=None,
     cfg = _demo_cfg(**(cfg_overrides or {}))
     # Default chain: all pass
     cr = chain_result if chain_result is not None else _chain_pass()
-    wallet_ctx = {"balance": 2000.0, "open_positions": 0, "sector_exposure": {}}
+    wallet_ctx = {"balance": 2000.0, "starting_balance": 2000.0, "open_positions": 0, "sector_exposure": {}}
     return [
         # Lazy imports inside run() → patch at source
         patch("backend.demo_config.get_demo_config",           return_value=cfg),        # 0
@@ -322,9 +322,11 @@ class TestDemoGateRunner:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _account(equity=10000.0, buying_power=10000.0, day_pnl=0.0,
-             trading_blocked=False, account_blocked=False):
+             trading_blocked=False, account_blocked=False, cash=None):
+    # cash defaults to equity: gate_runner_live sizes notional on min(equity, cash)
     return {
         "equity": equity, "buying_power": buying_power,
+        "cash": equity if cash is None else cash,
         "day_pnl": day_pnl, "day_pnl_pct": 0.0,
         "trading_blocked": trading_blocked,
         "account_blocked": account_blocked,
