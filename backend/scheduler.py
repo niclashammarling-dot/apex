@@ -342,7 +342,7 @@ def run_weekend_sweep() -> None:
 
 
 def run_optimizer() -> None:
-    """Run autoresearch optimizer over last ~9 months. Runs Saturday night after sweep."""
+    """Run autoresearch optimizer over last ~9 months. Runs after the sweep."""
     try:
         from backend.backtest.optimizer import run_optimizer as _run
         _run()
@@ -350,13 +350,20 @@ def run_optimizer() -> None:
         logger.error(f"Optimizer failed: {e}")
 
 
-def run_structural_checks() -> None:
-    """Run structural integrity checks. Runs Saturday morning before the sweep."""
-    try:
-        from backend.maintenance import run_structural_checks as _run
-        _run()
-    except Exception as e:
-        logger.error(f"Structural checks failed: {e}")
+def run_weekly_research() -> None:
+    """Sweep, then optimizer, then threshold recalibration — one sequential job.
+
+    Moved 2026-09-13 from Sat/Sun to Monday 17:00 Stockholm: the host is a
+    desktop under WSL2 with no service launcher, and the weekend slots never
+    fired (no sweep_results.json / optimizer_results.json has ever been
+    written). Chained rather than spaced by clock so ordering is by
+    dependency, not by guessed duration.
+    """
+    logger.info("Weekly research: sweep → optimizer → recalibrate")
+    run_weekend_sweep()
+    run_optimizer()
+    recalibrate_thresholds()
+    logger.info("Weekly research: done")
 
 
 def precache_monday_data() -> None:
@@ -609,16 +616,7 @@ def start_scheduler() -> None:
         replace_existing=True,
         misfire_grace_time=3600,
     )
-    scheduler.add_job(
-        recalibrate_thresholds,
-        "cron",
-        day_of_week="sun",
-        hour=3,
-        minute=0,
-        id="recalibrate_thresholds",
-        replace_existing=True,
-    )
-    # ── Weekend jobs ──────────────────────────────────────────────────────────
+    # ── Weekly jobs ──────────────────────────────────────────────────────────
     scheduler.add_job(
         send_weekly_report,
         "cron",
@@ -628,42 +626,26 @@ def start_scheduler() -> None:
         id="weekly_report",
         replace_existing=True,
     )
+    # structural_checks removed 2026-09-13: never fired in the retained log window
+    # (host down Saturday 06:00 ET). The same seven checks run in CI on every
+    # push via tests/test_structural.py — a failure domain independent of this host.
+    # Weekly research moved 2026-09-13 from Sat 20:00 / Sat 22:00 / Sun 03:00 ET
+    # to Monday 17:00 Stockholm — the one slot the host is reliably up.
+    # Note: 17:00 Stockholm is 11:00 ET, mid-session; the sweep and optimizer
+    # share this process with the live gate loop.
     scheduler.add_job(
-        run_structural_checks,
+        run_weekly_research,
         "cron",
-        day_of_week="sat",
-        hour=6,
-        minute=0,           # Saturday 6am — surface issues before the sweep runs
-        id="structural_checks",
+        day_of_week="mon",
+        hour=17,
+        minute=0,
+        timezone="Europe/Stockholm",
+        id="weekly_research",
         replace_existing=True,
     )
-    scheduler.add_job(
-        run_weekend_sweep,
-        "cron",
-        day_of_week="sat",
-        hour=20,
-        minute=0,           # Saturday 8pm — sweep runs overnight
-        id="weekend_sweep",
-        replace_existing=True,
-    )
-    scheduler.add_job(
-        run_optimizer,
-        "cron",
-        day_of_week="sat",
-        hour=22,
-        minute=0,           # Saturday 10pm — optimizer runs after sweep
-        id="optimizer",
-        replace_existing=True,
-    )
-    scheduler.add_job(
-        precache_monday_data,
-        "cron",
-        day_of_week="sun",
-        hour=18,
-        minute=0,           # Sunday 6pm — fresh signals before Monday open
-        id="precache_monday",
-        replace_existing=True,
-    )
+    # precache_monday (Sun 18:00 ET) removed 2026-09-13: its only purpose was
+    # warming Monday's first poll; at any Monday-afternoon slot it fires after
+    # that poll. Restore under a Sunday slot if the host ever runs weekends.
     scheduler.start()
     _check_missed_eod_regime()
     _check_missed_calibration()
