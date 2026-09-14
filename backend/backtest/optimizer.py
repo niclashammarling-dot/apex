@@ -258,7 +258,10 @@ def run_optimizer(seed: int | None = None) -> None:
         ev        = _evaluate(backtest_run, candidate, start_date, end_date, pc)
 
         elapsed  = time.time() - t0
-        improved = ev is not None and (current_score is None or ev[0] > current_score)
+        # bool(): ev[0] is a numpy float, so `>` yields numpy.bool_, which
+        # json.dump rejects — the first scheduled run (2026-09-14) died at the
+        # results write and left a truncated file.
+        improved = bool(ev is not None and (current_score is None or ev[0] > current_score))
 
         if ev is not None:
             score, metrics = ev
@@ -388,8 +391,11 @@ def _save_results(
         ],
     }
     RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(RESULTS_PATH, "w") as f:
-        json.dump(payload, f, indent=2)
+    # Serialise before opening so a failure can't leave a half-written file.
+    text = json.dumps(payload, indent=2)
+    tmp = RESULTS_PATH.with_suffix(".json.tmp")
+    tmp.write_text(text)
+    tmp.replace(RESULTS_PATH)
     logger.info(f"Optimizer: results saved to {RESULTS_PATH}")
 
 
