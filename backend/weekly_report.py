@@ -49,6 +49,7 @@ Rules:
 """
 
 _SWEEP_PATH = Path(__file__).parent.parent / "data" / "sweep_results.json"
+_OPT_PATH   = Path(__file__).parent.parent / "data" / "optimizer_results.json"
 
 
 # ── Week boundary ─────────────────────────────────────────────────────────────
@@ -341,6 +342,30 @@ def _sweep_best() -> tuple[str, str, list[dict] | None]:
         return _SWEEP_UNREADABLE, f"data/sweep_results.json exists but could not be read: {e}", None
 
 
+def _optimizer_best() -> tuple[str, str, dict | None]:
+    """
+    Same three states as _sweep_best. The dict carries best_score, best_params,
+    experiments_kept/total, final_metrics, generated_at, plus the run-to-run
+    noise floor from backend.backtest.optimizer.NOISE_FLOOR and whether it is
+    still valid for the current objective. The file had no consumer until
+    2026-09-14 — 200 experiments a week written to a file nothing opened, which
+    is why nobody noticed its writer was broken.
+    """
+    if not _OPT_PATH.exists():
+        return _SWEEP_ABSENT, "no data/optimizer_results.json — weekly_research has not written one", None
+    try:
+        with open(_OPT_PATH) as f:
+            data = json.load(f)
+        if data.get("best_score") is None or not data.get("best_params"):
+            return _SWEEP_UNREADABLE, "file parsed but has no best_score/best_params", None
+        from backend.backtest.optimizer import NOISE_FLOOR, noise_floor_valid
+        data["noise_floor"] = NOISE_FLOOR
+        data["noise_floor_valid"] = noise_floor_valid()
+        return _SWEEP_OK, f"generated {str(data.get('generated_at', '?'))[:16]}", data
+    except Exception as e:
+        return _SWEEP_UNREADABLE, f"data/optimizer_results.json exists but could not be read: {e}", None
+
+
 # ── Format helpers ────────────────────────────────────────────────────────────
 
 def _pct(v: float | None) -> str:
@@ -495,6 +520,9 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
     sweep_state, sweep_detail, sweep_top = _sweep_best()
     if sweep_state != _SWEEP_OK:
         logger.warning(f"Weekly report: sweep {sweep_state} — {sweep_detail}")
+    opt_state, opt_detail, opt = _optimizer_best()
+    if opt_state != _SWEEP_OK:
+        logger.warning(f"Weekly report: optimizer {opt_state} — {opt_detail}")
 
     commentary = _gpt4o_commentary(
         demo, live, dfunnel, lfunnel,
@@ -696,6 +724,40 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
     else:
         sweep_html = f"<p style='color:#ef4444;font-size:13px;'>Sweep results UNREADABLE: {sweep_detail}</p>"
 
+    # Optimizer: score with its noise floor stated inline; best params labelled
+    # as one sample from a flat optimum, not a recommendation. Within-run
+    # min/median/max is deliberately not shown — it measures the landscape
+    # inside a run, not whether a week-over-week move is real.
+    if opt_state == _SWEEP_OK:
+        nf = opt["noise_floor"]; fm = opt.get("final_metrics", {}); bp = opt["best_params"]
+        floor_txt = (
+            f"run-to-run σ {nf['sigma']:.3f}, n={nf['n_runs']} on {nf['measured']} data; "
+            f"week-over-week moves below {nf['threshold']:.2f} are not distinguishable from search noise"
+        )
+        if not opt["noise_floor_valid"]:
+            floor_txt = ("NOISE FLOOR STALE — objective or window changed since it was measured "
+                         f"({nf['measured']}); re-measure before reading any trend")
+        floor_color = "#6b7280" if opt["noise_floor_valid"] else "#ef4444"
+        opt_html = f"""
+        <p style='color:#e5e7eb;font-size:13px;margin:4px 0;'>
+          Best score <b>{opt['best_score']:.3f}</b>
+          <span style='color:{floor_color};font-size:11px;'>({floor_txt})</span><br/>
+          Kept {opt.get('experiments_kept', '?')}/{opt.get('experiments_total', '?')}
+          <span style='color:#6b7280;font-size:11px;'>(run-to-run {nf['kept_mean']:.1f} ± {nf['kept_sigma']:.1f})</span>
+        </p>
+        <p style='color:#9ca3af;font-size:12px;margin:4px 0;'>
+          One sample from a flat optimum, not a recommendation — Sharpe saturates at 2.0 in the composite and
+          six cold-start runs disagreed on max_positions (2–5), L1 (0.64–0.76) and trade count (37–105):
+          L1={bp.get('lock1_threshold')} TP={bp.get('take_profit_pct', 0)*100:.0f}% SL={bp.get('stop_loss_pct', 0)*100:.0f}%
+          TSL={bp.get('trailing_stop_pct')} hold={bp.get('time_stop_days')}d maxpos={bp.get('max_positions')} VIX={bp.get('vix_threshold')}
+          → Sharpe {fm.get('sharpe', 0):.2f}, PF {fm.get('profit_factor', 0):.2f}, WR {_pct(fm.get('win_rate'))}, DD {_pct(fm.get('max_drawdown'))}, n={fm.get('total_trades')}
+          <span style='color:#6b7280;'>({opt_detail})</span>
+        </p>"""
+    elif opt_state == _SWEEP_ABSENT:
+        opt_html = f"<p style='color:#6b7280;font-size:13px;'>No optimizer results: {opt_detail} (runs Monday 17:00 Stockholm).</p>"
+    else:
+        opt_html = f"<p style='color:#ef4444;font-size:13px;'>Optimizer results UNREADABLE: {opt_detail}</p>"
+
     commentary_html = ""
     if commentary:
         commentary_html = f"""
@@ -725,6 +787,9 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
 
     <div style='{section_style}'>Weekend Backtest Sweep — Best Configs</div>
     {sweep_html}
+
+    <div style='{section_style}'>Autoresearch Optimizer</div>
+    {opt_html}
 
     <p style='color:#374151;font-size:11px;margin-top:32px;'>
       Generated by APEX at {now.strftime('%Y-%m-%d %H:%M')} UTC
@@ -801,6 +866,24 @@ LOCK 1 THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
                 f"Sharpe={r.get('sharpe',0):.2f} "
                 f"return={_pct(r.get('total_return_pct'))}\n"
             )
+
+    if opt_state == _SWEEP_OK:
+        nf = opt["noise_floor"]; fm = opt.get("final_metrics", {}); bp = opt["best_params"]
+        plain += f"\nAUTORESEARCH OPTIMIZER ({opt_detail})\n"
+        plain += f"  best score {opt['best_score']:.3f}  kept {opt.get('experiments_kept', '?')}/{opt.get('experiments_total', '?')}\n"
+        if opt["noise_floor_valid"]:
+            plain += (f"  noise floor: run-to-run sigma {nf['sigma']:.3f} (n={nf['n_runs']}, {nf['measured']}); "
+                      f"moves < {nf['threshold']:.2f} are noise; kept {nf['kept_mean']:.1f} +/- {nf['kept_sigma']:.1f}\n")
+        else:
+            plain += f"  NOISE FLOOR STALE — objective or window changed since {nf['measured']}; re-measure before reading a trend\n"
+        plain += (f"  one sample from a flat optimum (Sharpe capped at 2.0 in composite), not a recommendation: "
+                  f"L1={bp.get('lock1_threshold')} TP={bp.get('take_profit_pct', 0)*100:.0f}% SL={bp.get('stop_loss_pct', 0)*100:.0f}% "
+                  f"TSL={bp.get('trailing_stop_pct')} hold={bp.get('time_stop_days')}d maxpos={bp.get('max_positions')} VIX={bp.get('vix_threshold')} "
+                  f"-> Sharpe {fm.get('sharpe', 0):.2f} PF {fm.get('profit_factor', 0):.2f} WR {_pct(fm.get('win_rate'))} n={fm.get('total_trades')}\n")
+    elif opt_state == _SWEEP_ABSENT:
+        plain += f"\nAUTORESEARCH OPTIMIZER: none — {opt_detail}\n"
+    else:
+        plain += f"\nAUTORESEARCH OPTIMIZER: UNREADABLE — {opt_detail}\n"
 
     plain += f"\n— Generated {now.strftime('%Y-%m-%d %H:%M')} UTC"
 

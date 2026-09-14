@@ -209,13 +209,71 @@ def _date_range() -> tuple[str, str]:
     return start.isoformat(), end.isoformat()
 
 
+# ── Run-to-run noise floor ────────────────────────────────────────────────────
+#
+# Measured 2026-09-14: six cold-start runs (warm_start=False, 200 experiments
+# each) on identical data (window 2025-12-15 → 2026-09-11, same precompute
+# cache, same start score 0.29495). Best scores 0.6479, 0.7045, 0.6896,
+# 0.6497, 0.6830, 0.6183 → mean 0.666, σ 0.032, range 0.086. Kept 3/8/9/8/4/5
+# → 6.2 ± 2.5.
+#
+# Threshold derivation, two routes to the same number: (a) observed range
+# 0.086; (b) the difference of two independent runs has σ√2 ≈ 0.045, so a 2σ
+# band on a run-to-run comparison is 0.090. A week-over-week move in the
+# best score below NOISE_FLOOR["threshold"] is not distinguishable from
+# search noise and the weekly report says so.
+#
+# Validity: the floor is a property of this composite on this window. It is
+# tied to a hash of _composite_score's source, the weights, the floors and
+# LOOKBACK_DAYS; if any change, noise_floor_valid() returns False and the
+# report renders the floor as stale until it is re-measured (run
+# run_optimizer(warm_start=False, notify=False, results_path=...) several
+# times and update this block). A stored number without its validity
+# condition is exactly the stale-fact shape this codebase keeps digging out.
+NOISE_FLOOR = {
+    "measured":  "2026-09-14",
+    "n_runs":    6,
+    "mean":      0.666,
+    "sigma":     0.032,
+    "range":     0.086,
+    "threshold": 0.09,
+    "kept_mean": 6.2,
+    "kept_sigma": 2.5,
+    "objective_hash": "a9a7a936",   # set by _objective_hash() at measurement time
+}
+
+
+def _objective_hash() -> str:
+    import hashlib, inspect
+    src = inspect.getsource(_composite_score)
+    key = f"{src}|{W_SHARPE}|{W_DRAWDOWN}|{W_WIN_RATE}|{FLOOR_WIN_RATE}|{FLOOR_TRADE_FREQ}|{LOOKBACK_DAYS}"
+    return hashlib.sha256(key.encode()).hexdigest()[:8]
+
+
+def noise_floor_valid() -> bool:
+    """False once the objective or window differs from what the floor was measured on."""
+    return _objective_hash() == NOISE_FLOOR["objective_hash"]
+
+
 # ── Main optimizer loop ───────────────────────────────────────────────────────
 
-def run_optimizer(seed: int | None = None) -> None:
+def run_optimizer(
+    seed: int | None = None,
+    *,
+    warm_start: bool = True,
+    notify: bool = True,
+    results_path: Path = RESULTS_PATH,
+) -> dict:
     """
     Run the autoresearch optimization loop.
     Starts from current best params (or defaults), mutates, evaluates,
-    keeps improvements. Saves all results to RESULTS_PATH.
+    keeps improvements. Saves all results to results_path.
+
+    warm_start=False starts from defaults regardless of a previous results
+    file — needed for repeat runs on frozen data (noise-floor measurement,
+    2026-09-14): with warm start, consecutive runs chain into one hill-climb
+    and their spread measures search progress, not run-to-run noise.
+    Returns a small summary dict (best_score, kept, total, start_score).
     """
     from backend.backtest.engine_fast import precompute
     from backend.backtest.engine_fast import run as backtest_run
@@ -232,7 +290,7 @@ def run_optimizer(seed: int | None = None) -> None:
     pc = precompute(start_date, end_date)
 
     # Load previous best as starting point if available
-    current_params = _load_best_params() or _default_params()
+    current_params = (_load_best_params() if warm_start else None) or _default_params()
     eval_result    = _evaluate(backtest_run, current_params, start_date, end_date, pc)
 
     if eval_result is None:
@@ -247,6 +305,7 @@ def run_optimizer(seed: int | None = None) -> None:
     t0   = time.time()
 
     logger.info(f"Optimizer: starting score = {current_score}")
+    start_score = current_score
 
     for i in range(1, MAX_EXPERIMENTS + 1):
         if time.time() - t0 > TIME_BUDGET_SEC:
@@ -303,13 +362,19 @@ def run_optimizer(seed: int | None = None) -> None:
     final_ev      = _evaluate(backtest_run, current_params, start_date, end_date, pc)
     final_metrics = final_ev[1] if final_ev is not None else {}
 
-    _save_results(current_params, current_score, all_results, final_metrics, start_date, end_date)
-    _notify(current_params, current_score, final_metrics, kept, len(all_results))
+    _save_results(current_params, current_score, all_results, final_metrics, start_date, end_date,
+                  results_path=results_path)
+    if notify:
+        _notify(current_params, current_score, final_metrics, kept, len(all_results))
 
     logger.info(
         f"Optimizer complete: {kept}/{len(all_results)} experiments kept. "
         f"Best score={current_score:.4f}"
     )
+    return {
+        "best_score": current_score, "start_score": start_score,
+        "kept": kept, "total": len(all_results), "best_params": current_params,
+    }
 
 
 def _evaluate(
@@ -365,6 +430,7 @@ def _save_results(
     final_metrics: dict,
     start_date: str,
     end_date: str,
+    results_path: Path = RESULTS_PATH,
 ) -> None:
     from datetime import datetime, timezone
 
@@ -391,8 +457,8 @@ def _save_results(
             for r in all_results[-50:]   # keep last 50 for inspection
         ],
     }
-    write_json_atomic(RESULTS_PATH, payload, indent=2)
-    logger.info(f"Optimizer: results saved to {RESULTS_PATH}")
+    write_json_atomic(results_path, payload, indent=2)
+    logger.info(f"Optimizer: results saved to {results_path}")
 
 
 def _notify(
