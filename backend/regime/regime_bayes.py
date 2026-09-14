@@ -29,6 +29,7 @@ Usage:
 from __future__ import annotations
 
 import json
+from backend.json_io import write_json_atomic
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -603,8 +604,7 @@ class RegimeBayes:
                     for e in result.leaderboard
                 ],
             }
-            with open(RESULT_CACHE_PATH, "w") as f:
-                json.dump(payload, f)
+            write_json_atomic(RESULT_CACHE_PATH, payload)
         except Exception as e:
             logger.warning(f"Regime: failed to persist last result: {e}")
 

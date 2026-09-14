@@ -98,6 +98,8 @@ def _compute_apex_day_pnl(positions: list[dict]) -> tuple[float, list[str]]:
     ).astimezone(timezone.utc).isoformat()
 
     realized = 0.0
+    carried = 0   # exits opened on an earlier day — the legs that need a prior close
+    fallbacks = 0
     for t in get_live_trades_exited_since(ny_midnight):
         entry_date = datetime.fromisoformat(t["timestamp"]).astimezone(
             ZoneInfo("America/New_York")
@@ -107,6 +109,7 @@ def _compute_apex_day_pnl(positions: list[dict]) -> tuple[float, list[str]]:
             # reference point, entry-to-exit is a daily figure as-is.
             realized += t["pnl"]
             continue
+        carried += 1
         prior_close = get_prior_close(t["ticker"])
         if prior_close is None:
             # Can't compute a daily figure for this exit — fall back to the
@@ -116,9 +119,17 @@ def _compute_apex_day_pnl(positions: list[dict]) -> tuple[float, list[str]]:
                 f"Live gate: no prior close for {t['ticker']} exit — "
                 "using lifetime pnl for this leg's realized contribution"
             )
+            fallbacks += 1
             realized += t["pnl"]
             continue
         realized += (t["exit_price"] - prior_close) * t["qty"]
+    # Denominator line for CHECK 75: a zero fallback count is only evidence
+    # of a working path when carried > 0. Emitted whenever there is a
+    # carried-over leg, whether or not any fell back.
+    if carried:
+        logger.info(
+            f"Live gate: prior-close legs processed={carried} fallbacks={fallbacks}"
+        )
 
     positions_by_ticker = {p["ticker"]: p for p in positions}
     unrealized = 0.0

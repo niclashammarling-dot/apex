@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import itertools
 import json
+from backend.json_io import write_json_atomic
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -124,9 +125,7 @@ def run_sweep() -> None:
         "valid_combos": len(results),
         "top_configs":  results[:20],
     }
-    _RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(_RESULTS_PATH, "w") as f:
-        json.dump(payload, f, indent=2)
+    write_json_atomic(_RESULTS_PATH, payload, indent=2)
 
     logger.info(
         f"Sweep complete: {len(results)} valid configs. "

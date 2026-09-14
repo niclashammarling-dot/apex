@@ -20,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import json
+from backend.json_io import write_json_atomic
 import math
 import random
 import time
@@ -390,12 +391,7 @@ def _save_results(
             for r in all_results[-50:]   # keep last 50 for inspection
         ],
     }
-    RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    # Serialise before opening so a failure can't leave a half-written file.
-    text = json.dumps(payload, indent=2)
-    tmp = RESULTS_PATH.with_suffix(".json.tmp")
-    tmp.write_text(text)
-    tmp.replace(RESULTS_PATH)
+    write_json_atomic(RESULTS_PATH, payload, indent=2)
     logger.info(f"Optimizer: results saved to {RESULTS_PATH}")
 
 

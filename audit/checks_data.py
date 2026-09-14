@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import requests
 
-from audit._audit_core import REPO, _most_recent_trading_day, flag, require_data_file
+from audit._audit_core import REPO, _most_recent_trading_day, flag, require_data_file, skipped
 
 
 # ── CHECK 14 — EOD regime freshness ──────────────────────────────────────────
@@ -712,8 +712,9 @@ def check56():
 
 def check75():
     """
-    Flag when `_compute_apex_day_pnl`'s prior-close fallback fires — the
-    "using lifetime pnl for this leg" warning in the app log.
+    Flag when `_compute_apex_day_pnl`'s prior-close fallback fires, measured
+    against a denominator — the "prior-close legs processed=N fallbacks=M"
+    line the runner emits whenever a carried-over exit is handled.
 
     The fallback is designed for a rare transient (one Alpaca fetch failing);
     each hit replaces a daily-P&L leg with a lifetime one and the number
@@ -725,36 +726,54 @@ def check75():
     it read as an acceptable degradation because each line was individually
     reasonable. A logged fallback with no rate check is a silent one.
 
-    Window is the three most recent log days (not full retention, so a fixed
-    path clears in three days rather than twelve). WARNING on one day with
-    the warning; CRITICAL on two or more — that is a broken data path, not a
-    transient. Host-only (reads logs/), SKIPPED in CI and merged from the
-    host's state report.
+    Two-term observable (same day, second revision): counting only the
+    WARNING would report green on a path that was never exercised — a zero
+    numerator over a zero denominator is this check's own instance of the
+    failure class it was built for. So: no denominator line in the window →
+    SKIPPED ("path not exercised"), never ✓. Window is the three most recent
+    log days. WARNING if any fallback in a day with legs; CRITICAL if two or
+    more such days. Host-only (reads logs/), SKIPPED in CI and merged from
+    the host's state report. Pre-revision logs (before this line existed)
+    carry only the WARNING; those are counted as fallbacks with an unknown
+    denominator so the historical failure still surfaces.
     """
+    import re as _re
     log_dir = REPO / "logs"
     if not require_data_file(75, "Prior-close fallback rate", log_dir,
                              "app log directory is host-only"):
         return
-    days = {}
+    legs, fell = {}, {}
     for path in sorted(log_dir.glob("apex_*.log"))[-3:]:
         try:
-            n = sum(1 for line in path.read_text(errors="replace").splitlines()
-                    if "no prior close for" in line)
+            text = path.read_text(errors="replace")
         except OSError:
             continue
-        if n:
-            days[path.stem.removeprefix("apex_")] = n
-    if not days:
+        day = path.stem.removeprefix("apex_")
+        for m in _re.finditer(r"prior-close legs processed=(\d+) fallbacks=(\d+)", text):
+            legs[day] = legs.get(day, 0) + int(m.group(1))
+            fell[day] = fell.get(day, 0) + int(m.group(2))
+        if day not in legs:
+            n = text.count("no prior close for")
+            if n:
+                fell[day] = n   # pre-denominator log: fallbacks known, legs unknown
+    bad = {d: n for d, n in fell.items() if n}
+    if bad:
+        detail = ", ".join(
+            f"{d} {n}/{legs[d]}" if d in legs else f"{d} {n}/?" for d, n in sorted(bad.items())
+        )
+        sev = "CRITICAL" if len(bad) >= 2 else "WARNING"
+        flag(75, "Prior-close fallback rate", sev,
+             "backend/brokers/alpaca.py:get_prior_close",
+             f"prior-close fallback fired on {len(bad)} of the last 3 log day(s) "
+             f"(fallbacks/legs: {detail}) — every hit replaces a daily-P&L leg with "
+             f"lifetime P&L in _compute_apex_day_pnl. One day: check Alpaca "
+             f"data-plan / network. Two or more: the fetch path is broken, not "
+             f"flaky — the daily realized figure has been wrong on each of those days.")
         return
-    detail = ", ".join(f"{d} x{n}" for d, n in sorted(days.items()))
-    sev = "CRITICAL" if len(days) >= 2 else "WARNING"
-    flag(75, "Prior-close fallback rate", sev,
-         "backend/brokers/alpaca.py:get_prior_close",
-         f"prior-close fallback fired on {len(days)} of the last 3 log day(s) ({detail}) — "
-         f"every hit replaces a daily-P&L leg with lifetime P&L in "
-         f"_compute_apex_day_pnl. One day: check Alpaca data-plan / network. "
-         f"Two or more: the fetch path is broken, not flaky — the daily "
-         f"realized figure has been wrong on each of those days.")
+    if not any(legs.values()):
+        skipped.append((75, "Prior-close fallback rate", "logs/",
+                        "no carried-over exit processed in the last 3 log days — "
+                        "path not exercised, zero fallbacks is not evidence"))
 
 
 def run() -> None:

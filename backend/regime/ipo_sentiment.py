@@ -32,6 +32,7 @@ Usage:
 from __future__ import annotations
 
 import json
+from backend.json_io import write_json_atomic
 import re
 import time
 from dataclasses import dataclass
@@ -631,8 +632,7 @@ class IpoSentiment:
                     for listing in result.listings
                 ],
             }
-            with open(CACHE_PATH, "w") as f:
-                json.dump(payload, f, indent=2)
+            write_json_atomic(CACHE_PATH, payload, indent=2)
         except Exception as e:
             logger.warning(f"IpoSentiment: cache write failed: {e}")
 
@@ -655,9 +655,7 @@ class IpoSentiment:
             entries.append({"date": result.date, "total_ipos": result.total_ipos})
             entries = sorted(entries, key=lambda e: e["date"])[-HISTORY_MAX_DAYS:]
 
-            HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
-            with open(HISTORY_PATH, "w") as f:
-                json.dump(entries, f, indent=2)
+            write_json_atomic(HISTORY_PATH, entries, indent=2)
         except Exception as e:
             logger.warning(f"IpoSentiment: history write failed: {e}")
 
