@@ -708,6 +708,55 @@ def check56():
              f"breakage (param rejection, schema change, rate limit)")
 
 
+# ── CHECK 75 — Prior-close fallback rate ─────────────────────────────────────
+
+def check75():
+    """
+    Flag when `_compute_apex_day_pnl`'s prior-close fallback fires — the
+    "using lifetime pnl for this leg" warning in the app log.
+
+    The fallback is designed for a rare transient (one Alpaca fetch failing);
+    each hit replaces a daily-P&L leg with a lifetime one and the number
+    stays plausible. 2026-09-14: the path had failed on every carried-over
+    exit since the 08-12 dual-P&L fix shipped — `get_prior_close` queried
+    `end=now`, which the free data plan rejects ("subscription does not
+    permit querying recent SIP data") — and no run of the fix ever produced a
+    real daily figure. Five of fifteen retained log days carried the warning;
+    it read as an acceptable degradation because each line was individually
+    reasonable. A logged fallback with no rate check is a silent one.
+
+    Window is the three most recent log days (not full retention, so a fixed
+    path clears in three days rather than twelve). WARNING on one day with
+    the warning; CRITICAL on two or more — that is a broken data path, not a
+    transient. Host-only (reads logs/), SKIPPED in CI and merged from the
+    host's state report.
+    """
+    log_dir = REPO / "logs"
+    if not require_data_file(75, "Prior-close fallback rate", log_dir,
+                             "app log directory is host-only"):
+        return
+    days = {}
+    for path in sorted(log_dir.glob("apex_*.log"))[-3:]:
+        try:
+            n = sum(1 for line in path.read_text(errors="replace").splitlines()
+                    if "no prior close for" in line)
+        except OSError:
+            continue
+        if n:
+            days[path.stem.removeprefix("apex_")] = n
+    if not days:
+        return
+    detail = ", ".join(f"{d} x{n}" for d, n in sorted(days.items()))
+    sev = "CRITICAL" if len(days) >= 2 else "WARNING"
+    flag(75, "Prior-close fallback rate", sev,
+         "backend/brokers/alpaca.py:get_prior_close",
+         f"prior-close fallback fired on {len(days)} of the last 3 log day(s) ({detail}) — "
+         f"every hit replaces a daily-P&L leg with lifetime P&L in "
+         f"_compute_apex_day_pnl. One day: check Alpaca data-plan / network. "
+         f"Two or more: the fetch path is broken, not flaky — the daily "
+         f"realized figure has been wrong on each of those days.")
+
+
 def run() -> None:
     check14()
     check15()
@@ -721,3 +770,4 @@ def run() -> None:
     check47()
     check55()
     check56()
+    check75()

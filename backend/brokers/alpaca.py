@@ -389,11 +389,16 @@ def get_prior_close(ticker: str) -> float | None:
     try:
         client = StockHistoricalDataClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
         now = datetime.now(timezone.utc)
+        # The free data plan rejects any SIP query whose window touches the
+        # last 15 minutes ("subscription does not permit querying recent SIP
+        # data"). We only need the last *completed* session, so end the
+        # window 16 minutes back — keeps consolidated SIP closes rather than
+        # switching to the IEX-only feed. Observed live 2026-09-14.
         req = StockBarsRequest(
             symbol_or_symbols=ticker,
             timeframe=TimeFrame.Day,
             start=now - timedelta(days=10),
-            end=now,
+            end=now - timedelta(minutes=16),
         )
         bars = client.get_stock_bars(req)
         rows = bars[ticker] if ticker in bars.data else []
