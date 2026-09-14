@@ -730,10 +730,25 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
     # inside a run, not whether a week-over-week move is real.
     if opt_state == _SWEEP_OK:
         nf = opt["noise_floor"]; fm = opt.get("final_metrics", {}); bp = opt["best_params"]
+        st = opt.get("start") or {}
+        warm = st.get("warm_start")
         floor_txt = (
-            f"run-to-run σ {nf['sigma']:.3f}, n={nf['n_runs']} on {nf['measured']} data; "
-            f"week-over-week moves below {nf['threshold']:.2f} are not distinguishable from search noise"
+            f"cold-start floor: run-to-run σ {nf['sigma']:.3f}, n={nf['n_runs']} on {nf['measured']} data; "
+            f"moves below {nf['threshold']:.2f} between cold-start runs are search noise"
         )
+        if warm:
+            floor_txt += (" — this run was WARM-STARTED from last week's params, so its best score is a ratchet "
+                          "step within the window, not a draw from that distribution; read the incumbent line instead")
+        if st.get("start_score") is not None:
+            if warm:
+                delta = (opt["best_score"] or 0) - st["start_score"]
+                incumbent_txt = (f"Incumbent (last week's params re-scored on this window) <b>{st['start_score']:.3f}</b> "
+                                 f"→ search {'beat it by ' + format(delta, '.3f') if st.get('displaced') else 'did not beat it'}. "
+                                 f"Incumbent trend is the degradation signal; displacement is the ratchet's health.")
+            else:
+                incumbent_txt = f"Cold start from defaults ({st['start_score']:.3f})."
+        else:
+            incumbent_txt = "Start score not recorded (results file predates 2026-09-14)."
         if not opt["noise_floor_valid"]:
             floor_txt = ("NOISE FLOOR STALE — objective or window changed since it was measured "
                          f"({nf['measured']}); re-measure before reading any trend")
@@ -743,7 +758,8 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
           Best score <b>{opt['best_score']:.3f}</b>
           <span style='color:{floor_color};font-size:11px;'>({floor_txt})</span><br/>
           Kept {opt.get('experiments_kept', '?')}/{opt.get('experiments_total', '?')}
-          <span style='color:#6b7280;font-size:11px;'>(run-to-run {nf['kept_mean']:.1f} ± {nf['kept_sigma']:.1f})</span>
+          <span style='color:#6b7280;font-size:11px;'>(cold-start run-to-run {nf['kept_mean']:.1f} ± {nf['kept_sigma']:.1f})</span><br/>
+          <span style='font-size:12px;'>{incumbent_txt}</span>
         </p>
         <p style='color:#9ca3af;font-size:12px;margin:4px 0;'>
           One sample from a flat optimum, not a recommendation — Sharpe saturates at 2.0 in the composite and
@@ -871,11 +887,24 @@ LOCK 1 THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
         nf = opt["noise_floor"]; fm = opt.get("final_metrics", {}); bp = opt["best_params"]
         plain += f"\nAUTORESEARCH OPTIMIZER ({opt_detail})\n"
         plain += f"  best score {opt['best_score']:.3f}  kept {opt.get('experiments_kept', '?')}/{opt.get('experiments_total', '?')}\n"
+        st = opt.get("start") or {}
         if opt["noise_floor_valid"]:
-            plain += (f"  noise floor: run-to-run sigma {nf['sigma']:.3f} (n={nf['n_runs']}, {nf['measured']}); "
-                      f"moves < {nf['threshold']:.2f} are noise; kept {nf['kept_mean']:.1f} +/- {nf['kept_sigma']:.1f}\n")
+            plain += (f"  cold-start noise floor: run-to-run sigma {nf['sigma']:.3f} (n={nf['n_runs']}, {nf['measured']}); "
+                      f"moves < {nf['threshold']:.2f} between cold-start runs are noise; kept {nf['kept_mean']:.1f} +/- {nf['kept_sigma']:.1f}\n")
         else:
             plain += f"  NOISE FLOOR STALE — objective or window changed since {nf['measured']}; re-measure before reading a trend\n"
+        if st.get("warm_start"):
+            plain += ("  WARM-STARTED from last week's params: best score is a ratchet step within the window, not a draw from the floor's distribution\n")
+        if st.get("start_score") is not None:
+            if st.get("warm_start"):
+                delta = (opt["best_score"] or 0) - st["start_score"]
+                plain += (f"  incumbent re-scored on this window {st['start_score']:.3f} -> "
+                          f"{'beaten by %.3f' % delta if st.get('displaced') else 'not beaten'} "
+                          f"(incumbent trend = degradation signal; displacement = ratchet health)\n")
+            else:
+                plain += f"  cold start from defaults ({st['start_score']:.3f})\n"
+        else:
+            plain += "  start score not recorded (results file predates 2026-09-14)\n"
         plain += (f"  one sample from a flat optimum (Sharpe capped at 2.0 in composite), not a recommendation: "
                   f"L1={bp.get('lock1_threshold')} TP={bp.get('take_profit_pct', 0)*100:.0f}% SL={bp.get('stop_loss_pct', 0)*100:.0f}% "
                   f"TSL={bp.get('trailing_stop_pct')} hold={bp.get('time_stop_days')}d maxpos={bp.get('max_positions')} VIX={bp.get('vix_threshold')} "

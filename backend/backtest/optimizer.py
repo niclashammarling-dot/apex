@@ -290,7 +290,9 @@ def run_optimizer(
     pc = precompute(start_date, end_date)
 
     # Load previous best as starting point if available
-    current_params = (_load_best_params() if warm_start else None) or _default_params()
+    loaded = _load_best_params() if warm_start else None
+    warm = loaded is not None
+    current_params = loaded or _default_params()
     eval_result    = _evaluate(backtest_run, current_params, start_date, end_date, pc)
 
     if eval_result is None:
@@ -304,8 +306,9 @@ def run_optimizer(
     kept = 0
     t0   = time.time()
 
-    logger.info(f"Optimizer: starting score = {current_score}")
+    logger.info(f"Optimizer: starting score = {current_score} ({'warm start: last best re-scored on this window' if warm else 'cold start: defaults'})")
     start_score = current_score
+    start_params = dict(current_params)
 
     for i in range(1, MAX_EXPERIMENTS + 1):
         if time.time() - t0 > TIME_BUDGET_SEC:
@@ -362,8 +365,20 @@ def run_optimizer(
     final_ev      = _evaluate(backtest_run, current_params, start_date, end_date, pc)
     final_metrics = final_ev[1] if final_ev is not None else {}
 
+    # The scheduled series is warm-started: last week's params are re-scored
+    # on the new window (that re-score is the number that can fall when the
+    # strategy degrades — the params carry over, the score does not), then
+    # the search ratchets up from there within the window. So a week's
+    # best_score is not a draw from the cold-start distribution NOISE_FLOOR
+    # describes. Persist the incumbent re-score and whether the search beat
+    # it: incumbent trend is the degradation signal, displacement is the
+    # ratchet's health signal (2026-09-14).
     _save_results(current_params, current_score, all_results, final_metrics, start_date, end_date,
-                  results_path=results_path)
+                  results_path=results_path, start={
+                      "warm_start": warm, "start_score": start_score, "start_params": start_params,
+                      "displaced": bool(current_score is not None and start_score is not None
+                                        and current_score > start_score),
+                  })
     if notify:
         _notify(current_params, current_score, final_metrics, kept, len(all_results))
 
@@ -431,6 +446,7 @@ def _save_results(
     start_date: str,
     end_date: str,
     results_path: Path = RESULTS_PATH,
+    start: dict | None = None,
 ) -> None:
     from datetime import datetime, timezone
 
@@ -439,6 +455,7 @@ def _save_results(
         "start_date":   start_date,
         "end_date":     end_date,
         "best_score":   best_score,
+        "start":        start or {},
         "best_params":  best_params,
         "final_metrics": {
             "sharpe":          final_metrics.get("sharpe"),
