@@ -316,15 +316,29 @@ def _threshold_status(since: str, until: str) -> dict:
     }
 
 
-def _sweep_best() -> list[dict] | None:
+# Three states, three renderings. "No file" and "file I couldn't read" used
+# to collapse into one None, so five months of "no sweep" read as normal and
+# a corrupt file would have rendered identically. Absence and failure must
+# not share a label (2026-09-14, same rule as the audit's SKIPPED row).
+_SWEEP_ABSENT = "absent"
+_SWEEP_UNREADABLE = "unreadable"
+_SWEEP_OK = "ok"
+
+
+def _sweep_best() -> tuple[str, str, list[dict] | None]:
+    """Returns (state, detail, top_configs). top_configs is only set when state == ok."""
     if not _SWEEP_PATH.exists():
-        return None
+        return _SWEEP_ABSENT, "no data/sweep_results.json — weekly_research has not written one", None
     try:
         with open(_SWEEP_PATH) as f:
             data = json.load(f)
-        return data.get("top_configs", [])[:3]
-    except Exception:
-        return None
+        top = data.get("top_configs", [])[:3]
+        generated = str(data.get("generated_at", "?"))[:16]
+        if not top:
+            return _SWEEP_UNREADABLE, f"file parsed but top_configs is empty (generated {generated})", None
+        return _SWEEP_OK, f"generated {generated}", top
+    except Exception as e:
+        return _SWEEP_UNREADABLE, f"data/sweep_results.json exists but could not be read: {e}", None
 
 
 # ── Format helpers ────────────────────────────────────────────────────────────
@@ -478,7 +492,9 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
     lfunnel = _live_gate_funnel(since, until)
     top_sector = _top_sector(since, until)
     thresh_status = _threshold_status(since, until)
-    sweep_top  = _sweep_best()
+    sweep_state, sweep_detail, sweep_top = _sweep_best()
+    if sweep_state != _SWEEP_OK:
+        logger.warning(f"Weekly report: sweep {sweep_state} — {sweep_detail}")
 
     commentary = _gpt4o_commentary(
         demo, live, dfunnel, lfunnel,
@@ -673,10 +689,12 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
           <tbody>{sweep_rows_html}</tbody>
         </table>
         <p style='color:#6b7280;font-size:11px;margin-top:4px;'>
-          Sweep covers last 90 trading days — L1-only backtest. Compare vs current demo config before promoting.
+          Sweep covers last 90 trading days — L1-only backtest ({sweep_detail}). Compare vs current demo config before promoting.
         </p>"""
+    elif sweep_state == _SWEEP_ABSENT:
+        sweep_html = f"<p style='color:#6b7280;font-size:13px;'>No sweep results: {sweep_detail} (runs Monday 17:00 Stockholm).</p>"
     else:
-        sweep_html = "<p style='color:#6b7280;font-size:13px;'>Sweep results not yet available (runs Saturday night).</p>"
+        sweep_html = f"<p style='color:#ef4444;font-size:13px;'>Sweep results UNREADABLE: {sweep_detail}</p>"
 
     commentary_html = ""
     if commentary:
@@ -768,6 +786,10 @@ LOCK 1 THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
             flag_str = {"high": " ← recalibrate (scores up)", "low": " ← compressed (market selloff)", "ok": ""}.get(s["flag"], "")
             plain += f"  {s['sector']:20s}  {s['threshold']}  pass={s['pass_rate']*100:.0f}% (n={s['n']}){flag_str}\n"
 
+    if sweep_state == _SWEEP_ABSENT:
+        plain += f"\nBEST BACKTEST CONFIGS: none — {sweep_detail}\n"
+    elif sweep_state == _SWEEP_UNREADABLE:
+        plain += f"\nBEST BACKTEST CONFIGS: UNREADABLE — {sweep_detail}\n"
     if sweep_top:
         plain += "\nBEST BACKTEST CONFIGS (last 90d)\n"
         for i, r in enumerate(sweep_top):
