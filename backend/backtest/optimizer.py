@@ -187,7 +187,10 @@ def _mutate(params: ParamSet, n_mutations: int = 1) -> ParamSet:
 
 
 def _default_params() -> ParamSet:
-    """Starting point — mirrors current apex defaults."""
+    """Cold-start point for the search. Not the live config: TP 0.08 / hold 25
+    here vs config.py 0.06 / 40 — and config already read 0.06 / 40 when this
+    was written (cc2aa23). Use objective_walkforward.incumbent_params() for
+    the live tunables; this set is only where a cold search begins."""
     return ParamSet(
         lock1_threshold=0.70,
         take_profit_pct=0.08,
@@ -398,8 +401,15 @@ def _evaluate(
     start_date: str,
     end_date: str,
     precomputed: dict | None = None,
+    score_fn=None,
 ) -> tuple[float, dict] | None:
-    """Run backtest and return (composite_score, full_result). Returns None if invalid."""
+    """Run backtest and return (composite_score, full_result). Returns None if invalid.
+
+    score_fn defaults to _composite_score; the walk-forward harness
+    (objective_walkforward.py) injects candidate objectives without touching
+    the shipped one, so NOISE_FLOOR's hash stays valid during the experiment.
+    """
+    score_fn = score_fn or _composite_score
     try:
         r = backtest_run(
             start_date=start_date,
@@ -414,7 +424,7 @@ def _evaluate(
             vix_threshold=params["vix_threshold"],
             precomputed=precomputed,
         )
-        score = _composite_score(
+        score = score_fn(
             r["sharpe"], r["max_drawdown"], r["win_rate"], r["total_trades"]
         )
         if score is None:
