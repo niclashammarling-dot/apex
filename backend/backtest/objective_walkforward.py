@@ -241,7 +241,8 @@ def main():
     a = ap.parse_args()
     if not (a.c1 or a.c2):
         a.c1 = a.c2 = True
-    out = {"engine_commit": "6c8c16d", "preregistration": "raw/notes/2026-09/2026-09-15-apex-optimizer-cap-walk-forward-preregistration.md"}
+    from datetime import datetime, timezone
+    out = {"generated_at": datetime.now(timezone.utc).isoformat(), "engine_commit": "6c8c16d", "preregistration": "raw/notes/2026-09/2026-09-15-apex-optimizer-cap-walk-forward-preregistration.md"}
     if a.c2:
         out["criterion_2"] = criterion_2()
         write_json_atomic(Path(a.out), out)

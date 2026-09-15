@@ -50,6 +50,7 @@ Rules:
 
 _SWEEP_PATH = Path(__file__).parent.parent / "data" / "sweep_results.json"
 _OPT_PATH   = Path(__file__).parent.parent / "data" / "optimizer_results.json"
+_WF_PATH    = Path(__file__).parent.parent / "data" / "objective_walkforward.json"
 
 
 # ── Week boundary ─────────────────────────────────────────────────────────────
@@ -364,6 +365,33 @@ def _optimizer_best() -> tuple[str, str, dict | None]:
         return _SWEEP_OK, f"generated {str(data.get('generated_at', '?'))[:16]}", data
     except Exception as e:
         return _SWEEP_UNREADABLE, f"data/optimizer_results.json exists but could not be read: {e}", None
+
+
+def _walkforward_last() -> str:
+    """
+    One line: the last hand-run objective walk-forward, with its date, fold
+    count and verdicts. Link, not re-run — folds extend every ~2 months, so a
+    weekly re-render would repeat the same result until nobody read it; and
+    the harness has a known degenerate case (top-k collapsing to top-1 on
+    non-binding params, 2026-09-15) that should be understood before its number
+    looks authoritative. Absent file → says so.
+    """
+    if not _WF_PATH.exists():
+        return "no walk-forward run on record (backend/backtest/objective_walkforward.py, hand-run)"
+    try:
+        from datetime import datetime, timezone
+        with open(_WF_PATH) as f:
+            d = json.load(f)
+        when = d.get("generated_at") or datetime.fromtimestamp(_WF_PATH.stat().st_mtime, timezone.utc).isoformat()
+        c2 = d.get("criterion_2") or {}
+        c1 = d.get("criterion_1") or {}
+        folds = c2.get("folds") or []
+        wins  = c2.get("fold_wins") or {}
+        return (f"last walk-forward {when[:10]}: {len(folds)} folds, case {c2.get('case', '?')} "
+                f"(uncapped {wins.get('uncapped', '?')} / capped {wins.get('capped', '?')} fold wins), "
+                f"C1 {c1.get('verdict', 'not run')} — hand-run, re-run at the next fold")
+    except Exception as e:
+        return f"walk-forward file exists but could not be read: {e}"
 
 
 # ── Format helpers ────────────────────────────────────────────────────────────
@@ -773,6 +801,7 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
         opt_html = f"<p style='color:#6b7280;font-size:13px;'>No optimizer results: {opt_detail} (runs Monday 17:00 Stockholm).</p>"
     else:
         opt_html = f"<p style='color:#ef4444;font-size:13px;'>Optimizer results UNREADABLE: {opt_detail}</p>"
+    opt_html += f"<p style='color:#6b7280;font-size:11px;margin:2px 0;'>{_walkforward_last()}</p>"
 
     commentary_html = ""
     if commentary:
@@ -913,6 +942,7 @@ LOCK 1 THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
         plain += f"\nAUTORESEARCH OPTIMIZER: none — {opt_detail}\n"
     else:
         plain += f"\nAUTORESEARCH OPTIMIZER: UNREADABLE — {opt_detail}\n"
+    plain += f"  {_walkforward_last()}\n"
 
     plain += f"\n— Generated {now.strftime('%Y-%m-%d %H:%M')} UTC"
 
