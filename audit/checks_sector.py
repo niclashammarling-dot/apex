@@ -801,8 +801,16 @@ def _entry_floor_sweep(records: list[dict], entry_threshold: float, posterior_ce
     present   = {s for s, st in sectors.items() if st["agg"] is not None}
     dark      = sorted(s for s in present if sectors[s]["dark_today"])
     enterable = sorted(s for s in present if not sectors[s]["dark_today"])
+    # Per-date enterable count — the series is the check's value, not today's row.
+    # Derived from the trace on every run rather than stored: the trace owns
+    # aggregate_score per date; a second copy would drift from it.
+    series = []
+    for d in dates:
+        n_ent = sum(1 for (dd, _), r in latest.items()
+                    if dd == d and float(r["aggregate_score"]) * posterior_ceil >= entry_threshold)
+        series.append((d, n_ent))
     return {"latest_date": today, "n_dates": len(dates), "min_agg": round(min_agg, 4),
-            "sectors": sectors, "dark_today": dark, "enterable": enterable}
+            "sectors": sectors, "dark_today": dark, "enterable": enterable, "series": series}
 
 
 def check71():
@@ -862,7 +870,8 @@ def check71():
         f"{res['latest_date']}: {len(dark)}/{n} eligible sectors cannot clear the "
         f"{ALLOCATION_ENTRY_THRESHOLD} entry floor at any posterior (composite must be ≥ "
         f"{res['min_agg']} = floor/{POSTERIOR_CLAMP_CEIL}); enterable: "
-        f"{', '.join(enterable) or 'none'}. Dark: " + "; ".join(rows) + "."
+        f"{', '.join(enterable) or 'none'}. Enterable by date (last {res['n_dates']}): "
+        + ",".join(str(n) for _, n in res["series"]) + ". Dark: " + "; ".join(rows) + "."
     )
     if len(enterable) <= CHECK71_ENTERABLE_CRIT:
         sev = "CRITICAL"

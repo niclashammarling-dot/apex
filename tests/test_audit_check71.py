@@ -58,3 +58,10 @@ def test_sector_absent_today_is_neither_dark_nor_enterable():
     res = _entry_floor_sweep(rows, ENTRY, CEIL)
     assert res["dark_today"] == [] and res["enterable"] == ["New"]
     assert res["sectors"]["Old"]["dark_days"] == 1
+
+
+def test_series_is_per_date_enterable_count_in_date_order():
+    rows = [_row("2026-09-14", "A", 0.60), _row("2026-09-14", "B", 0.60),
+            _row("2026-09-15", "A", 0.60), _row("2026-09-15", "B", 0.20)]
+    res = _entry_floor_sweep(rows, ENTRY, CEIL)
+    assert res["series"] == [("2026-09-14", 2), ("2026-09-15", 1)]
