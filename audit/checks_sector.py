@@ -1,9 +1,10 @@
 """
-Sector-domain mechanical checks — CHECKs 5, 27, 36, 41, 42, 43, 57, 63, 65.
+Sector-domain mechanical checks — CHECKs 5, 27, 36, 41, 42, 43, 57, 63, 65, 71.
 
 Covers: sector name string consistency, GICS classification parity,
 L4 sub-check pass rates, new-sector integrity, sector addition completeness,
-SIC_TO_SECTOR/SECTORS key parity, Healthcare dilution, and posterior saturation.
+SIC_TO_SECTOR/SECTORS key parity, Healthcare dilution, posterior saturation,
+and the per-sector entry-floor ceiling sweep.
 """
 import json
 import re
@@ -751,6 +752,127 @@ def check65():
                  f"conviction/momentum divergence; potential rotation signal.")
 
 
+# ── CHECK 71 — Per-sector posterior-ceiling entry-floor sweep ─────────────────
+
+# Thresholds are this check's own, not the model's — surfaced here and in
+# CHECKS.md so a change is a visible decision, not a silent edit.
+CHECK71_DARK_SHARE_WARN   = 0.50  # WARNING when more than half the eligible sectors are dark
+CHECK71_ENTERABLE_CRIT    = 2     # CRITICAL when this many or fewer sectors can enter at all
+CHECK71_PERSIST_SHARE     = 0.80  # "structural" = dark on at least this share of trace dates
+CHECK71_WINDOW_DATES      = 30    # most recent trace dates considered for persistence
+
+
+def _entry_floor_sweep(records: list[dict], entry_threshold: float, posterior_ceil: float,
+                       window: int = CHECK71_WINDOW_DATES) -> dict:
+    """
+    Pure core of CHECK 71. `records` are regime_signal_trace.jsonl rows.
+
+    A sector is *dark* on a date when aggregate_score × posterior_ceil < entry_threshold:
+    no posterior — not even the clamp ceiling — can lift it over the entry floor, so the
+    regime gate is not the binding constraint; the sector's own composite is. Duplicate
+    (date, sector) rows (same-day re-runs) collapse to the last one written.
+    """
+    latest: dict[tuple[str, str], dict] = {}
+    for r in records:
+        d, sec = r.get("date"), r.get("sector")
+        if d and sec and isinstance(r.get("aggregate_score"), (int, float)):
+            latest[(d, sec)] = r
+    dates = sorted({d for d, _ in latest})[-window:]
+    if not dates:
+        return {"latest_date": None, "sectors": {}, "dark_today": [], "enterable": []}
+    today = dates[-1]
+    min_agg = entry_threshold / posterior_ceil  # composite needed for entry to be possible at all
+
+    sectors: dict[str, dict] = {}
+    for (d, sec), r in latest.items():
+        if d not in dates:
+            continue
+        st = sectors.setdefault(sec, {"dark_days": 0, "days": 0, "agg": None, "ceil_adj": None})
+        st["days"] += 1
+        agg = float(r["aggregate_score"])
+        if agg * posterior_ceil < entry_threshold:
+            st["dark_days"] += 1
+        if d == today:
+            st["agg"]      = round(agg, 4)
+            st["ceil_adj"] = round(agg * posterior_ceil, 4)
+    for st in sectors.values():
+        st["dark_today"] = st["ceil_adj"] is not None and st["ceil_adj"] < entry_threshold
+        st["persistent"] = st["days"] > 0 and st["dark_days"] / st["days"] >= CHECK71_PERSIST_SHARE
+    present   = {s for s, st in sectors.items() if st["agg"] is not None}
+    dark      = sorted(s for s in present if sectors[s]["dark_today"])
+    enterable = sorted(s for s in present if not sectors[s]["dark_today"])
+    return {"latest_date": today, "n_dates": len(dates), "min_agg": round(min_agg, 4),
+            "sectors": sectors, "dark_today": dark, "enterable": enterable}
+
+
+def check71():
+    """
+    List every sector structurally unable to enter allocation *at any posterior*.
+
+    Entry requires adjusted_score = aggregate_score × posterior ≥ ALLOCATION_ENTRY_THRESHOLD
+    (regime_bayes.py). Posterior is clamped to POSTERIOR_CLAMP_CEIL, so a sector whose
+    aggregate_score × ceiling is below the floor is dark regardless of regime — the
+    Transportation finding of 2026-08-08 (0.3025 × 0.95 = 0.287 < 0.37) generalised
+    across all eligible sectors. This is the inventory of the upstream structural
+    constraint the seven tunables sit downstream of; it is the closest direct read on
+    the founding "too few open positions" complaint. LEADERBOARD_SIZE (12) exceeds the
+    eligible sector count, so rank is not a second ceiling.
+
+    Severity is about breadth, not any one sector: WARNING when more than
+    CHECK71_DARK_SHARE_WARN of eligible sectors are dark today; CRITICAL when at most
+    CHECK71_ENTERABLE_CRIT sectors can enter at all. Each dark sector is listed with its
+    composite, ceiling-adjusted score, and dark-day count over the last
+    CHECK71_WINDOW_DATES trace dates — "persistent" marks ≥ CHECK71_PERSIST_SHARE.
+
+    Reads regime_signal_trace.jsonl (host-only; SKIPPED in CI). Thresholds are imported
+    from regime_bayes so the check self-invalidates if the model's floor or clamp moves.
+    """
+    trace_path = REPO / "data" / "regime_signal_trace.jsonl"
+    if not require_data_file(71, "entry-floor ceiling sweep", trace_path):
+        return
+    try:
+        from backend.regime.regime_bayes import ALLOCATION_ENTRY_THRESHOLD, POSTERIOR_CLAMP_CEIL
+    except Exception as e:
+        flag(71, "entry-floor ceiling sweep", "WARNING", "backend/regime/regime_bayes.py",
+             f"could not import ALLOCATION_ENTRY_THRESHOLD / POSTERIOR_CLAMP_CEIL: {e} — "
+             f"check did not evaluate")
+        return
+    records = []
+    for line in trace_path.read_text().splitlines():
+        try:
+            records.append(json.loads(line))
+        except Exception:
+            continue
+    res = _entry_floor_sweep(records, ALLOCATION_ENTRY_THRESHOLD, POSTERIOR_CLAMP_CEIL)
+    if res["latest_date"] is None:
+        flag(71, "entry-floor ceiling sweep", "WARNING", "data/regime_signal_trace.jsonl",
+             "trace file present but no parseable rows — check did not evaluate")
+        return
+
+    dark, enterable = res["dark_today"], res["enterable"]
+    n = len(dark) + len(enterable)
+    if not dark:
+        return
+    rows = []
+    for s in dark:
+        st = res["sectors"][s]
+        rows.append(f"{s} agg={st['agg']:.4f} ceil_adj={st['ceil_adj']:.4f} "
+                    f"dark {st['dark_days']}/{st['days']}d{' persistent' if st['persistent'] else ''}")
+    detail = (
+        f"{res['latest_date']}: {len(dark)}/{n} eligible sectors cannot clear the "
+        f"{ALLOCATION_ENTRY_THRESHOLD} entry floor at any posterior (composite must be ≥ "
+        f"{res['min_agg']} = floor/{POSTERIOR_CLAMP_CEIL}); enterable: "
+        f"{', '.join(enterable) or 'none'}. Dark: " + "; ".join(rows) + "."
+    )
+    if len(enterable) <= CHECK71_ENTERABLE_CRIT:
+        sev = "CRITICAL"
+    elif len(dark) / n > CHECK71_DARK_SHARE_WARN:
+        sev = "WARNING"
+    else:
+        sev = "INFO"
+    flag(71, "entry-floor ceiling sweep", sev, "data/regime_signal_trace.jsonl", detail)
+
+
 def run() -> None:
     check5()
     check27()
@@ -764,3 +886,4 @@ def run() -> None:
     check67()
     check68()
     check69()
+    check71()
