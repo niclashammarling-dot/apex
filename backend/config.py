@@ -99,6 +99,10 @@ EXIT_COOLOFF_HOURS            = 24    # hours before a LOSS/EXPIRED ticker can r
 TP_COOLOFF_HOURS              = 168   # hours before a WIN ticker can re-enter (7d — sweep-validated 2026-06-03)
 ETF_NEGATIVE_FLOOR            = -1.0  # sector ETF 5d return (%) below which penalty fires; -0.3% is noise
 ETF_NEGATIVE_PENALTY          = 0.0   # score multiplier reduction when ETF is below floor (0 = off; 0.20 blocks LRCX-shape entries)
+                                      # live_config.json carries 0.15, set by the 2026-07-17 sweep. Evidential status
+                                      # (2026-09-16): resting on an unreproducible run — the sweep's engine had a NaN-
+                                      # poisoned ETF regime multiplier (CHECK 76 finding c) and its window/universe have
+                                      # since moved. Not validated, not invalidated; re-run queued in apex-moc OT.
 
 # --- Lock Leading ---
 LOCK_LEADING_MIN_PASS = 2      # checks that must pass (out of 4) to advance
