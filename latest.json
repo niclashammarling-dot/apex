@@ -1,6 +1,6 @@
 {
- "generated_at": "2026-09-12T00:00:50+00:00",
- "host_commit": "233acdc",
+ "generated_at": "2026-09-16T00:00:56+00:00",
+ "host_commit": "d46a3b3",
  "findings": [
   [
    4,
@@ -24,25 +24,46 @@
    "exit_lock 3 (Sentiment) emits \"FILTERED_L2\", which adaptFunnel labels \"L2 \u00b7 Quant\" \u2014 funnel shows Sentiment rejections under a different lock's label"
   ],
   [
+   56,
+   "EDGAR S-1 search API smoke test",
+   "CRITICAL",
+   "backend/regime/ipo_sentiment.py",
+   "EDGAR search-index request failed: 500 Server Error: Internal Server Error for url: https://efts.sec.gov/LATEST/search-index?forms=S-1&dateRange=custom&startdt=2026-08-17&enddt=2026-09-16"
+  ],
+  [
    63,
    "Healthcare composite dilution monitor",
    "SUPPRESSED",
    "data/apex.db:sector_snapshots",
-   "[CRITICAL suppressed \u2014 market-wide decline: 8/11 sectors below 75% of their 60d peak (ConsumerDisc, Defense, Healthcare, Homebuilders, Industrials, RealEstate, Semiconductors, Transportation). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Healthcare avg_score=0.3995 (at 2026-09-11T21:57:04.325643+00:00) is below critical floor 0.55; baseline was 0.6736 on 2026-07-01 (pre-ISRG/TMO). At neutral posterior (~0.55), adjusted_score \u2248 0.220, below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove ISRG and TMO via ticker_config.remove_ticker() and diagnose signal history before re-adding."
+   "[CRITICAL suppressed \u2014 market-wide decline: 9/11 sectors below 75% of their 60d peak (ConsumerDisc, Defense, Healthcare, Homebuilders, Industrials, RealEstate, Semiconductors, Technology, Transportation). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Healthcare avg_score=0.3935 (at 2026-09-15T19:52:35.252213+00:00) is below critical floor 0.55; baseline was 0.6736 on 2026-07-01 (pre-ISRG/TMO). At neutral posterior (~0.55), adjusted_score \u2248 0.216, below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove ISRG and TMO via ticker_config.remove_ticker() and diagnose signal history before re-adding."
   ],
   [
    67,
    "Industrials composite dilution monitor",
    "SUPPRESSED",
    "data/apex.db:sector_snapshots",
-   "[CRITICAL suppressed \u2014 market-wide decline: 8/11 sectors below 75% of their 60d peak (ConsumerDisc, Defense, Healthcare, Homebuilders, Industrials, RealEstate, Semiconductors, Transportation). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Industrials avg_score=0.3466 (at 2026-09-11T21:57:04.325643+00:00) is below critical floor 0.48; baseline was 0.6009 on 2026-08-08 (pre-ETN/PWR/TT). At neutral posterior (~0.55), adjusted_score \u2248 0.191, below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove ETN/PWR/TT via ticker_config.remove_ticker() and diagnose signal history before re-adding."
+   "[CRITICAL suppressed \u2014 market-wide decline: 9/11 sectors below 75% of their 60d peak (ConsumerDisc, Defense, Healthcare, Homebuilders, Industrials, RealEstate, Semiconductors, Technology, Transportation). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Industrials avg_score=0.2688 (at 2026-09-15T19:52:35.252213+00:00) is below critical floor 0.48; baseline was 0.6009 on 2026-08-08 (pre-ETN/PWR/TT). At neutral posterior (~0.55), adjusted_score \u2248 0.148, below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove ETN/PWR/TT via ticker_config.remove_ticker() and diagnose signal history before re-adding."
   ],
   [
    68,
    "Defense composite dilution monitor",
    "SUPPRESSED",
    "data/apex.db:sector_snapshots",
-   "[CRITICAL suppressed \u2014 market-wide decline: 8/11 sectors below 75% of their 60d peak (ConsumerDisc, Defense, Healthcare, Homebuilders, Industrials, RealEstate, Semiconductors, Transportation). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Defense avg_score=0.1982 (at 2026-09-11T21:57:04.325643+00:00) is below critical floor 0.6; baseline was 0.7169 on 2026-08-08 (pre-AXON/HWM). At neutral posterior (~0.55), adjusted_score \u2248 0.109, below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove AXON/HWM via ticker_config.remove_ticker() and diagnose signal history before re-adding."
+   "[CRITICAL suppressed \u2014 market-wide decline: 9/11 sectors below 75% of their 60d peak (ConsumerDisc, Defense, Healthcare, Homebuilders, Industrials, RealEstate, Semiconductors, Technology, Transportation). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Defense avg_score=0.2185 (at 2026-09-15T19:52:35.252213+00:00) is below critical floor 0.6; baseline was 0.7169 on 2026-08-08 (pre-AXON/HWM). At neutral posterior (~0.55), adjusted_score \u2248 0.120, below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove AXON/HWM via ticker_config.remove_ticker() and diagnose signal history before re-adding."
+  ],
+  [
+   69,
+   "Technology composite dilution monitor",
+   "SUPPRESSED",
+   "data/apex.db:sector_snapshots",
+   "[CRITICAL suppressed \u2014 market-wide decline: 9/11 sectors below 75% of their 60d peak (ConsumerDisc, Defense, Healthcare, Homebuilders, Industrials, RealEstate, Semiconductors, Technology, Transportation). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Technology avg_score=0.4532 (at 2026-09-15T19:52:35.252213+00:00) is below critical floor 0.51; baseline was 0.6257 on 2026-08-08 (pre-ANET). At neutral posterior (~0.55), adjusted_score \u2248 0.249, below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove ANET via ticker_config.remove_ticker() and diagnose signal history before re-adding."
+  ],
+  [
+   71,
+   "entry-floor ceiling sweep",
+   "WARNING",
+   "data/regime_signal_trace.jsonl",
+   "2026-09-15: 7/11 eligible sectors cannot clear the 0.37 entry floor at any posterior (composite must be \u2265 0.3895 = floor/0.95); enterable: Communication, Energy, Healthcare, Technology. Enterable by date (last 18): 8,8,6,7,7,7,5,4,4,4,4,4,4,4,3,5,4,4. Dark: ConsumerDisc agg=0.2811 ceil_adj=0.2670 dark 14/18d; Defense agg=0.2185 ceil_adj=0.2076 dark 15/18d persistent; Homebuilders agg=0.3030 ceil_adj=0.2878 dark 16/18d persistent; Industrials agg=0.2688 ceil_adj=0.2554 dark 16/18d persistent; RealEstate agg=0.2595 ceil_adj=0.2465 dark 14/18d; Semiconductors agg=0.2301 ceil_adj=0.2186 dark 14/18d; Transportation agg=0.3227 ceil_adj=0.3066 dark 14/18d."
   ],
   [
    45,
@@ -121,11 +142,13 @@
   67,
   68,
   69,
-  74
+  71,
+  74,
+  75
  ],
  "alert_channel": {
-  "ok": false,
-  "detail": "SMTP login failed: (535, b'5.7.8 Username and Password not accepted. For more information, go to\\n5.7.8  https://support.google.com/mail/?p=BadCredentials 2adb3069b0e04-5b8a03a7cb8sm928765e87.11 - gsmtp')",
-  "checked_at": "2026-09-12T00:00:51+00:00"
+  "ok": true,
+  "detail": "SMTP login ok as niclas.hammarling@gmail.com via smtp.gmail.com",
+  "checked_at": "2026-09-16T00:00:57+00:00"
  }
 }
