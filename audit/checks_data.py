@@ -261,9 +261,13 @@ def check35():
     """
     lock4_pcr_history must have observations from the most recent trading day.
 
-    The Lock 4 PCR baseline calibration (per-ticker P25 percentile replacing
-    the interim 0.85 fixed threshold) depends on daily collection. A gap in the
-    collection means the calibration baseline grows stale.
+    Freshness only — "did yesterday land". This clears the moment any one day
+    is collected and says nothing about cumulative gaps: 2026-09-16 the series
+    was 47% present under a green row here. CHECK 78 is the gap count against
+    the exchange calendar; this check is kept as the next-morning alert. The
+    P25 calibration this docstring used to cite as its reason was never built
+    (get_pcr_history has no caller as of 2026-09-16) — see CHECK 79 and the
+    design-rate decision in the vault.
 
     Uses the 26h staleness window. Only fires on weekdays.
     """
@@ -878,6 +882,60 @@ def check77():
                  f"{', '.join(recent_missing)} (cumulative {len(missing)}/{len(sessions)})")
 
 
+def check78():
+    """
+    lock4_pcr_history: every NYSE session since collection began must have
+    PCR rows. Cumulative gap count against the exchange calendar — never
+    inferred from the data.
+
+    CHECK 35 asks whether the most recent session landed (freshness). That
+    clears the moment any one day is collected and says nothing about the
+    days that were not: on 2026-09-16 the series was 38 of 80 sessions
+    present (47%) under a green CHECK 35 row, because the host was up at
+    16:15 on the latest day. PCR open interest is a snapshot with no history
+    — a missed session is irrecoverable — which is exactly why the gap count
+    is the quantity that matters (schedule-earning test clause b': the gap
+    detector counts rows against the trading calendar). CHECK 35 is kept for
+    the next-morning "yesterday didn't land" alert; this check is the
+    cumulative reading. First run is CRITICAL by construction.
+    """
+    from datetime import timedelta
+    name = "PCR history gap count"
+    db = REPO / "data/apex.db"
+    if not require_data_file(78, name, db):
+        return
+    try:
+        conn = sqlite3.connect(db)
+        have = {r[0] for r in conn.execute("SELECT DISTINCT date FROM lock4_pcr_history").fetchall()}
+        conn.close()
+    except Exception as e:
+        flag(78, name, "WARNING", "data/apex.db:lock4_pcr_history",
+             f"could not query lock4_pcr_history: {e}")
+        return
+    if not have:
+        flag(78, name, "WARNING", "data/apex.db:lock4_pcr_history",
+             "table empty — collect_pcr has never completed")
+        return
+    first    = date.fromisoformat(min(have))
+    last_due = _most_recent_trading_day(date.today() - timedelta(days=1))
+    sessions = _nyse_sessions(first, last_due)
+    if not sessions:
+        return
+    missing = [s.isoformat() for s in sessions if s.isoformat() not in have]
+    share   = len(missing) / len(sessions)
+    recent_missing = [m for m in missing if m >= sessions[-60].isoformat()] if len(sessions) >= 60 else missing
+    if share > 0.10:
+        flag(78, name, "CRITICAL", "backend/scheduler.py:collect_pcr",
+             f"{len(missing)} of {len(sessions)} NYSE sessions since {first} have no PCR rows "
+             f"({share:.0%}); most recent gaps: {', '.join(missing[-8:])}. Open interest is a "
+             f"snapshot — these sessions cannot be backfilled. The per-ticker P25 calibration "
+             f"this series was collected for reads a {1 - share:.0%}-present sample.")
+    elif recent_missing:
+        flag(78, name, "WARNING", "data/apex.db:lock4_pcr_history",
+             f"{len(recent_missing)} session(s) in the trailing 60 have no PCR rows: "
+             f"{', '.join(recent_missing)} (cumulative {len(missing)}/{len(sessions)})")
+
+
 def run() -> None:
     check14()
     check15()
@@ -893,3 +951,4 @@ def run() -> None:
     check56()
     check75()
     check77()
+    check78()

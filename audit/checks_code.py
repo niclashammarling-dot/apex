@@ -958,6 +958,154 @@ def check76():
              f"first differing entry {first} — an undocumented model difference, not a PRODUCTION_GAP.md row")
 
 
+_C79_MARKER = re.compile(r"(?i)\b(?:interim|provisional)\b|\bonce\s+\w+\s+has\b|\breplaces?\s+the\s+interim\b|\breplace\s+with\b")
+_C79_GATE   = re.compile(r"(?i)(?:once\s+(?P<table>\w+)\s+has|after)\s+(?:[≥>]=?\s*)?(?P<lo>\d+)(?:\s*[-–]\s*(?P<hi>\d+))?\s*weeks?")
+_C79_TABLE  = re.compile(r"\b(\w+_history)\b")
+_C79_SCAN   = ("backend", "audit", "scripts")
+_C79_SKIP   = ("audit/checks_code.py",)
+_C79_TRIPLE = ('"' * 3, "'" * 3)
+
+
+def _c79_comment_lines(path):
+    """(lineno, text) for every comment or docstring line in a .py file —
+    markers live in comments and docstrings, never in identifiers."""
+    import tokenize
+    out = []
+    try:
+        with open(path, "rb") as fh:
+            for tok in tokenize.tokenize(fh.readline):
+                if tok.type == tokenize.COMMENT:
+                    out.append((tok.start[0], tok.string))
+                elif tok.type == tokenize.STRING and any(t in tok.string for t in _C79_TRIPLE):
+                    for i, line in enumerate(tok.string.splitlines()):
+                        out.append((tok.start[0] + i, line))
+    except (tokenize.TokenError, SyntaxError, OSError):
+        pass
+    return out
+
+
+def _c79_blocks(lines):
+    """Group (lineno, text) pairs into contiguous comment/docstring blocks so a
+    gate stated one line after its marker ("Interim: replace with X" / "once
+    <table> has 4-8 weeks") is read as one statement."""
+    blocks, cur = [], []
+    for ln, text in lines:
+        if cur and ln > cur[-1][0] + 1:
+            blocks.append(cur); cur = []
+        cur.append((ln, text))
+    if cur:
+        blocks.append(cur)
+    return blocks
+
+
+def _c79_weeks_of(table):
+    """Weeks of data in a history table, or None if the DB/table is absent."""
+    import sqlite3
+    from datetime import date
+    db = REPO / "data/apex.db"
+    if not db.exists():
+        return None
+    try:
+        conn = sqlite3.connect(db)
+        row = conn.execute(f"SELECT MIN(date) FROM {table}").fetchone()
+        conn.close()
+    except Exception:
+        return None
+    if not row or not row[0]:
+        return 0.0
+    return (date.today() - date.fromisoformat(row[0][:10])).days / 7
+
+
+def _c79_uncalled_accessors(table):
+    """get_* functions anywhere in the repo whose body reads the gate table and
+    that are called nowhere — the tell that the replacement was never written
+    (get_pcr_history in backend/db.py reads lock4_pcr_history; no caller,
+    2026-09-16)."""
+    sources = {}
+    for sub in _C79_SCAN:
+        for f in (REPO / sub).rglob("*.py"):
+            if "tests" in f.parts or "__pycache__" in f.parts:
+                continue
+            sources[f] = f.read_text(encoding="utf-8", errors="replace")
+    readers = set()
+    for txt in sources.values():
+        for m in re.finditer(r"^\s*def (get_\w+)\(.*?(?=^\s*def |\Z)", txt, re.M | re.S):
+            if table in m.group(0):
+                readers.add(m.group(1))
+    uncalled = []
+    for n in sorted(readers):
+        called = sum(len(re.findall(rf"(?<!def )\b{n}\(", txt)) for txt in sources.values())
+        if not called:
+            uncalled.append(n)
+    return uncalled
+
+
+def check79():
+    """
+    Deferred-replacement markers past their gate.
+
+    A code comment that says "interim: replace with X once <table> has N weeks"
+    is a commitment with no surfacing mechanism — nothing reads comments on a
+    schedule. Found 2026-09-16 by one grep: PCR_THRESHOLD=0.85 (lock4_leading.py,
+    gate 4–8 weeks, 17 weeks old, replacement never written — get_pcr_history has
+    no caller), regime-bucket _WEIGHTS (aggregator.py) and bull/bear thresholds
+    (regime_bayes.py), both gated on ≥4 weeks of sector_posterior_history at 16
+    weeks with no calibration code. Three markers, one shared gate, all past it.
+
+    Scans comments and docstrings under backend/, audit/, scripts/ for marker
+    vocabulary. Where the gate is machine-readable ("once <table> has N[-M]
+    weeks") the table's age is read from apex.db and the marker is flagged when
+    past the upper bound: WARNING, CRITICAL beyond 2x the bound. A get_* accessor
+    named beside the marker that is defined but never called is reported as the
+    unbuilt-replacement tell. Markers with no machine-readable gate are listed
+    in the finding text when any finding fires, and are otherwise not surfaced
+    — a known limit, stated rather than hidden. Gate ages need apex.db; without
+    it the check is SKIPPED, not a pass.
+    """
+    name = "Deferred-replacement markers past their gate"
+    if not require_data_file(79, name, REPO / "data/apex.db"):
+        return
+    past, ungated = [], []
+    for sub in _C79_SCAN:
+        for f in sorted((REPO / sub).rglob("*.py")):
+            rel = f.relative_to(REPO).as_posix()
+            if rel in _C79_SKIP or "tests" in f.parts or "__pycache__" in f.parts:
+                continue
+            for block in _c79_blocks(_c79_comment_lines(f)):
+                hits = [ln for ln, text in block if _C79_MARKER.search(text)]
+                if not hits:
+                    continue
+                lineno = hits[0]
+                block_text = " ".join(text for _, text in block)
+                g = _C79_GATE.search(block_text)
+                table = (g.group("table") if g and g.group("table") else None) or \
+                        (_C79_TABLE.search(block_text).group(1) if _C79_TABLE.search(block_text) else None)
+                if not g or not table:
+                    ungated.append(f"{rel}:{lineno}")
+                    continue
+                hi = int(g.group("hi") or g.group("lo"))
+                age = _c79_weeks_of(table)
+                if age is None:
+                    ungated.append(f"{rel}:{lineno} (table {table} unreadable)")
+                    continue
+                if age > hi:
+                    past.append((rel, lineno, table, hi, age, _c79_uncalled_accessors(table)))
+    if not past:
+        return
+    sev = "CRITICAL" if any(age > 2 * hi for _, _, _, hi, age, _ in past) else "WARNING"
+    items = []
+    for rel, lineno, table, hi, age, uncalled in past:
+        tell = f"; {', '.join(uncalled)} defined but never called" if uncalled else ""
+        items.append(f"{rel}:{lineno} gated on {table} >={hi}w, now {age:.0f}w{tell}")
+    extra = (f" {len(ungated)} further marker(s) carry no machine-readable gate: "
+             f"{', '.join(ungated[:6])}{' ...' if len(ungated) > 6 else ''}.") if ungated else ""
+    flag(79, name, sev, "backend/,audit/,scripts/ (comments and docstrings)",
+         f"{len(past)} deferred replacement(s) past their stated gate — {'; '.join(items)}. "
+         f"A marker past its gate is a decision item, not a build order: the design "
+         f"intent may predate what the series now shows (PCR 25% design vs 58.4% realised, "
+         f"2026-09-16). Decide, re-date the gate, or remove the marker.{extra}")
+
+
 def run() -> None:
     check3()
     check6()
@@ -977,3 +1125,4 @@ def run() -> None:
     check62()
     check74()
     check76()
+    check79()
