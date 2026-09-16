@@ -97,7 +97,8 @@ SPY `return_20d` off-by-one in the fast engine (aligned to production's
 19-period definition, not to the docstring's 20); NaN-poisoned ETF MA20 in
 the slow engine; signal-cache key with no code version (stale `sig_*.pkl`
 served across a signal edit). Every optimizer and walk-forward run before
-that date used the first and third.
+that date used the first and third; the 2026-07-17 ETF-penalty sweep, on the
+slow engine, ran with the second (see apex-moc Open Territory).
 
 ## Not a defect list
 
