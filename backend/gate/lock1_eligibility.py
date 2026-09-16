@@ -5,7 +5,7 @@ The first and coarsest gate in the apex lock chain. Combines two checks:
 
   A. Regime eligibility — is this ticker's sector currently qualifying
      for portfolio allocation? Sector must have allocation > 0 in the
-     latest regime result. regime_bayes uses hysteresis (enter ≥ 0.37,
+     latest regime result. regime_bayes uses hysteresis (enter ≥ 0.37 = ENTRY_COMPOSITE_MIN × clamp ceiling,
      exit < 0.33) so the allocation field is the authoritative signal.
 
   B. Macro filter — are current conditions safe for new entries?

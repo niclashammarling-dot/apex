@@ -44,9 +44,30 @@ SIGNAL_TRACE_PATH    = Path(__file__).parent.parent.parent / "data" / "regime_si
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 LEADERBOARD_SIZE           = 12    # number of sectors tracked
-ALLOCATION_ENTRY_THRESHOLD = 0.37  # adjusted score a sector must first clear to enter allocation
-ALLOCATION_EXIT_THRESHOLD  = 0.33  # retained sectors drop at this level — hysteresis gap prevents
-                                   # day-to-day binary flapping near the old hard floor (0.35)
+
+# Posterior clamp — keeps all signals responsive even after sustained bullish runs.
+# The clamp fires when at least one signal formula has escaped calibration;
+# pre_clamp_posterior in the signal trace reveals when it is binding.
+POSTERIOR_CLAMP_FLOOR = 0.05
+POSTERIOR_CLAMP_CEIL  = 0.95
+
+# Entry is decided on the composite, not on the adjusted score. Because
+# adjusted_score = aggregate_score × posterior and posterior ≤ POSTERIOR_CLAMP_CEIL,
+# the adjusted-score floor implies a composite a sector must reach before any
+# posterior can let it in. That composite minimum is the decided constant; the
+# adjusted-score thresholds are derived from it, so a clamp change cannot move
+# the entry bar silently. (2026-07-16 did exactly that: 0.35 → 0.37 and a new
+# 0.95 clamp landed in one commit, raising the composite minimum 0.35 → 0.3895
+# with no decision on record. Replayed 2026-09-16 over 1,261 days: immaterial,
+# A − B = −0.037 sectors/day — see raw/notes/2026-09/2026-09-16-apex-entry-
+# floor-replay-preregistration.md in the vault. Value kept; coupling made explicit.)
+ENTRY_COMPOSITE_MIN        = 0.3895  # inherited: 0.37 / 0.95. Not swept; immaterial by replay.
+HYSTERESIS_GAP             = 0.04    # entry − exit on the adjusted score; prevents day-to-day
+                                     # binary flapping near the old hard floor (0.35)
+ALLOCATION_ENTRY_THRESHOLD = round(ENTRY_COMPOSITE_MIN * POSTERIOR_CLAMP_CEIL, 2)  # = 0.37
+ALLOCATION_EXIT_THRESHOLD  = round(ALLOCATION_ENTRY_THRESHOLD - HYSTERESIS_GAP, 2) # = 0.33
+assert ALLOCATION_ENTRY_THRESHOLD == 0.37 and ALLOCATION_EXIT_THRESHOLD == 0.33, \
+    "entry/exit thresholds moved — a change here is a live entry-rule change and goes through the harness"
 HYSTERESIS_STALE_DAYS      = 5     # after a gap longer than this, prior allocation state is treated
                                    # as unknown=out; re-entry requires clearing ENTRY_THRESHOLD.
                                    # 5 days covers weekends + short holidays without silently
@@ -61,12 +82,6 @@ LR_WARN_FLOOR         = 0.1
 LR_WARN_CEIL          = 10.0
 LR_CAP_FLOOR          = 0.1
 LR_CAP_CEIL           = 10.0
-
-# Posterior clamp — keeps all signals responsive even after sustained bullish runs.
-# The clamp fires when at least one signal formula has escaped calibration;
-# pre_clamp_posterior in the signal trace reveals when it is binding.
-POSTERIOR_CLAMP_FLOOR = 0.05
-POSTERIOR_CLAMP_CEIL  = 0.95
 
 
 def _clamp_lr(v: float) -> float:

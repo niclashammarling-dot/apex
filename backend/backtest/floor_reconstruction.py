@@ -3,7 +3,8 @@ floor_reconstruction.py — Bayesian allocation floor time series reconstruction
 
 Replays RegimeBayes day-by-day over the full sector_snapshots history to produce
 a per-sector time series of adjusted_score (aggregate × posterior).  Reports:
-  - Fraction of trading days each sector spent above ALLOCATION_FLOOR
+  - Fraction of trading days each sector qualified, under the legacy rule (A)
+    and the current rule (B) — see print_arm_comparison
   - Longest qualification streak and longest drought
   - Qualification calendar (which months each sector was open/blocked)
   - Comparison with demo_gate_history trade counts where available
@@ -34,8 +35,12 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from backend.regime.regime_bayes import (
-    ALLOCATION_FLOOR,
+    ALLOCATION_ENTRY_THRESHOLD,
+    ALLOCATION_EXIT_THRESHOLD,
+    POSTERIOR_CLAMP_CEIL,
+    POSTERIOR_CLAMP_FLOOR,
     POSTERIOR_DECAY,
+    _clamp_lr,
     TICKER_RECOVERY_DAYS,
     RS_WINDOW_DAYS,
     _apply_signals,
@@ -45,6 +50,13 @@ from backend.regime.regime_bayes import (
     _compute_rank_lrs,
 )
 from backend.ticker_config import get_sectors
+
+# Arm A — the pre-2026-07-16 rule (`ALLOCATION_FLOOR`, commit 6467db1): LRs
+# uncapped, posterior unclamped, flat floor. 0.35 was validated under this rule
+# on 2026-05-14. The constant was renamed away in 024f1cc, which broke this
+# module's import for two months; it is pinned here as a literal because the
+# model no longer has it. Arm B is the current rule, taken from the model.
+LEGACY_FLOOR = 0.35
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -278,7 +290,10 @@ def reconstruct(start_date: str | None = None) -> pd.DataFrame:
     if start_date:
         trading_days = [d for d in trading_days if d >= start_date]
 
-    posteriors: dict[str, float] = {s: BASE_PRIOR for s in sector_names}
+    posteriors: dict[str, float] = {s: BASE_PRIOR for s in sector_names}   # arm A path
+    posteriors_c: dict[str, float] = {s: BASE_PRIOR for s in sector_names} # arm B path (capped, clamped)
+    alloc_b:  dict[str, bool] = {s: False for s in sector_names}            # hysteresis state, arm B
+    alloc_b1: dict[str, bool] = {s: False for s in sector_names}            # hysteresis state, arm B1
     uniform_ipo = {s: round(1.0 / len(sector_names), 4) for s in sector_names}
 
     records = []
@@ -316,23 +331,101 @@ def reconstruct(start_date: str | None = None) -> pd.DataFrame:
             # Signal 5
             lr_rank = rl.get(sector, 1.0)
 
-            # Decay + update
+            # Arm A — decay + update, uncapped LRs, unclamped posterior (pre-07-16 path)
             prior         = posteriors[sector]
             decayed       = POSTERIOR_DECAY * prior + (1.0 - POSTERIOR_DECAY) * BASE_PRIOR
             trace         = _apply_signals(decayed, lr_t, lr_e, lr_rs, lr_ipo, lr_rank)
             post          = trace["posterior"]
             posteriors[sector] = post
 
-            adj = round(agg_score * post, 4)
-            row[f"{sector}_agg"]       = agg_score
-            row[f"{sector}_post"]      = round(post, 4)
-            row[f"{sector}_adj"]       = adj
-            row[f"{sector}_qualified"] = int(adj >= ALLOCATION_FLOOR)
+            # Arm B — same signals through the current path: LR caps, posterior clamp
+            prior_c   = posteriors_c[sector]
+            decayed_c = POSTERIOR_DECAY * prior_c + (1.0 - POSTERIOR_DECAY) * BASE_PRIOR
+            trace_c   = _apply_signals(decayed_c, _clamp_lr(lr_t), _clamp_lr(lr_e),
+                                       _clamp_lr(lr_rs), _clamp_lr(lr_ipo), _clamp_lr(lr_rank))
+            post_c    = min(max(trace_c["posterior"], POSTERIOR_CLAMP_FLOOR), POSTERIOR_CLAMP_CEIL)
+            posteriors_c[sector] = post_c
+
+            adj   = round(agg_score * post, 4)
+            adj_c = round(agg_score * post_c, 4)
+
+            # Qualification under four rules. A and B are the decision arms;
+            # B1 (floor change only) and B2 (clamp change only) decompose A−B.
+            q_a  = adj >= LEGACY_FLOOR
+            q_b2 = adj_c >= LEGACY_FLOOR
+            alloc_b[sector]  = (adj_c >= ALLOCATION_ENTRY_THRESHOLD
+                                or (alloc_b[sector] and adj_c >= ALLOCATION_EXIT_THRESHOLD))
+            alloc_b1[sector] = (adj >= ALLOCATION_ENTRY_THRESHOLD
+                                or (alloc_b1[sector] and adj >= ALLOCATION_EXIT_THRESHOLD))
+
+            row[f"{sector}_agg"]        = agg_score
+            row[f"{sector}_post"]       = round(post, 4)
+            row[f"{sector}_post_c"]     = round(post_c, 4)
+            row[f"{sector}_adj"]        = adj
+            row[f"{sector}_adj_c"]      = adj_c
+            row[f"{sector}_qualified"]  = int(q_a)              # arm A (legacy report columns)
+            row[f"{sector}_q_b"]        = int(alloc_b[sector])
+            row[f"{sector}_q_b1"]       = int(alloc_b1[sector])
+            row[f"{sector}_q_b2"]       = int(q_b2)
 
         records.append(row)
 
     df = pd.DataFrame(records).set_index("date")
     return df
+
+
+# ── Arm comparison (pre-registered 2026-09-16) ──────────────────────────────
+
+def enterable_series(df: pd.DataFrame, sector_names: list[str], col: str) -> pd.Series:
+    """Daily count of sectors qualified under one rule column suffix."""
+    cols = [f"{s}_{col}" for s in sector_names if f"{s}_{col}" in df.columns]
+    return df[cols].sum(axis=1)
+
+
+def arm_stats(df: pd.DataFrame, sector_names: list[str]) -> dict[str, dict[str, float]]:
+    """mean/median daily enterable count per arm, full window and 2026-only."""
+    arms = {"A": "qualified", "B": "q_b", "B1": "q_b1", "B2": "q_b2"}
+    out: dict[str, dict[str, float]] = {}
+    df26 = df[df.index >= "2026-01-01"]
+    for arm, col in arms.items():
+        s_all, s_26 = enterable_series(df, sector_names, col), enterable_series(df26, sector_names, col)
+        out[arm] = {
+            "mean_all": round(float(s_all.mean()), 3), "median_all": float(s_all.median()),
+            "mean_2026": round(float(s_26.mean()), 3) if len(s_26) else float("nan"),
+            "median_2026": float(s_26.median()) if len(s_26) else float("nan"),
+        }
+    return out
+
+
+def print_arm_comparison(df: pd.DataFrame, sector_names: list[str]) -> None:
+    st = arm_stats(df, sector_names)
+    n26 = int((df.index >= "2026-01-01").sum())
+    print(f"DAILY ENTERABLE COUNT BY RULE  (full window n={len(df)}; 2026-only n={n26})")
+    print(f"{'Arm':<4} {'mean':>7} {'median':>7} {'mean26':>7} {'med26':>7}")
+    for arm, v in st.items():
+        print(f"{arm:<4} {v['mean_all']:>7.3f} {v['median_all']:>7.1f} {v['mean_2026']:>7.3f} {v['median_2026']:>7.1f}")
+    d_all = st["A"]["mean_all"] - st["B"]["mean_all"]
+    d_26  = st["A"]["mean_2026"] - st["B"]["mean_2026"]
+    print(f"\nA − B: full {d_all:+.3f} sectors/day, 2026 {d_26:+.3f} sectors/day")
+    print(f"  floor-only (A − B1): full {st['A']['mean_all'] - st['B1']['mean_all']:+.3f}, "
+          f"2026 {st['A']['mean_2026'] - st['B1']['mean_2026']:+.3f}")
+    print(f"  clamp-only (A − B2): full {st['A']['mean_all'] - st['B2']['mean_all']:+.3f}, "
+          f"2026 {st['A']['mean_2026'] - st['B2']['mean_2026']:+.3f}")
+    # Pre-registered reads (raw/notes/2026-09/2026-09-16-apex-entry-floor-replay-preregistration.md)
+    if d_all < 0.3 and d_26 < 0.3:
+        read = "IMMATERIAL — leave 0.37, close the question"
+    elif d_all >= 1.0 or d_26 >= 1.0:
+        read = "MATERIAL — escalate (row-5 build becomes critical path); value does not move"
+    else:
+        read = "BETWEEN 0.3 and 1.0 — report only, decision waits for the harness"
+    print(f"Pre-registered read: {read}\n")
+    print(f"{'Sector':<16} {'%A':>6} {'%B':>6} {'%B1':>6} {'%B2':>6}")
+    for s in sector_names:
+        if f"{s}_qualified" not in df.columns:
+            continue
+        pct = lambda c: 100 * df[f"{s}_{c}"].mean()
+        print(f"{s:<16} {pct('qualified'):>6.1f} {pct('q_b'):>6.1f} {pct('q_b1'):>6.1f} {pct('q_b2'):>6.1f}")
+    print()
 
 
 # ── Report ────────────────────────────────────────────────────────────────────
@@ -344,8 +437,12 @@ def print_report(df: pd.DataFrame, demo_trades: dict[str, int]) -> None:
     total_days = len(df)
     print(f"\n{'='*72}")
     print(f"BAYESIAN FLOOR RECONSTRUCTION  ({df.index[0]} – {df.index[-1]}, {total_days} trading days)")
-    print(f"ALLOCATION_FLOOR = {ALLOCATION_FLOOR}")
+    print(f"Arm A (legacy): floor {LEGACY_FLOOR}, LRs uncapped, posterior unclamped")
+    print(f"Arm B (current): enter {ALLOCATION_ENTRY_THRESHOLD} / exit {ALLOCATION_EXIT_THRESHOLD}, "
+          f"LR cap, posterior clamp [{POSTERIOR_CLAMP_FLOOR}, {POSTERIOR_CLAMP_CEIL}] "
+          f"→ composite minimum {ALLOCATION_ENTRY_THRESHOLD / POSTERIOR_CLAMP_CEIL:.4f}")
     print(f"{'='*72}\n")
+    print_arm_comparison(df, sector_names)
 
     print(f"{'Sector':<16} {'%Above':>7} {'MaxStreak':>9} {'MaxDrought':>11} {'LiveTrades':>11}  {'AvgAdj':>7}")
     print("-" * 72)
