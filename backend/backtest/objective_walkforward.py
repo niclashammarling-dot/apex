@@ -7,8 +7,9 @@ Pre-registered 2026-09-15, before any run:
 The criterion below is a transcription of that note; the note is authoritative.
 
 Arms
-  capped     _composite_score as shipped (NOISE_FLOOR hash a9a7a936)
-  uncapped   same, sharpe_score = max(sharpe, 0) / 2.0 with no ceiling
+  capped     the composite as shipped until 2026-09-16 (Sharpe ceiling 2.0), frozen in score_capped
+  uncapped   sharpe_score = max(sharpe, 0) / 2.0 with no ceiling — shipped as _composite_score
+             on 2026-09-16 (case 1 on the corrected engine, see the note's Correction section)
   incumbent  live config.py tunables (NOT optimizer._default_params — drifted)
   SPY        engine spy_return_pct per test window, reference only
 
@@ -61,7 +62,19 @@ OUT_PATH      = Path(__file__).parent.parent.parent / "data" / "objective_walkfo
 
 
 def score_capped(sharpe, max_dd, win_rate, n_trades):
-    return opt._composite_score(sharpe, max_dd, win_rate, n_trades)
+    """The composite as shipped until 2026-09-16: Sharpe ceiling at 2.0. Frozen
+    here so the fourth-fold re-run compares the same two arms the first three
+    did; the live _composite_score is now the uncapped form."""
+    if n_trades < opt.FLOOR_TRADE_FREQ:
+        return None
+    if win_rate is not None and win_rate < opt.FLOOR_WIN_RATE:
+        return None
+    if not math.isfinite(sharpe):
+        return None
+    dd_penalty   = min(max_dd / 0.50, 1.0)
+    wr_score     = min(max((win_rate or 0.0) - 0.30, 0.0) / 0.40, 1.0)
+    sharpe_score = min(max(sharpe, 0.0) / 2.0, 1.0)
+    return round(opt.W_SHARPE * sharpe_score - opt.W_DRAWDOWN * dd_penalty + opt.W_WIN_RATE * wr_score, 5)
 
 
 def score_uncapped(sharpe, max_dd, win_rate, n_trades):

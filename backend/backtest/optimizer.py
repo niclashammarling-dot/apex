@@ -111,8 +111,17 @@ def _composite_score(sharpe: float, max_dd: float, win_rate: float | None, n_tra
     # Win rate contribution: normalise to 0-1 range (30%→0, 70%→1)
     wr_score = min(max((win_rate or 0.0) - 0.30, 0.0) / 0.40, 1.0)
 
-    # Sharpe contribution: normalise (0→0, 2→1)
-    sharpe_score = min(max(sharpe, 0.0) / 2.0, 1.0)
+    # Sharpe contribution: normalise (0→0, 2→1), no ceiling. The min(..., 1.0)
+    # cap was lifted 2026-09-16 by the pre-registered walk-forward
+    # (raw/notes/2026-09/2026-09-15-apex-optimizer-cap-walk-forward-preregistration.md):
+    # on the corrected engine the uncapped arm won F2 and F3 by margin (4.10 /
+    # 3.77 pp against a 1.0 pp bar) and beat the incumbent on mean-of-folds —
+    # decision-table case 1. The cap had saturated at Sharpe 2 and flattened the
+    # objective (09-14 finding). Limits travel with it: engine has no RegimeBayes
+    # layer; CHECK 76 verified engine parity, not correctness; two rising-market
+    # folds, F1 incumbent partly in-sample. This is the optimizer's objective —
+    # it changes the weekly recommendation, not any live trading parameter.
+    sharpe_score = max(sharpe, 0.0) / 2.0
 
     score = (
         W_SHARPE   * sharpe_score
