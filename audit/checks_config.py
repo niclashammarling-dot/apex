@@ -7,11 +7,10 @@ integrity, and config key wiring coverage.
 """
 import json
 import re
-import subprocess
 from datetime import date, timedelta
 from pathlib import Path
 
-from audit._audit_core import REPO, flag
+from audit._audit_core import run_tool, REPO, flag
 
 
 # ── CHECK 4 — Config parity ───────────────────────────────────────────────────
@@ -58,11 +57,11 @@ def check9():
             flag(9, "Config value drift", sev, f"{label}:—", f"{msg} (current: {val})")
 
     cutoff = (date.today() - timedelta(days=7)).isoformat()
-    recent = subprocess.run(
-        ["git", "log", f"--since={cutoff}", "--oneline", "--",
-         "data/demo_config.json", "data/live_config.json"],
-        cwd=REPO, capture_output=True, text=True
-    )
+    recent = run_tool(9, "Config value drift",
+                      ["git", "log", f"--since={cutoff}", "--oneline", "--",
+                       "data/demo_config.json", "data/live_config.json"])
+    if recent is None:
+        return
     for line in recent.stdout.strip().splitlines():
         if not any(kw in line.lower() for kw in ["→", "->", "config:", "threshold", "pct", "value"]):
             flag(9, "Config value drift", "INFO", "data/*_config.json:—",
@@ -105,10 +104,10 @@ def check13():
         if not path.exists():
             continue
 
-        result = subprocess.run(
-            ["git", "log", "-1", "--format=%H|%as|%s", "--", config_file],
-            cwd=REPO, capture_output=True, text=True
-        )
+        result = run_tool(13, "Undisclosed config changes",
+                          ["git", "log", "-1", "--format=%H|%as|%s", "--", config_file])
+        if result is None:
+            return
         if not result.stdout.strip():
             continue
 
@@ -124,24 +123,23 @@ def check13():
         except Exception:
             continue
 
-        prev_result = subprocess.run(
-            ["git", "log", "-1", "--format=%H", f"{last_sha}^", "--", config_file],
-            cwd=REPO, capture_output=True, text=True
-        )
+        # `{sha}^` on a root commit exits 128 legitimately — no parent, first
+        # version of the file; that is "nothing to diff", not a tool failure.
+        prev_result = run_tool(13, "Undisclosed config changes",
+                               ["git", "log", "-1", "--format=%H", f"{last_sha}^", "--", config_file],
+                               ok_rc=(0, 128))
+        if prev_result is None:
+            return
         prev_sha = prev_result.stdout.strip() or f"{last_sha}^"
 
+        curr_r = run_tool(13, "Undisclosed config changes", ["git", "show", f"{last_sha}:{config_file}"])
+        prev_r = run_tool(13, "Undisclosed config changes", ["git", "show", f"{prev_sha}:{config_file}"])
+        if curr_r is None or prev_r is None:
+            return
         try:
-            curr_text = subprocess.run(
-                ["git", "show", f"{last_sha}:{config_file}"],
-                cwd=REPO, capture_output=True, text=True
-            ).stdout
-            prev_text = subprocess.run(
-                ["git", "show", f"{prev_sha}:{config_file}"],
-                cwd=REPO, capture_output=True, text=True
-            ).stdout
-            curr = json.loads(curr_text)
-            prev = json.loads(prev_text)
-        except (json.JSONDecodeError, Exception):
+            curr = json.loads(curr_r.stdout)
+            prev = json.loads(prev_r.stdout)
+        except json.JSONDecodeError:
             continue
 
         changed_keys = [
@@ -151,10 +149,10 @@ def check13():
         if not changed_keys:
             continue
 
-        ack_result = subprocess.run(
-            ["git", "log", "--format=%B", f"{last_sha}..HEAD"],
-            cwd=REPO, capture_output=True, text=True
-        )
+        ack_result = run_tool(13, "Undisclosed config changes",
+                              ["git", "log", "--format=%B", f"{last_sha}..HEAD"])
+        if ack_result is None:
+            return
         ack_messages = ack_result.stdout.lower()
         acknowledged = "config:" in ack_messages or all(
             k.lower() in ack_messages for k in changed_keys

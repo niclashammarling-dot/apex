@@ -11,7 +11,7 @@ exposed to a decaying (>=, <=, <, >, timedelta) wall-clock comparison.
 """
 import re
 
-from audit._audit_core import REPO, flag, require_data_file
+from audit._audit_core import REPO, flag, require_data_file, run_tool
 
 
 # ── CHECK 3 — Fractional qty ──────────────────────────────────────────────────
@@ -286,7 +286,6 @@ def check45():
     Prompted by: 2026-05-29 manual audit found two leaked connections in
     scheduler.py (_check_missed_eod_regime, _check_missed_sentiment_prefetch).
     """
-    import subprocess
     import sys
 
     # Sub-check A — ruff
@@ -294,19 +293,17 @@ def check45():
     # to the venv's python, which had no ruff — rc 1, empty stdout, zero
     # findings, no flag. Every scheduled run of this sub-check before 2026-09-16
     # evaluated nothing and rendered clean (13 findings appeared the first time
-    # it ran with ruff on the path).
+    # it ran with ruff on the path). run_tool() is the class fix. --exit-zero:
+    # ruff otherwise exits 1 for "findings present", which is the same code as
+    # "module not found" — with it, any nonzero rc means the tool did not run.
     try:
-        result = subprocess.run(
-            [sys.executable, "-m", "ruff", "check", "backend/",
-             "--select", "E,F,W", "--ignore", "E501",
-             "--output-format", "concise"],
-            cwd=REPO, capture_output=True, text=True, timeout=30,
-        )
-        if result.returncode not in (0, 1) or (result.returncode == 1 and not result.stdout.strip()):
-            flag(45, "Static code analysis", "WARNING", "audit/checks_code.py",
-                 f"ruff did not run (rc={result.returncode}): {result.stderr.strip()[:160] or 'no output'} "
-                 f"— sub-check A evaluated nothing")
-        for line in result.stdout.splitlines():
+        result = run_tool(45, "Static code analysis",
+                          [sys.executable, "-m", "ruff", "check", "backend/",
+                           "--select", "E,F,W", "--ignore", "E501",
+                           "--output-format", "concise", "--exit-zero"],
+                          timeout=30)
+        # None → run_tool recorded SKIPPED for the ruff pass; sub-check B still runs.
+        for line in (result.stdout.splitlines() if result is not None else []):
             # Skip backtest/ — analysis scripts, not runtime code
             if "/backtest/" in line or "\\backtest\\" in line:
                 continue
@@ -317,9 +314,6 @@ def check45():
                 detail    = parts[3].strip() if len(parts) > 3 else line
                 flag(45, "Static code analysis", "WARNING", file_line,
                      f"ruff: {detail}")
-    except FileNotFoundError:
-        flag(45, "Static code analysis", "WARNING", "audit/checks_code.py",
-             "ruff not found — install via pip install ruff")
     except Exception as e:
         flag(45, "Static code analysis", "WARNING", "audit/checks_code.py",
              f"ruff sub-check failed: {e}")

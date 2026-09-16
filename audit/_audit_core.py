@@ -6,6 +6,7 @@ globals — all domain modules run in the same process and share this state.
 """
 from datetime import date, timedelta
 from pathlib import Path
+import subprocess
 
 REPO    = Path(__file__).parent.parent
 TODAY   = date.today().isoformat()
@@ -65,3 +66,44 @@ def _most_recent_trading_day(ref: date | None = None) -> date:
     while d.weekday() >= 5:
         d -= timedelta(days=1)
     return d
+
+
+def run_tool(check_num: int, check_name: str, argv: list, *, ok_rc=(0,), timeout: int = 60,
+             **kw):
+    """
+    Run an external tool for a check and refuse to read failure as "clean".
+
+    Returns the CompletedProcess when the return code is in ok_rc; otherwise
+    records a SKIPPED row ("<tool> did not run") and returns None so the caller
+    can `return` without evaluating. A tool that failed to run produces the
+    same empty stdout as a tool that ran and found nothing; every site that
+    parsed stdout without looking at the return code rendered ✓ under both.
+
+    Why this exists (2026-09-16/17): CHECK 45's ruff pass called `python3 -m
+    ruff`, which resolved to the venv interpreter without ruff — rc 1, empty
+    stdout, zero findings, green on every scheduled run for the life of the
+    sub-check. The grep the next day found the same shape at eight more sites
+    (git log/show/diff in CHECKs 9, 12, 32's dirty count, the retirement
+    clock, host_commit). Third silent-skip class after file-absent
+    (require_data_file) and zero-rows: tool-missing. Fixing one site leaves
+    the next to be found the same way, so this is the class fix.
+
+    ok_rc: return codes that mean "ran"; ruff uses 1 for "findings present",
+    grep uses 1 for "no match" — pass (0, 1) for those.
+    """
+    kw.setdefault("cwd", REPO)
+    kw.setdefault("capture_output", True)
+    kw.setdefault("text", True)
+    try:
+        r = subprocess.run(argv, timeout=timeout, **kw)
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+        skipped.append((check_num, check_name, str(argv[0]),
+                        f"{argv[0]} did not run: {e.__class__.__name__}: {e}"))
+        return None
+    if r.returncode not in ok_rc:
+        err = (r.stderr or "").strip().splitlines()
+        skipped.append((check_num, check_name, str(argv[0]),
+                        f"{' '.join(map(str, argv[:3]))} exited {r.returncode}"
+                        f"{' — ' + err[-1][:160] if err else ''}; nothing evaluated"))
+        return None
+    return r

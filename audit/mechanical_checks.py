@@ -25,6 +25,17 @@ from audit._audit_core import REPO, TODAY, REPORT, findings, triggered, skipped,
 from audit import checks_config, checks_gate, checks_data, checks_sector, checks_code
 
 
+def _git_stdout_or_raise(argv: list) -> str:
+    """git for the runner's own bookkeeping: a nonzero rc raises instead of
+    reading as empty output. The retirement clock treated a failed `git log`
+    as "no commits touched this check's files" (a retirement candidate), and
+    host_commit would publish as "" — both silent before 2026-09-17."""
+    r = subprocess.run(argv, cwd=REPO, capture_output=True, text=True, timeout=30)
+    if r.returncode != 0:
+        raise RuntimeError(f"{' '.join(argv[:3])} exited {r.returncode}: {r.stderr.strip()[-160:]}")
+    return r.stdout
+
+
 # ── CHECK 32 — Git sync divergence ───────────────────────────────────────────
 
 def check32():
@@ -103,8 +114,10 @@ def check32():
             ["git", "diff", "--name-only", "HEAD"],
             cwd=REPO, capture_output=True, text=True, timeout=15,
         )
-        uncommitted = [l for l in dirty.stdout.splitlines() if l.strip()]
-        count = len(uncommitted)
+        # rc ignored before 2026-09-17: a failed `git diff` has the same empty
+        # stdout as a clean tree, and read as 0 uncommitted files.
+        uncommitted = [l for l in dirty.stdout.splitlines() if l.strip()] if dirty.returncode == 0 else None
+        count = len(uncommitted) if uncommitted is not None else None
     except Exception:
         count = None
 
@@ -145,14 +158,15 @@ def update_registry():
                 if days_since >= retirement_days:
                     since = (date.today() - timedelta(days=retirement_days)).isoformat()
                     if any(
-                        subprocess.run(
-                            ["git", "log", "--oneline", f"--since={since}", "--", f],
-                            cwd=REPO, capture_output=True, text=True
-                        ).stdout.strip()
+                        _git_stdout_or_raise(
+                            ["git", "log", "--oneline", f"--since={since}", "--", f]
+                        ).strip()
                         for f in files.split(",")
                     ):
                         retirement_candidates.append((num, name, days_since))
             except Exception:
+                # Swallowed deliberately: a git failure here means "not a retirement
+                # candidate" (conservative direction) rather than an aborted report.
                 pass
             new_lines.append(f"| {num} | {name} | {added} | {prompted} | {files} | {lt} | {lc} |")
         else:
@@ -312,8 +326,7 @@ def emit_state(path: Path) -> None:
     from datetime import datetime, timezone
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "host_commit": subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=REPO,
-                                      capture_output=True, text=True).stdout.strip(),
+        "host_commit": _git_stdout_or_raise(["git", "rev-parse", "--short", "HEAD"]).strip(),
         "findings": [list(f) for f in findings],
         "skipped":  [list(s) for s in skipped],
         "evaluated": sorted(_executed_checks() - {s[0] for s in skipped}),
