@@ -137,6 +137,17 @@ def eval_on(params: dict, start: str, end: str, pc) -> dict | None:
         return None
 
 
+def _engine_commit() -> str:
+    """HEAD short SHA, derived at run time. Was a hardcoded string until 2026-09-16 —
+    a result file that names the wrong engine is worse than one that names none."""
+    import subprocess
+    try:
+        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"],
+                                       cwd=Path(__file__).resolve().parents[2], text=True).strip()
+    except Exception:
+        return "unknown"
+
+
 # ── Criterion 1 ──────────────────────────────────────────────────────────────
 
 def criterion_1() -> dict:
@@ -242,7 +253,7 @@ def main():
     if not (a.c1 or a.c2):
         a.c1 = a.c2 = True
     from datetime import datetime, timezone
-    out = {"generated_at": datetime.now(timezone.utc).isoformat(), "engine_commit": "6c8c16d", "preregistration": "raw/notes/2026-09/2026-09-15-apex-optimizer-cap-walk-forward-preregistration.md"}
+    out = {"generated_at": datetime.now(timezone.utc).isoformat(), "engine_commit": _engine_commit(), "preregistration": "raw/notes/2026-09/2026-09-15-apex-optimizer-cap-walk-forward-preregistration.md"}
     if a.c2:
         out["criterion_2"] = criterion_2()
         write_json_atomic(Path(a.out), out)
