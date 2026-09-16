@@ -226,6 +226,7 @@ def init_db() -> None:
                 date        TEXT NOT NULL,
                 sector      TEXT NOT NULL,
                 posterior   REAL NOT NULL,
+                written_at  TEXT,               -- UTC ISO; NULL on rows older than the 2026-09-16 migration
                 PRIMARY KEY (date, sector)
             );
 
@@ -264,6 +265,7 @@ def init_db() -> None:
         logger.info(f"DB initialised at {DB_PATH}")
 
         # Migrations — safe to run every startup
+        _add_column_if_missing(conn, "sector_posterior_history", "written_at", "TEXT")
         _add_column_if_missing(conn, "trades",  "price_exit",  "REAL")
         _add_column_if_missing(conn, "trades",  "exited_at",   "TEXT")
         _add_column_if_missing(conn, "trades",  "exit_reason", "TEXT")
@@ -1818,10 +1820,14 @@ def get_existing_snapshot_dates(start_date: str, end_date: str) -> set[str]:
         conn.close()
 
 
-def get_latest_sector_scores() -> dict[str, float]:
+def get_latest_sector_scores(as_of: str | None = None) -> dict[str, float]:
     """
     Returns the most recent avg_score per sector.
     Used by dynamic sector cap computation.
+
+    as_of: ISO timestamp (same clock as sector_snapshots.timestamp); when given,
+    "most recent" means the last snapshot at or before it — the input the EOD
+    regime update would have seen at that moment. Used by the replay path.
     """
     conn = get_db()
     try:
@@ -1831,9 +1837,10 @@ def get_latest_sector_scores() -> dict[str, float]:
             INNER JOIN (
                 SELECT sector, MAX(timestamp) AS max_ts
                 FROM sector_snapshots
+                WHERE (? IS NULL OR timestamp <= ?)
                 GROUP BY sector
             ) latest ON s.sector = latest.sector AND s.timestamp = latest.max_ts
-        """).fetchall()
+        """, (as_of, as_of)).fetchall()
         return {r["sector"]: r["avg_score"] for r in rows}
     finally:
         conn.close()
@@ -2308,15 +2315,25 @@ def get_previous_sector_posteriors(date_str: str) -> dict[str, float]:
 
 
 def insert_sector_posterior_history(date_str: str, posteriors: dict[str, float]) -> None:
-    """Append daily posterior snapshot. Idempotent on (date, sector) key."""
+    """Append daily posterior snapshot. Idempotent on (date, sector) key.
+
+    `written_at` (UTC) is the provenance column: a row whose written_at falls on a
+    different NY calendar day than `date`, or before 16:15 ET, was not produced by
+    the 16:15 EOD run for that date (CHECK 77). Before 2026-09-16 the startup
+    catch-up stamped the restart date instead of the missed date, and this
+    INSERT OR IGNORE then discarded the genuine write — two contaminated rows
+    (2026-09-03, 2026-09-08) were found that way; see scripts/replay_eod_regime.py.
+    """
+    from datetime import datetime, timezone
+    written_at = datetime.now(timezone.utc).isoformat()
     conn = get_db()
     try:
         conn.executemany(
             """
-            INSERT OR IGNORE INTO sector_posterior_history (date, sector, posterior)
-            VALUES (?, ?, ?)
+            INSERT OR IGNORE INTO sector_posterior_history (date, sector, posterior, written_at)
+            VALUES (?, ?, ?, ?)
             """,
-            [(date_str, sector, posterior) for sector, posterior in posteriors.items()],
+            [(date_str, sector, posterior, written_at) for sector, posterior in posteriors.items()],
         )
         conn.commit()
     except Exception as e:

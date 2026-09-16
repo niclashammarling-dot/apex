@@ -1,4 +1,5 @@
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
+from pathlib import Path
 from functools import lru_cache
 from zoneinfo import ZoneInfo
 
@@ -25,30 +26,33 @@ scheduler = BackgroundScheduler(timezone="America/New_York")
 _regime_bayes = None
 
 
+def _build_transition_priors():
+    """Transition priors from full monthly leadership history (shared by the singleton and the preview)."""
+    from collections import defaultdict
+    from backend.db import get_sector_history
+    from backend.regime.regime_bayes import build_transition_priors
+    monthly: dict = defaultdict(dict)
+    for r in get_sector_history(days=0):
+        monthly[r["timestamp"][:7]][r["sector"]] = r["avg_score"]
+    leadership = [
+        {"date": m, "leader": max(scores, key=scores.get)}
+        for m, scores in sorted(monthly.items())
+        if scores
+    ]
+    return build_transition_priors(leadership)
+
+
 def _get_regime_bayes():
     """Return the singleton RegimeBayes instance, creating it on first call."""
     global _regime_bayes
     if _regime_bayes is None:
-        from backend.db import get_sector_history
-        from backend.regime.regime_bayes import RegimeBayes, build_transition_priors
+        from backend.regime.regime_bayes import RegimeBayes
         from backend.ticker_config import get_sectors
 
         sectors_cfg    = get_sectors()
         sector_etf_map = {s: cfg["etf"] for s, cfg in sectors_cfg.items()}
 
-        # Build transition priors from full leadership history
-        raw_history  = get_sector_history(days=0)
-        from collections import defaultdict
-        monthly: dict = defaultdict(dict)
-        for r in raw_history:
-            monthly[r["timestamp"][:7]][r["sector"]] = r["avg_score"]
-        leadership = [
-            {"date": m, "leader": max(scores, key=scores.get)}
-            for m, scores in sorted(monthly.items())
-            if scores
-        ]
-        transition_priors = build_transition_priors(leadership)
-
+        transition_priors = _build_transition_priors()
         _regime_bayes = RegimeBayes(sectors_cfg, sector_etf_map, transition_priors)
         logger.info(f"RegimeBayes initialised — {len(transition_priors)} prior rows loaded")
     return _regime_bayes
@@ -246,30 +250,27 @@ def publish_audit_state() -> None:
         logger.info(f"publish_audit_state: {r.stdout.strip().splitlines()[-2:]}")
 
 
-def run_eod_regime() -> None:
-    """
-    End-of-day Bayesian regime update.
-    Runs at 4:15 PM after market close on trading days.
+def _eod_cutoff_utc(d: date) -> str:
+    """ISO UTC timestamp of 16:15 ET on date d — the moment the EOD run reads its inputs."""
+    from datetime import timezone
+    return datetime.combine(d, time(16, 15), tzinfo=NY).astimezone(timezone.utc).isoformat()
 
-    Steps:
-      1. IPO sentiment — fetch/cache today's IPO sector shares from EDGAR
-      2. Download raw OHLCV for all tickers + ETFs (60d lookback)
-      3. RegimeBayes.update() — compute posteriors, allocation, persist to DB
-    """
+
+def _eod_inputs(target: date, live: bool):
+    """Assemble (raw_data, sector_snapshots, ipo_shares) for the EOD update, as of `target`.
+    Returns None if the OHLCV download fails (nothing sensible can run without it)."""
     import yfinance as yf
 
     from backend.db import get_latest_sector_scores
     from backend.regime.ipo_sentiment import IpoSentiment
     from backend.ticker_config import get_sectors
 
-    logger.info("EOD regime update starting…")
-
     sectors_cfg = get_sectors()
 
     # Step 1: IPO sentiment
     try:
         ipo        = IpoSentiment(sectors_cfg)
-        ipo_result = ipo.compute()
+        ipo_result = ipo.compute(reference_date=None if live else target)
         ipo_shares = ipo_result.ipo_shares
         logger.info(
             f"IPO sentiment: total={ipo_result.total_ipos} "
@@ -287,31 +288,111 @@ def run_eod_regime() -> None:
             for cfg in sectors_cfg.values()
             for t in cfg["tickers"] + [cfg["etf"]]
         })
-        raw_data = yf.download(
-            all_symbols,
-            period="60d",
-            auto_adjust=True,
-            progress=False,
-            group_by="ticker",
-        )
+        if live:
+            raw_data = yf.download(
+                all_symbols,
+                period="60d",
+                auto_adjust=True,
+                progress=False,
+                group_by="ticker",
+            )
+        else:
+            # 60 trading days ≈ 90 calendar days; `end` is exclusive in yfinance.
+            raw_data = yf.download(
+                all_symbols,
+                start=(target - timedelta(days=90)).isoformat(),
+                end=(target + timedelta(days=1)).isoformat(),
+                auto_adjust=True,
+                progress=False,
+                group_by="ticker",
+            )
+            raw_data = raw_data[raw_data.index.date <= target]
     except Exception as e:
         logger.error(f"EOD regime: raw data download failed — aborting: {e}")
+        return None
+
+    sector_snapshots = get_latest_sector_scores(
+        as_of=None if live else _eod_cutoff_utc(target)
+    )
+    return raw_data, sector_snapshots, ipo_shares
+
+
+def run_eod_regime(as_of: date | None = None) -> None:
+    """
+    End-of-day Bayesian regime update.
+    Runs at 4:15 PM after market close on trading days.
+
+    Steps:
+      1. IPO sentiment — fetch/cache today's IPO sector shares from EDGAR
+      2. Download raw OHLCV for all tickers + ETFs (60d lookback)
+      3. RegimeBayes.update() — compute posteriors, allocation, persist to DB
+
+    as_of: the trading date this update is FOR. None means "now" (the cron path).
+    The catch-up and replay paths pass the missed date explicitly; every input is
+    then read as it stood at 16:15 ET on that date — OHLCV truncated to as_of
+    (`_compute_rank_lrs` reads `iloc[-1]`, it does not mask by date), sector
+    snapshots as of the 16:15 cutoff, EDGAR window ending as_of — and the row is
+    stamped with as_of, not with the wall-clock date. Before 2026-09-16 the
+    catch-up stamped the restart date and the `INSERT OR IGNORE` on the history
+    table then dropped the genuine 16:15 write for that date.
+    """
+    # Anchor to the NY trading date, not the server's OS-local date — this job
+    # can run close to Stockholm's midnight rollover (6h ahead of ET), which would
+    # otherwise mislabel today's ET trading day as tomorrow.
+    live       = as_of is None
+    target     = as_of or datetime.now(NY).date()
+    if datetime.now(NY) < datetime.combine(target, time(16, 15), tzinfo=NY):
+        # Applies to the live path too: the /sectors/regime-bayes/run button and the
+        # old catch-up both ran this mid-session, stamped today, and INSERT OR IGNORE
+        # then dropped the genuine 16:15 write. 7 of the 10 rows in 09-02..09-15 were
+        # produced that way (trace shows 2-3 update() runs on each of those days).
+        # Mid-session reads go through preview_eod_regime(), which persists nothing.
+        logger.error(f"EOD regime: {target} 16:15 ET close has not passed — refusing (inputs would be intraday)")
         return
+    logger.info(f"EOD regime update starting… (as_of={target}{'' if live else ', replay'})")
+
+    inputs = _eod_inputs(target, live)
+    if inputs is None:
+        return
+    raw_data, sector_snapshots, ipo_shares = inputs
 
     # Step 3: RegimeBayes update
     try:
-        sector_snapshots = get_latest_sector_scores()
         rb     = _get_regime_bayes()
-        # Anchor to the NY trading date, not the server's OS-local date — this job
-        # can run close to Stockholm's midnight rollover (6h ahead of ET), which would
-        # otherwise mislabel today's ET trading day as tomorrow.
-        result = rb.update(datetime.now(NY).date(), raw_data, sector_snapshots, ipo_shares)
+        result = rb.update(target, raw_data, sector_snapshots, ipo_shares)
         logger.info(
             f"Regime update complete — leader={result.leader} "
             f"qualifiers={result.qualifiers}"
         )
     except Exception as e:
         logger.error(f"RegimeBayes update failed: {e}")
+
+
+def preview_eod_regime():
+    """Compute what the EOD update would produce on today's inputs as they stand
+    right now, and return it WITHOUT persisting: a throwaway RegimeBayes built the
+    same way as the singleton, with its DB / result-cache / trace writers stubbed.
+    The singleton's in-memory state is not touched. Returns RegimeResult or None."""
+    from backend.regime.regime_bayes import RegimeBayes
+    from backend.ticker_config import get_sectors
+
+    target = datetime.now(NY).date()
+    inputs = _eod_inputs(target, live=True)
+    if inputs is None:
+        return None
+    raw_data, sector_snapshots, ipo_shares = inputs
+    try:
+        sectors_cfg    = get_sectors()
+        sector_etf_map = {s: cfg["etf"] for s, cfg in sectors_cfg.items()}
+        rb = RegimeBayes(sectors_cfg, sector_etf_map, _build_transition_priors())
+        rb._save_posteriors        = lambda *_: None
+        rb._save_posterior_history = lambda *_: None
+        rb._save_result            = lambda *_: None
+        rb._append_signal_trace    = lambda *_: None
+        return rb.update(target, raw_data, sector_snapshots, ipo_shares)
+    except Exception as e:
+        logger.error(f"EOD regime preview failed: {e}")
+        return None
 
 
 def recalibrate_thresholds() -> None:
@@ -390,61 +471,78 @@ def prune_old_signals() -> None:
         logger.info(f"Sector snapshot pruning: removed {snap_deleted} old rows")
 
 
+EOD_CATCHUP_MAX_DAYS = 10
+EOD_REPLAY_LOCK      = Path(__file__).resolve().parent.parent / "data" / ".eod_replay.lock"
+
+
+def _nyse_sessions_between(after: date | None, through: date) -> list[date]:
+    """NYSE sessions strictly after `after` (or the 30 days before `through` if None) up to and including `through`."""
+    import pandas_market_calendars as mcal
+    start = (after + timedelta(days=1)) if after else (through - timedelta(days=30))
+    sched = mcal.get_calendar("NYSE").schedule(start_date=start.isoformat(), end_date=through.isoformat())
+    return [ts.date() for ts in sched.index]
+
+
+def _last_eod_due(now: datetime) -> date:
+    """Most recent NYSE session whose 16:15 ET EOD slot has already passed."""
+    d = now.date()
+    if now.time() < time(16, 15):
+        d -= timedelta(days=1)
+    while not _nyse_sessions_for_date(d.isoformat()):
+        d -= timedelta(days=1)
+    return d
+
+
 def _check_missed_eod_regime() -> None:
     """
     Run the EOD regime update on startup if it was missed (server down at 16:15 ET).
-    Determines the most recent trading day for which EOD should have already run,
-    then compares against the last updated_at in sector_posteriors.
-    """
-    from datetime import timedelta
+    Determines the most recent NYSE session for which EOD should have already run,
+    then compares against MAX(date) in sector_posterior_history, and runs the
+    update FOR that session (as_of=expected).
 
+    Uses the NYSE calendar, not weekday arithmetic: the weekday version fired on
+    2026-09-08 for Labor Day (2026-09-07) and wrote a mid-session row for 09-08.
+    """
     from backend.db import get_db
 
-    now     = datetime.now(NY)
-    today   = now.date()
-    weekday = now.weekday()  # 0=Mon … 4=Fri, 5=Sat, 6=Sun
+    if EOD_REPLAY_LOCK.exists():
+        # scripts/replay_eod_regime.py holds this while it rewrites the series. Without
+        # it, the uvicorn --reload worker restarted mid-repair on 2026-09-16, saw the
+        # deleted range, and ran its own catch-up from a stale in-memory prior in
+        # parallel with the replay — two writers racing INSERT OR IGNORE.
+        logger.warning(f"EOD regime catch-up: {EOD_REPLAY_LOCK} present — replay in progress, skipping")
+        return
 
-    if weekday == 5:                        # Saturday — EOD should have run Friday
-        expected = today - timedelta(days=1)
-    elif weekday == 6:                      # Sunday — EOD should have run Friday
-        expected = today - timedelta(days=2)
-    elif now.time() >= time(16, 15):        # Weekday past 16:15 — today
-        expected = today
-    elif weekday == 0:                      # Monday before 16:15 — last Friday
-        expected = today - timedelta(days=3)
-    else:                                   # Tue–Fri before 16:15 — yesterday
-        expected = today - timedelta(days=1)
+    now      = datetime.now(NY)
+    expected = _last_eod_due(now)
 
+    # Compare against the history table's own date column, not sector_posteriors.updated_at:
+    # updated_at is wall-clock, so a catch-up run on Tuesday morning FOR Monday would
+    # read as "Tuesday done" and a second outage before 16:15 would lose Tuesday.
     try:
         conn = get_db()
         try:
-            row = conn.execute("SELECT MAX(updated_at) FROM sector_posteriors").fetchone()
+            row = conn.execute("SELECT MAX(date) FROM sector_posterior_history").fetchone()
         finally:
             conn.close()
-        last_updated_str = row[0] if row and row[0] else None
+        last_date = date.fromisoformat(row[0]) if row and row[0] else None
     except Exception as e:
         logger.warning(f"EOD regime catch-up: DB check failed — {e}")
         return
 
-    try:
-        # updated_at is stored in UTC — convert to NY before truncating to a date,
-        # otherwise a write in the UTC-evening/ET-afternoon window silently rolls
-        # to the wrong calendar day and the catch-up check misjudges what ran.
-        last_date = (
-            datetime.fromisoformat(last_updated_str).astimezone(NY).date()
-            if last_updated_str else None
-        )
-    except ValueError as e:
-        logger.warning(f"EOD regime catch-up: malformed timestamp in DB ({last_updated_str!r}) — {e}")
-        return
     if last_date and last_date >= expected:
         return
 
+    # Fill every NYSE session in (last_date, expected], oldest first — the posterior
+    # is sequential, so a two-day outage must be replayed in order, not patched at
+    # the newest day. Capped so a stale DB on a fresh install doesn't replay months.
+    missed = _nyse_sessions_between(last_date, expected)[-EOD_CATCHUP_MAX_DAYS:]
     logger.warning(
-        f"EOD regime missed for {expected} "
-        f"(last update: {last_date or 'never'}) — running now"
+        f"EOD regime missed for {len(missed)} session(s) {missed[0]}..{missed[-1]} "
+        f"(last row: {last_date or 'never'}) — running now"
     )
-    run_eod_regime()
+    for d in missed:
+        run_eod_regime(as_of=d)
 
 
 def _check_missed_calibration() -> None:

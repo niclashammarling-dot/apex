@@ -776,6 +776,108 @@ def check75():
                         "path not exercised, zero fallbacks is not evidence"))
 
 
+# ── CHECK 77 — Posterior history provenance and gap count ────────────────────
+
+def _nyse_sessions(start: date, end: date) -> list[date]:
+    """NYSE sessions in [start, end] from the exchange calendar — never inferred from the
+    data being checked: something polls on holidays and Sundays (sector_snapshots has
+    11-row days on 2026-09-07 and 2026-09-13), so "a row exists for D" is not evidence
+    D was a session."""
+    import pandas_market_calendars as mcal
+    sched = mcal.get_calendar("NYSE").schedule(start_date=start.isoformat(), end_date=end.isoformat())
+    return [ts.date() for ts in sched.index]
+
+
+def check77():
+    """
+    sector_posterior_history: every row must have been written by the 16:15 ET
+    EOD run FOR its own date, and every NYSE session since the series began
+    must have a row.
+
+    Two defects this replaces a row count with. (1) Provenance: before
+    2026-09-16 the startup catch-up stamped the restart date, not the missed
+    date, and INSERT OR IGNORE then discarded the genuine write for that date
+    — a present, countable, wrong row (2026-09-03 written 11:20 ET from 09-02
+    close data; 2026-09-08 written 10:45 ET mid-session, "catching up" Labor
+    Day). A row-count check passes both. So: any row whose written_at (NY
+    date) differs from its date, or whose written_at time-of-day is before
+    16:15 ET, is CRITICAL. Rows with written_at NULL predate the column and
+    are reported as a count, not judged. (2) Gap count: CHECK 44 sub-check A
+    asks for 7 of the last 10 sessions — a rolling tolerance that never sums.
+    14 of 81 sessions were missing on 2026-09-16 and it had never said so.
+    WARNING when any session in the trailing 60 is absent, listing them;
+    CRITICAL when the cumulative missing share exceeds 10%. Sessions come
+    from the NYSE calendar, not from the data.
+    """
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+    NY = ZoneInfo("America/New_York")
+    name = "Posterior history provenance and gap count"
+    db = REPO / "data/apex.db"
+    if not require_data_file(77, name, db):
+        return
+    try:
+        conn = sqlite3.connect(db)
+        rows = conn.execute(
+            "SELECT date, sector, written_at FROM sector_posterior_history ORDER BY date"
+        ).fetchall()
+        conn.close()
+    except Exception as e:
+        flag(77, name, "WARNING", "data/apex.db:sector_posterior_history",
+             f"could not query sector_posterior_history: {e}")
+        return
+    if not rows:
+        flag(77, name, "WARNING", "data/apex.db:sector_posterior_history",
+             "table empty — EOD regime has never persisted")
+        return
+
+    # (1) provenance — the single invariant: a row for date D must have been written
+    # at or after 16:15 ET on D, otherwise its inputs could not have been D's close.
+    # A catch-up or replay row written days later is fine (inputs are read as-of D);
+    # the old catch-up's 09-03 row written 11:20 ET on 09-03 is not.
+    bad, unstamped = [], 0
+    for d, sector, wa in rows:
+        if not wa:
+            unstamped += 1
+            continue
+        try:
+            w = datetime.fromisoformat(wa)
+        except ValueError:
+            bad.append(f"{d}/{sector}: unparseable written_at {wa!r}")
+            continue
+        if w.tzinfo is None:
+            w = w.replace(tzinfo=timezone.utc)
+        cutoff = datetime.combine(date.fromisoformat(d), datetime.min.time().replace(hour=16, minute=15), tzinfo=NY)
+        if w < cutoff:
+            bad.append(f"{d}/{sector}: written {w.astimezone(NY):%Y-%m-%d %H:%M} ET, before that date's 16:15 close")
+    if bad:
+        flag(77, name, "CRITICAL", "backend/scheduler.py:_check_missed_eod_regime",
+             f"{len(bad)} row(s) written before their own date's close — "
+             f"{'; '.join(bad[:6])}{' …' if len(bad) > 6 else ''}. Such a row also "
+             f"blocks the genuine write (INSERT OR IGNORE) and feeds the next day's prior; "
+             f"repair with scripts/replay_eod_regime.py, do not delete in place.")
+
+    # (2) gap count against the exchange calendar
+    have  = {d for d, _, _ in rows}
+    first = date.fromisoformat(min(have))
+    last_due = _most_recent_trading_day(date.today() - timedelta(days=1))
+    sessions = _nyse_sessions(first, last_due)
+    missing  = [s.isoformat() for s in sessions if s.isoformat() not in have]
+    if sessions:
+        share = len(missing) / len(sessions)
+        recent_missing = [m for m in missing if m >= sessions[-60].isoformat()] if len(sessions) >= 60 else missing
+        if share > 0.10:
+            flag(77, name, "CRITICAL", "data/apex.db:sector_posterior_history",
+                 f"{len(missing)} of {len(sessions)} NYSE sessions since {first} have no posterior row "
+                 f"({share:.0%}) — the series the regime buckets and CHECK 44 calibrate on is not "
+                 f"continuous; most recent gaps: {', '.join(missing[-8:])}. Sequential prior: a gap "
+                 f"is not a hole, it is a day the decay ran on stale state.")
+        elif recent_missing:
+            flag(77, name, "WARNING", "data/apex.db:sector_posterior_history",
+                 f"{len(recent_missing)} session(s) in the trailing 60 have no posterior row: "
+                 f"{', '.join(recent_missing)} (cumulative {len(missing)}/{len(sessions)})")
+
+
 def run() -> None:
     check14()
     check15()
@@ -790,3 +892,4 @@ def run() -> None:
     check55()
     check56()
     check75()
+    check77()

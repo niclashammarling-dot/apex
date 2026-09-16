@@ -65,3 +65,10 @@ audit/state/
 data/sweep_results.json
 data/optimizer_results.json
 data/objective_walkforward.json
+
+# DB snapshots taken before destructive repairs (data/backups/*.csv row dumps are kept — they are the "before" measurement)
+data/backups/**/*.db
+data/backups/**/*.json
+data/backups/**/*.log
+data/backups/**/*.jsonl
+data/.eod_replay.lock

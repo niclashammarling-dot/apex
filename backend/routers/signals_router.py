@@ -729,12 +729,37 @@ def sectors_regime_bayes():
 
 
 @router.post("/sectors/regime-bayes/run")
-def trigger_regime_bayes():
-    """Manually trigger an EOD regime update (for testing outside market hours)."""
-    from backend.scheduler import run_eod_regime
+def trigger_regime_bayes(persist: bool = False):
+    """Manually trigger an EOD regime update.
+
+    persist=false (default): compute-and-return on today's inputs as they stand —
+    a throwaway RegimeBayes instance, no DB / result-cache / trace writes, the
+    scheduler singleton untouched. This is the mid-session "show me the regime
+    now" use. persist=true: the real EOD path, which refuses before 16:15 ET
+    (2026-09-16: mid-session persisting runs stamped today's row from intraday
+    inputs and blocked the genuine close write — 7 of 10 rows in 09-02..09-15).
+    """
+    from backend.scheduler import run_eod_regime, preview_eod_regime
     try:
-        run_eod_regime()
-        return {"status": "ok"}
+        if persist:
+            run_eod_regime()
+            return {"status": "ok", "persisted": True,
+                    "note": "no-op if before 16:15 ET — see server log"}
+        result = preview_eod_regime()
+        if result is None:
+            raise HTTPException(status_code=503, detail="preview failed — see server log")
+        return {
+            "status": "ok", "persisted": False, "date": result.date,
+            "leader": result.leader, "qualifiers": result.qualifiers,
+            "allocation": result.allocation,
+            "leaderboard": [
+                {"sector": e.sector, "rank": e.rank, "aggregate_score": e.aggregate_score,
+                 "posterior": e.posterior, "adjusted_score": e.adjusted_score, "allocation": e.allocation}
+                for e in result.leaderboard
+            ],
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
