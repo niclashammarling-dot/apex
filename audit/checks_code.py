@@ -958,8 +958,18 @@ def check76():
              f"first differing entry {first} — an undocumented model difference, not a PRODUCTION_GAP.md row")
 
 
-_C79_MARKER = re.compile(r"(?i)\b(?:interim|provisional)\b|\bonce\s+\w+\s+has\b|\breplaces?\s+the\s+interim\b|\breplace\s+with\b")
-_C79_GATE   = re.compile(r"(?i)(?:once\s+(?P<table>\w+)\s+has|after)\s+(?:[≥>]=?\s*)?(?P<lo>\d+)(?:\s*[-–]\s*(?P<hi>\d+))?\s*weeks?")
+_C79_MARKER = re.compile(
+    r"(?i)\b(?:interim|provisional|temporar(?:y|ily)|unvalidated|stopgap)\b"
+    r"|\bonce\s+\w+\s+has\b|\breplaces?\s+the\s+interim\b|\breplace\s+with\b"
+    r"|\brevisit\s+(?:after|in|once|when)\b|\buntil\s+\w+\s+accumulates\b"
+)
+# Gate forms found by reading the comment corpus (2026-09-16 rejects pass): "once <table> has
+# N[-M] weeks", "after N-M weeks of data", "revisit after 3-6 months of live data". Age comes
+# from the named table's MIN(date) when there is one, else from a YYYY-MM-DD in the same block.
+_C79_GATE   = re.compile(
+    r"(?i)(?:once\s+(?P<table>\w+)\s+has|after|in)\s+(?:[≥>]=?\s*|~\s*)?(?P<lo>\d+)(?:\s*[-–]\s*(?P<hi>\d+))?\s*(?P<unit>weeks?|months?)\b"
+)
+_C79_DATE   = re.compile(r"\b(20\d\d-\d\d-\d\d)\b")
 _C79_TABLE  = re.compile(r"\b(\w+_history)\b")
 _C79_SCAN   = ("backend", "audit", "scripts")
 _C79_SKIP   = ("audit/checks_code.py",)
@@ -1058,9 +1068,15 @@ def check79():
     past the upper bound: WARNING, CRITICAL beyond 2x the bound. A get_* accessor
     named beside the marker that is defined but never called is reported as the
     unbuilt-replacement tell. Markers with no machine-readable gate are listed
-    in the finding text when any finding fires, and are otherwise not surfaced
-    — a known limit, stated rather than hidden. Gate ages need apex.db; without
-    it the check is SKIPPED, not a pass.
+    in the finding text when any finding fires, and are otherwise not surfaced.
+    Vocabulary was grown from the corpus, not the author: on 2026-09-16 the
+    6,662 comment/docstring lines the first regex rejected were probed for
+    deferral vocabulary (67 hits read); three genuine markers had been missed
+    ("revisit after 3-6 months", "unvalidated ... until N accumulates",
+    "Recalibrate if market regime changes") and the first two forms were added
+    with month units and a dated-block age source. The third (a condition, not
+    a gate) stays ungated by design. Gate ages need apex.db; without it the
+    check is SKIPPED, not a pass.
     """
     name = "Deferred-replacement markers past their gate"
     if not require_data_file(79, name, REPO / "data/apex.db"):
@@ -1080,16 +1096,24 @@ def check79():
                 g = _C79_GATE.search(block_text)
                 table = (g.group("table") if g and g.group("table") else None) or \
                         (_C79_TABLE.search(block_text).group(1) if _C79_TABLE.search(block_text) else None)
-                if not g or not table:
+                if not g:
                     ungated.append(f"{rel}:{lineno}")
                     continue
                 hi = int(g.group("hi") or g.group("lo"))
-                age = _c79_weeks_of(table)
+                if g.group("unit").lower().startswith("month"):
+                    hi = round(hi * 52 / 12)
+                age = _c79_weeks_of(table) if table else None
                 if age is None:
-                    ungated.append(f"{rel}:{lineno} (table {table} unreadable)")
+                    d = _C79_DATE.search(block_text)
+                    if d:
+                        from datetime import date as _date
+                        age = (_date.today() - _date.fromisoformat(d.group(1))).days / 7
+                        table = f"dated {d.group(1)}"
+                if age is None:
+                    ungated.append(f"{rel}:{lineno} (gate stated, no table or date to age it from)")
                     continue
                 if age > hi:
-                    past.append((rel, lineno, table, hi, age, _c79_uncalled_accessors(table)))
+                    past.append((rel, lineno, table, hi, age, _c79_uncalled_accessors(table) if not table.startswith('dated ') else []))
     if not past:
         return
     sev = "CRITICAL" if any(age > 2 * hi for _, _, _, hi, age, _ in past) else "WARNING"
