@@ -28,17 +28,17 @@ from typing import Any, Callable
 
 from loguru import logger
 
-# Minimum posterior gap for Bayes divergence to be considered signal vs. noise.
-# Calibrated 2026-07-07 against 25 days of labeled cases: 12/17 disagree days have
-# margin > 0.10; 4 are < 0.05 (noise).  Recalibrate if market regime changes significantly.
-BAYES_MARGIN_SIGNAL_THRESHOLD = 0.10
-
 from backend.gate.lock1_eligibility import evaluate as lock1_evaluate
 from backend.gate.lock2_quant import evaluate as lock2_evaluate, _sector_threshold
 from backend.gate.lock3_sentiment import evaluate as lock3_evaluate
 from backend.gate.lock4_leading import evaluate as lock4_evaluate
 from backend.gate.lock5_claude import evaluate as lock5_evaluate
 from backend.gate.types import LockResult
+
+# Minimum posterior gap for Bayes divergence to be considered signal vs. noise.
+# Calibrated 2026-07-07 against 25 days of labeled cases: 12/17 disagree days have
+# margin > 0.10; 4 are < 0.05 (noise).  Recalibrate if market regime changes significantly.
+BAYES_MARGIN_SIGNAL_THRESHOLD = 0.10
 
 
 @dataclass
@@ -350,7 +350,6 @@ def build_base_context(
         ctx["ticker_rotation_score"] = rotation_scores.get(signal["ticker"])
 
     if regime_bayes_result is not None:
-        import math as _math
         sector = signal.get("sector", "")
         alloc  = regime_bayes_result.allocation.get(sector, 0.0)
         entry  = next((e for e in regime_bayes_result.leaderboard if e.sector == sector), None)

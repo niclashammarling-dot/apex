@@ -867,19 +867,28 @@ def check77():
     last_due = _most_recent_trading_day(date.today() - timedelta(days=1))
     sessions = _nyse_sessions(first, last_due)
     missing  = [s.isoformat() for s in sessions if s.isoformat() not in have]
+    # Event vs level (2026-09-16, second pass): a gap in the trailing 3 sessions
+    # is an event — the EOD window failed this week and a run can act on it —
+    # and is CRITICAL. The cumulative share is a level: 13 July–August holes
+    # are unrepairable (no written_at, logs rotated) and would be CRITICAL on
+    # every run until the series outgrows them, which is wallpaper, not an
+    # alert. Level → WARNING with the count; the 10% line is named in the text.
     if sessions:
         share = len(missing) / len(sessions)
-        recent_missing = [m for m in missing if m >= sessions[-60].isoformat()] if len(sessions) >= 60 else missing
-        if share > 0.10:
-            flag(77, name, "CRITICAL", "data/apex.db:sector_posterior_history",
-                 f"{len(missing)} of {len(sessions)} NYSE sessions since {first} have no posterior row "
-                 f"({share:.0%}) — the series the regime buckets and CHECK 44 calibrate on is not "
-                 f"continuous; most recent gaps: {', '.join(missing[-8:])}. Sequential prior: a gap "
-                 f"is not a hole, it is a day the decay ran on stale state.")
-        elif recent_missing:
+        new_gaps = [m for m in missing if m >= sessions[-3].isoformat()] if len(sessions) >= 3 else missing
+        if new_gaps:
+            flag(77, name, "CRITICAL", "backend/scheduler.py:eod_regime",
+                 f"posterior row missing for {', '.join(new_gaps)} — a session in the trailing 3 "
+                 f"with no EOD write; the sequential prior decays on stale state from here. "
+                 f"Replay with scripts/replay_eod_regime.py (inputs retained). "
+                 f"Cumulative {len(missing)}/{len(sessions)} since {first}.")
+        elif missing:
+            level = "above" if share > 0.10 else "within"
             flag(77, name, "WARNING", "data/apex.db:sector_posterior_history",
-                 f"{len(recent_missing)} session(s) in the trailing 60 have no posterior row: "
-                 f"{', '.join(recent_missing)} (cumulative {len(missing)}/{len(sessions)})")
+                 f"{len(missing)} of {len(sessions)} NYSE sessions since {first} have no posterior row "
+                 f"({share:.0%}, {level} the 10% line); none in the trailing 3. Most recent gaps: "
+                 f"{', '.join(missing[-8:])}. Standing level, not an event — the July–August holes "
+                 f"are unadjudicable (no written_at, logs rotated).")
 
 
 def check78():
@@ -923,17 +932,23 @@ def check78():
         return
     missing = [s.isoformat() for s in sessions if s.isoformat() not in have]
     share   = len(missing) / len(sessions)
-    recent_missing = [m for m in missing if m >= sessions[-60].isoformat()] if len(sessions) >= 60 else missing
-    if share > 0.10:
+    # Event vs level, same split as CHECK 77: a gap in the trailing 3 sessions is
+    # the window having failed this week (CRITICAL, one thing to act on); the
+    # cumulative share is irrecoverable history and reads as WARNING with the
+    # count, or every scheduled run would mail the same 52% until 2027.
+    new_gaps = [m for m in missing if m >= sessions[-3].isoformat()] if len(sessions) >= 3 else missing
+    if new_gaps:
         flag(78, name, "CRITICAL", "backend/scheduler.py:collect_pcr",
-             f"{len(missing)} of {len(sessions)} NYSE sessions since {first} have no PCR rows "
-             f"({share:.0%}); most recent gaps: {', '.join(missing[-8:])}. Open interest is a "
-             f"snapshot — these sessions cannot be backfilled. The per-ticker P25 calibration "
-             f"this series was collected for reads a {1 - share:.0%}-present sample.")
-    elif recent_missing:
+             f"no PCR rows for {', '.join(new_gaps)} — a session in the trailing 3 with no 16:30 ET "
+             f"collection; open interest is a snapshot, this cannot be backfilled. "
+             f"Cumulative {len(missing)}/{len(sessions)} since {first}.")
+    elif missing:
+        level = "above" if share > 0.10 else "within"
         flag(78, name, "WARNING", "data/apex.db:lock4_pcr_history",
-             f"{len(recent_missing)} session(s) in the trailing 60 have no PCR rows: "
-             f"{', '.join(recent_missing)} (cumulative {len(missing)}/{len(sessions)})")
+             f"{len(missing)} of {len(sessions)} NYSE sessions since {first} have no PCR rows "
+             f"({share:.0%}, {level} the 10% line); none in the trailing 3. Most recent gaps: "
+             f"{', '.join(missing[-8:])}. Standing level — the per-ticker P25 calibration "
+             f"reads a {1 - share:.0%}-present sample.")
 
 
 def run() -> None:

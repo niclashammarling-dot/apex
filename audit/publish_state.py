@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO       = Path(__file__).parent.parent
@@ -96,6 +96,8 @@ def check_ci_liveness() -> None:
 
 def _alert(text: str) -> None:
     print(f"CI LIVENESS ALERT: {text}", file=sys.stderr)
+    ALERT_STAMP.parent.mkdir(parents=True, exist_ok=True)
+    ALERT_STAMP.write_text(datetime.now(timezone.utc).isoformat(timespec="seconds"))
     try:
         sys.path.insert(0, str(REPO))
         from backend.alerts import _dispatch
@@ -104,12 +106,66 @@ def _alert(text: str) -> None:
         print(f"(alert dispatch failed: {e})", file=sys.stderr)
 
 
+ALERT_STAMP = REPO / "audit" / "state" / "ci_liveness_alerted.txt"
+CI_REALERT_DAYS = 7
+
+
+def _liveness_due() -> bool:
+    """Rate-limit the CI-liveness alert: once, then weekly while it holds.
+
+    Before 2026-09-16 it dispatched the identical text on every publish (the
+    2026-06-27 report was 1944 h old on the 09-16 mail and would be 1968 h on
+    the next) — an alert that repeats unchanged carries no information after
+    the first delivery and trains the reader out of the channel.
+    """
+    try:
+        last = datetime.fromisoformat(ALERT_STAMP.read_text().strip())
+    except (FileNotFoundError, ValueError):
+        return True
+    return (datetime.now(timezone.utc) - last).days >= CI_REALERT_DAYS
+
+
+def route_criticals() -> None:
+    """Dispatch this run's CRITICAL findings through the host's own channel.
+
+    Until 2026-09-16 the only findings→email path was audit/alert_criticals.py
+    inside the CI workflow, disabled since 08-10; a CRITICAL in latest.json went
+    to the audit-state branch and nowhere else (consumer audit, ten rows, zero
+    read on a kept schedule). CHECKs 77/78/79 were converted from level to event
+    severities in the same commit so that what arrives here is news, not the
+    same cumulative count nightly. SUPPRESSED and WARNING are not routed.
+    """
+    import json
+    payload = json.loads(STATE_FILE.read_text())
+    crits = [f for f in payload.get("findings", []) if len(f) >= 5 and f[2] == "CRITICAL"]
+    if not crits:
+        print("CRITICAL routing: none")
+        return
+    lines = [f"CHECK {f[0]} — {f[1]}\n  {f[3]}\n  {f[4]}" for f in crits]
+    body = (f"{len(crits)} CRITICAL finding(s) in the host audit run "
+            f"{payload.get('generated_at', '?')} (commit {str(payload.get('host_commit', '?'))[:8]}):\n\n"
+            + "\n\n".join(lines)
+            + "\n\nFull state: origin/audit-state audit/state/latest.json")
+    print(f"CRITICAL routing: {len(crits)} finding(s) — CHECKs {', '.join(str(f[0]) for f in crits)}")
+    try:
+        sys.path.insert(0, str(REPO))
+        from backend.alerts import _dispatch
+        _dispatch(f"[APEX] Audit CRITICAL x{len(crits)}: CHECKs {', '.join(str(f[0]) for f in crits)}", body)
+    except Exception as e:  # routing must never mask the publish result
+        print(f"(CRITICAL dispatch failed: {e})", file=sys.stderr)
+
+
 def main() -> int:
     run_checks()
     stamp_alert_channel()
     commit = push_state()
     print(f"Published {STATE_FILE.relative_to(REPO)} → origin/{BRANCH} @ {commit[:8]}")
-    check_ci_liveness()
+    route_criticals()
+    if _liveness_due():
+        check_ci_liveness()
+    else:
+        print("CI liveness: alert sent within the last "
+              f"{CI_REALERT_DAYS} days, not repeated")
     return 0
 
 

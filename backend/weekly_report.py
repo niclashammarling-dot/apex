@@ -757,7 +757,9 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
     # min/median/max is deliberately not shown — it measures the landscape
     # inside a run, not whether a week-over-week move is real.
     if opt_state == _SWEEP_OK:
-        nf = opt["noise_floor"]; fm = opt.get("final_metrics", {}); bp = opt["best_params"]
+        nf = opt["noise_floor"]
+        fm = opt.get("final_metrics", {})
+        bp = opt["best_params"]
         st = opt.get("start") or {}
         warm = st.get("warm_start")
         floor_txt = (
@@ -913,7 +915,9 @@ LOCK 1 THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
             )
 
     if opt_state == _SWEEP_OK:
-        nf = opt["noise_floor"]; fm = opt.get("final_metrics", {}); bp = opt["best_params"]
+        nf = opt["noise_floor"]
+        fm = opt.get("final_metrics", {})
+        bp = opt["best_params"]
         plain += f"\nAUTORESEARCH OPTIMIZER ({opt_detail})\n"
         plain += f"  best score {opt['best_score']:.3f}  kept {opt.get('experiments_kept', '?')}/{opt.get('experiments_total', '?')}\n"
         st = opt.get("start") or {}

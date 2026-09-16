@@ -247,7 +247,7 @@ def publish_audit_state() -> None:
         logger.error(f"publish_audit_state failed (rc={r.returncode}): "
                      f"{(r.stderr or r.stdout).strip()[-800:]}")
     else:
-        logger.info(f"publish_audit_state: {r.stdout.strip().splitlines()[-2:]}")
+        logger.info(f"publish_audit_state: {r.stdout.strip().splitlines()[-4:]}")
 
 
 def _eod_cutoff_utc(d: date) -> str:
@@ -708,8 +708,13 @@ def start_scheduler() -> None:
     scheduler.add_job(
         publish_audit_state,
         "cron",
-        hour=20,
-        minute=0,           # 8 PM ET = 00:00 UTC — one hour before the CI audit's 01:00 UTC cron
+        day_of_week="mon-fri",
+        hour=16,
+        minute=33,          # inside the Task Scheduler EOD window (16:05-16:40 ET), after
+                            # collect_pcr 16:30. Was 20:00 ET ("one hour before CI's 01:00 UTC"):
+                            # the host was never up at 02:00 Stockholm — fired twice in its
+                            # life (09-12, 09-16, both by a late session). 20:33 UTC is still
+                            # 4.5 h ahead of the CI cron. Full run measured 72 s (2026-09-16).
         id="publish_audit_state",
         replace_existing=True,
         misfire_grace_time=3600,

@@ -10,7 +10,8 @@
 #   - No --reload. The serving process is never the edited process.
 #   - If port 8000 is already bound (a manual instance is up), exit — that
 #     instance's APScheduler owns the slot. Two schedulers would double-fire.
-#   - Stop at 16:36 ET (PCR snapshot completes ~16:31:35 in the log record).
+#   - Stop at 16:40 ET (PCR snapshot completes ~16:31:35; publish_audit_state
+#     at 16:33 runs the full mechanical audit, 72 s measured, incl. a backtest).
 set -u
 APEX=/home/promenix/apex
 PORT=8000
@@ -38,8 +39,8 @@ log "starting uvicorn (no --reload), ET now $et_hm"
 "$APEX/venv/bin/uvicorn" backend.main:app --host 127.0.0.1 --port "$PORT" >> "$LOG" 2>&1 &
 PID=$!
 
-# Sleep until 16:36 ET today.
-end_epoch=$(TZ=America/New_York date -d "$(TZ=America/New_York date +%F) 16:36" +%s)
+# Sleep until 16:40 ET today.
+end_epoch=$(TZ=America/New_York date -d "$(TZ=America/New_York date +%F) 16:40" +%s)
 now_epoch=$(date +%s)
 sleep_s=$(( end_epoch - now_epoch ))
 [[ -n $TEST ]] && sleep_s=$TEST

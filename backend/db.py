@@ -1689,7 +1689,6 @@ def reopen_unreconciled(trade_id: int, evidence: str) -> None:
     if not evidence:
         raise ValueError("reopen_unreconciled requires non-empty evidence")
 
-    from datetime import datetime, timezone
     conn = get_db()
     try:
         row = conn.execute("SELECT outcome FROM live_trades WHERE id = ?",

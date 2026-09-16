@@ -287,15 +287,25 @@ def check45():
     scheduler.py (_check_missed_eod_regime, _check_missed_sentiment_prefetch).
     """
     import subprocess
+    import sys
 
     # Sub-check A — ruff
+    # sys.executable, not "python3": under the scheduler the bare name resolved
+    # to the venv's python, which had no ruff — rc 1, empty stdout, zero
+    # findings, no flag. Every scheduled run of this sub-check before 2026-09-16
+    # evaluated nothing and rendered clean (13 findings appeared the first time
+    # it ran with ruff on the path).
     try:
         result = subprocess.run(
-            ["python3", "-m", "ruff", "check", "backend/",
+            [sys.executable, "-m", "ruff", "check", "backend/",
              "--select", "E,F,W", "--ignore", "E501",
              "--output-format", "concise"],
             cwd=REPO, capture_output=True, text=True, timeout=30,
         )
+        if result.returncode not in (0, 1) or (result.returncode == 1 and not result.stdout.strip()):
+            flag(45, "Static code analysis", "WARNING", "audit/checks_code.py",
+                 f"ruff did not run (rc={result.returncode}): {result.stderr.strip()[:160] or 'no output'} "
+                 f"— sub-check A evaluated nothing")
         for line in result.stdout.splitlines():
             # Skip backtest/ — analysis scripts, not runtime code
             if "/backtest/" in line or "\\backtest\\" in line:
@@ -1116,7 +1126,11 @@ def check79():
                     past.append((rel, lineno, table, hi, age, _c79_uncalled_accessors(table) if not table.startswith('dated ') else []))
     if not past:
         return
-    sev = "CRITICAL" if any(age > 2 * hi for _, _, _, hi, age, _ in past) else "WARNING"
+    # Event vs level (2026-09-16): a marker that crossed its gate within the last
+    # week is the event — CRITICAL once, while it is news. A marker 17 weeks past
+    # a 4–8 week gate is a standing decision item (INDEX.md commitment) and reads
+    # WARNING; CRITICAL beyond 2x the bound made every scheduled run repeat it.
+    sev = "CRITICAL" if any(hi < age <= hi + 1 for _, _, _, hi, age, _ in past) else "WARNING"
     items = []
     for rel, lineno, table, hi, age, uncalled in past:
         tell = f"; {', '.join(uncalled)} defined but never called" if uncalled else ""
