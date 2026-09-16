@@ -1,6 +1,6 @@
 """
 Code-health mechanical checks — CHECKs 3, 6, 10, 12, 16, 30, 31, 45, 48, 49,
-50, 58, 59, 60, 61, 62, 74.
+50, 58, 59, 60, 61, 62, 74, 76.
 
 Covers: fractional qty in broker, test DB isolation, ticker signal data
 coverage, Lock3 context key parity, yfinance scalar extraction pattern,
@@ -834,6 +834,130 @@ def check74():
              f"still exercises the intended branch, not one it drifted into")
 
 
+# ── CHECK 76 — Backtest engine parity (engine.py vs engine_fast.py) ────────────
+#
+# backend/backtest/PRODUCTION_GAP.md is the *expected* divergence between the two
+# engines; this check asserts the actual divergence equals it. Accepted rows stay
+# accepted; anything new fails. engine_fast.py:9 says "drop-in replacement" — the
+# first run of this check (2026-09-16) showed it is not: the slow engine always
+# hard-blocks entries on FOMC/CPI/NFP days (engine.py:330, unconditional), the
+# fast engine never does; three further filters are slow-only behind flags.
+
+# Layer 1 — run() parameters present in exactly one engine. Adding a parameter to
+# one engine without the other is a new divergence and must be recorded here
+# and in PRODUCTION_GAP.md before this list is extended.
+CHECK76_ACCEPTED_SLOW_ONLY = {"etf_negative_floor", "etf_negative_penalty",
+                             "macro_hard_block", "macro_pre_event_penalty"}
+CHECK76_ACCEPTED_FAST_ONLY = {"precomputed"}
+
+# Layer 2 — production components documented ABSENT from engine_fast.py
+# (PRODUCTION_GAP.md rows). If a symbol appears, the row is stale, not wrong —
+# update the inventory, then this list.
+CHECK76_ABSENT_FROM_FAST = {
+    "row 2/5/20/21 RegimeBayes":  r"regime_bayes|RegimeBayes",
+    "row 7/10 macro calendar":    r"_macro_status|_FOMC_DATES|macro_hard_block",
+    "row 11 ETF negative penalty": r"etf_negative_penalty",
+    "row 13 watchlist discount":  r"watchlist",
+    "row 14 overflow slots":      r"overflow",
+}
+
+# Layer 3 — behavioural: both engines over one fixed window with the documented
+# divergences neutralised must produce identical trade logs. Window is short
+# enough to run on cached Parquet in ~40 s; the cache is host-only, so this
+# layer is SKIPPED in CI. Fixed on purpose — a moving window is not a test.
+CHECK76_WINDOW = ("2026-03-02", "2026-05-29")
+
+
+def _check76_run_params(path):
+    import ast
+    tree = ast.parse(path.read_text())
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "run")
+    return {a.arg for a in fn.args.args + fn.args.kwonlyargs}
+
+
+def _check76_trade_key(t):
+    return (t["ticker"], t["entry_date"], t["exit_date"], t["exit_reason"],
+            round(t["amount"], 2), round(t["pnl"], 2))
+
+
+def check76():
+    name = "backtest engine parity"
+    slow_p = REPO / "backend/backtest/engine.py"
+    fast_p = REPO / "backend/backtest/engine_fast.py"
+    if not (slow_p.exists() and fast_p.exists()):
+        return
+
+    # Layer 1
+    slow, fast = _check76_run_params(slow_p), _check76_run_params(fast_p)
+    new_slow = (slow - fast) - CHECK76_ACCEPTED_SLOW_ONLY
+    new_fast = (fast - slow) - CHECK76_ACCEPTED_FAST_ONLY
+    gone     = (CHECK76_ACCEPTED_SLOW_ONLY - (slow - fast)) | (CHECK76_ACCEPTED_FAST_ONLY - (fast - slow))
+    if new_slow or new_fast:
+        flag(76, name, "CRITICAL", "backend/backtest/engine.py:run",
+             f"undocumented run() divergence — slow-only {sorted(new_slow)}, fast-only {sorted(new_fast)}; "
+             f"record in PRODUCTION_GAP.md and CHECK76_ACCEPTED_* or make the engines agree")
+    if gone:
+        flag(76, name, "WARNING", "audit/checks_code.py:CHECK76_ACCEPTED_SLOW_ONLY",
+             f"accepted divergence no longer present: {sorted(gone)} — inventory row stale")
+
+    # Layer 2
+    fast_src = fast_p.read_text()
+    for row, pat in CHECK76_ABSENT_FROM_FAST.items():
+        if re.search(pat, fast_src):
+            flag(76, name, "WARNING", "backend/backtest/PRODUCTION_GAP.md",
+                 f"{row}: documented absent from engine_fast.py but pattern /{pat}/ now matches — "
+                 f"row is stale; update the inventory and CHECK76_ABSENT_FROM_FAST")
+
+    # Layer 3 — host only
+    import hashlib
+    from datetime import date, timedelta
+    try:
+        from backend.ticker_config import get_sectors
+        from backend.config import SPY_TICKER
+    except Exception as e:
+        flag(76, name, "WARNING", "backend/ticker_config.py", f"could not import universe: {e} — layer 3 did not evaluate")
+        return
+    sectors = get_sectors()
+    tickers = [SPY_TICKER, "^VIX"] + [c["etf"] for c in sectors.values()] + [t for c in sectors.values() for t in c["tickers"]]
+    start, end = date.fromisoformat(CHECK76_WINDOW[0]), date.fromisoformat(CHECK76_WINDOW[1])
+    lookback = start - timedelta(days=130)   # both engines use the same 130-day buffer
+    key = hashlib.md5((",".join(sorted(tickers)) + f"|{lookback}|{end}").encode()).hexdigest()[:12]
+    cache = REPO / "data" / "backtest_cache" / f"{key}.parquet"
+    if not require_data_file(76, name, cache,
+                             hint="run either engine once over CHECK76_WINDOW on the host to build it"):
+        return
+    try:
+        from backend.backtest import engine as slow_e, engine_fast as fast_e
+        # One dataset for both engines. Each engine downloads and caches its own
+        # Parquet; yfinance adjusted closes drift between fetches, and two
+        # fetches produced a uniform 0.0002 score offset on the first run of
+        # this layer. The slow engine's downloader is patched to return the
+        # fast engine's frame so the comparison is code-only.
+        pre = fast_e.precompute(*CHECK76_WINDOW)
+        _orig_dl, _orig_macro = slow_e._download_all, slow_e._macro_status
+        slow_e._download_all = lambda *_a, **_k: pre["raw_data"]
+        # Neutralise the documented, unconditional slow-only divergence (row 7):
+        # macro calendar returns "clear" for every day of the parity run.
+        slow_e._macro_status = lambda _d: "clear"
+        try:
+            rs = slow_e.run(*CHECK76_WINDOW)
+        finally:
+            slow_e._download_all, slow_e._macro_status = _orig_dl, _orig_macro
+        rf = fast_e.run(*CHECK76_WINDOW, precomputed=pre)
+    except Exception as e:
+        flag(76, name, "WARNING", "backend/backtest/engine.py", f"parity run failed: {e} — layer 3 did not evaluate")
+        return
+    ks = {_check76_trade_key(t) for t in rs["trade_log"]}
+    kf = {_check76_trade_key(t) for t in rf["trade_log"]}
+    if ks != kf:
+        only_s, only_f = sorted(ks - kf), sorted(kf - ks)
+        first = min(only_s + only_f, key=lambda k: k[1]) if (only_s or only_f) else None
+        flag(76, name, "CRITICAL", "backend/backtest/engine_fast.py:9",
+             f"engines diverge on {CHECK76_WINDOW[0]}→{CHECK76_WINDOW[1]} with documented divergences "
+             f"neutralised: slow {len(ks)} trades, fast {len(kf)}, common {len(ks & kf)}; "
+             f"first differing entry {first} — an undocumented model difference, not a PRODUCTION_GAP.md row")
+
+
 def run() -> None:
     check3()
     check6()
@@ -852,3 +976,4 @@ def run() -> None:
     check61()
     check62()
     check74()
+    check76()

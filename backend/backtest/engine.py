@@ -768,8 +768,16 @@ def _etf_regime_on(raw_data: pd.DataFrame, etf_ticker: str, today: date) -> floa
     if df is None or len(df) < 20:
         return 1.0
     try:
-        price = float(df["Close"].iloc[-1])
-        ma20  = float(df["Close"].rolling(20).mean().iloc[-1])
+        # dropna: the union date index carries rows where this ETF has no bar.
+        # One NaN inside the 20-row window made MA20 NaN, `price >= nan` False,
+        # and the downtrend penalty fired on an uptrending ETF — CHECK 76's
+        # second undocumented divergence (2026-09-16). engine_fast and
+        # production (yfinance history, no NaN rows) never had this.
+        close = df["Close"].dropna()
+        if len(close) < 20:
+            return 1.0
+        price = float(close.iloc[-1])
+        ma20  = float(close.rolling(20).mean().iloc[-1])
         return 1.0 if price >= ma20 else 0.85
     except Exception:
         return 1.0

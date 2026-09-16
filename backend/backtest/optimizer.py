@@ -226,9 +226,12 @@ def _date_range() -> tuple[str, str]:
 # best score below NOISE_FLOOR["threshold"] is not distinguishable from
 # search noise and the weekly report says so.
 #
-# Validity: the floor is a property of this composite on this window. It is
-# tied to a hash of _composite_score's source, the weights, the floors and
-# LOOKBACK_DAYS; if any change, noise_floor_valid() returns False and the
+# Validity: the floor is a property of this composite, on this window, on
+# this engine. It is tied to a hash of _composite_score's source, the weights,
+# the floors, LOOKBACK_DAYS, and (since 2026-09-16) the signal-code hash from
+# engine_fast — the engine that produces every score the floor was measured
+# on changed that day (SPY return_20d aligned to production; CHECK 76) and
+# the floor had no way to notice. If any change, noise_floor_valid() returns False and the
 # report renders the floor as stale until it is re-measured (run
 # run_optimizer(warm_start=False, notify=False, results_path=...) several
 # times and update this block). A stored number without its validity
@@ -248,8 +251,10 @@ NOISE_FLOOR = {
 
 def _objective_hash() -> str:
     import hashlib, inspect
+    from backend.backtest.engine_fast import _signal_code_hash
     src = inspect.getsource(_composite_score)
-    key = f"{src}|{W_SHARPE}|{W_DRAWDOWN}|{W_WIN_RATE}|{FLOOR_WIN_RATE}|{FLOOR_TRADE_FREQ}|{LOOKBACK_DAYS}"
+    key = (f"{src}|{W_SHARPE}|{W_DRAWDOWN}|{W_WIN_RATE}|{FLOOR_WIN_RATE}|{FLOOR_TRADE_FREQ}|"
+           f"{LOOKBACK_DAYS}|engine:{_signal_code_hash()}")
     return hashlib.sha256(key.encode()).hexdigest()[:8]
 
 

@@ -29,7 +29,7 @@ Signal score is computed upstream in `data/fetcher_yahoo.py:127-136`.
 | 4 | Kelly size × score scaling | `fetcher_yahoo.py:141` | **yes** `:695` | same formula |
 | 5 | L1-A: sector must have Bayesian `allocation > 0` (hysteresis enter ≥ 0.37 / exit < 0.33 on `aggregate_score × posterior`, posterior clamped [0.05, 0.95]) | `lock1_eligibility.py` docstring, `regime_bayes.py:47-48, 68-69, 466-470` | **no** — only `EXCLUDED_SECTORS` (`:684`) | the CHECK 71 finding: today 8 of 11 sectors cannot enter live; the backtest lets all 11 in |
 | 6 | L1-B1: VIX threshold | `lock1_eligibility.py` | **yes** `vix_threshold` (`:229`) | |
-| 7 | L1-B2: macro event blackout (FOMC/CPI/NFP window) | `lock1_eligibility.py` | **no** | |
+| 7 | L1-B2: macro event blackout (FOMC/CPI/NFP window) | `lock1_eligibility.py` | **no** in `engine_fast`; **yes, always on** in `engine.py` (`:330` — event day and FOMC −2 days block unconditionally; `macro_hard_block` only widens to pre-event days) | the divergence that first tripped CHECK 76 layer 3 |
 | 8 | L1-B3: earnings within N days | `lock1_eligibility.py` | **yes** `earnings_filter_days` (`:245`) | binary skip in both |
 | 9 | Earnings near-term *penalty* tiers on score | `chain.py:116-124` | **no** | engine is skip-or-pass, no penalty band |
 | 10 | Macro pre-event penalty on score | `chain.py:126-134` | **no** | |
@@ -79,6 +79,25 @@ reading are all statements about a system with rows 2, 5, 7, 9-11, 13-15,
 17-21 absent and row 23 present. The "tunables have low leverage over the
 trade path" finding in particular was measured with the highest-leverage
 upstream gate (row 5) removed.
+
+## Engine vs engine — asserted by CHECK 76
+
+The two engines are documented as drop-in equivalents (`engine_fast.py:9`)
+and were not. `audit/checks_code.py::check76` holds `raw_data` constant,
+neutralises the accepted slow-only divergences, and requires identical trade
+logs. Accepted divergences (edit the check's lists and this file together):
+
+- `run()` slow-only: `etf_negative_floor`, `etf_negative_penalty`,
+  `macro_hard_block`, `macro_pre_event_penalty`; fast-only: `precomputed`.
+- `engine.py:330` macro block is unconditional on event days; `engine_fast`
+  has no macro calendar.
+
+Fixed 2026-09-16 on the check's first run (all undocumented until then):
+SPY `return_20d` off-by-one in the fast engine (aligned to production's
+19-period definition, not to the docstring's 20); NaN-poisoned ETF MA20 in
+the slow engine; signal-cache key with no code version (stale `sig_*.pkl`
+served across a signal edit). Every optimizer and walk-forward run before
+that date used the first and third.
 
 ## Not a defect list
 

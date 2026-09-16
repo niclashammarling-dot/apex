@@ -330,14 +330,33 @@ def run(
 _SIGNAL_CACHE_DIR = Path(__file__).parent.parent.parent / "data" / "backtest_cache"
 
 
+def _signal_code_hash() -> str:
+    """
+    Hash of every source file whose logic decides a cached signal value: this
+    engine (the cache builders) and the signal modules it calls. A change to
+    any of them yields a new cache key, so an edit reaches the optimizer's next
+    run instead of being masked by a pickle built under the old code. Added
+    2026-09-16 after a SPY return_20d fix in _build_spy_cache was silently
+    ignored by precompute() — the key had no notion of code version.
+    """
+    import backend.signals as _sig
+    sig_dir = Path(_sig.__file__).parent
+    files = [Path(__file__)] + sorted(sig_dir.glob("*.py"))
+    h = hashlib.md5()
+    for f in files:
+        h.update(f.read_bytes())
+    return h.hexdigest()[:8]
+
+
 def _signal_cache_key(all_tickers: list[str], start: date, end: date) -> str:
     """
     Hash key for the persisted signal cache.
-    Includes tickers, date range, and EXCLUDED_SECTORS so any exclusion change
-    invalidates the cache rather than loading stale data for excluded sectors.
+    Includes tickers, date range, EXCLUDED_SECTORS, and a hash of the signal
+    code, so an exclusion change or a signal edit invalidates the cache rather
+    than loading values computed under different rules.
     """
     excl = ",".join(sorted(EXCLUDED_SECTORS.keys()))
-    key_str = ",".join(sorted(all_tickers)) + f"|{start}|{end}|excl:{excl}"
+    key_str = ",".join(sorted(all_tickers)) + f"|{start}|{end}|excl:{excl}|code:{_signal_code_hash()}"
     return hashlib.md5(key_str.encode()).hexdigest()[:12]
 
 
@@ -474,7 +493,11 @@ def _build_spy_cache(
     try:
         closes = raw_data[SPY_TICKER]["Close"].dropna()
         ma50   = closes.rolling(50).mean()
-        ret20  = closes.pct_change(20)
+        # Production (fetcher_yahoo._spy_context) and engine.py compute
+        # close.iloc[-1] / close.iloc[-20] - 1 — a 19-period return under the
+        # "20d" name. Match it exactly: pct_change(20) is a different number and
+        # was the first undocumented engine divergence CHECK 76 found (2026-09-16).
+        ret20  = closes / closes.shift(19) - 1
         for d in trading_days:
             ts = pd.Timestamp(d)
             try:
