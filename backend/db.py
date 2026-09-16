@@ -230,6 +230,19 @@ def init_db() -> None:
                 PRIMARY KEY (date, sector)
             );
 
+            -- Evidentiary tags on trade rows that later analysis must be able to filter
+            -- (e.g. an entry taken on a posterior later withdrawn by replay). Never used
+            -- to alter the trade — annotating is reversible, an artificial close is not.
+            CREATE TABLE IF NOT EXISTS trade_annotations (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_table  TEXT NOT NULL,      -- 'trades' | 'live_trades'
+                trade_id     INTEGER NOT NULL,
+                tag          TEXT NOT NULL,      -- machine-readable, e.g. 'superseded_posterior'
+                note         TEXT,
+                created_at   TEXT NOT NULL,
+                UNIQUE (trade_table, trade_id, tag)
+            );
+
             CREATE TABLE IF NOT EXISTS lock4_pcr_history (
                 id             INTEGER PRIMARY KEY AUTOINCREMENT,
                 ticker         TEXT    NOT NULL,
