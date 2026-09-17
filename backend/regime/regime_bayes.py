@@ -914,7 +914,8 @@ def regime_context_for_claude(result: RegimeResult) -> str:
 # 0.73 → 12 / 50, 0.72 → 12 / 50, 0.71 → 10 / 52, 0.70 → 8 / 54, 0.69 → 4 / 59, 0.65 → 1 / 67.
 # 0.70 is the knee: it halves the flips and still releases the series' genuine sub-0.70
 # stretches (0.67–0.69 runs in June, July and September); 0.69 would hold bull through the
-# series minimum, which is the median problem in the other direction. A choice, not a fit.
+# series minimum, which is the median problem in the other direction. A choice, not a fit —
+# read off the table above, not a round-number default; that it is round is coincidence.
 # Top-3 here was ranked by posterior (history stores no adjusted_score) — a proxy for the
 # leaderboard's adjusted_score rank that the live function uses.
 _REGIME_BULL_THRESHOLD  = 0.75

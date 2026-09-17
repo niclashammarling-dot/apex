@@ -1065,6 +1065,8 @@ def check79():
     no caller), regime-bucket _WEIGHTS (aggregator.py) and bull/bear thresholds
     (regime_bayes.py), both gated on ≥4 weeks of sector_posterior_history at 16
     weeks with no calibration code. Three markers, one shared gate, all past it.
+    All three resolved by 2026-09-17 (P25 built ee74453; regime gate retired and
+    hysteresis built 9a0a6af) — the founding instances, no longer live markers.
 
     Scans comments and docstrings under backend/, audit/, scripts/ for marker
     vocabulary. Where the gate is machine-readable ("once <table> has N[-M]
