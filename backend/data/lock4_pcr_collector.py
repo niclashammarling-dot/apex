@@ -2,8 +2,9 @@
 data/lock4_pcr_collector.py — Daily P/C ratio collection for Lock 4 baseline calibration.
 
 Fetches near-term put/call OI ratios for all active APEX tickers after market close
-and stores them to lock4_pcr_history. After 4-8 weeks of data, the per-ticker P25
-percentile replaces the interim fixed PCR_THRESHOLD (0.85) in lock4_leading.py.
+and stores them to lock4_pcr_history. backend/gate/pcr_baseline.py reads the table
+into the partial-pooled per-ticker P25 that Lock 4 uses in "per_ticker_p25" mode
+(built 2026-09-17; the fixed PCR_THRESHOLD 0.85 remains the "pooled_scalar" mode).
 
 Design rules:
   - Only tickers in the current universe (get_sectors()) are collected — stays clean

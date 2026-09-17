@@ -148,7 +148,8 @@ def evaluate_chain(
         return _chain_fail(ticker, sector, lock_results, exit_lock=3)
 
     # ── Lock 4: Leading ───────────────────────────────────────────────────────
-    l4 = lock4_evaluate(ticker, sector, min_pass=cfg.get("lock_leading_min_pass", 2))
+    l4 = lock4_evaluate(ticker, sector, min_pass=cfg.get("lock_leading_min_pass", 2),
+                        pcr_mode=cfg.get("lock4_pcr_mode", "pooled_scalar"))
     lock_results[4] = l4
     if not l4.passed:
         return _chain_fail(ticker, sector, lock_results, exit_lock=4)

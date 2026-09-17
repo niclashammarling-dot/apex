@@ -1,6 +1,6 @@
 """
 Gate-domain mechanical checks — CHECKs 24, 25, 26, 28, 29, 38, 49, 51, 52,
-53, 54, 64, 66.
+53, 54, 64, 66, 80.
 
 Covers: chain-runner wiring integrity, gate_decision string parity,
 L1/L2 threshold-source parity, EXCLUDED_SECTORS wiring, live sector
@@ -850,6 +850,152 @@ def check66() -> None:
              f"{note}")
 
 
+# ── CHECK 80 — Lock 4 PCR channel under per-ticker P25 (demo-first) ──────────
+
+_C80_BUILD_TS   = "2026-09-17"   # first demo rows carrying threshold_mode
+_C80_BASE_SINCE = "2026-05-21"   # collector series start; the decision's measurement window
+_C80_MIN_ROWS   = 100            # rate read needs this many per_ticker_p25 rows
+_C80_MIN_PASSES = 30             # composition read needs this many PCR passes
+
+
+def _c80_wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    if n == 0:
+        return (0.0, 1.0)
+    p = k / n
+    d = 1 + z * z / n
+    c = (p + z * z / (2 * n)) / d
+    h = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / d
+    return (max(0.0, c - h), min(1.0, c + h))
+
+
+def check80() -> None:
+    """
+    CHECK 80 — Lock 4 PCR channel under per-ticker P25, read on demo.
+
+    The 2026-09-17 decision replaced the pooled scalar (pc < 0.85, a ticker
+    fixed effect) with a partial-pooled per-ticker P25 (pcr_baseline.py) and
+    predicted two things at the gate: the PCR-channel pass rate roughly halves
+    (demo 23.6% → ~12.4% on the rows the decision could score), and the
+    *composition* of passing rows rotates — names whose own P25 sits above
+    0.85 (JNJ/LLY class, structurally blocked before) start passing on their
+    within-ticker-bullish days, and names whose median sits far below 0.85
+    (OXY/EOG class, structurally always passing before) stop passing on
+    ordinary days. The options group (PCR ∪ UC) is predicted flat and is not an
+    observable here: -1 pp at n≈1,000 cannot fail. The composition change is
+    the actual prediction, so it is the thing measured.
+
+    Reads demo_gate_history.lock_leading_checks JSON. Rows written before the
+    build (no threshold_mode key) since 2026-05-21 are the baseline; rows with
+    threshold_mode = per_ticker_p25 are the treatment. Ticker classes come
+    from lock4_pcr_history (own P25 > 0.85 = "blocked under 0.85"; median <
+    0.85 = "open under 0.85").
+
+    Findings:
+      INFO     always while the read is accumulating or clean — the numbers are
+               the point; a ✓ row would hide them. Finite-life: retire or
+               re-scope at the promote decision (CHECKS.md).
+      WARNING  any pooled_scalar_fallback row on demo (baseline table was empty
+               in the serving process — the fallback is logged per hit and this
+               is its rate consumer);
+               rate CI does not exclude the baseline rate at n ≥ 100 (the
+               estimator is not delivering the measured change);
+               rate < 5% at n ≥ 100 (channel dead, not rotated);
+               blocked-class names hold ≥ 10% of evaluations but 0 of ≥ 30
+               passes (composition did not rotate).
+    SKIPPED without apex.db.
+    """
+    import json
+    name = "Lock 4 PCR channel under per-ticker P25 (demo)"
+    db   = REPO / "data/apex.db"
+    if not require_data_file(80, name, db):
+        return
+    try:
+        conn = sqlite3.connect(db)
+        rows = conn.execute(
+            "SELECT timestamp, ticker, lock_leading_checks FROM demo_gate_history "
+            "WHERE timestamp >= ? AND lock_leading_checks LIKE '%pc_ratio%'",
+            (_C80_BASE_SINCE,),
+        ).fetchall()
+        hist = conn.execute(
+            "SELECT ticker, pcr FROM lock4_pcr_history WHERE is_dislocation = 0"
+        ).fetchall()
+        conn.close()
+    except Exception as e:
+        flag(80, name, "WARNING", "data/apex.db:demo_gate_history", f"could not query: {e}")
+        return
+
+    by_t: dict = {}
+    for t, v in hist:
+        by_t.setdefault(t, []).append(v)
+    blocked = {t for t, xs in by_t.items() if sorted(xs)[len(xs) // 4] > 0.85}
+    opened  = {t for t, xs in by_t.items() if sorted(xs)[len(xs) // 2] < 0.85}
+
+    base, post, fallback = [], [], 0
+    for ts, ticker, blob in rows:
+        try:
+            pcr = json.loads(blob).get("put_call_ratio") or {}
+        except Exception:
+            continue
+        if "pc_ratio" not in pcr:
+            continue
+        m = pcr.get("threshold_mode")
+        if m is None:
+            base.append((ticker, bool(pcr.get("pass"))))
+        elif m == "per_ticker_p25":
+            post.append((ticker, bool(pcr.get("pass"))))
+        elif m == "pooled_scalar_fallback":
+            fallback += 1
+
+    if fallback:
+        flag(80, name, "WARNING", "backend/gate/lock4_leading.py:_check_put_call_ratio",
+             f"{fallback} demo Lock 4 row(s) since {_C80_BUILD_TS} used pooled_scalar_fallback — "
+             f"the PCR baseline table was empty in the serving process; per_ticker_p25 was configured "
+             f"and not delivered.")
+
+    nb, kb = len(base), sum(1 for _, p in base if p)
+    n,  k  = len(post), sum(1 for _, p in post if p)
+    rb = kb / nb if nb else 0.0
+    r  = k / n if n else 0.0
+    lo, hi = _c80_wilson(k, n)
+
+    def _share(sample, cls):
+        return sum(1 for t, _ in sample if t in cls) / len(sample) if sample else 0.0
+
+    ev_blocked   = _share(post, blocked)
+    ps_blocked   = _share([x for x in post if x[1]], blocked)
+    ps_opened    = _share([x for x in post if x[1]], opened)
+    ev_opened    = _share(post, opened)
+    base_ps_open = _share([x for x in base if x[1]], opened)
+
+    summary = (
+        f"baseline (0.85, demo since {_C80_BASE_SINCE}): {kb}/{nb} PCR passes = {rb:.1%}. "
+        f"per_ticker_p25: {k}/{n} = {r:.1%} [{lo:.1%}, {hi:.1%}]. "
+        f"Composition of passes — blocked-under-0.85 names: {ps_blocked:.0%} of passes vs "
+        f"{ev_blocked:.0%} of evaluations (baseline 0% by construction); "
+        f"open-under-0.85 names: {ps_opened:.0%} of passes vs {ev_opened:.0%} of evaluations "
+        f"(baseline {base_ps_open:.0%} of passes)."
+    )
+
+    if n < _C80_MIN_ROWS:
+        flag(80, name, "INFO", "data/apex.db:demo_gate_history",
+             f"accumulating — {n}/{_C80_MIN_ROWS} per_ticker_p25 rows for the rate read, "
+             f"{k}/{_C80_MIN_PASSES} passes for the composition read. {summary}")
+        return
+
+    problems = []
+    if lo <= rb <= hi:
+        problems.append(f"rate CI includes the baseline {rb:.1%} — the estimator is not delivering the measured change")
+    if r < 0.05:
+        problems.append(f"rate {r:.1%} < 5% — channel dead, not rotated")
+    if k >= _C80_MIN_PASSES and ev_blocked >= 0.10 and ps_blocked == 0:
+        problems.append(f"blocked-class names are {ev_blocked:.0%} of evaluations and 0 of {k} passes — composition did not rotate")
+    if problems:
+        flag(80, name, "WARNING", "backend/gate/pcr_baseline.py",
+             "; ".join(problems) + ". " + summary)
+    else:
+        flag(80, name, "INFO", "data/apex.db:demo_gate_history", summary)
+
+
 def run() -> None:
     check24()
     check25()
@@ -864,3 +1010,4 @@ def run() -> None:
     check54()
     check64()
     check66()
+    check80()

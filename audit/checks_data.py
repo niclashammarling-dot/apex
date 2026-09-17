@@ -265,8 +265,9 @@ def check35():
     is collected and says nothing about cumulative gaps: 2026-09-16 the series
     was 47% present under a green row here. CHECK 78 is the gap count against
     the exchange calendar; this check is kept as the next-morning alert. The
-    P25 calibration this docstring used to cite as its reason was never built
-    (get_pcr_history has no caller as of 2026-09-16) — see CHECK 79 and the
+    P25 calibration this docstring cites as its reason was built 2026-09-17
+    (backend/gate/pcr_baseline.py reads this table once per process per day)
+    after 17 weeks without a caller — see CHECK 79, CHECK 80 and the
     design-rate decision in the vault.
 
     Uses the 26h staleness window. Only fires on weekdays.

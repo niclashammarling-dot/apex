@@ -660,6 +660,7 @@ const PROMOTE_LABELS = {
   macro_event_blackout_days: "CPI/NFP Pre-Event Block (days)", macro_earnings_blackout_days: "Earnings Hard Block (days)",
   macro_earnings_near_days: "Earnings Near-Term Window (days)", macro_earnings_near_penalty: "Earnings Near-Term Penalty",
   gate_cooloff_hours: "Gate Cooloff (hours)", max_sector_exposure: "Max Sector Exposure",
+  lock4_pcr_mode: "Lock 4 PCR Threshold Mode",
 };
 
 function PromoteModal({ config, onConfirm, onCancel }) {

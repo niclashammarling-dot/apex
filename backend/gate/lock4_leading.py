@@ -28,6 +28,7 @@ import yfinance as yf
 from loguru import logger
 
 from backend.gate.types import LockResult
+from backend.gate.pcr_baseline import pcr_threshold_for
 
 # Shared semaphore across all outer gate-runner threads.
 # Caps concurrent yfinance requests to stay below Yahoo rate-limit threshold.
@@ -75,23 +76,24 @@ def _yf_slot():
     finally:
         _YF_SEMAPHORE.release()
 
-# PCR threshold — set to 0.85 based on 17-day APEX universe sample (mean 0.827).
+# PCR threshold, pooled scalar — set to 0.85 on a 17-day APEX universe sample (mean 0.827).
 # Generic options-literature prior (0.7) passes Utilities/Financials names that are
 # excluded from APEX on fundamentals and blocks Technology/Industrials names that are
-# the primary targets. 0.85 reflects the actual APEX universe distribution.
+# the primary targets.
 #
 # DECIDED 2026-09-17 (vault: raw/notes/2026-09/2026-09-17-apex-lock4-pcr-design-rate-and-regime-bucket-decision.md):
 # design rate stays 25%, restated as PER-TICKER — a pooled scalar is a ticker fixed effect
 # (ticker median PCR spans 0.07–2.97; 21 of 105 tickers can essentially never pass 0.85).
 # Measured at the gate (live_gate_history since 2026-05-21, n=1,149): 0.85 delivers a PCR
 # pass rate of 24.8%, own-P25 would deliver ~13.8%; the options group (PCR ∪ unusual calls)
-# moves 32.2% → 31.3% because UC absorbs the difference. Replacement is per-ticker P25 with
-# PARTIAL POOLING toward the pooled P25 by each ticker's n (no n-cliff) — a build item, not a
-# new gate. The 58.4% collector-universe pass rate is NOT the gate rate (composition:
-# Lock-4-reaching tickers). Marker kept deliberately so CHECK 79 holds this at WARNING:
-# Interim: replace with per-ticker P25 once lock4_pcr_history has 4-8 weeks (gate passed
-# 2026-07; decided 2026-09-17; the build removes this line).
+# moves 32.2% → 31.3% because UC absorbs the difference.
+# BUILT 2026-09-17: backend/gate/pcr_baseline.py (partial-pooled per-ticker P25, K=3), selected
+# per config by lock4_pcr_mode — demo default "per_ticker_p25", live default "pooled_scalar"
+# until CHECK 80 (demo PCR-channel rate + per-ticker composition) has read out; Promote
+# carries the key. This constant is the pooled_scalar mode and the fallback when the
+# baseline table is empty — the fallback is a counted row in CHECK 80, not a silent one.
 PCR_THRESHOLD = 0.85
+PCR_MODES     = ("pooled_scalar", "per_ticker_p25")
 
 
 def _build_sector_etf() -> dict[str, str]:
@@ -139,7 +141,8 @@ VOL_ACCUM_THRESHOLD = 1.2
 VOL_ACCUM_WINDOW    = 20  # trading days
 
 
-def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS) -> LockResult:
+def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS,
+             pcr_mode: str = "pooled_scalar") -> LockResult:
     """
     Evaluate leading signals for a ticker.
 
@@ -220,7 +223,8 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS) -> LockResult:
 
     checks = {
         "relative_strength":   rs_result,
-        "put_call_ratio":      _check_put_call_ratio(options_chains, options_fetch_err),
+        "put_call_ratio":      _check_put_call_ratio(options_chains, options_fetch_err,
+                                                     ticker=ticker, mode=pcr_mode),
         "unusual_calls":       _check_unusual_call_volume(options_chains, options_fetch_err),
         "volume_accumulation": va_result,
     }
@@ -373,8 +377,17 @@ def _check_relative_strength(ticker: str, sector: str) -> dict:
     }
 
 
-def _check_put_call_ratio(chains: list[tuple], fetch_err: str | None = None) -> dict:
-    """Near-term put/call open-interest ratio < PCR_THRESHOLD (calls dominant)."""
+def _check_put_call_ratio(chains: list[tuple], fetch_err: str | None = None,
+                          ticker: str | None = None, mode: str = "pooled_scalar") -> dict:
+    """
+    Near-term put/call open-interest ratio below threshold (calls dominant).
+
+    mode "pooled_scalar":  pc < PCR_THRESHOLD (0.85) for every ticker.
+    mode "per_ticker_p25": pc < the ticker's partial-pooled P25 (pcr_baseline.py) —
+                           "more call-skewed than usual for this name". Falls back
+                           to the pooled scalar when no baseline exists, and says so
+                           in threshold_mode so the fallback rate is observable.
+    """
     if not chains:
         reason = f"no options data ({fetch_err})" if fetch_err else "no options data (no listed expiries)"
         return {"pass": False, "reason": reason}
@@ -387,16 +400,35 @@ def _check_put_call_ratio(chains: list[tuple], fetch_err: str | None = None) -> 
     if call_oi + put_oi == 0:
         return {"pass": False, "reason": "zero open interest"}
 
-    pc     = put_oi / call_oi if call_oi > 0 else 99.0
-    passed = pc < PCR_THRESHOLD
+    pc = put_oi / call_oi if call_oi > 0 else 99.0
+
+    threshold, threshold_mode, extra = PCR_THRESHOLD, "pooled_scalar", {}
+    if mode == "per_ticker_p25":
+        base = pcr_threshold_for(ticker) if ticker else None
+        if base is None:
+            threshold_mode = "pooled_scalar_fallback"
+            logger.warning(f"Lock 4 [{ticker}] PCR baseline unavailable — pooled scalar {PCR_THRESHOLD} used")
+        else:
+            threshold      = base["threshold"]
+            threshold_mode = "per_ticker_p25"
+            extra = {"own_p25": base["own_p25"], "pooled_p25": base["pooled_p25"],
+                     "n_obs": base["n_obs"], "shrink_w": base["shrink_w"]}
+    elif mode != "pooled_scalar":
+        logger.warning(f"Lock 4 [{ticker}] unknown pcr_mode {mode!r} — pooled scalar used")
+        threshold_mode = "pooled_scalar_fallback"
+
+    passed = pc < threshold
 
     return {
-        "pass":      passed,
-        "pc_ratio":  round(pc, 2),
-        "call_oi":   call_oi,
-        "put_oi":    put_oi,
-        "threshold": PCR_THRESHOLD,
-        "reason":    f"P/C {pc:.2f} vs threshold {PCR_THRESHOLD} ({'bullish' if passed else 'neutral/bearish'})",
+        "pass":           passed,
+        "pc_ratio":       round(pc, 2),
+        "call_oi":        call_oi,
+        "put_oi":         put_oi,
+        "threshold":      round(threshold, 4),
+        "threshold_mode": threshold_mode,
+        **extra,
+        "reason":         f"P/C {pc:.2f} vs threshold {threshold:.2f} [{threshold_mode}] "
+                          f"({'bullish' if passed else 'neutral/bearish'})",
     }
 
 
