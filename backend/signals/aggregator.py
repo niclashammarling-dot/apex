@@ -5,8 +5,11 @@
 # signals (momentum + volume). Neutral = current calibrated weights.
 #
 # Thresholds for bucket assignment are in regime_bayes.market_regime_state().
-# Validation gate: recalibrate once sector_posterior_history has ≥ 4 weeks of
-# data — compare bucket-conditional PF against held-out 2021–23 transition window.
+# Validation gate RETIRED 2026-09-17: the former "recalibrate at ≥ 4 weeks of
+# sector_posterior_history" named a calibration (bucket-conditional PF vs held-out 2021–23)
+# that the live series cannot perform — the gate was unsatisfiable by its own input. Replacement
+# is a scheduled backend/backtest/regime_conditioned_cs.py study (filed in the vault,
+# apex-moc Open Territory 2026-09-17). Weights unchanged until that study reports.
 _WEIGHTS = {
     "bull":    {"momentum": 0.20, "volume": 0.15, "trend": 0.35, "rs": 0.30},
     "neutral": {"momentum": 0.25, "volume": 0.20, "trend": 0.30, "rs": 0.25},

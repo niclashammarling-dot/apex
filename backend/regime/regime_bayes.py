@@ -880,8 +880,13 @@ def regime_context_for_claude(result: RegimeResult) -> str:
 
 # Thresholds constructed from 2026-05-28 snapshot analysis (compressed market
 # reads 0.725 → neutral; bull requires sustained broad conviction above 0.75).
-# Validation gate: recalibrate once sector_posterior_history has ≥ 4 weeks of
-# data — compare bucket hit rates against Q2 training/held-out period dates.
+# Validation gate RETIRED 2026-09-17 (unsatisfiable by the live series — see
+# signals/aggregator.py and the vault decision note of the same date). Measured on the
+# repaired sector_posterior_history, 69 dates 2026-05-29..09-16: bull 43 / neutral 26 /
+# bear 0; top-3 mean posterior min 0.667, median 0.777; 23 of 69 dates within ±0.03 of
+# 0.75. Decisions: 0.60 is NOT recalibrated (zero bear observations); 0.75 sits at the
+# median and flips on noise — hysteresis (enter bull ≥ 0.75, leave bull < a lower exit
+# band, previous state persisted) is a filed build; thresholds unchanged until it lands.
 _REGIME_BULL_THRESHOLD  = 0.75
 _REGIME_BEAR_THRESHOLD  = 0.60
 _REGIME_TOP_N           = 3

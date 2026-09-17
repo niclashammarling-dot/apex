@@ -79,8 +79,18 @@ def _yf_slot():
 # Generic options-literature prior (0.7) passes Utilities/Financials names that are
 # excluded from APEX on fundamentals and blocks Technology/Industrials names that are
 # the primary targets. 0.85 reflects the actual APEX universe distribution.
-# Interim: replace with per-ticker P25 percentile once lock4_pcr_history has 4-8 weeks
-# of daily observations (collection started 2026-05-14).
+#
+# DECIDED 2026-09-17 (vault: raw/notes/2026-09/2026-09-17-apex-lock4-pcr-design-rate-and-regime-bucket-decision.md):
+# design rate stays 25%, restated as PER-TICKER — a pooled scalar is a ticker fixed effect
+# (ticker median PCR spans 0.07–2.97; 21 of 105 tickers can essentially never pass 0.85).
+# Measured at the gate (live_gate_history since 2026-05-21, n=1,149): 0.85 delivers a PCR
+# pass rate of 24.8%, own-P25 would deliver ~13.8%; the options group (PCR ∪ unusual calls)
+# moves 32.2% → 31.3% because UC absorbs the difference. Replacement is per-ticker P25 with
+# PARTIAL POOLING toward the pooled P25 by each ticker's n (no n-cliff) — a build item, not a
+# new gate. The 58.4% collector-universe pass rate is NOT the gate rate (composition:
+# Lock-4-reaching tickers). Marker kept deliberately so CHECK 79 holds this at WARNING:
+# Interim: replace with per-ticker P25 once lock4_pcr_history has 4-8 weeks (gate passed
+# 2026-07; decided 2026-09-17; the build removes this line).
 PCR_THRESHOLD = 0.85
 
 
