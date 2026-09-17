@@ -24,6 +24,18 @@ log() { echo "$(date '+%F %T %Z') | $*" >> "$LOG"; }
 # (smoke test of the launch path only; never set by the scheduled task).
 TEST=${EOD_WINDOW_TEST_SECONDS:-}
 et_hm=$(TZ=America/New_York date +%H%M)
+
+# WSL2 clock can lag the host after a sleep/wake (WakeToRun is how this task
+# starts on most nights). timesyncd is active in this distro, but the ET guard
+# below, the 16:15/16:30 cron fires, and CHECK 77's written_at provenance all
+# read the VM clock — log the drift so a wrong-time night is adjudicable.
+PS=/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
+win_epoch=$("$PS" -NoProfile -Command '[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()' 2>/dev/null | tr -d '\r')
+if [[ $win_epoch =~ ^[0-9]+$ ]]; then
+    log "clock drift vs Windows: $(( $(date +%s) - win_epoch ))s"
+else
+    log "clock drift vs Windows: unmeasured (powershell unavailable)"
+fi
 if [[ -z $TEST ]] && (( 10#$et_hm < 1605 || 10#$et_hm > 1645 )); then
     log "outside ET window (ET now $et_hm) — nothing started"
     exit 0
