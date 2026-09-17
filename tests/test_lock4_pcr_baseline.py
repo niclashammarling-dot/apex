@@ -183,3 +183,29 @@ def test_check80_clean_read_is_info_with_numbers(tmp_path, monkeypatch):
     out = _run80(tmp_path, monkeypatch, base, post, HIST)
     assert len(out) == 1 and out[0][0] == "INFO"
     assert "32/232 = 13.8%" in out[0][1] and "blocked-under-0.85 names: 38% of passes" in out[0][1]
+
+
+def test_check80_reports_session_coverage_against_the_calendar(tmp_path, monkeypatch):
+    # fixture writes every post row at one timestamp on 2026-09-18 → 1 cycle of 19 expected
+    out = _run80(tmp_path, monkeypatch, [("OPN", True)], [("OPN", True, "per_ticker_p25")], HIST)
+    assert any("Session coverage since build" in t and "09-18 1/19" in t for _, t in out)
+
+
+def test_check80_warns_when_three_sessions_are_under_half_covered(tmp_path, monkeypatch):
+    from audit import checks_gate as cg
+    from audit import _audit_core as core
+    repo = tmp_path / "repo"
+    (repo / "data").mkdir(parents=True)
+    _c80_db(repo / "data/apex.db", [("OPN", True)], [("OPN", True, "per_ticker_p25")], HIST)
+    conn = sqlite3.connect(repo / "data/apex.db")
+    for d in ("2026-09-21", "2026-09-22", "2026-09-23"):      # three full sessions, 2 cycles each
+        for hm in ("14:00", "14:20"):
+            conn.execute("INSERT INTO demo_gate_history (timestamp, ticker, lock_leading_checks) VALUES (?, ?, ?)",
+                         (f"{d}T{hm}:00", "OPN", json.dumps({"put_call_ratio": {"pass": True, "pc_ratio": 0.7, "threshold_mode": "per_ticker_p25"}})))
+    conn.commit(); conn.close()
+    monkeypatch.setattr(cg, "REPO", repo); monkeypatch.setattr(core, "REPO", repo)
+    monkeypatch.setattr(core, "findings", []); monkeypatch.setattr(core, "triggered", set())
+    monkeypatch.setattr(cg, "flag", core.flag)
+    cg.check80()
+    out = [(f[2], f[4]) for f in core.findings if f[0] == 80]
+    assert any(sev == "WARNING" and "coverage" in t and "scheduled" in t for sev, t in out)

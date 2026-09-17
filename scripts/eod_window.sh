@@ -3,6 +3,10 @@
 # via wsl.exe at 22:10 and 21:10 Stockholm on weekdays. Serves the two jobs that
 # earn a schedule (apex-moc, 2026-09-16): eod_regime 16:15 ET, collect_pcr 16:30 ET.
 #
+# Since 2026-09-18 the market window (scripts/market_window.sh, 15:20/14:20
+# Stockholm) serves the whole session including these two jobs; this task stays
+# registered as the fallback — it exits on "port bound" when the window is up.
+#
 # Rules:
 #   - Window is defined on the ET clock, not Stockholm: 16:05–16:45 ET. Two Windows
 #     triggers (21:10 / 22:10 local) cover the EU/US DST-mismatch weeks; the one

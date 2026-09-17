@@ -59,20 +59,38 @@ def _get_regime_bayes():
 
 
 @lru_cache(maxsize=32)
-def _nyse_sessions_for_date(date_str: str) -> int:
-    """Return number of NYSE trading sessions on date_str (YYYY-MM-DD). Cached per date."""
+def _nyse_session_bounds(date_str: str) -> tuple[datetime, datetime] | None:
+    """
+    NYSE open/close for date_str (YYYY-MM-DD) in America/New_York, or None on a
+    non-session. Early closes (13:00 ET — day after Thanksgiving, Christmas Eve)
+    come from the calendar, not a fixed clock: until 2026-09-17 this read
+    09:30–16:00 on every session, so a half-day kept the gate evaluating a
+    closed market for three hours. Cached per date.
+    """
     import pandas_market_calendars as mcal
     nyse = mcal.get_calendar("NYSE")
-    return len(nyse.schedule(start_date=date_str, end_date=date_str))
+    sched = nyse.schedule(start_date=date_str, end_date=date_str)
+    if sched.empty:
+        return None
+    row = sched.iloc[0]
+    return (row["market_open"].tz_convert(NY).to_pydatetime(),
+            row["market_close"].tz_convert(NY).to_pydatetime())
+
+
+def _nyse_sessions_for_date(date_str: str) -> int:
+    """Number of NYSE sessions on date_str (0 or 1). Kept for existing callers."""
+    return 0 if _nyse_session_bounds(date_str) is None else 1
 
 
 def is_market_open() -> bool:
     now = datetime.now(NY)
     if now.weekday() >= 5:
         return False
-    if not _nyse_sessions_for_date(now.strftime("%Y-%m-%d")):
+    bounds = _nyse_session_bounds(now.strftime("%Y-%m-%d"))
+    if bounds is None:
         return False
-    return time(9, 30) <= now.time() <= time(16, 0)
+    open_, close = bounds
+    return open_ <= now <= close
 
 
 def poll_all_sectors(force: bool = False) -> None:

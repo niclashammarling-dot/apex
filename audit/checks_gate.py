@@ -855,6 +855,29 @@ def check66() -> None:
 _C80_BUILD_TS   = "2026-09-17"   # first demo rows carrying threshold_mode
 _C80_BASE_SINCE = "2026-05-21"   # collector series start; the decision's measurement window
 _C80_MIN_ROWS   = 100            # rate read needs this many per_ticker_p25 rows
+_C80_GATE_MIN   = 20             # backend.config.GATE_INTERVAL; the audit runs without backend imports
+
+
+def _c80_session_coverage(cycles: list[tuple[str, int]]) -> list[tuple[str, int, int]]:
+    """(date, cycles written, cycles expected) per NYSE session with any demo gate row.
+
+    Expected = session length / GATE_INTERVAL from the exchange calendar, so an
+    early close expects ~10, a full day 19–20. Dates the calendar does not know
+    as sessions are dropped (a row on a non-session is CHECK 77's business).
+    """
+    if not cycles:
+        return []
+    import pandas_market_calendars as mcal
+    cycles = sorted(cycles)
+    sched = mcal.get_calendar("NYSE").schedule(start_date=cycles[0][0], end_date=cycles[-1][0])
+    out = []
+    for d, c in cycles:
+        if d not in sched.index.strftime("%Y-%m-%d"):
+            continue
+        row = sched.loc[d]
+        minutes = (row["market_close"] - row["market_open"]).total_seconds() / 60
+        out.append((d, int(c), max(1, int(minutes // _C80_GATE_MIN))))
+    return out
 _C80_MIN_PASSES = 30             # composition read needs this many PCR passes
 
 
@@ -902,6 +925,15 @@ def check80() -> None:
                rate < 5% at n ≥ 100 (channel dead, not rotated);
                blocked-class names hold ≥ 10% of evaluations but 0 of ≥ 30
                passes (composition did not rotate).
+      WARNING  session coverage: the demo gate is a scheduled service from
+               2026-09-18 (scripts/market_window.sh); the treatment rows arrive
+               only while it runs. Cycles actually written per NYSE session since
+               the build are counted against the session's length / GATE_INTERVAL
+               (the calendar, so a half-day expects fewer). WARNING when the
+               trailing three sessions average under 50% coverage — the ETA is
+               then a projection from a rate the schedule is not delivering.
+               Read after the close (publish_audit_state 16:33 ET); an intraday
+               run undercounts the session in progress.
     SKIPPED without apex.db.
     """
     import json
@@ -911,6 +943,11 @@ def check80() -> None:
         return
     try:
         conn = sqlite3.connect(db)
+        cycles = conn.execute(
+            "SELECT date(timestamp) d, COUNT(DISTINCT substr(timestamp, 1, 16)) c "
+            "FROM demo_gate_history WHERE timestamp >= ? GROUP BY d ORDER BY d",
+            (_C80_BUILD_TS,),
+        ).fetchall()
         rows = conn.execute(
             "SELECT timestamp, ticker, lock_leading_checks FROM demo_gate_history "
             "WHERE timestamp >= ? AND lock_leading_checks LIKE '%pc_ratio%'",
@@ -967,8 +1004,24 @@ def check80() -> None:
     ev_opened    = _share(post, opened)
     base_ps_open = _share([x for x in base if x[1]], opened)
 
+    coverage = _c80_session_coverage(cycles)
+    if coverage:
+        cov_txt = ", ".join(f"{d[5:]} {c}/{e}" for d, c, e in coverage[-5:])
+        trailing = [c / e for _, c, e in coverage[-3:] if e]
+        cov_mean = sum(trailing) / len(trailing) if trailing else 0.0
+        cov_line = (f"Session coverage since build (cycles written / expected at {_C80_GATE_MIN}m): "
+                    f"{cov_txt}; trailing-3 mean {cov_mean:.0%}. ")
+        if len(trailing) >= 3 and cov_mean < 0.5:
+            flag(80, name, "WARNING", "scripts/market_window.sh",
+                 f"demo gate coverage {cov_mean:.0%} over the last three sessions — the scheduled "
+                 f"window is not serving the market day; the CHECK 80 ETA is a projection from a "
+                 f"rate that is not arriving. {cov_line}")
+    else:
+        cov_line = "Session coverage since build: no sessions yet. "
+
     summary = (
-        f"baseline (0.85, demo since {_C80_BASE_SINCE}): {kb}/{nb} PCR passes = {rb:.1%}. "
+        cov_line
+        + f"baseline (0.85, demo since {_C80_BASE_SINCE}): {kb}/{nb} PCR passes = {rb:.1%}. "
         f"per_ticker_p25: {k}/{n} = {r:.1%} [{lo:.1%}, {hi:.1%}]. "
         f"Composition of passes — blocked-under-0.85 names: {ps_blocked:.0%} of passes vs "
         f"{ev_blocked:.0%} of evaluations (baseline 0% by construction); "
