@@ -887,6 +887,8 @@ def regime_context_for_claude(result: RegimeResult) -> str:
 # 0.75. Decisions: 0.60 is NOT recalibrated (zero bear observations); 0.75 sits at the
 # median and flips on noise — hysteresis (enter bull ≥ 0.75, leave bull < a lower exit
 # band, previous state persisted) is a filed build; thresholds unchanged until it lands.
+# Revisit after 2 weeks (dated 2026-09-17): a stateless bucket on a median threshold does
+# not announce itself — this marker keeps CHECK 79 on it until the hysteresis build removes it.
 _REGIME_BULL_THRESHOLD  = 0.75
 _REGIME_BEAR_THRESHOLD  = 0.60
 _REGIME_TOP_N           = 3
