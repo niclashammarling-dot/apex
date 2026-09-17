@@ -20,6 +20,14 @@ def pytest_configure(config):
     import backend.db as db_module
     tmp = tempfile.mkdtemp(prefix="apex_test_")
     db_module.DB_PATH = Path(tmp) / "apex_test.db"
+    # Give the temp DB its schema here, not per test file. Found 2026-09-16:
+    # two test_gate_runners.py tests failed on `no such table: alert_latches`
+    # when the file ran alone (-k, single file) and passed in full-suite order
+    # because an earlier file's init_db() had created the table — so a green
+    # full suite was partly an ordering artifact. init_db() is idempotent
+    # (CREATE IF NOT EXISTS; ADD COLUMN failures swallowed), so the per-file
+    # calls that remain are harmless.
+    db_module.init_db()
 
     # Same reasoning, one level later: regime_bayes.py's two JSON/JSONL
     # runtime outputs were git-tracked (not gitignored like apex.db), which
