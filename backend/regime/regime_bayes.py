@@ -289,6 +289,8 @@ class RegimeResult:
     allocation:  dict[str, float]     # {sector: pct} summing to 1.0
     leader:      str                  # rank 1 sector name
     qualifiers:  list[str]            # sectors above allocation threshold
+    regime_state:      Optional[str] = None  # "bull" | "neutral" | "bear" — market_regime_state() with hysteresis
+    regime_prev_state: Optional[str] = None  # bucket this one was derived from (same-date recompute reuses it)
 
 
 # ── Main class ────────────────────────────────────────────────────────────────
@@ -504,13 +506,30 @@ class RegimeBayes:
         leader          = leaderboard[0].sector if leaderboard else ""
         qualifier_names = [e.sector for e in qualifiers]
 
+        # Market-state bucket with hysteresis. Previous bucket comes from the cached
+        # result under the same staleness rule as allocation; a same-date recompute
+        # derives from the bucket the earlier run itself derived from, so re-running
+        # a day is idempotent rather than self-reinforcing.
+        if self._last_result and state_fresh:
+            prev_state = (
+                self._last_result.regime_prev_state
+                if self._last_result.date == today_str
+                else self._last_result.regime_state
+            )
+        else:
+            prev_state = None
+
         result = RegimeResult(
             date=today_str,
             leaderboard=leaderboard,
             allocation=allocation,
             leader=leader,
             qualifiers=qualifier_names,
+            regime_prev_state=prev_state,
         )
+        result.regime_state = market_regime_state(result, prev_state)
+        if prev_state is not None and result.regime_state != prev_state:
+            logger.info(f"Regime [{today_str}]: market state {prev_state} → {result.regime_state}")
         self._last_result = result
 
         # Persist posteriors and full result — both survive restarts
@@ -606,6 +625,8 @@ class RegimeBayes:
                 "leader":     result.leader,
                 "qualifiers": result.qualifiers,
                 "allocation": result.allocation,
+                "regime_state":      result.regime_state,
+                "regime_prev_state": result.regime_prev_state,
                 "leaderboard": [
                     {
                         "sector":          e.sector,
@@ -648,6 +669,8 @@ class RegimeBayes:
                 allocation=p["allocation"],
                 leader=p["leader"],
                 qualifiers=p["qualifiers"],
+                regime_state=p.get("regime_state"),
+                regime_prev_state=p.get("regime_prev_state"),
             )
         except Exception as e:
             logger.warning(f"Regime: could not reload cached result ({e}) — waiting for next EOD run")
@@ -885,19 +908,22 @@ def regime_context_for_claude(result: RegimeResult) -> str:
 # repaired sector_posterior_history, 69 dates 2026-05-29..09-16: bull 43 / neutral 26 /
 # bear 0; top-3 mean posterior min 0.667, median 0.777; 23 of 69 dates within ±0.03 of
 # 0.75. Decisions: 0.60 is NOT recalibrated (zero bear observations); 0.75 sits at the
-# median and flips on noise — hysteresis (enter bull ≥ 0.75, leave bull < a lower exit
-# band, previous state persisted) is a filed build; thresholds unchanged until it lands.
-
-# Revisit after 2 weeks (dated 2026-09-17): a stateless bucket on a median threshold does
-# not announce itself — this marker keeps CHECK 79 on it until the hysteresis build removes it.
-# (Own block on purpose: CHECK 79 ages a dated block from its FIRST date, and the block above
-# opens with 2026-05-28.)
+# median and flips on noise — hysteresis built 2026-09-17: enter bull at ≥ 0.75, stay bull
+# until the top-3 mean drops below _REGIME_BULL_EXIT, previous bucket persisted in the
+# result cache. Exit band chosen on the same 69 dates (flips / bull days, stateless = 16 / 43):
+# 0.73 → 12 / 50, 0.72 → 12 / 50, 0.71 → 10 / 52, 0.70 → 8 / 54, 0.69 → 4 / 59, 0.65 → 1 / 67.
+# 0.70 is the knee: it halves the flips and still releases the series' genuine sub-0.70
+# stretches (0.67–0.69 runs in June, July and September); 0.69 would hold bull through the
+# series minimum, which is the median problem in the other direction. A choice, not a fit.
+# Top-3 here was ranked by posterior (history stores no adjusted_score) — a proxy for the
+# leaderboard's adjusted_score rank that the live function uses.
 _REGIME_BULL_THRESHOLD  = 0.75
+_REGIME_BULL_EXIT       = 0.70
 _REGIME_BEAR_THRESHOLD  = 0.60
 _REGIME_TOP_N           = 3
 
 
-def market_regime_state(result: RegimeResult) -> str:
+def market_regime_state(result: RegimeResult, prev_state: Optional[str] = None) -> str:
     """
     Derive a market-state bucket from the top-N leaderboard posteriors.
 
@@ -905,15 +931,22 @@ def market_regime_state(result: RegimeResult) -> str:
     Top-N is by leaderboard rank (adjusted_score order) — the sectors whose
     tickers are actually being evaluated by the aggregator.
     Falls back to "neutral" if the leaderboard has fewer than _REGIME_TOP_N entries.
+
+    Hysteresis on the bull boundary: entry needs ≥ _REGIME_BULL_THRESHOLD; a bucket
+    that is already bull (prev_state) stays bull down to _REGIME_BULL_EXIT. With
+    prev_state None (no cache, stale cache, or a legacy caller) the function is the
+    stateless original. Bear has no band — zero observations to size one on.
     """
     top = result.leaderboard[:_REGIME_TOP_N]
     if len(top) < _REGIME_TOP_N:
         return "neutral"
     mean_posterior = sum(e.posterior for e in top) / len(top)
-    if mean_posterior >= _REGIME_BULL_THRESHOLD:
-        return "bull"
     if mean_posterior < _REGIME_BEAR_THRESHOLD:
         return "bear"
+    if mean_posterior >= _REGIME_BULL_THRESHOLD:
+        return "bull"
+    if prev_state == "bull" and mean_posterior >= _REGIME_BULL_EXIT:
+        return "bull"
     return "neutral"
 
 
@@ -940,6 +973,9 @@ def load_regime_state() -> str:
             )
             for e in p.get("leaderboard", [])
         ]
+        if p.get("regime_state") in ("bull", "neutral", "bear"):
+            return p["regime_state"]
+        # Cache written before the bucket was persisted (pre 2026-09-17): stateless read.
         result = RegimeResult(
             date=p["date"],
             leaderboard=leaderboard,
