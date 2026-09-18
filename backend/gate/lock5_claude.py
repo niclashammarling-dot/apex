@@ -35,7 +35,7 @@ import anthropic
 from loguru import logger
 
 from backend.config import ANTHROPIC_API_KEY, LOCK3_CONFIDENCE_MIN
-from backend.gate.types import LockResult
+from backend.gate.types import L5_UNAVAILABLE_PREFIX, LockResult
 
 LOCK_ID = 5
 
@@ -103,12 +103,7 @@ def evaluate(
 
     if not ANTHROPIC_API_KEY:
         logger.error(f"Lock 5 [{ticker}]: ANTHROPIC_API_KEY not set — failing closed")
-        return LockResult.fail(
-            lock_id=LOCK_ID,
-            reason="anthropic_unavailable",
-            data={"decision": "HOLD", "confidence": 0.0, "position_size_pct": 0.0,
-                  "reasoning": None, "model": None},
-        )
+        return _fail_closed("no_api_key")
 
     try:
         raw, usage = _call_anthropic(payload, _SONNET_MODEL)
@@ -116,12 +111,42 @@ def evaluate(
         return _parse_to_result(raw, effective_min, ticker, _SONNET_MODEL)
     except Exception as e:
         logger.error(f"Lock 5 [{ticker}]: Sonnet failed ({e}) — failing closed")
+        return _fail_closed(_classify_api_error(e))
 
+
+def _classify_api_error(e: Exception) -> str:
+    """Short, stable cause tag for the persisted fail-closed reason."""
+    msg = str(e).lower()
+    if "credit balance" in msg:
+        return "credit_exhausted"
+    if isinstance(e, anthropic.AuthenticationError):
+        return "auth"
+    if isinstance(e, anthropic.RateLimitError):
+        return "rate_limit"
+    if isinstance(e, (anthropic.APIConnectionError, anthropic.APITimeoutError)):
+        return "connection"
+    return type(e).__name__
+
+
+def _fail_closed(cause: str) -> LockResult:
+    """
+    Fail-closed result when the Anthropic call cannot be made or fails.
+
+    The reason string is persisted verbatim into gate_history.lock3_reasoning
+    (gate_runner._run_l5_for_result), so the row is self-describing: a real
+    Claude HOLD carries Claude's reasoning text; an unavailable-API HOLD carries
+    `anthropic_unavailable: <cause>`. Before 2026-09-18 the reason was dropped
+    and the row was indistinguishable from a genuine HOLD except by
+    reasoning IS NULL — two live candidates (ANET, AMD) were lost that way on
+    2026-09-18 under credit exhaustion, with nothing scheduled reading it.
+    CHECK 81 keys on the L5_UNAVAILABLE_PREFIX prefix, never on nullness.
+    """
+    reason = f"{L5_UNAVAILABLE_PREFIX}: {cause}"
     return LockResult.fail(
         lock_id=LOCK_ID,
-        reason="anthropic_unavailable",
+        reason=reason,
         data={"decision": "HOLD", "confidence": 0.0, "position_size_pct": 0.0,
-              "reasoning": None, "model": None},
+              "reasoning": reason, "model": None},
     )
 
 

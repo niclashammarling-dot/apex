@@ -483,59 +483,18 @@ def check51():
     # No flag = pass (convention: absence of a flag is the pass signal)
 
 
-# ── CHECK 52 — Anthropic credit runway ───────────────────────────────────────
-
-def check52():
-    """
-    Anthropic credit runway check.
-
-    Lock 5 uses claude-sonnet-4-6 as its sole LLM with no fallback (post-MSFT
-    postmortem). Credit exhaustion causes L5 to fail-closed silently — the gate
-    returns HOLD with no notification, indistinguishable from a normal L5 skip.
-
-    This check queries l5_token_usage for the 7-day measured burn rate, computes
-    projected runway against L5_ANTHROPIC_CREDIT_USD, and flags WARNING if runway
-    drops below 14 days. WARNING (not hard-fail): a blocked audit would be a worse
-    failure mode than the silent exhaustion it is monitoring for.
-
-    Prerequisite: l5_token_usage rows accumulate as L5 calls are made. The check
-    is a no-op (skips without flagging) if the table has fewer than 7 days of data,
-    since the burn rate estimate would be unreliable. Update L5_ANTHROPIC_CREDIT_USD
-    in config.py after each top-up.
-    """
-    from backend.config import L5_ANTHROPIC_CREDIT_USD
-    from backend.db import get_l5_spend_summary
-
-    RUNWAY_WARNING_DAYS = 14
-
-    if L5_ANTHROPIC_CREDIT_USD <= 0:
-        flag(52, "Anthropic credit runway", "WARNING",
-             "backend/config.py:L5_ANTHROPIC_CREDIT_USD",
-             "L5_ANTHROPIC_CREDIT_USD not set — update config.py with current "
-             "Anthropic prepaid balance to enable runway monitoring")
-        return
-
-    # Guard before backend.db touches the file: sqlite3.connect() would create
-    # an empty apex.db and the query would crash the whole mechanical run.
-    if not require_data_file(52, "Anthropic credit runway", REPO / "data/apex.db"):
-        return
-
-    summary = get_l5_spend_summary()
-
-    if summary["calls_7d"] == 0:
-        return  # no data yet — skip silently
-
-    daily_rate = summary["daily_rate_7d"]
-    if daily_rate <= 0:
-        return
-
-    runway_days = L5_ANTHROPIC_CREDIT_USD / daily_rate
-    if runway_days < RUNWAY_WARNING_DAYS:
-        flag(52, "Anthropic credit runway", "WARNING",
-             "backend/config.py:L5_ANTHROPIC_CREDIT_USD",
-             f"L5 credit runway {runway_days:.1f} days at ${daily_rate:.4f}/day "
-             f"(7d measured rate, balance ${L5_ANTHROPIC_CREDIT_USD:.2f}) — "
-             f"below {RUNWAY_WARNING_DAYS}-day threshold; top up Anthropic credits")
+# ── CHECK 52 — Anthropic credit runway — RETIRED 2026-09-18 ──────────────────
+# Projected days of credit from the 7-day l5_token_usage burn rate. Its own
+# docstring named the failure it was for ("credit exhaustion causes L5 to
+# fail-closed silently ... indistinguishable from a normal L5 skip") and it did
+# not fire on 2026-09-18 when that happened: a failed call records no usage,
+# so calls_7d decays to 0 and the check returned silently — the premise (usage
+# rate implies remaining credit) breaks exactly when the guarded event occurs.
+# L5_ANTHROPIC_CREDIT_USD had also not been updated since 2026-06-09. Not
+# re-scoped: a rate-based early warning for the *next* exhaustion is a different
+# check with a different premise and gets a new number if built. The event
+# itself is CHECK 81 (persisted reason, event-severity CRITICAL).
+# Registry row moved to CHECKS.md → Retired Checks.
 
 
 def check53() -> None:
@@ -1049,6 +1008,87 @@ def check80() -> None:
         flag(80, name, "INFO", "data/apex.db:demo_gate_history", summary)
 
 
+# ── CHECK 81 — Lock 5 fail-closed (API unavailable) is an event ──────────────
+_C81_EVENT_DAYS = 2    # CRITICAL window: the audit reads after the close, so "today or yesterday"
+_C81_TALLY_DAYS = 30   # standing INFO tally
+
+
+def check81() -> None:
+    """
+    CHECK 81 — Lock 5 fail-closed (API unavailable) is an event, not a HOLD.
+
+    lock5_claude._fail_closed returns HOLD with reason
+    `anthropic_unavailable: <cause>` (cause ∈ credit_exhausted, auth,
+    rate_limit, connection, no_api_key, <ExceptionClass>) and, since
+    2026-09-18, that string is persisted into lock3_reasoning on both gate
+    tables. A candidate that reached Lock 5 and was rejected this way was a
+    candidate lost to infrastructure, not to Claude's judgement — on
+    2026-09-18 live lost ANET (15:37) and AMD (16:57), both LD=✓, under credit
+    exhaustion, and the only fingerprint was lock3_reasoning IS NULL.
+
+    Keyed on the persisted value (L5_UNAVAILABLE_PREFIX), never on nullness:
+    NULL is what a pre-2026-09-18 row looks like and what a *different*
+    future L3 failure with its own real cause might look like. Pre-fix rows
+    are not counted; two are known (live 2026-09-18, ANET/AMD).
+
+    Findings:
+      CRITICAL  any prefixed row in the trailing _C81_EVENT_DAYS days, either
+                table — event severity so alert_criticals.py mails it the day
+                it happens and it stops once the API is back (levelling a
+                standing count would make it wallpaper). Live rows named
+                first: that is where a real candidate was lost.
+      INFO      trailing _C81_TALLY_DAYS-day tally by cause when non-zero and
+                outside the event window.
+    SKIPPED without apex.db.
+    """
+    from datetime import timedelta
+    from backend.gate.types import L5_UNAVAILABLE_PREFIX
+    name = "Lock 5 fail-closed (API unavailable)"
+    db   = REPO / "data/apex.db"
+    if not require_data_file(81, name, db):
+        return
+    today = date.today()
+    since_event = (today - timedelta(days=_C81_EVENT_DAYS - 1)).isoformat()
+    since_tally = (today - timedelta(days=_C81_TALLY_DAYS)).isoformat()
+    q = ("SELECT date(timestamp), ticker, lock3_reasoning FROM {t} "
+         "WHERE timestamp >= ? AND lock3_reasoning LIKE ? ORDER BY timestamp")
+    try:
+        conn = sqlite3.connect(db)
+        rows = {t: conn.execute(q.format(t=t), (since_tally, L5_UNAVAILABLE_PREFIX + "%")).fetchall()
+                for t in ("live_gate_history", "demo_gate_history")}
+        conn.close()
+    except Exception as e:
+        flag(81, name, "WARNING", "data/apex.db:live_gate_history", f"could not query: {e}")
+        return
+
+    def _cause(r: str) -> str:
+        return r.split(":", 1)[1].strip() if ":" in r else "unspecified"
+
+    event = {t: [r for r in rs if r[0] >= since_event] for t, rs in rows.items()}
+    n_event = sum(len(v) for v in event.values())
+    if n_event:
+        parts = []
+        for t in ("live_gate_history", "demo_gate_history"):
+            if event[t]:
+                parts.append(f"{t.split('_')[0]}: " + ", ".join(
+                    f"{d[5:]} {tk} ({_cause(r)})" for d, tk, r in event[t]))
+        flag(81, name, "CRITICAL", "backend/gate/lock5_claude.py:_fail_closed",
+             f"{n_event} Lock 5 fail-closed row(s) in the last {_C81_EVENT_DAYS} days — candidates "
+             f"that cleared Lock 4 were rejected because the Anthropic call failed, not by Claude. "
+             + "; ".join(parts) + ". Restore the API (top up / key / network) before the next session.")
+        return
+
+    n_tally = sum(len(v) for v in rows.values())
+    if n_tally:
+        causes: dict = {}
+        for rs in rows.values():
+            for _, _, r in rs:
+                causes[_cause(r)] = causes.get(_cause(r), 0) + 1
+        flag(81, name, "INFO", "data/apex.db:live_gate_history",
+             f"{n_tally} fail-closed row(s) in the last {_C81_TALLY_DAYS} days, none in the last "
+             f"{_C81_EVENT_DAYS}: " + ", ".join(f"{c} ×{k}" for c, k in sorted(causes.items())))
+
+
 def run() -> None:
     check24()
     check25()
@@ -1058,9 +1098,9 @@ def run() -> None:
     check38()
     check49()
     check51()
-    check52()
     check53()
     check54()
     check64()
     check66()
     check80()
+    check81()

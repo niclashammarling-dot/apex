@@ -10,6 +10,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+# Persisted reason prefix for a Lock 5 fail-closed result (API unavailable, not
+# a Claude HOLD). lock5_claude._fail_closed writes `<prefix>: <cause>`; CHECK 81
+# matches on this prefix. Lives here so the audit can import it without
+# importing the anthropic client.
+L5_UNAVAILABLE_PREFIX = "anthropic_unavailable"
+
+
 @dataclass
 class LockResult:
     """
