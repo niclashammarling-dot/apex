@@ -57,12 +57,20 @@ async def lifespan(app: FastAPI):
     from backend.live_config import ensure_config_exists as ensure_live
     ensure_demo()
     ensure_live()
-    logger.info("Running initial sector poll…")
-    try:
-        poll_all_sectors(force=True)
-    except Exception as e:
-        logger.warning(f"Initial poll failed (non-fatal): {e}")
-    start_scheduler()
+    # APEX_NO_SCHEDULER=1: serve the API only. A second backend (a --reload dev
+    # instance on :8001 beside the scheduled window on :8000) must not run its
+    # own gate / EOD / audit jobs against the same DB — every instance was a
+    # trader until 2026-09-21. Viewing needs no second backend at all: npm run
+    # dev with no APEX_API_PORT proxies to :8000.
+    if os.environ.get("APEX_NO_SCHEDULER") == "1":
+        logger.warning("APEX_NO_SCHEDULER=1 — API only, no initial poll, no scheduled jobs")
+    else:
+        logger.info("Running initial sector poll…")
+        try:
+            poll_all_sectors(force=True)
+        except Exception as e:
+            logger.warning(f"Initial poll failed (non-fatal): {e}")
+        start_scheduler()
     yield
     scheduler.shutdown(wait=False)
     logger.info("APEX backend stopped")

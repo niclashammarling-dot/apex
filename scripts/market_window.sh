@@ -19,8 +19,10 @@
 #     process idles — is_market_open() is calendar-aware for early closes since
 #     2026-09-17 — because eod_regime 16:15 and collect_pcr 16:30 still fire.
 #   - No --reload. The serving process is never the edited process. Develop on
-#     another port: uvicorn backend.main:app --port 8001 --reload, and
-#     APEX_API_PORT=8001 npm run dev for the frontend proxy.
+#     another port: APEX_NO_SCHEDULER=1 uvicorn backend.main:app --port 8001 --reload
+#     (API only — a second scheduler would trade against the same DB), and
+#     APEX_API_PORT=8001 npm run dev for the frontend proxy. Viewing needs no
+#     second backend: npm run dev alone proxies to :8000.
 #   - Port 8000 already bound → exit; that instance's APScheduler owns the day.
 #   - Interruption recovery (2026-09-21, from the 09-19 first-window-day note):
 #     the wrapper watches the child instead of sleeping blind. Child gone
