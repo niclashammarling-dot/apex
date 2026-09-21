@@ -8,6 +8,7 @@ test modules are imported. test_wallet.py calls init_db() and imports
 DB_PATH at module level during collection, both of which must see the
 temp path rather than the production data/apex.db.
 """
+import os
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -28,6 +29,14 @@ def pytest_configure(config):
     # (CREATE IF NOT EXISTS; ADD COLUMN failures swallowed), so the per-file
     # calls that remain are harmless.
     db_module.init_db()
+    # No test may own the scheduler. TestClient(app) enters the lifespan, and
+    # the lifespan's default role is to poll and schedule; under pytest the DB
+    # is the temp file above, but the pollers still hit real APIs and the
+    # exit check still reads the broker. Found 2026-09-21: an ad-hoc script
+    # that imported the app (no conftest, no env) ran a live exit check at
+    # 15:26 ET. Tests that need the lock path patch SCHEDULER_LOCK and
+    # override the env explicitly (tests/test_scheduler_lock.py).
+    os.environ.setdefault("APEX_NO_SCHEDULER", "1")
 
     # Same reasoning, one level later: regime_bayes.py's two JSON/JSONL
     # runtime outputs were git-tracked (not gitignored like apex.db), which
