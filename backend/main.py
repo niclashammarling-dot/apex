@@ -49,6 +49,25 @@ logger.add(
 
 # ── App ───────────────────────────────────────────────────────────────────────
 
+SCHEDULER_LOCK = Path(__file__).parent.parent / "data" / "scheduler.lock"
+
+
+def _acquire_scheduler_lock():
+    """Exclusive flock on data/scheduler.lock, or None if another process holds it.
+    The handle must stay referenced for the life of the process (the OS releases
+    the lock when it closes — including on a uvicorn --reload restart)."""
+    import fcntl
+    SCHEDULER_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    fh = open(SCHEDULER_LOCK, "w")  # noqa: SIM115 — held for the process lifetime on purpose
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        return None
+    fh.write(str(os.getpid()))
+    fh.flush()
+    return fh
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("APEX backend starting…")
@@ -57,14 +76,21 @@ async def lifespan(app: FastAPI):
     from backend.live_config import ensure_config_exists as ensure_live
     ensure_demo()
     ensure_live()
-    # APEX_NO_SCHEDULER=1: serve the API only. A second backend (a --reload dev
-    # instance on :8001 beside the scheduled window on :8000) must not run its
-    # own gate / EOD / audit jobs against the same DB — every instance was a
-    # trader until 2026-09-21. Viewing needs no second backend at all: npm run
-    # dev with no APEX_API_PORT proxies to :8000.
+    # One scheduler per DB. Every backend instance used to run the full job set
+    # (gate, exits, EOD regime, collect_pcr, publish_audit_state); on 2026-09-21
+    # a --reload dev instance on :8001 started "for viewing" beside the
+    # scheduled window on :8000 and placed three live bracket orders (MU, QCOM,
+    # ANET) from its own phase-shifted cycles. The default must fail safe:
+    # the scheduler starts only under an exclusive lock on data/scheduler.lock;
+    # a second instance serves the API and says so. APEX_NO_SCHEDULER=1 makes
+    # the API-only role explicit (no lock attempt, no initial poll).
+    app.state.scheduler_lock = None
     if os.environ.get("APEX_NO_SCHEDULER") == "1":
         logger.warning("APEX_NO_SCHEDULER=1 — API only, no initial poll, no scheduled jobs")
+    elif (lock := _acquire_scheduler_lock()) is None:
+        logger.warning("scheduler lock held by another APEX instance — API only, no scheduled jobs")
     else:
+        app.state.scheduler_lock = lock
         logger.info("Running initial sector poll…")
         try:
             poll_all_sectors(force=True)
@@ -72,7 +98,10 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Initial poll failed (non-fatal): {e}")
         start_scheduler()
     yield
-    scheduler.shutdown(wait=False)
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
+    if app.state.scheduler_lock is not None:
+        app.state.scheduler_lock.close()
     logger.info("APEX backend stopped")
 
 
@@ -106,4 +135,5 @@ def health():
         {"id": j.id, "next_run": str(j.next_run_time)}
         for j in _sched.get_jobs()
     ]
-    return {"status": "ok", "scheduler_jobs": jobs}
+    return {"status": "ok", "scheduler_jobs": jobs,
+            "scheduler_owner": app.state.scheduler_lock is not None}

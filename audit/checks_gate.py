@@ -10,6 +10,7 @@ position/DB reconciliation integrity.
 import re
 import sqlite3
 from datetime import date
+from itertools import pairwise
 
 from audit._audit_core import REPO, flag, require_data_file
 
@@ -1169,6 +1170,57 @@ def check82() -> None:
                  f"{d}: {len(starts)} `starting uvicorn` lines — relaunch path ran")
 
 
+_C83_DAYS      = 3    # trailing days read
+_C83_MIN_GAP   = 15   # minutes; two cycle starts closer than this cannot be one 20-min scheduler
+
+
+def check83() -> None:
+    """
+    CHECK 83 — Two schedulers on one book (off-phase gate cycles).
+
+    2026-09-21: a --reload dev backend on :8001, started "for viewing" beside
+    the scheduled window on :8000, ran its own scheduler — every instance did —
+    and placed three live bracket orders (MU 19:57 CEST, QCOM and ANET 20:57)
+    from cycles at :57, three minutes after the window's :54 cycles. Nothing
+    read the second phase; the DB just had more rows. Fixed at source (main.py:
+    exclusive flock on data/scheduler.lock, APEX_NO_SCHEDULER=1), this check
+    reads the fingerprint: within one day, two gate cycle start-minutes closer
+    than _C83_MIN_GAP minutes on either table.
+
+      CRITICAL  any such pair in the trailing _C83_DAYS days (event severity;
+                names the table, day and the two minutes)
+    SKIPPED without apex.db.
+    """
+    from datetime import timedelta
+    name = "Two schedulers on one book (off-phase gate cycles)"
+    db   = REPO / "data/apex.db"
+    if not require_data_file(83, name, db):
+        return
+    since = (date.today() - timedelta(days=_C83_DAYS - 1)).isoformat()
+    q = ("SELECT DISTINCT substr(timestamp, 1, 16) m FROM {t} WHERE timestamp >= ? ORDER BY m")
+    try:
+        conn = sqlite3.connect(db)
+        mins = {t: [r[0] for r in conn.execute(q.format(t=t), (since,)).fetchall()]
+                for t in ("live_gate_history", "demo_gate_history")}
+        conn.close()
+    except Exception as e:
+        flag(83, name, "WARNING", "data/apex.db:demo_gate_history", f"could not query: {e}")
+        return
+    for t, ms in mins.items():
+        hits = []
+        for a, b in pairwise(ms):
+            if a[:10] != b[:10]:
+                continue
+            gap = (int(b[11:13]) * 60 + int(b[14:16])) - (int(a[11:13]) * 60 + int(a[14:16]))
+            if 1 < gap < _C83_MIN_GAP:      # gap 1 = one cycle straddling a minute boundary
+                hits.append(f"{a[5:10]} {a[11:]}→{b[11:]} ({gap}m)")
+        if hits:
+            flag(83, name, "CRITICAL", "backend/main.py:_acquire_scheduler_lock",
+                 f"{t.split('_')[0]}: {len(hits)} off-phase cycle pair(s) in the last {_C83_DAYS} days — "
+                 f"a second backend instance ran its own scheduler against the same DB: "
+                 + "; ".join(hits[:6]) + (" …" if len(hits) > 6 else ""))
+
+
 def run() -> None:
     check24()
     check25()
@@ -1185,3 +1237,4 @@ def run() -> None:
     check80()
     check81()
     check82()
+    check83()
