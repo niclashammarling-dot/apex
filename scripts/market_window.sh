@@ -22,6 +22,13 @@
 #     another port: uvicorn backend.main:app --port 8001 --reload, and
 #     APEX_API_PORT=8001 npm run dev for the frontend proxy.
 #   - Port 8000 already bound → exit; that instance's APScheduler owns the day.
+#   - Interruption recovery (2026-09-21, from the 09-19 first-window-day note):
+#     the wrapper watches the child instead of sleeping blind. Child gone
+#     before 16:40 ET → "ended before window close" line, exit 1 → the task's
+#     RestartOnFailure relaunches (the ET guard and port probe make any
+#     relaunch safe). Host reboot kills the wrapper without an exit code, so
+#     the task also has a LogonTrigger: same script, same guards. TERM/HUP
+#     are trapped so a WSL teardown that does deliver a signal self-logs.
 #   - eod_window.sh (22:10 / 21:10) stays registered as the fallback: it sees
 #     the port bound and exits when this window is up, and serves the EOD jobs
 #     when this window failed to start.
@@ -62,12 +69,26 @@ log "starting uvicorn (no --reload), ET now $et_hm"
 "$APEX/venv/bin/uvicorn" backend.main:app --host 127.0.0.1 --port "$PORT" >> "$LOG" 2>&1 &
 PID=$!
 
-# Sleep until 16:40 ET today.
+on_signal() {
+    log "ended before window close (signal $1), ET now $(TZ=America/New_York date +%H%M) — SIGTERM $PID"
+    kill -TERM "$PID" 2>/dev/null
+    exit 1
+}
+trap 'on_signal TERM' TERM
+trap 'on_signal HUP' HUP
+
+# Watch the child until 16:40 ET today; a child that dies first is a failure
+# the task scheduler relaunches (RestartOnFailure in APEX-market-window.xml).
 end_epoch=$(TZ=America/New_York date -d "$(TZ=America/New_York date +%F) 16:40" +%s)
-now_epoch=$(date +%s)
-sleep_s=$(( end_epoch - now_epoch ))
-[[ -n $TEST ]] && sleep_s=$TEST
-(( sleep_s > 0 )) && sleep "$sleep_s"
+[[ -n $TEST ]] && end_epoch=$(( $(date +%s) + TEST ))
+while (( $(date +%s) < end_epoch )); do
+    if ! kill -0 "$PID" 2>/dev/null; then
+        wait "$PID"; rc=$?
+        log "ended before window close (uvicorn exited rc=$rc), ET now $(TZ=America/New_York date +%H%M)"
+        exit 1
+    fi
+    sleep 30 & wait $!   # backgrounded so a trapped signal is handled at once
+done
 
 log "window closed — SIGTERM $PID"
 kill -TERM "$PID" 2>/dev/null

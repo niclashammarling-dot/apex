@@ -1089,6 +1089,86 @@ def check81() -> None:
              f"{_C81_EVENT_DAYS}: " + ", ".join(f"{c} ×{k}" for c, k in sorted(causes.items())))
 
 
+_C82_SESSIONS = 3            # trailing sessions read; today only once the window has closed (16:40 ET)
+_C82_SINCE    = "2026-09-18"  # first scheduled window day; earlier sessions had no task to fire
+
+
+def _c82_session_dates(n: int) -> list[str]:
+    """Last n NYSE session dates, today included only after 16:40 ET."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    import pandas_market_calendars as mcal
+    now_et = datetime.now(ZoneInfo("America/New_York"))
+    end = now_et.date() if now_et.strftime("%H%M") > "1640" else now_et.date() - timedelta(days=1)
+    sched = mcal.get_calendar("NYSE").schedule(start_date=end - timedelta(days=14), end_date=end)
+    return list(sched.index.strftime("%Y-%m-%d"))[-n:]
+
+
+def check82() -> None:
+    """
+    CHECK 82 — Market window interrupted (launcher self-log read at event severity).
+
+    2026-09-18, first scheduled window day: the serving process died at 13:53
+    ET on a host restart and nothing said so — CHECK 80 counted 13/19 cycles at
+    INFO, eod_window.sh's `ss` point-probe at 16:10 ET saw a free port and
+    could not tell "never bound" from "bound and vanished", and the market log
+    held a `starting uvicorn` line with no `exit`. The launcher had no
+    recovery from any interruption (raw note 2026-09-19).
+
+    Since 2026-09-21 market_window.sh watches its child and writes
+    `ended before window close (uvicorn exited rc=N | signal X)` and exits 1,
+    so the task's RestartOnFailure relaunches it; a host reboot is covered by
+    a LogonTrigger. This check reads those lines — the persisted cause — for
+    the trailing _C82_SESSIONS sessions (today only once the window is over):
+
+      CRITICAL  `ended before window close` on any session (an interruption
+                happened — the INFO relaunch line says whether recovery ran)
+      CRITICAL  `starting uvicorn` with no `exit` on a *past* session — the
+                wrapper was killed without a signal (host reboot / WSL
+                teardown) and did not get to write its own line
+      WARNING   no market_window_<date>.log on a session day — the task never
+                fired (machine off all day, task unregistered)
+      INFO      more than one `starting uvicorn` in a day — the relaunch path
+                ran; the count is the recovery working
+    SKIPPED without apex.db (the audit's local-environment marker; logs/ is
+    not in CI's checkout and its absence there is not a finding).
+    """
+    name = "Market window interrupted"
+    if not require_data_file(82, name, REPO / "data/apex.db"):
+        return
+    try:
+        sessions = _c82_session_dates(_C82_SESSIONS)
+    except Exception as e:
+        flag(82, name, "WARNING", "audit/checks_gate.py:_c82_session_dates", f"calendar unavailable: {e}")
+        return
+    for d in sessions:
+        if d < _C82_SINCE:
+            continue
+        log = REPO / "logs" / f"market_window_{d}.log"
+        if not log.exists():
+            flag(82, name, "WARNING", "scripts/windows/APEX-market-window.xml",
+                 f"{d}: no market_window log — the scheduled task never fired on a session day "
+                 f"(machine off all day, or task unregistered); eod_window.sh was the only cover")
+            continue
+        lines = [ln for ln in log.read_text(errors="replace").splitlines() if " | " in ln]
+        starts = [ln for ln in lines if "| starting uvicorn" in ln]
+        early  = [ln for ln in lines if "| ended before window close" in ln]
+        exits  = [ln for ln in lines if ln.endswith("| exit")]
+        for ln in early:
+            flag(82, name, "CRITICAL", "scripts/market_window.sh",
+                 f"{d}: {ln.split(' | ', 1)[1]} — the serving process was lost mid-window"
+                 + (f"; relaunched ({len(starts)} starts)" if len(starts) > 1 else "; no relaunch logged"))
+        if starts and not exits and not early:
+            flag(82, name, "CRITICAL", "scripts/market_window.sh",
+                 f"{d}: `starting uvicorn` at {starts[-1].split(' | ')[0][11:]} with no `exit` line — "
+                 f"the wrapper was killed without a signal (host reboot / WSL teardown); "
+                 f"cycles that day are partial (CHECK 80 coverage line)")
+        if len(starts) > 1 and not early:
+            flag(82, name, "INFO", "scripts/market_window.sh",
+                 f"{d}: {len(starts)} `starting uvicorn` lines — relaunch path ran")
+
+
 def run() -> None:
     check24()
     check25()
@@ -1104,3 +1184,4 @@ def run() -> None:
     check66()
     check80()
     check81()
+    check82()

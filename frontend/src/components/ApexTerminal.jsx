@@ -3,6 +3,7 @@ import "../apex-dashboard.css";
 import BacktestPanel from "./BacktestPanel.jsx";
 import TradeLog      from "./TradeLog.jsx";
 import NightLog      from "./NightLog.jsx";
+import MarketWindowPanel from "./MarketWindowPanel.jsx";
 import RegimeBayes   from "./RegimeBayes.jsx";
 import Watchlist     from "./Watchlist.jsx";
 import DemoTradeLog  from "./DemoTradeLog.jsx";
@@ -680,6 +681,15 @@ function TestView({ D }) {
   return (
     <div className="t-grid" style={{ gridTemplateColumns: "1fr 520px" }}>
       <div className="t-col-main">
+        <div className="t-card">
+          <div className="t-card-head">
+            <div className="t-card-title">MARKET WINDOW</div>
+            <div className="t-meta">SESSION COVERAGE · LAUNCHER</div>
+          </div>
+          <div className="t-card-body">
+            <MarketWindowPanel />
+          </div>
+        </div>
         <div className="t-card">
           <div className="t-card-head">
             <div className="t-card-title">NIGHTLY AUDIT</div>

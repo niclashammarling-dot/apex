@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, field_validator
 
 from backend.db import (
+    get_db,
     get_prev_ticker_prices,
     get_sector_history,
     get_yesterday_sector_avg_scores,
@@ -816,6 +817,74 @@ def get_audit_reports():
         reports.append({"date": date, "summary": summary, "content": content})
 
     return {"reports": reports}
+
+
+# ── Market window (ops) ───────────────────────────────────────────────────────
+
+_LOG_DIR = Path(__file__).parent.parent.parent / "logs"
+_WINDOW_LINE = re.compile(
+    r"^(\S+ \S+) \S+ \| (starting uvicorn|ended before window close|window closed|exit$"
+    r"|outside ET window|port \d+ already bound|clock drift vs Windows: (-?\d+)s)"
+)
+
+@router.get("/ops/window")
+def get_market_window(days: int = 10):
+    """
+    Session coverage and launcher events for the scheduled market window
+    (scripts/market_window.sh) — the dashboard surface for what CHECK 80's
+    coverage line and the market_window_<date>.log files record. Per NYSE
+    session in the last `days` calendar days: demo gate cycles written vs
+    expected (session minutes / GATE_INTERVAL, early closes from the calendar),
+    and the launcher's own lines: start, early end (uvicorn died or the wrapper
+    was signalled), clean close, no-op exits. Today's row is partial by nature.
+    """
+    from datetime import datetime, timedelta
+
+    from backend.config import GATE_INTERVAL
+    from backend.scheduler import NY, _nyse_session_bounds
+
+    today = datetime.now(NY).date()
+    since = (today - timedelta(days=days)).isoformat()
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT date(timestamp) d, COUNT(DISTINCT substr(timestamp, 1, 16)) c "
+            "FROM demo_gate_history WHERE timestamp >= ? GROUP BY d ORDER BY d",
+            (since,),
+        ).fetchall()
+    cycles = {r["d"]: r["c"] for r in rows}
+
+    sessions = []
+    for i in range(days, -1, -1):
+        d = (today - timedelta(days=i)).isoformat()
+        bounds = _nyse_session_bounds(d)
+        if bounds is None:
+            continue
+        expected = max(1, int((bounds[1] - bounds[0]).total_seconds() // 60 // GATE_INTERVAL))
+        events, drift = [], None
+        log = _LOG_DIR / f"market_window_{d}.log"
+        if log.exists():
+            for line in log.read_text(errors="replace").splitlines():
+                m = _WINDOW_LINE.match(line)
+                if not m:
+                    continue
+                if m.group(3) is not None:
+                    drift = int(m.group(3))
+                else:
+                    events.append({"at": m.group(1)[:16], "event": m.group(2).strip()})
+        started = any(e["event"] == "starting uvicorn" for e in events)
+        ended_early = any(e["event"] == "ended before window close" for e in events)
+        closed = any(e["event"] == "window closed" for e in events)
+        sessions.append({
+            "date": d,
+            "cycles": cycles.get(d, 0),
+            "expected": expected,
+            "early_close": bounds[1].hour < 16,
+            "launcher": ("ended_early" if ended_early else "closed" if closed
+                         else "running" if started else "not_started"),
+            "events": events,
+            "clock_drift_s": drift,
+        })
+    return {"gate_interval_min": GATE_INTERVAL, "sessions": sessions}
 
 
 # ── Drift monitor ─────────────────────────────────────────────────────────────
