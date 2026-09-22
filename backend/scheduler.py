@@ -337,8 +337,9 @@ def _eod_inputs(target: date, live: bool):
 
 def run_eod_regime(as_of: date | None = None) -> None:
     """
-    End-of-day Bayesian regime update.
-    Runs at 4:15 PM after market close on trading days.
+    End-of-day Bayesian regime update — scheduled pre-open (08:30 ET) FOR the
+    previous session since 2026-09-22 (was 16:15 ET same day); the inputs are
+    read as of the session's 16:15 ET close either way.
 
     Steps:
       1. IPO sentiment — fetch/cache today's IPO sector shares from EDGAR
@@ -513,7 +514,9 @@ def _last_eod_due(now: datetime) -> date:
 
 def _check_missed_eod_regime() -> None:
     """
-    Run the EOD regime update on startup if it was missed (server down at 16:15 ET).
+    Run the EOD regime update for every session due and not yet written. Called at
+    startup and, since 2026-09-22, as the 08:30 ET cron itself — the pre-open run
+    FOR the previous session is exactly "the last due session has no row yet".
     Determines the most recent NYSE session for which EOD should have already run,
     then compares against MAX(date) in sector_posterior_history, and runs the
     update FOR that session (as_of=expected).
@@ -746,13 +749,19 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
     scheduler.add_job(
-        run_eod_regime,
+        _check_missed_eod_regime,   # runs every session due and not yet written, oldest first
         "cron",
         day_of_week="mon-fri",
-        hour=16,
-        minute=15,          # 15 min after market close — snapshots settled
+        hour=8,
+        minute=30,          # pre-open (14:30 Stockholm), FOR the previous session. Was 16:15 ET
+                            # same day (22:15 Stockholm) — the slot the machine is most often
+                            # off for, and the one the 09-18/09-21 outages hit. Every input is
+                            # retained and read as of the session's 16:15 close, so the morning
+                            # run is the same computation; the startup catch-up (same function)
+                            # already covered every missed evening this way. Niclas, 2026-09-22.
         id="eod_regime",
         replace_existing=True,
+        misfire_grace_time=3600,
     )
     scheduler.add_job(
         collect_pcr_snapshot,

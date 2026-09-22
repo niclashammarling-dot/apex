@@ -795,9 +795,12 @@ def _nyse_sessions(start: date, end: date) -> list[date]:
 
 def check77():
     """
-    sector_posterior_history: every row must have been written by the 16:15 ET
-    EOD run FOR its own date, and every NYSE session since the series began
-    must have a row.
+    sector_posterior_history: every row must have been written at or after the
+    16:15 ET close of its own date, and every NYSE session since the series
+    began must have a row. (Since 2026-09-22 the scheduled run is 08:30 ET on
+    the next session, FOR the previous one — written_at is then the next
+    morning, which the provenance rule below accepts; the gap rule's last_due
+    is the session before today, unchanged.)
 
     Two defects this replaces a row count with. (1) Provenance: before
     2026-09-16 the startup catch-up stamped the restart date, not the missed

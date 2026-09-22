@@ -162,7 +162,7 @@ function RegimeDial({ D }) {
       <div className="t-card-head">
         <div className="t-card-title">SECTOR REGIME · BAYES</div>
         <div className="t-meta" style={stale ? { color: "var(--t-amber)" } : undefined}>
-          {stale || "EOD · 16:15 ET"}
+          {stale || "EOD · 08:30 ET pre-open"}
         </div>
       </div>
       <div className="t-card-body" style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 16 }}>

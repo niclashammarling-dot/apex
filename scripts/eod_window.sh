@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # APEX EOD window — launched by Windows Task Scheduler (task "APEX EOD window")
-# via wsl.exe at 22:10 and 21:10 Stockholm on weekdays. Serves the two jobs that
-# earn a schedule (apex-moc, 2026-09-16): eod_regime 16:15 ET, collect_pcr 16:30 ET.
+# via wsl.exe at 22:10 and 21:10 Stockholm on weekdays. Serves the evening jobs
+# that earn a schedule (apex-moc, 2026-09-16): collect_pcr 16:30 ET and
+# publish_audit_state 16:33 ET. eod_regime moved to 08:30 ET pre-open on
+# 2026-09-22 (its inputs are retained; the morning run is the same computation).
 #
 # Since 2026-09-18 the market window (scripts/market_window.sh, 15:20/14:20
 # Stockholm) serves the whole session including these two jobs; this task stays

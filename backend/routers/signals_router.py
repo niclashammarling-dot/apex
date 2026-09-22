@@ -843,8 +843,15 @@ def get_market_window(days: int = 10):
     from backend.config import GATE_INTERVAL
     from backend.scheduler import NY, _nyse_session_bounds
 
-    today = datetime.now(NY).date()
+    now = datetime.now(NY)
+    today = now.date()
     since = (today - timedelta(days=days)).isoformat()
+
+    def _regime_due(session_close) -> bool:
+        nxt = session_close.date() + timedelta(days=1)
+        while _nyse_session_bounds(nxt.isoformat()) is None:
+            nxt += timedelta(days=1)
+        return now >= datetime.combine(nxt, datetime.min.time(), tzinfo=NY).replace(hour=8, minute=30)
     with get_db() as conn:
         rows = conn.execute(
             "SELECT date(timestamp) d, COUNT(DISTINCT substr(timestamp, 1, 16)) c "
@@ -897,7 +904,10 @@ def get_market_window(days: int = 10):
             "clock_drift_s": drift,
             # 2026-09-21: the window closed at 16:17 ET and neither collect_pcr nor the
             # audit ran; nothing on the dashboard said so. Same-day catch-ups exist now.
-            "eod": {"regime": d in regime, "pcr_rows": pcr.get(d, 0),
+            # regime is due at 08:30 ET on the next session (moved pre-open 2026-09-22):
+            # None until then, so today's row does not read as a missed run all day.
+            "eod": {"regime": True if d in regime else (False if _regime_due(bounds[1]) else None),
+                    "pcr_rows": pcr.get(d, 0),
                     "audit": (d == audit_date) if (audit_date is None or d >= audit_date) else None},
         })
     return {"gate_interval_min": GATE_INTERVAL, "sessions": sessions}

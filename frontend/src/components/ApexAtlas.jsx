@@ -101,7 +101,7 @@ function Leaderboard({ D }) {
           <h2 className="a-title">Sector leaderboard</h2>
         </div>
         <span className="a-meta" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          EOD 16:15 · prior × signal
+          EOD pre-open 08:30 ET · prior × signal
           <span style={{ display: "flex", gap: 4 }}>
             <button className={cls("a-toggle-btn", span === "1d" && "a-toggle-on")} onClick={() => setSpan("1d")}>1D</button>
             <button className={cls("a-toggle-btn", span === "7d" && "a-toggle-on")} onClick={() => setSpan("7d")}>7D</button>
