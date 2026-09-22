@@ -12,9 +12,17 @@
 #     triggers (21:10 / 22:10 local) cover the EU/US DST-mismatch weeks; the one
 #     that lands outside the ET window exits here without starting anything.
 #   - No --reload. The serving process is never the edited process.
-#   - If port 8000 is already bound (a manual instance is up), exit — that
-#     instance's APScheduler owns the slot. Two schedulers would double-fire.
-#   - Stop at 16:40 ET (PCR snapshot completes ~16:31:35; publish_audit_state
+#   - If port 8000 is bound (the market window is up), WATCH it rather than
+#     exit: poll every 30 s until 16:45 ET; if the port frees before 16:38 ET,
+#     start — the app's startup catch-ups (eod_regime, collect_pcr,
+#     publish_audit_state, all same-day) run what the dead window missed.
+#     Found 2026-09-21: the window died at 16:17 ET, this task had exited at
+#     16:10 on "port bound", and collect_pcr + the nightly audit never ran.
+#   - All waits are wall-clock loops on `date`, never a blind `sleep N`: WSL2's
+#     monotonic clock runs fast after a host sleep (3.4% measured 2026-09-22),
+#     so a 6 h `sleep` ended 23 min early. APScheduler re-checks the wall
+#     clock; a shell sleep does not.
+#   - Stop at 16:45 ET (PCR snapshot completes ~16:31:35; publish_audit_state
 #     at 16:33 runs the full mechanical audit, 72 s measured, incl. a backtest).
 set -u
 APEX=/home/promenix/apex
@@ -45,24 +53,40 @@ if [[ -z $TEST ]] && (( 10#$et_hm < 1605 || 10#$et_hm > 1645 )); then
     exit 0
 fi
 
-if ss -ltn "( sport = :$PORT )" | grep -q ":$PORT"; then
-    log "port $PORT already bound — manual instance owns this slot, exiting"
-    exit 0
-fi
+et_epoch() { TZ=America/New_York date -d "$(TZ=America/New_York date +%F) $1" +%s; }
+start_by=$(et_epoch 16:38)
+end_epoch=$(et_epoch 16:45)
+if [[ -n $TEST ]]; then start_by=$(( $(date +%s) + TEST )); end_epoch=$start_by; fi
+
+# Wait for the port to be free (the market window owns it while alive).
+waited=0
+while ss -ltn "( sport = :$PORT )" | grep -q ":$PORT"; do
+    (( waited == 0 )) && log "port $PORT bound — market window up, watching until ET 1638"
+    waited=1
+    if (( $(date +%s) >= start_by )); then
+        log "port $PORT still bound at ET $(TZ=America/New_York date +%H%M) — window served the slot, exiting"
+        exit 0
+    fi
+    sleep 30 & wait $!
+done
+(( waited )) && log "port $PORT freed at ET $(TZ=America/New_York date +%H%M) — window died before 16:38, taking over"
 
 cd "$APEX" || exit 1
-log "starting uvicorn (no --reload), ET now $et_hm"
-"$APEX/venv/bin/uvicorn" backend.main:app --host 127.0.0.1 --port "$PORT" >> "$LOG" 2>&1 &
+log "starting uvicorn (no --reload), ET now $(TZ=America/New_York date +%H%M)"
+APEX_SERVE=1 "$APEX/venv/bin/uvicorn" backend.main:app --host 127.0.0.1 --port "$PORT" >> "$LOG" 2>&1 &
 PID=$!
 
-# Sleep until 16:40 ET today.
-end_epoch=$(TZ=America/New_York date -d "$(TZ=America/New_York date +%F) 16:40" +%s)
-now_epoch=$(date +%s)
-sleep_s=$(( end_epoch - now_epoch ))
-[[ -n $TEST ]] && sleep_s=$TEST
-(( sleep_s > 0 )) && sleep "$sleep_s"
+# Hold until 16:45 ET on the wall clock; a child that dies first is logged.
+while (( $(date +%s) < end_epoch )); do
+    if ! kill -0 "$PID" 2>/dev/null; then
+        wait "$PID"; rc=$?
+        log "ended before window close (uvicorn exited rc=$rc), ET now $(TZ=America/New_York date +%H%M)"
+        exit 1
+    fi
+    sleep 30 & wait $!
+done
 
-log "window closed — SIGTERM $PID"
+log "window closed (ET now $(TZ=America/New_York date +%H%M)) — SIGTERM $PID"
 kill -TERM "$PID" 2>/dev/null
 for _ in $(seq 1 30); do kill -0 "$PID" 2>/dev/null || break; sleep 1; done
 if kill -0 "$PID" 2>/dev/null; then log "did not exit in 30s — SIGKILL"; kill -KILL "$PID"; fi

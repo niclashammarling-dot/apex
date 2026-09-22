@@ -18,11 +18,12 @@
 #   - The stop is clock-based on purpose: on an early close (13:00 ET) the
 #     process idles — is_market_open() is calendar-aware for early closes since
 #     2026-09-17 — because eod_regime 16:15 and collect_pcr 16:30 still fire.
-#   - No --reload. The serving process is never the edited process. Develop on
-#     another port: APEX_NO_SCHEDULER=1 uvicorn backend.main:app --port 8001 --reload
-#     (API only — a second scheduler would trade against the same DB), and
-#     APEX_API_PORT=8001 npm run dev for the frontend proxy. Viewing needs no
-#     second backend: npm run dev alone proxies to :8000.
+#   - No --reload. The serving process is never the edited process, and the
+#     edited process never serves: only a process started with APEX_SERVE=1
+#     (this script, eod_window.sh) may take the scheduler lock. Develop on
+#     another port with a plain `uvicorn backend.main:app --port 8001 --reload`
+#     and `APEX_API_PORT=8001 npm run dev`; viewing needs no second backend
+#     (`npm run dev` alone proxies to :8000).
 #   - Port 8000 already bound → exit; that instance's APScheduler owns the day.
 #   - Interruption recovery (2026-09-21, from the 09-19 first-window-day note):
 #     the wrapper watches the child instead of sleeping blind. Child gone
@@ -31,6 +32,11 @@
 #     relaunch safe). Host reboot kills the wrapper without an exit code, so
 #     the task also has a LogonTrigger: same script, same guards. TERM/HUP
 #     are trapped so a WSL teardown that does deliver a signal self-logs.
+#   - The hold is a wall-clock loop on `date`, never a blind `sleep N`: on
+#     2026-09-21 the previous `sleep` to 16:40 ET ended at 16:17 ET — WSL2's
+#     monotonic clock runs fast after a host sleep (3.4% measured) while
+#     realtime is kept synced to Windows. collect_pcr 16:30 and the 16:33
+#     audit never fired that night. APScheduler re-checks the wall clock.
 #   - eod_window.sh (22:10 / 21:10) stays registered as the fallback: it sees
 #     the port bound and exits when this window is up, and serves the EOD jobs
 #     when this window failed to start.
@@ -68,7 +74,7 @@ fi
 
 cd "$APEX" || exit 1
 log "starting uvicorn (no --reload), ET now $et_hm"
-"$APEX/venv/bin/uvicorn" backend.main:app --host 127.0.0.1 --port "$PORT" >> "$LOG" 2>&1 &
+APEX_SERVE=1 "$APEX/venv/bin/uvicorn" backend.main:app --host 127.0.0.1 --port "$PORT" >> "$LOG" 2>&1 &
 PID=$!
 
 on_signal() {
@@ -92,7 +98,7 @@ while (( $(date +%s) < end_epoch )); do
     sleep 30 & wait $!   # backgrounded so a trapped signal is handled at once
 done
 
-log "window closed — SIGTERM $PID"
+log "window closed (ET now $(TZ=America/New_York date +%H%M)) — SIGTERM $PID"
 kill -TERM "$PID" 2>/dev/null
 for _ in $(seq 1 30); do kill -0 "$PID" 2>/dev/null || break; sleep 1; done
 if kill -0 "$PID" 2>/dev/null; then log "did not exit in 30s — SIGKILL"; kill -KILL "$PID"; fi

@@ -23,7 +23,8 @@ def _run82(tmp_path, monkeypatch, logs: dict[str, str], sessions: list[str]):
 
 
 START  = "2026-09-22 14:15:01 CEST | starting uvicorn (no --reload), ET now 0815\n"
-CLOSE  = "2026-09-22 22:40:00 CEST | window closed — SIGTERM 100\n2026-09-22 22:40:01 CEST | exit\n"
+CLOSE  = "2026-09-22 22:40:00 CEST | window closed (ET now 1640) — SIGTERM 100\n2026-09-22 22:40:01 CEST | exit\n"
+EARLYCLOSE = "2026-09-22 22:17:24 CEST | window closed (ET now 1617) — SIGTERM 100\n2026-09-22 22:17:24 CEST | exit\n"
 EARLY  = "2026-09-22 19:53:10 CEST | ended before window close (uvicorn exited rc=143), ET now 1353\n"
 DRIFT  = "2026-09-22 14:15:00 CEST | clock drift vs Windows: 0s\n"
 
@@ -73,3 +74,13 @@ def test_skipped_without_db(tmp_path, monkeypatch):
     monkeypatch.setattr(core, "skipped", [])
     cg.check82()
     assert core.findings == [] and any(s[0] == 82 for s in core.skipped)
+
+
+def test_window_closed_before_1640_is_critical(tmp_path, monkeypatch):
+    out = _run82(tmp_path, monkeypatch, {"2026-09-22": START + EARLYCLOSE}, ["2026-09-22"])
+    assert [s for s, _ in out] == ["CRITICAL"] and "ET 1617" in out[0][1]
+
+
+def test_legacy_close_line_without_clock_is_not_flagged(tmp_path, monkeypatch):
+    legacy = "2026-09-22 22:17:24 CEST | window closed — SIGTERM 100\n2026-09-22 22:17:24 CEST | exit\n"
+    assert _run82(tmp_path, monkeypatch, {"2026-09-22": START + legacy}, ["2026-09-22"]) == []

@@ -76,19 +76,24 @@ async def lifespan(app: FastAPI):
     from backend.live_config import ensure_config_exists as ensure_live
     ensure_demo()
     ensure_live()
-    # One scheduler per DB. Every backend instance used to run the full job set
-    # (gate, exits, EOD regime, collect_pcr, publish_audit_state); on 2026-09-21
-    # a --reload dev instance on :8001 started "for viewing" beside the
-    # scheduled window on :8000 and placed three live bracket orders (MU, QCOM,
-    # ANET) from its own phase-shifted cycles. The default must fail safe:
-    # the scheduler starts only under an exclusive lock on data/scheduler.lock;
-    # a second instance serves the API and says so. APEX_NO_SCHEDULER=1 makes
-    # the API-only role explicit (no lock attempt, no initial poll).
+    # The scheduler is the launcher's role, never a default. Every backend
+    # instance used to run the full job set (gate, exits, EOD regime,
+    # collect_pcr, publish_audit_state); on 2026-09-21 a --reload dev instance
+    # on :8001 started "for viewing" placed three live bracket orders (MU,
+    # QCOM, ANET) from its own phase-shifted cycles. A first fix made the
+    # API-only role opt-in (APEX_NO_SCHEDULER=1) — a default that trades.
+    # Now: only a process started with APEX_SERVE=1 (scripts/market_window.sh,
+    # scripts/eod_window.sh) may schedule, and only under an exclusive lock on
+    # data/scheduler.lock; everything else — dev instances, ad-hoc scripts,
+    # tests — serves the API and says so. Niclas, 2026-09-22: "the dev
+    # instance should never trade, since it's essentially the developer and
+    # not the production."
     app.state.scheduler_lock = None
-    if os.environ.get("APEX_NO_SCHEDULER") == "1":
-        logger.warning("APEX_NO_SCHEDULER=1 — API only, no initial poll, no scheduled jobs")
+    if os.environ.get("APEX_SERVE") != "1":
+        logger.warning("APEX_SERVE not set — API only, no initial poll, no scheduled jobs "
+                       "(the launcher scripts set it; a dev instance never schedules)")
     elif (lock := _acquire_scheduler_lock()) is None:
-        logger.warning("scheduler lock held by another APEX instance — API only, no scheduled jobs")
+        logger.warning("APEX_SERVE=1 but the scheduler lock is held by another instance — API only")
     else:
         app.state.scheduler_lock = lock
         logger.info("Running initial sector poll…")

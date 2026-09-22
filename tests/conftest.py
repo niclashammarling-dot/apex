@@ -29,14 +29,13 @@ def pytest_configure(config):
     # (CREATE IF NOT EXISTS; ADD COLUMN failures swallowed), so the per-file
     # calls that remain are harmless.
     db_module.init_db()
-    # No test may own the scheduler. TestClient(app) enters the lifespan, and
-    # the lifespan's default role is to poll and schedule; under pytest the DB
-    # is the temp file above, but the pollers still hit real APIs and the
-    # exit check still reads the broker. Found 2026-09-21: an ad-hoc script
-    # that imported the app (no conftest, no env) ran a live exit check at
-    # 15:26 ET. Tests that need the lock path patch SCHEDULER_LOCK and
-    # override the env explicitly (tests/test_scheduler_lock.py).
-    os.environ.setdefault("APEX_NO_SCHEDULER", "1")
+    # No test may own the scheduler. TestClient(app) enters the lifespan; only
+    # a process with APEX_SERVE=1 (the launcher scripts) may schedule, so make
+    # sure no inherited environment turns a test into the trader. Found
+    # 2026-09-21: an ad-hoc script that imported the app ran a live exit check
+    # at 15:26 ET. Tests of the serve path set the env and hold the lock
+    # explicitly (tests/test_scheduler_lock.py).
+    os.environ.pop("APEX_SERVE", None)
 
     # Same reasoning, one level later: regime_bayes.py's two JSON/JSONL
     # runtime outputs were git-tracked (not gitignored like apex.db), which

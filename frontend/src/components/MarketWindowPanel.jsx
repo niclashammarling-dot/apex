@@ -33,7 +33,7 @@ export default function MarketWindowPanel() {
         {" · "}CYCLE {data.gate_interval_min}M
       </div>
       <table className="t-tbl">
-        <thead><tr><th>Session</th><th>Cycles</th><th></th><th>Launcher</th><th>Drift</th><th>Last event</th></tr></thead>
+        <thead><tr><th>Session</th><th>Cycles</th><th></th><th>Launcher</th><th>EOD</th><th>Drift</th><th>Last event</th></tr></thead>
         <tbody>
           {sessions.map(s => {
             const pct = Math.min(1, s.cycles / s.expected);
@@ -50,6 +50,13 @@ export default function MarketWindowPanel() {
                   </div>
                 </td>
                 <td><span className={"t-pill " + st.cls}>{st.label}</span></td>
+                <td title="regime · pcr rows · audit published" style={{ whiteSpace: "nowrap" }}>
+                  {[["R", s.eod.regime], ["P", s.eod.pcr_rows > 0], ["A", s.eod.audit]].map(([k, ok]) => (
+                    <span key={k} style={{ marginRight: 6, color: ok === null ? "var(--t-text-3)" : ok ? "var(--t-accent)" : "var(--t-red)" }}>
+                      {k}{ok === null ? "·" : ok ? "✓" : "✗"}
+                    </span>
+                  ))}
+                </td>
                 <td>{s.clock_drift_s == null ? "—" : `${s.clock_drift_s}s`}</td>
                 <td>{last ? `${last.at.slice(11)} ${last.event}` : "—"}</td>
               </tr>

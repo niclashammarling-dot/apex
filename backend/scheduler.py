@@ -563,6 +563,63 @@ def _check_missed_eod_regime() -> None:
         run_eod_regime(as_of=d)
 
 
+def _check_missed_pcr_collect() -> None:
+    """
+    Same-evening catch-up for collect_pcr (16:30 ET). Found 2026-09-21: the
+    market window's blind `sleep` ended 23 min early (WSL2 monotonic clock runs
+    fast after a host sleep), the process died at 16:17 ET, and the 16:30 slot
+    never fired; the EOD fallback had exited at 16:10 on "port bound". Open
+    interest is a snapshot that OCC republishes overnight, so a run later the
+    same evening reads the same data the slot would have — and a run the next
+    morning would not. Same-day only, never a past date: a snapshot stamped
+    with a date it was not taken on is the provenance defect CHECK 77 exists for.
+    """
+    from backend.db import get_db
+    now = datetime.now(NY)
+    today = now.date()
+    if now.time() < time(16, 30) or not _nyse_sessions_for_date(today.isoformat()):
+        return
+    try:
+        conn = get_db()
+        try:
+            n = conn.execute("SELECT COUNT(*) FROM lock4_pcr_history WHERE date = ?",
+                             (today.isoformat(),)).fetchone()[0]
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f"PCR catch-up: DB check failed — {e}")
+        return
+    if n:
+        return
+    logger.warning(f"collect_pcr missed for {today} (started {now:%H:%M} ET, no rows) — running now")
+    collect_pcr_snapshot(today=today)
+
+
+def _check_missed_audit_publish() -> None:
+    """
+    Same-evening catch-up for publish_audit_state (16:33 ET), keyed on the
+    generated_at date in audit/state/latest.json. Same 2026-09-21 gap as the
+    PCR catch-up: no nightly audit ran, so CHECKs 81–83 had no reader that
+    night. Same-day only; a late run still reads today's state.
+    """
+    import json
+    now = datetime.now(NY)
+    today = now.date()
+    if now.time() < time(16, 33) or not _nyse_sessions_for_date(today.isoformat()):
+        return
+    state = Path(__file__).resolve().parent.parent / "audit" / "state" / "latest.json"
+    try:
+        gen = json.loads(state.read_text()).get("generated_at") if state.exists() else None
+        done = gen and datetime.fromisoformat(gen).astimezone(NY).date() >= today
+    except Exception as e:
+        logger.warning(f"audit catch-up: could not read {state.name} — {e}")
+        return
+    if done:
+        return
+    logger.warning(f"publish_audit_state missed for {today} (last: {gen or 'never'}) — running now")
+    publish_audit_state()
+
+
 def _check_missed_calibration() -> None:
     """
     Run threshold calibration on startup if the server was down at the
@@ -773,6 +830,8 @@ def start_scheduler() -> None:
     _check_missed_weekly_report()
     _check_missed_sentiment_prefetch()
     _check_missed_live_exits()
+    _check_missed_pcr_collect()
+    _check_missed_audit_publish()
     logger.info(
         f"Scheduler started — sectors every {POLL_INTERVAL_SECTORS}m, "
         f"gate every {GATE_INTERVAL}m, "

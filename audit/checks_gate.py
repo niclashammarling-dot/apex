@@ -1130,6 +1130,8 @@ def check82() -> None:
                 teardown) and did not get to write its own line
       WARNING   no market_window_<date>.log on a session day — the task never
                 fired (machine off all day, task unregistered)
+      CRITICAL  `window closed (ET now HHMM)` with HHMM < 1640 — the hold ended
+                early (2026-09-21: blind sleep on a fast monotonic clock)
       INFO      more than one `starting uvicorn` in a day — the relaunch path
                 ran; the count is the recovery working
     SKIPPED without apex.db (the audit's local-environment marker; logs/ is
@@ -1156,6 +1158,17 @@ def check82() -> None:
         starts = [ln for ln in lines if "| starting uvicorn" in ln]
         early  = [ln for ln in lines if "| ended before window close" in ln]
         exits  = [ln for ln in lines if ln.endswith("| exit")]
+        closed = [ln for ln in lines if "| window closed" in ln]
+        # 2026-09-21: `window closed` at 16:17 ET — the wrapper's blind sleep ended
+        # 23 min early (WSL2 monotonic clock fast after a host sleep); collect_pcr
+        # 16:30 and the 16:33 audit never fired. The line now carries the ET clock.
+        for ln in closed:
+            m = re.search(r"window closed \(ET now (\d{4})\)", ln)
+            if m and int(m.group(1)) < 1640:
+                flag(82, name, "CRITICAL", "scripts/market_window.sh",
+                     f"{d}: window closed at ET {m.group(1)}, before 16:40 — the EOD jobs after that "
+                     f"clock time (collect_pcr 16:30, publish_audit_state 16:33) did not run in this "
+                     f"process; check the eod_window log for a takeover and the same-day catch-ups")
         for ln in early:
             flag(82, name, "CRITICAL", "scripts/market_window.sh",
                  f"{d}: {ln.split(' | ', 1)[1]} — the serving process was lost mid-window"

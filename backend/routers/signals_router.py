@@ -851,7 +851,19 @@ def get_market_window(days: int = 10):
             "FROM demo_gate_history WHERE timestamp >= ? GROUP BY d ORDER BY d",
             (since,),
         ).fetchall()
+        regime = {r[0] for r in conn.execute(
+            "SELECT DISTINCT date FROM sector_posterior_history WHERE date >= ?", (since,)).fetchall()}
+        pcr = {r[0]: r[1] for r in conn.execute(
+            "SELECT date, COUNT(*) FROM lock4_pcr_history WHERE date >= ? GROUP BY date", (since,)).fetchall()}
     cycles = {r["d"]: r["c"] for r in rows}
+    # The nightly audit keeps only its latest state; earlier sessions read as unknown.
+    audit_date = None
+    try:
+        import json
+        gen = json.loads((_AUDIT_DIR / "state" / "latest.json").read_text()).get("generated_at")
+        audit_date = datetime.fromisoformat(gen).astimezone(NY).date().isoformat() if gen else None
+    except (OSError, ValueError):
+        pass
 
     sessions = []
     for i in range(days, -1, -1):
@@ -883,6 +895,10 @@ def get_market_window(days: int = 10):
                          else "running" if started else "not_started"),
             "events": events,
             "clock_drift_s": drift,
+            # 2026-09-21: the window closed at 16:17 ET and neither collect_pcr nor the
+            # audit ran; nothing on the dashboard said so. Same-day catch-ups exist now.
+            "eod": {"regime": d in regime, "pcr_rows": pcr.get(d, 0),
+                    "audit": (d == audit_date) if (audit_date is None or d >= audit_date) else None},
         })
     return {"gate_interval_min": GATE_INTERVAL, "sessions": sessions}
 
