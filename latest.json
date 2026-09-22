@@ -1,6 +1,6 @@
 {
- "generated_at": "2026-09-18T20:34:58+00:00",
- "host_commit": "7c7399e",
+ "generated_at": "2026-09-22T20:34:14+00:00",
+ "host_commit": "f465d77",
  "findings": [
   [
    4,
@@ -8,13 +8,6 @@
    "WARNING",
    "data/demo_config.json:\u2014",
    "key 'live_account_since' in live but missing from demo"
-  ],
-  [
-   38,
-   "Live entry absence-of-activity",
-   "WARNING",
-   "data/apex.db:live_gate_history",
-   "5 active trading days with no TRADE_EXECUTED (last entry 2026-09-11); avg 68 assessments/day; dominant filters: FILTERED_ELIGIBILITY 93%, FILTERED_LEADING 6%"
   ],
   [
    54,
@@ -35,56 +28,77 @@
    "Lock 4 PCR channel under per-ticker P25 (demo)",
    "INFO",
    "data/apex.db:demo_gate_history",
-   "accumulating \u2014 15/100 per_ticker_p25 rows for the rate read, 0/30 passes for the composition read. Session coverage since build (cycles written / expected at 20m): 09-17 11/19, 09-18 13/19; trailing-3 mean 63%. baseline (0.85, demo since 2026-05-21): 234/1049 PCR passes = 22.3%. per_ticker_p25: 0/15 = 0.0% [0.0%, 20.4%]. Composition of passes \u2014 blocked-under-0.85 names: 0% of passes vs 0% of evaluations (baseline 0% by construction); open-under-0.85 names: 0% of passes vs 100% of evaluations (baseline 87% of passes)."
+   "accumulating \u2014 48/100 per_ticker_p25 rows for the rate read, 6/30 passes for the composition read. Session coverage since build (cycles written / expected at 20m): 09-17 11/19, 09-18 13/19, 09-21 21/19, 09-22 38/19; trailing-3 mean 126%. baseline (0.85, demo since 2026-05-21): 234/1049 PCR passes = 22.3%. per_ticker_p25: 6/48 = 12.5% [5.9%, 24.7%]. Composition of passes \u2014 blocked-under-0.85 names: 17% of passes vs 40% of evaluations (baseline 0% by construction); open-under-0.85 names: 33% of passes vs 54% of evaluations (baseline 87% of passes)."
   ],
   [
    81,
    "Lock 5 fail-closed (API unavailable)",
    "CRITICAL",
    "backend/gate/lock5_claude.py:_fail_closed",
-   "2 Lock 5 fail-closed row(s) in the last 2 days \u2014 candidates that cleared Lock 4 were rejected because the Anthropic call failed, not by Claude. live: 09-18 ANET (credit_exhausted [backfilled 2026-09-18 by inference from logs/apex_2026-09-18.log req_011CfAzhg3AY6eDZp6Yry5FA / req_011CfB6oDf2jScnypmUDGWDM; not observed under the new code path]), 09-18 AMD (credit_exhausted [backfilled 2026-09-18 by inference from logs/apex_2026-09-18.log req_011CfAzhg3AY6eDZp6Yry5FA / req_011CfB6oDf2jScnypmUDGWDM; not observed under the new code path]). Restore the API (top up / key / network) before the next session."
+   "7 Lock 5 fail-closed row(s) in the last 2 days \u2014 candidates that cleared Lock 4 were rejected because the Anthropic call failed, not by Claude. live: 09-21 ANET (credit_exhausted), 09-21 AAPL (credit_exhausted), 09-21 MRVL (credit_exhausted), 09-21 NVDA (credit_exhausted); demo: 09-21 AAPL (credit_exhausted), 09-21 MU (credit_exhausted), 09-21 MRVL (credit_exhausted). Restore the API (top up / key / network) before the next session."
+  ],
+  [
+   82,
+   "Market window interrupted",
+   "CRITICAL",
+   "scripts/market_window.sh",
+   "2026-09-18: `starting uvicorn` at 14:45:59 CEST with no `exit` line \u2014 the wrapper was killed without a signal (host reboot / WSL teardown); cycles that day are partial (CHECK 80 coverage line)"
+  ],
+  [
+   83,
+   "Two schedulers on one book (off-phase gate cycles)",
+   "CRITICAL",
+   "backend/main.py:_acquire_scheduler_lock",
+   "live: 4 off-phase cycle pair(s) in the last 3 days \u2014 a second backend instance ran its own scheduler against the same DB: 09-21 17:55\u219217:57 (2m); 09-21 18:15\u219218:17 (2m); 09-21 18:34\u219218:37 (3m); 09-21 18:54\u219218:57 (3m)"
+  ],
+  [
+   83,
+   "Two schedulers on one book (off-phase gate cycles)",
+   "CRITICAL",
+   "backend/main.py:_acquire_scheduler_lock",
+   "demo: 4 off-phase cycle pair(s) in the last 3 days \u2014 a second backend instance ran its own scheduler against the same DB: 09-21 18:04\u219218:07 (3m); 09-21 18:24\u219218:27 (3m); 09-21 18:44\u219218:47 (3m); 09-21 19:04\u219219:07 (3m)"
   ],
   [
    77,
    "Posterior history provenance and gap count",
    "WARNING",
    "data/apex.db:sector_posterior_history",
-   "13 of 77 NYSE sessions since 2026-05-29 have no posterior row (17%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-07-29, 2026-07-31, 2026-08-03, 2026-08-05, 2026-08-20, 2026-08-21, 2026-08-26, 2026-08-27. Standing level, not an event \u2014 the July\u2013August holes are unadjudicable (no written_at, logs rotated)."
+   "13 of 79 NYSE sessions since 2026-05-29 have no posterior row (16%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-07-29, 2026-07-31, 2026-08-03, 2026-08-05, 2026-08-20, 2026-08-21, 2026-08-26, 2026-08-27. Standing level, not an event \u2014 the July\u2013August holes are unadjudicable (no written_at, logs rotated)."
   ],
   [
    78,
    "PCR history gap count",
    "CRITICAL",
    "backend/scheduler.py:collect_pcr",
-   "no PCR rows for 2026-09-16, 2026-09-17 \u2014 a session in the trailing 3 with no 16:30 ET collection; open interest is a snapshot, this cannot be backfilled. Cumulative 44/82 since 2026-05-21."
+   "no PCR rows for 2026-09-17, 2026-09-21 \u2014 a session in the trailing 3 with no 16:30 ET collection; open interest is a snapshot, this cannot be backfilled. Cumulative 45/84 since 2026-05-21."
   ],
   [
    63,
    "Healthcare composite dilution monitor",
    "SUPPRESSED",
    "data/apex.db:sector_snapshots",
-   "[CRITICAL suppressed \u2014 market-wide decline: 9/11 sectors below 75% of their 60d peak (Communication, ConsumerDisc, Defense, Energy, Healthcare, Homebuilders, Industrials, RealEstate, Transportation). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Healthcare avg_score=0.4814 (at 2026-09-18T20:11:25.512101+00:00) is below critical floor 0.55; baseline was 0.6736 on 2026-07-01 (pre-ISRG/TMO). At neutral posterior (~0.55), adjusted_score \u2248 0.265, below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove ISRG and TMO via ticker_config.remove_ticker() and diagnose signal history before re-adding."
+   "[WARNING suppressed \u2014 market-wide decline: 8/11 sectors below 75% of their 60d peak (Communication, ConsumerDisc, Defense, Energy, Homebuilders, Industrials, RealEstate, Transportation). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Healthcare avg_score=0.5783 (at 2026-09-22T19:51:39.209363+00:00) dropped below 0.6; baseline was 0.6736 on 2026-07-01 (pre-ISRG/TMO). Investigate ISRG/TMO signal quality in sector_snapshots before next gate cycle."
   ],
   [
    67,
    "Industrials composite dilution monitor",
    "SUPPRESSED",
    "data/apex.db:sector_snapshots",
-   "[CRITICAL suppressed \u2014 market-wide decline: 9/11 sectors below 75% of their 60d peak (Communication, ConsumerDisc, Defense, Energy, Healthcare, Homebuilders, Industrials, RealEstate, Transportation). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Industrials avg_score=0.3752 (at 2026-09-18T20:11:25.512101+00:00) is below critical floor 0.48; baseline was 0.6009 on 2026-08-08 (pre-ETN/PWR/TT). At neutral posterior (~0.55), adjusted_score \u2248 0.206, below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove ETN/PWR/TT via ticker_config.remove_ticker() and diagnose signal history before re-adding."
+   "[CRITICAL suppressed \u2014 market-wide decline: 8/11 sectors below 75% of their 60d peak (Communication, ConsumerDisc, Defense, Energy, Homebuilders, Industrials, RealEstate, Transportation). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Industrials avg_score=0.4070 (at 2026-09-22T19:51:39.209363+00:00) is below critical floor 0.48; baseline was 0.6009 on 2026-08-08 (pre-ETN/PWR/TT). At neutral posterior (~0.55), adjusted_score \u2248 0.224, below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove ETN/PWR/TT via ticker_config.remove_ticker() and diagnose signal history before re-adding."
   ],
   [
    68,
    "Defense composite dilution monitor",
    "SUPPRESSED",
    "data/apex.db:sector_snapshots",
-   "[CRITICAL suppressed \u2014 market-wide decline: 9/11 sectors below 75% of their 60d peak (Communication, ConsumerDisc, Defense, Energy, Healthcare, Homebuilders, Industrials, RealEstate, Transportation). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Defense avg_score=0.2573 (at 2026-09-18T20:11:25.512101+00:00) is below critical floor 0.6; baseline was 0.7169 on 2026-08-08 (pre-AXON/HWM). At neutral posterior (~0.55), adjusted_score \u2248 0.142, below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove AXON/HWM via ticker_config.remove_ticker() and diagnose signal history before re-adding."
+   "[CRITICAL suppressed \u2014 market-wide decline: 8/11 sectors below 75% of their 60d peak (Communication, ConsumerDisc, Defense, Energy, Homebuilders, Industrials, RealEstate, Transportation). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Defense avg_score=0.1552 (at 2026-09-22T19:51:39.209363+00:00) is below critical floor 0.6; baseline was 0.7169 on 2026-08-08 (pre-AXON/HWM). At neutral posterior (~0.55), adjusted_score \u2248 0.085, below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove AXON/HWM via ticker_config.remove_ticker() and diagnose signal history before re-adding."
   ],
   [
    71,
    "entry-floor ceiling sweep",
    "WARNING",
    "data/regime_signal_trace.jsonl",
-   "2026-09-18: 6/11 eligible sectors cannot clear the 0.37 entry floor at any posterior (composite must be \u2265 0.3895 = floor/0.95); enterable: Communication, Energy, Healthcare, Semiconductors, Technology. Enterable by date (last 22): 8,8,6,7,7,7,5,4,4,4,4,4,4,4,4,3,5,4,4,3,4,5. Dark: ConsumerDisc agg=0.2982 ceil_adj=0.2833 dark 18/22d persistent; Defense agg=0.2573 ceil_adj=0.2444 dark 19/22d persistent; Homebuilders agg=0.2404 ceil_adj=0.2284 dark 20/22d persistent; Industrials agg=0.3752 ceil_adj=0.3564 dark 20/22d persistent; RealEstate agg=0.2855 ceil_adj=0.2712 dark 18/22d persistent; Transportation agg=0.2948 ceil_adj=0.2801 dark 18/22d persistent."
+   "2026-09-21: 7/11 eligible sectors cannot clear the 0.37 entry floor at any posterior (composite must be \u2265 0.3895 = floor/0.95); enterable: Communication, Healthcare, Semiconductors, Technology. Enterable by date (last 23): 8,8,6,7,7,7,5,4,4,4,4,4,4,4,4,3,5,4,4,3,4,5,4. Dark: ConsumerDisc agg=0.2952 ceil_adj=0.2804 dark 19/23d persistent; Defense agg=0.2498 ceil_adj=0.2373 dark 20/23d persistent; Energy agg=0.2702 ceil_adj=0.2567 dark 1/23d; Homebuilders agg=0.2344 ceil_adj=0.2227 dark 21/23d persistent; Industrials agg=0.3683 ceil_adj=0.3499 dark 21/23d persistent; RealEstate agg=0.3002 ceil_adj=0.2852 dark 19/23d persistent; Transportation agg=0.2442 ceil_adj=0.2320 dark 19/23d persistent."
   ],
   [
    45,
@@ -94,14 +108,35 @@
    "`with get_db() as conn` \u2014 sqlite3 context manager never closes the connection; use try/finally conn.close()"
   ],
   [
+   45,
+   "Static code analysis",
+   "WARNING",
+   "backend/routers/signals_router.py:855",
+   "`with get_db() as conn` \u2014 sqlite3 context manager never closes the connection; use try/finally conn.close()"
+  ],
+  [
    74,
    "Decaying date-comparison test shape",
    "WARNING",
    "tests/test_live_reconciliation.py",
    "hardcoded absolute date(s) alongside a call into decaying wall-clock function(s) check_live_exits \u2014 verify this still exercises the intended branch, not one it drifted into"
+  ],
+  [
+   32,
+   "Git sync divergence",
+   "WARNING",
+   ".git/",
+   "1 uncommitted file(s) in working tree \u2014 changes will be lost or skipped on next nightly run"
   ]
  ],
- "skipped": [],
+ "skipped": [
+  [
+   75,
+   "Prior-close fallback rate",
+   "logs/",
+   "no carried-over exit processed in the last 3 log days \u2014 path not exercised, zero fallbacks is not evidence"
+  ]
+ ],
  "evaluated": [
   3,
   4,
@@ -164,17 +199,18 @@
   69,
   71,
   74,
-  75,
   76,
   77,
   78,
   79,
   80,
-  81
+  81,
+  82,
+  83
  ],
  "alert_channel": {
   "ok": true,
   "detail": "SMTP login ok as niclas.hammarling@gmail.com via smtp.gmail.com",
-  "checked_at": "2026-09-18T20:34:58+00:00"
+  "checked_at": "2026-09-22T20:34:15+00:00"
  }
 }
