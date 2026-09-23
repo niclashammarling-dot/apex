@@ -1014,6 +1014,42 @@ _C81_EVENT_DAYS = 2    # CRITICAL window: the audit reads after the close, so "t
 _C81_TALLY_DAYS = 30   # standing INFO tally
 
 
+def _l5_recovered_after(db, unavailable_prefix: str, since: str) -> str | None:
+    """
+    Timestamp of the first successful Lock 5 answer after the most recent
+    fail-closed row in the event window, or None if there has not been one.
+
+    "Successful" = a row that reached Lock 5 (lock_leading_pass = 1) whose
+    lock3_reasoning is present and does not carry the unavailable prefix —
+    i.e. Claude answered, whatever the verdict. Read across both tables,
+    because the two runners share one API key and either one recovering
+    proves the key works.
+    """
+    try:
+        conn = sqlite3.connect(db)
+        last_fail = None
+        for t in ("live_gate_history", "demo_gate_history"):
+            r = conn.execute(
+                f"SELECT max(timestamp) FROM {t} WHERE timestamp >= ? AND lock3_reasoning LIKE ?",
+                (since, unavailable_prefix + "%")).fetchone()[0]
+            if r and (last_fail is None or r > last_fail):
+                last_fail = r
+        if last_fail is None:
+            return None
+        first_ok = None
+        for t in ("live_gate_history", "demo_gate_history"):
+            r = conn.execute(
+                f"SELECT min(timestamp) FROM {t} WHERE timestamp > ? AND lock_leading_pass = 1 "
+                f"AND lock3_reasoning IS NOT NULL AND lock3_reasoning NOT LIKE ?",
+                (last_fail, unavailable_prefix + "%")).fetchone()[0]
+            if r and (first_ok is None or r < first_ok):
+                first_ok = r
+        conn.close()
+        return first_ok
+    except Exception:
+        return None   # never let the remediation probe fail the check
+
+
 def check81() -> None:
     """
     CHECK 81 — Lock 5 fail-closed (API unavailable) is an event, not a HOLD.
@@ -1073,10 +1109,22 @@ def check81() -> None:
             if event[t]:
                 parts.append(f"{t.split('_')[0]}: " + ", ".join(
                     f"{d[5:]} {tk} ({_cause(r)})" for d, tk, r in event[t]))
+        # Remediation must be conditional on whether the outage is still open.
+        # 2026-09-21: seven fail-closed rows (credit_exhausted) between 14:55 and
+        # 17:34 UTC, then Lock 5 answered normally from 17:57 on — the 09-22 mail
+        # still said "restore the API", i.e. told a reader to act on a condition
+        # that had cleared three hours before the rows were even written. A
+        # recovery is a later row that reached Lock 5 and was NOT fail-closed.
+        recovered_at = _l5_recovered_after(db, L5_UNAVAILABLE_PREFIX, since_event)
+        if recovered_at:
+            tail = (f" Lock 5 has answered normally since {recovered_at} — the outage is closed; "
+                    f"no action, but these candidates were rejected by the failure, not on merit.")
+        else:
+            tail = " No successful Lock 5 call since; restore the API (top up / key / network) before the next session."
         flag(81, name, "CRITICAL", "backend/gate/lock5_claude.py:_fail_closed",
              f"{n_event} Lock 5 fail-closed row(s) in the last {_C81_EVENT_DAYS} days — candidates "
              f"that cleared Lock 4 were rejected because the Anthropic call failed, not by Claude. "
-             + "; ".join(parts) + ". Restore the API (top up / key / network) before the next session.")
+             + "; ".join(parts) + "." + tail)
         return
 
     n_tally = sum(len(v) for v in rows.values())
