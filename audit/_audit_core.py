@@ -68,6 +68,74 @@ def _most_recent_trading_day(ref: date | None = None) -> date:
     return d
 
 
+#
+# ── Trailing-window anchors: the convention ───────────────────────────────────
+#
+# THE RULE. A trailing-window check's end anchor must be justified by when its
+# own data source becomes due — never inherited from a sibling check because
+# the code looked similar. Two checks that read different producers on
+# different schedules need different anchors even when both say "trailing 3".
+#
+# Why this is written here rather than in one check's docstring (2026-09-23):
+# CHECKs 77 and 78 shipped in the same week with the identical anchor,
+# `_most_recent_trading_day(today - 1)`. For 77 that is correct and its
+# docstring says why — `eod_regime` writes a session's posterior at 08:30 ET
+# the *next* morning, so today's row genuinely is not due when the audit runs.
+# CHECK 78 copied the anchor without checking its own producer: `collect_pcr`
+# runs at 16:30 ET the *same* day, four minutes before the audit's 16:33 ET
+# slot. So 78 excluded a session that was already due and could not report a
+# failed collection on the night it failed — it first fired the following
+# night. Nothing was wrong with the arithmetic; the window was exactly three
+# sessions. The justification was borrowed, and no docstring anywhere declared
+# which convention a new check should follow, so the next author would copy
+# whichever sibling they read first.
+#
+# Scope. This applies to windows over *sessions* keyed to a producer's
+# schedule. CHECKs 81 and 83 use plain calendar windows (`today - N days`)
+# over row timestamps and include today — that is a different question (how
+# far back do I read rows that already exist) and is not governed by this
+# rule. Do not "align" them to it.
+#
+def last_due_session(due_et: str, due_offset_sessions: int = 0, now_et=None) -> date | None:
+    """
+    Most recent NYSE session whose data is actually due by now.
+
+    due_et               "HHMM" ET, the producer's own slot.
+    due_offset_sessions  0 = session S is due at due_et on S itself
+                         (CHECK 78: collect_pcr, 16:30 ET same day;
+                          CHECK 82: the window's own close, 16:40 ET).
+                         1 = S is due at due_et on the session *after* S
+                         (CHECK 77: eod_regime, 08:30 ET next morning FOR the
+                          previous session).
+
+    Returns None if no session in the lookback is due yet (fresh series, or a
+    long holiday run) — callers should treat that as "nothing to judge".
+
+    now_et  injectable for tests and for replaying a past run; defaults to now.
+
+    Half-day closes are not modelled: every current producer's slot is after
+    the 13:00 ET early close as well as the 16:00 ET regular one, so the
+    distinction does not bite. It would for a producer slotted intraday.
+    """
+    from datetime import datetime, timedelta as _td
+    from zoneinfo import ZoneInfo
+    import pandas_market_calendars as mcal
+
+    now_et = now_et or datetime.now(ZoneInfo("America/New_York"))
+    sched  = mcal.get_calendar("NYSE").schedule(
+        start_date=now_et.date() - _td(days=40), end_date=now_et.date() + _td(days=10))
+    sessions = list(sched.index.date)
+    for i in range(len(sessions) - 1, -1, -1):
+        j = i + due_offset_sessions
+        if j >= len(sessions):
+            continue                      # the session that would make S due hasn't happened
+        due_day = sessions[j]
+        if due_day < now_et.date() or (due_day == now_et.date()
+                                       and now_et.strftime("%H%M") >= due_et):
+            return sessions[i]
+    return None
+
+
 def run_tool(check_num: int, check_name: str, argv: list, *, ok_rc=(0,), timeout: int = 60,
              **kw):
     """

@@ -13,7 +13,8 @@ from datetime import date, datetime, timedelta, timezone
 
 import requests
 
-from audit._audit_core import REPO, _most_recent_trading_day, flag, require_data_file, skipped
+from audit._audit_core import (REPO, _most_recent_trading_day, flag, last_due_session,
+                               require_data_file, skipped)
 
 
 # ── CHECK 14 — EOD regime freshness ──────────────────────────────────────────
@@ -868,7 +869,16 @@ def check77():
     # (2) gap count against the exchange calendar
     have  = {d for d, _, _ in rows}
     first = date.fromisoformat(min(have))
-    last_due = _most_recent_trading_day(date.today() - timedelta(days=1))
+    # Anchor declared, not inherited (see last_due_session's rule in _audit_core):
+    # eod_regime writes session S's posterior at 08:30 ET on the session AFTER S,
+    # so S is not due until then. Identical to the previous
+    # _most_recent_trading_day(today - 1) at the 16:33 ET audit slot; it differs,
+    # correctly, when the check runs before 08:30 ET (CI at 01:00 UTC, an early
+    # manual run), where the old anchor could call a posterior missing hours
+    # before it was due.
+    last_due = last_due_session("0830", due_offset_sessions=1)
+    if last_due is None:
+        return
     sessions = _nyse_sessions(first, last_due)
     missing  = [s.isoformat() for s in sessions if s.isoformat() not in have]
     # Event vs level (2026-09-16, second pass): a gap in the trailing 3 sessions
@@ -929,8 +939,16 @@ def check78():
         flag(78, name, "WARNING", "data/apex.db:lock4_pcr_history",
              "table empty — collect_pcr has never completed")
         return
-    first    = date.fromisoformat(min(have))
-    last_due = _most_recent_trading_day(date.today() - timedelta(days=1))
+    first = date.fromisoformat(min(have))
+    # Anchor declared, not inherited (see last_due_session's rule in _audit_core).
+    # collect_pcr runs 16:30 ET on the session itself, so today counts from 16:30 —
+    # the audit's own slot is 16:33 ET. Until 2026-09-23 this read
+    # _most_recent_trading_day(today - 1), copied from CHECK 77, whose producer
+    # runs the NEXT morning; 78 therefore could not report a failed collection on
+    # the night it failed and first fired one night late.
+    last_due = last_due_session("1630", due_offset_sessions=0)
+    if last_due is None:
+        return
     sessions = _nyse_sessions(first, last_due)
     if not sessions:
         return
