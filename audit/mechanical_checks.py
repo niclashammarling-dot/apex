@@ -131,6 +131,17 @@ def check32():
 
 # ── Check registry updater ────────────────────────────────────────────────────
 
+def _is_liveness_value(v: str) -> bool:
+    """A registry liveness cell is a date or an em-dash. Nothing else."""
+    if v == "—":
+        return True
+    try:
+        date.fromisoformat(v)
+        return True
+    except ValueError:
+        return False
+
+
 def update_registry():
     checks_path = REPO / "audit/CHECKS.md"
     if not checks_path.exists():
@@ -141,6 +152,7 @@ def update_registry():
     lines            = checks_path.read_text().splitlines()
     new_lines        = []
     retirement_candidates = []
+    guarded: list = []
     skipped_nums = {s[0] for s in skipped}
 
     for line in lines:
@@ -148,6 +160,18 @@ def update_registry():
         if len(parts) >= 9 and parts[1].isdigit():
             num  = int(parts[1])
             name, added, prompted, files = parts[2], parts[3], parts[4], parts[5]
+            # Guard (2026-09-23): this writer replaces parts[6]/parts[7] wholesale.
+            # Seven rows (9, 13, 45, 70, 77, 78, 79) carry design amendments inside
+            # the last_clean cell — CHECK 45's is 822 characters — because the cell
+            # was used as a notes field while this producer was disabled (no CI run
+            # since 2026-06-27). A clean run would have overwritten each with a bare
+            # date and deleted the rationale silently. A destructive writer must not
+            # assume its field's content type: refuse the row, keep it verbatim, and
+            # say so at CRITICAL rather than discarding text nobody can recover.
+            if not (_is_liveness_value(parts[6]) and _is_liveness_value(parts[7])):
+                guarded.append(num)
+                new_lines.append(line)
+                continue
             if num in skipped_nums:
                 lt, lc = parts[6], parts[7]      # did not evaluate: neither triggered nor clean
             else:
@@ -173,6 +197,14 @@ def update_registry():
             new_lines.append(line)
 
     checks_path.write_text("\n".join(new_lines) + "\n")
+    # Flagged after the loop, never inside it: flag() mutates `triggered`, which
+    # the loop reads to decide every later row's last_triggered/last_clean.
+    for num in guarded:
+        flag(num, _registry_names().get(num, f"check {num}"), "CRITICAL", "audit/CHECKS.md",
+             f"registry row {num}: last_triggered/last_clean is not a date or — , so the "
+             f"liveness columns were NOT updated for this check. A design note is being kept "
+             f"in a machine-owned cell; move it to a notes column or the check's docstring. "
+             f"Until then this check's liveness is frozen and the retirement clock cannot read it.")
     return retirement_candidates
 
 
