@@ -949,6 +949,24 @@ def check78():
     last_due = last_due_session("1630", due_offset_sessions=0)
     if last_due is None:
         return
+    # Completion gate (2026-09-23). The anchor above counts today from 16:30 ET,
+    # and this audit publishes at 16:33 — measured slack 87 s against a ~93 s
+    # collection, i.e. under one job-length. So drop the newest session back to
+    # the previous one unless collect_pcr says it finished writing it. Absence of
+    # the marker means "not finished yet", never "missing": an unfinished
+    # collection must not be reported as an irrecoverable gap.
+    done_path = REPO / "data/pcr_collect_done.json"
+    done_date = None
+    if done_path.exists():
+        try:
+            done_date = json.loads(done_path.read_text()).get("date")
+        except Exception:
+            done_date = None
+    if done_date != last_due.isoformat():
+        prev = last_due_session("1630", due_offset_sessions=1)
+        if prev is None:
+            return
+        last_due = prev
     sessions = _nyse_sessions(first, last_due)
     if not sessions:
         return

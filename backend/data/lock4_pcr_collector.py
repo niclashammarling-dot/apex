@@ -21,13 +21,27 @@ Entry point:
 """
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timezone
+from pathlib import Path
 
 import yfinance as yf
 from loguru import logger
 
 from backend.db import insert_pcr_observation
 from backend.ticker_config import get_sectors
+
+# Completion marker read by CHECK 78 (audit/checks_data.py). The check counts a
+# session's PCR rows against the exchange calendar; since 2026-09-23 its window
+# ends at the session itself once 16:30 ET has passed, so it can now examine a
+# collection that is still being written. Measured 2026-09-23: the job takes
+# ~93 s and the audit publishes at 16:33 ET — under one job-length of slack. A
+# slow run (the chain fetches retry on empty responses) would otherwise report
+# today's session as an irrecoverable gap while its rows were landing.
+# So 78 gates on this marker, not on the clock: no marker for a date means
+# "not finished", never "missing". Same intent-carrying-artifact shape as
+# calibration_done.txt / CHECK 15.
+PCR_DONE_PATH = Path(__file__).parent.parent.parent / "data" / "pcr_collect_done.json"
 
 VIX_DISLOCATION_THRESHOLD = 30.0
 
@@ -132,6 +146,20 @@ def collect_pcr_snapshot(today: date | None = None) -> dict:
         f"PCR snapshot {date_str}: collected={collected} skipped={skipped} "
         f"errors={errors} dislocation={is_dislocation}"
     )
+
+    # Written only when the run actually produced rows: a completed run that
+    # collected nothing is a gap, and must stay visible to CHECK 78.
+    if collected > 0:
+        try:
+            PCR_DONE_PATH.write_text(json.dumps({
+                "date":         date_str,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "collected":    collected,
+                "errors":       errors,
+            }))
+        except Exception as e:                      # never fail the collection on the marker
+            logger.warning(f"PCR collector: could not write {PCR_DONE_PATH.name}: {e}")
+
     return {
         "collected":       collected,
         "skipped":         skipped,
