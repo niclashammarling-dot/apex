@@ -72,3 +72,8 @@ data/backups/**/*.json
 data/backups/**/*.log
 data/backups/**/*.jsonl
 data/.eod_replay.lock
+
+# Runtime scheduler lock — holds the serving PID, created by main.py at startup
+# (open(SCHEDULER_LOCK, "w")). Tracked until 2026-09-24, which put a PID diff in
+# every commit made while a window was running.
+data/scheduler.lock
