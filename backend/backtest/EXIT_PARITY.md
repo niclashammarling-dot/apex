@@ -167,6 +167,54 @@ but any later sweep writing a cache file would silently swap the OHLC source.
 High is already present in the cache (all five OHLCV fields are), so the R4
 ratchet needs no new download.
 
+## The model is one-sided — targets are still close-only (found 2026-09-25, after the port)
+
+Checking Niclas's "TP on close versus intraday" question before trusting the
+sweep turned up a defect in what step (1) shipped.
+
+`brokers/alpaca.py:262-264` places `OrderClass.BRACKET` with **both**
+`TakeProfitRequest(limit_price=tp_price)` **and**
+`StopLossRequest(stop_price=sl_price)`. Both legs rest at the exchange. So live's
+take-profit fills intraday for exactly the same reason its stop does — the moment
+price trades through the limit.
+
+Step (1) made stops intraday and left targets on the close. That is a one-sided
+fix: the engine now books every intraday stop-out and still misses every intraday
+take-profit. Measured on the same window, alongside the invisible stops:
+
+    SL     stop exits   invisible stops | TP touched  TP on close  TP MISSED
+    0.04   58           34              | 64          36           28
+    0.05   41           27              | 63          36           27
+    0.06   33           19              | 60          33           27
+    0.07   16            9              | 71          41           30
+
+At SL 5% the two blindnesses are the same size — 27 stops and 27 targets. At SL
+7% they are not: 9 invisible stops against 30 missed targets.
+
+`also stopped` is 0 at every width, matching `both_touched = 0` — the missed
+targets and the invisible stops fall on disjoint bars, so no tie-break is
+involved. R3 addressed the right collision but the deeper issue was never the
+tie-break; it was that the TP leg is not modelled intraday at all.
+
+**What this does and does not disturb.** The core measurement stands: the
+close-only engine was blind to 27 of 41 stop exits, and that is what step (1)
+fixed. What is now qualified is the **argmax conclusion**. The 5% → 7% shift was
+measured with intraday stops against close-only targets, and the asymmetry runs
+hardest against the widest stop — the 7% cell is the one carrying 30 missed wins
+against 9 invisible losses. A symmetric model could move the argmax again, so
+"the 5% was an artifact" should be read as "the close-only comparison was not
+sound", not as "7% is the answer".
+
+The `profit_lock_sweep` re-run started 2026-09-25 12:27 CEST carries the same
+one-sidedness and its output must be read under this caveat.
+
+**Not in today's scope; it changes what step (1) means.** The four-step sequence
+specified intraday stops, and intraday stops is what shipped. Symmetric bracket
+modelling — the TP leg intraday, at the limit price, with a gap-through at the
+open on the upside — is a distinct piece of work and needs its own before/after
+and its own tie-break rule, since a bar that touches both legs then genuinely
+does need R3 (and R3 would stop being a dead counter).
+
 ## Scope the reference does NOT cover
 
 - **TSL is absent from the reference entirely.** Its intraday pass reads only
@@ -268,25 +316,36 @@ rule on a branch, watch the workflow fail, revert. That observed failure is the
 affirmative evidence — the same standard the audit loop failed three times in
 one summer. Auditing the rest of `tests.yml` stays out of scope.
 
-*Status 2026-09-25: consumer wired, red run NOT YET OBSERVED.*
+*Status 2026-09-25: VERIFIED by an observed red run.*
+
 `tests/test_exit_parity.py` (7 tests) runs under `.github/workflows/tests.yml`,
-which fires on push to `master`, on any PR, and now on `ci-verify/**` — that
-branch pattern was added so the break can be pushed and watched without opening
-a PR. The observation itself is outstanding: this session has no `gh` CLI and no
-GitHub token, so it can push the break but cannot read the run's result, and a
-run nobody has looked at is exactly the thing this step exists to rule out.
+which fires on push to `master`, on any PR, and on `ci-verify/**` — that branch
+pattern was added so a break can be pushed and watched without opening a PR, and
+it stays for the next verification.
 
-Until someone reports the red run, test 1a is **"exists and runs, not verified"**
-— the middle two of the four facts (exists / runs / actually evaluates / results
-read). To discharge:
+The evidence, read by Niclas at **10:28 UTC on 2026-09-25**:
 
-    git checkout -b ci-verify/exit-rule
-    # flip R2's gap branch: fill at the stop instead of the open, in
-    # backend/backtest/exit_rules.py — test_every_stop_exit_reproduces and
-    # test_gap_and_intraday_split_matches should both go red
-    git push -u origin ci-verify/exit-rule
-    # watch Actions; confirm FAILURE and that the failing assertions are those two
-    git push origin --delete ci-verify/exit-rule
+- `master` green.
+- `ci-verify/exit-rule`, carrying R2 inverted so a gap-through fills at the stop
+  instead of the open: **red**, with exactly the two parametrisations of
+  `test_every_stop_exit_reproduces` failing (`[fast]` and `[slow]`) and nothing
+  else. It failed on the assertion, not on setup — so the fixture reached the
+  runner and the replay actually executed. That distinction is the whole point:
+  a job that errors before it evaluates looks red for the wrong reason.
+
+**What the failure pattern additionally shows.** Exactly **11 of 41** cases
+failed, all `SL`, all on the *correct* exit date, and every observed price above
+the expected one (HII 386.38 vs 350.35, AMAT 607.52 vs 581.31). That is precisely
+the gap-through bucket — 11 gaps, 30 intraday — so the fixture exercises both
+buckets and the 30 intraday cases passed untouched. The price gaps also size how
+much a naive fill-at-stop model flatters a gap loss.
+
+**Limit, recorded rather than chased.** This red run proves the wiring and the
+*gap* bucket. Nothing deliberately broke the intraday bucket, so the only
+evidence for it is the 1b certification itself. A future verification wanting to
+cover it should break R1's trigger test rather than R2's fill.
+
+The branch was deleted after the run was read.
 
 **Test 2 → recurring report.** Live exits keep accruing, so day-agreement and
 the fill-bias distribution are a natural nightly/periodic check on the existing

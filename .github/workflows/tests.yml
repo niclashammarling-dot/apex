@@ -30,7 +30,10 @@ jobs:
         # (2026-06-26 → 2026-09-13) with no consumer before this job existed.
         env:
           PYTHONPATH: .
-        run: pytest -q -p no:cacheprovider
+        # -rs names any skip. A skip that nobody can name is a test that is not
+        # running and looks like one that is; two runs on 2026-09-25 carried an
+        # unidentified one.
+        run: pytest -q -rs -p no:cacheprovider
 
       # tests/test_exit_parity.py is EXIT_PARITY.md test 1a and its consumer is
       # this job. Its inputs are frozen (tests/fixtures/exit_parity_cases.json),
