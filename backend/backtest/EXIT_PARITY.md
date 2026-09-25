@@ -405,10 +405,25 @@ Recorded as "no established mechanism; the path-luck null is weakened — value
 spread over 14 positive trades, 5 needed for 50%" rather than as an open
 question, which is the more useful thing to hand the modelling session.
 
-Two limits on that. Seventeen trades from one window is a small sample, and
-"spread over 14" is more robust than "two names" without being robust. And the
-intraday side's 8 non-breaching displaced trades are *more* concentrated (top 3 =
-49.5%), so the two sides differ in a way this check does not explain.
+Concentration is stated **normalised against an even split**, because a raw
+top-3 share is not comparable across different n — with 17 trades an even split
+already gives the top 3 17.6%, with 8 trades it gives them 37.5%:
+
+    close-only  n=17  top-3 39.7%  vs even 17.6%  ->  2.25x even
+    intraday    n= 8  top-3 49.5%  vs even 37.5%  ->  1.32x even
+
+An earlier version of this section read the intraday side's 49.5% as *more*
+concentrated and carried the difference as unexplained. That was the metric, not
+the data: normalised, the intraday side is the **less** concentrated of the two,
+and at n = 8 its figure says very little either way. There is no unexplained
+difference between the sides — there was an uncorrected denominator.
+
+The normalisation also sharpens the close-only result rather than softening it:
+2.25x even is genuinely concentrated, and still nowhere near the two-or-three-
+ticket pattern the null predicts. "Weakened, not confirmed" remains the label.
+
+The other limit stands: 17 trades from one window is a small sample, and "spread
+over 14 winners" is more robust than "two names" without being robust.
 
 **Still deferred until after symmetric TP.** The one-sided confound touches
 exactly this axis — missed TPs hold slots longer, and slot count is what is being
