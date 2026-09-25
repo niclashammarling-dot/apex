@@ -620,6 +620,53 @@ def _clear_dq_latches():
     clear_alert_latches_except("data_quality:", set())
 
 
+class TestFilledLegStatusAgainstRealSdkOrder:
+    """
+    _find_filled_sell_leg must match a fully filled leg by exact status and
+    must not match "partially_filled" (2026-09-25). Driven through the real
+    alpaca-py Order model, rebuilt from QCOM's actual bracket (f70e1dc0,
+    TP filled 6/6 @ 205.28, stop canceled) captured on 2026-09-25, then
+    through get_order_by_id's own normalisation — so the status string
+    compared is whatever the SDK + _enum_value really produce, not a
+    hand-typed guess at it. An equality against the wrong form ("OrderStatus.FILLED")
+    would match nothing and leave every bracket exit unbooked.
+    """
+
+    def _order_dict(self, mutate=None):
+        import json
+        import pathlib
+
+        from alpaca.trading.models import Order
+
+        from backend.brokers import alpaca as broker
+        raw = json.loads((pathlib.Path(__file__).parent / "fixtures" /
+                          "alpaca_order_qcom_bracket_tp_filled.json").read_text())
+        if mutate:
+            mutate(raw)
+        client = MagicMock()
+        client.get_order_by_id.return_value = Order.model_validate(raw)
+        with patch("backend.brokers.alpaca._client", return_value=client):
+            return broker.get_order_by_id(raw["id"])
+
+    def test_real_filled_tp_leg_is_found(self):
+        from backend.live_trades_tracker import _find_filled_sell_leg
+        leg = _find_filled_sell_leg(self._order_dict())
+        assert leg is not None
+        assert leg["order_type"] == "limit"
+        assert leg["filled_avg_price"] == pytest.approx(205.28)
+        assert leg["filled_qty"] == 6.0
+
+    def test_partially_filled_leg_is_not_found(self):
+        from backend.live_trades_tracker import _find_filled_sell_leg
+
+        def partial(raw):
+            for leg in raw["legs"]:
+                if leg["order_type"] == "limit":
+                    leg["status"] = "partially_filled"
+                    leg["filled_qty"] = "3"
+        assert _find_filled_sell_leg(self._order_dict(partial)) is None
+
+
 def _open_trade(ticker="HON", entry_price=249.13, qty=4.0, order_id="ord-hon-1",
                  timestamp="2026-08-04T17:14:31+00:00"):
     """
@@ -1417,6 +1464,21 @@ class TestDataQualityDivergence:
 
         _clear_dq_latches()
         _clear_dq_latches()
+
+    def test_distinct_problems_same_day_each_alert_once(self):
+        """2026-09-25: a false QCOM alert must not use up the day's alert —
+        a genuine HON-shaped disappearance later the same day still emails.
+        Per ticker: QCOM re-flagged the same day does not re-alert."""
+        _clear_dq_latches()
+        _, _, first = self._run(day_pnl=0.0, apex_pnl=0.0, missing=["QCOM"])
+        _, _, second = self._run(day_pnl=0.0, apex_pnl=0.0, missing=["HON"])
+        _, _, repeat = self._run(day_pnl=0.0, apex_pnl=0.0, missing=["QCOM"])
+        _, _, grown = self._run(day_pnl=0.0, apex_pnl=0.0, missing=["QCOM", "HON"])
+        _clear_dq_latches()
+        assert first.call_count == 1
+        assert second.call_count == 1   # new problem, same day: alerts
+        assert repeat.call_count == 0   # same ticker, same day: already reported
+        assert grown.call_count == 0    # set changed, but no new ticker in it
 
     def test_subcap_divergence_still_triggers_data_quality(self):
         """

@@ -829,9 +829,22 @@ def _evidence_clause(evidence: str) -> str:
 
 
 def _find_filled_sell_leg(order: dict) -> dict | None:
-    """Return the first filled sell leg from a bracket order, or None."""
+    """
+    Return the first fully filled sell leg from a bracket order, or None.
+
+    Exact equality against OrderStatus.FILLED.value (2026-09-25). The old
+    substring test ("filled" in status) also matched "partially_filled", so
+    a partial TP/SL fill booked the whole position CLOSED at the partial's
+    price while the remaining shares were still held at the broker — the
+    ledger-behind-broker divergence in the opposite direction, which the
+    gate's fill lookup doesn't cover. get_order_by_id() already normalises
+    statuses via _enum_value, so the dict form is the plain value "filled"
+    (confirmed against QCOM's real bracket f70e1dc0 on 2026-09-25 — the raw
+    SDK str() form is "OrderStatus.FILLED", which an equality against the
+    plain value would never match).
+    """
     for leg in order.get("legs") or []:
-        if "sell" in (leg.get("side") or "") and "filled" in (leg.get("status") or ""):
+        if "sell" in (leg.get("side") or "") and leg.get("status") == OrderStatus.FILLED.value:
             if leg.get("filled_avg_price"):
                 return leg
     return None

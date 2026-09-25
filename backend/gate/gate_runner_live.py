@@ -335,7 +335,21 @@ def run() -> list[dict]:
                      f"${acct['day_pnl']:.2f} vs APEX "
                      f"${'unavailable' if apex_day_pnl is None else f'{apex_day_pnl:.2f}'} — "
                      + "; ".join(reasons))
-        if set_alert_latch(f"data_quality:{today}"):
+        # One latch per distinct problem per day (2026-09-25), not one per
+        # day: under a single day key, 09-25's false QCOM alert would have
+        # silenced a genuine HON-shaped disappearance later the same day —
+        # still halted, but with no email. Per ticker rather than per set,
+        # so a set whose membership shifts doesn't re-alert on every change.
+        # Every key is set (list, not any()) so each is recorded once.
+        problem_keys = [f"ticker:{tk}" for tk in missing_from_broker]
+        if divergence is not None and abs(divergence) >= LIVE_DATA_QUALITY_DIVERGENCE:
+            problem_keys.append("divergence")
+        if not positions_read_ok:
+            problem_keys.append("positions_unreadable")
+        if not apex_pnl_read_ok:
+            problem_keys.append("apex_pnl_failed")
+        newly_latched = [k for k in problem_keys if set_alert_latch(f"data_quality:{today}:{k}")]
+        if newly_latched:
             from backend.alerts import alert_data_quality_divergence
             alert_data_quality_divergence(acct["day_pnl"], apex_day_pnl, missing_from_broker,
                                           fill_evidence)

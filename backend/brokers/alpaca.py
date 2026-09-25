@@ -327,6 +327,8 @@ def get_order_by_id(order_id: str) -> dict:
                 "status":           _enum_value(leg.status),
                 "limit_price":      float(leg.limit_price)      if leg.limit_price      else None,
                 "stop_price":       float(leg.stop_price)       if leg.stop_price       else None,
+                "qty":              float(leg.qty)              if leg.qty              else None,
+                "filled_qty":       float(leg.filled_qty)       if leg.filled_qty       else None,
                 "filled_avg_price": float(leg.filled_avg_price) if leg.filled_avg_price else None,
                 "filled_at":        leg.filled_at.isoformat()   if leg.filled_at        else None,
             })
