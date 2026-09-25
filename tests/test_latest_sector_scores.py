@@ -148,6 +148,27 @@ def test_duplicate_timestamp_resolves_to_highest_id():
     assert get_latest_sector_scores(as_of=AS_OF) == {"Technology": 0.5}
 
 
+def test_duplicate_timestamp_tie_break_survives_reversed_row_order():
+    """Positive control for the rule above. PRAGMA reverse_unordered_selects
+    reverses every SELECT without an ORDER BY — the old join then returned the
+    lowest id last and the dict kept 0.1, so the previous test passed against
+    it only because the plan scanned in rowid order."""
+    import backend.db as db_module
+    _clear()
+    ts = "2026-09-25T19:51:26+00:00"
+    for v in (0.1, 0.9, 0.5):
+        insert_sector_snapshots([_row(ts, "Technology", v)])
+    real_get_db = db_module.get_db
+
+    def reversed_db():
+        conn = real_get_db()
+        conn.execute("PRAGMA reverse_unordered_selects = ON")
+        return conn
+
+    with patch.object(db_module, "get_db", reversed_db):
+        assert get_latest_sector_scores(as_of=AS_OF) == {"Technology": 0.5}
+
+
 def test_get_sector_score_applies_the_bound():
     _clear()
     insert_sector_snapshots([_row("2026-07-01T19:51:26+00:00", "Technology", 0.5)])
