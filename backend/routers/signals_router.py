@@ -730,7 +730,7 @@ def sectors_regime_bayes():
 
 
 @router.post("/sectors/regime-bayes/run")
-def trigger_regime_bayes(persist: bool = False):
+def trigger_regime_bayes(persist: bool = False, overwrite: bool = False):
     """Manually trigger an EOD regime update.
 
     persist=false (default): compute-and-return on today's inputs as they stand —
@@ -739,13 +739,29 @@ def trigger_regime_bayes(persist: bool = False):
     now" use. persist=true: the real EOD path, which refuses before 16:15 ET
     (2026-09-16: mid-session persisting runs stamped today's row from intraday
     inputs and blocked the genuine close write — 7 of 10 rows in 09-02..09-15).
+
+    persist=true runs FOR the most recent NYSE session whose 16:15 ET slot has
+    passed, not for the wall-clock date: this endpoint is the only caller of
+    run_eod_regime's as_of=None path, and taking the wall-clock date let a press on
+    a weekend stamp a row with a non-session date (the Sunday 2026-08-23 trace row).
+    It refuses when that session already has persisted posteriors, because a re-run
+    overwrites the live posterior state and result cache while INSERT OR IGNORE
+    leaves the history table alone. overwrite=true replaces them deliberately.
+    The response reports which of those happened rather than always saying ok.
     """
     from backend.scheduler import run_eod_regime, preview_eod_regime
     try:
         if persist:
-            run_eod_regime()
-            return {"status": "ok", "persisted": True,
-                    "note": "no-op if before 16:15 ET — see server log"}
+            status = run_eod_regime(overwrite=overwrite)
+            return {"status": "ok" if status == "ok" else "refused",
+                    "persisted": status == "ok", "result": status,
+                    "note": {
+                        "ok":               "persisted for the last due session",
+                        "refused_exists":   "that session already has posteriors — pass overwrite=true to replace",
+                        "refused_intraday": "16:15 ET close has not passed",
+                        "no_inputs":        "input fetch failed — see server log",
+                        "failed":           "update raised — see server log",
+                    }.get(status, "see server log")}
         result = preview_eod_regime()
         if result is None:
             raise HTTPException(status_code=503, detail="preview failed — see server log")

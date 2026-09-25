@@ -126,13 +126,96 @@ def test_run_eod_regime_refuses_as_of_before_close():
     rb.assert_not_called(); dl.assert_not_called()
 
 
-def test_run_eod_regime_live_refuses_before_close_today():
+# ── the manual (as_of=None) path resolves a session, not the wall-clock date ──
+#
+# 2026-09-25: this path's only caller is POST /sectors/regime-bayes/run?persist=true
+# (since 09-22 the 08:30 cron registers _check_missed_eod_regime, which always passes
+# as_of). It used to take datetime.now(NY).date(), so a press on a non-session day
+# stamped a row with that date — the 16:15 guard passes trivially on a Sunday. A full
+# 11-sector row dated Sunday 2026-08-23 is in the trace, and it was bridging CHECK 65's
+# pin streak over the two missing weekday sessions before it.
+
+def _clear_history():
+    db.init_db()
+    conn = db.get_db(); conn.execute("DELETE FROM sector_posterior_history"); conn.commit(); conn.close()
+
+
+def _live_target(fake_now):
+    """Target session run_eod_regime picks for a manual press at fake_now."""
+    seen = {}
+
+    def _record(target, live):
+        seen["target"] = target
+        return None                      # abort before any fetch; status is "no_inputs"
+
+    with patch.object(sched, "_eod_inputs", side_effect=_record):
+        sched.run_eod_regime(now_ny=fake_now)
+    return seen.get("target")
+
+
+@pytest.mark.parametrize("fake_now, expected", [
+    (datetime(2026, 9, 26, 17, 0, tzinfo=NY), date(2026, 9, 25)),   # Sat evening → Fri
+    (datetime(2026, 8, 23, 20, 0, tzinfo=NY), date(2026, 8, 21)),   # the Sunday that produced the bad row
+    (datetime(2026, 9, 23, 17, 0, tzinfo=NY), date(2026, 9, 23)),   # weekday after 16:15 → same session
+    (datetime(2026, 9, 23, 16, 14, tzinfo=NY), date(2026, 9, 22)),  # one minute before the cutoff → previous
+    (datetime(2026, 9, 8, 9, 0, tzinfo=NY), date(2026, 9, 4)),      # morning after Labor Day → Fri
+])
+def test_manual_run_targets_a_session_never_the_wall_clock_date(fake_now, expected):
+    _clear_history()
+    assert _live_target(fake_now) == expected
+
+
+def test_manual_run_before_close_now_computes_the_previous_session():
+    """Deliberate behaviour change (2026-09-25).
+
+    A press between 00:00 and 16:15 ET used to resolve to today and be refused as
+    intraday; it now resolves to the previous session — the same thing the 08:30 cron
+    does. In practice the cron has usually already written that session, so the press
+    lands on the refused_exists guard below rather than recomputing it.
+    """
+    _clear_history()
+    assert _live_target(datetime(2026, 9, 15, 11, 51, tzinfo=NY)) == date(2026, 9, 14)
+
+
+def test_manual_run_refuses_a_session_that_already_has_posteriors():
+    """history is INSERT OR IGNORE, but sector_posteriors and the result cache are not.
+
+    A re-run therefore cannot change the history row while it does replace the live
+    posterior state — the next session's decayed prior — and the cached allocation,
+    from inputs fetched now. The two would then disagree silently, so the press is
+    refused unless overwrite is explicit.
+    """
+    _clear_history()
+    db.insert_sector_posterior_history("2026-09-14", {"Technology": 0.5})
     fake_now = datetime(2026, 9, 15, 11, 51, tzinfo=NY)
-    with patch.object(sched, "datetime") as dt, patch.object(sched, "_get_regime_bayes") as rb, patch("yfinance.download") as dl:
-        dt.now.return_value = fake_now
+    with patch.object(sched, "_eod_inputs") as inputs, patch.object(sched, "_get_regime_bayes") as rb:
+        status = sched.run_eod_regime(now_ny=fake_now)
+    assert status == "refused_exists"
+    inputs.assert_not_called(); rb.assert_not_called()
+
+
+def test_manual_run_overwrite_proceeds_and_says_so():
+    _clear_history()
+    db.insert_sector_posterior_history("2026-09-14", {"Technology": 0.5})
+    fake_now = datetime(2026, 9, 15, 11, 51, tzinfo=NY)
+    with patch.object(sched, "_eod_inputs", return_value=None) as inputs:
+        status = sched.run_eod_regime(now_ny=fake_now, overwrite=True)
+    assert status == "no_inputs"                      # got past the guard, failed later
+    assert inputs.call_args.args[0] == date(2026, 9, 14)
+
+
+def test_catchup_path_is_unaffected_by_the_exists_guard():
+    """_check_missed_eod_regime only ever targets sessions with no row, by construction,
+    so the guard must not change what it fills."""
+    _seed_history("2026-09-01")
+    calls = []
+    with patch.object(sched, "run_eod_regime", side_effect=lambda as_of=None: calls.append(as_of)), \
+         patch.object(sched, "datetime") as dt:
+        dt.now.return_value = datetime(2026, 9, 8, 10, 45, tzinfo=NY)
         dt.combine = datetime.combine
-        sched.run_eod_regime()
-    rb.assert_not_called(); dl.assert_not_called()
+        dt.fromisoformat = datetime.fromisoformat
+        sched._check_missed_eod_regime()
+    assert calls == [date(2026, 9, 2), date(2026, 9, 3), date(2026, 9, 4)]
 
 
 def test_preview_persists_nothing():

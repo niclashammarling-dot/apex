@@ -2326,6 +2326,29 @@ def get_previous_sector_posteriors(date_str: str) -> dict[str, float]:
     return get_sector_posteriors_asof(date_str, days_back=1)
 
 
+def count_sector_posterior_history(date_str: str) -> int:
+    """How many sector rows are already persisted for a session date.
+
+    Non-zero means the EOD regime update for that session has already run and its
+    posteriors are the ones downstream sessions decayed from. `insert_sector_posterior_history`
+    is INSERT OR IGNORE, so a re-run cannot change this table — but `upsert_sector_posteriors`
+    and the result cache are unconditional overwrites, so a re-run *does* replace the live
+    posterior state and the cached allocation. Callers that might target an already-written
+    session check this first (run_eod_regime).
+    """
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM sector_posterior_history WHERE date = ?", (date_str,),
+        ).fetchone()
+        return int(row[0]) if row else 0
+    except Exception as e:
+        logger.warning(f"count_sector_posterior_history: {e}")
+        return 0
+    finally:
+        conn.close()
+
+
 def insert_sector_posterior_history(date_str: str, posteriors: dict[str, float]) -> None:
     """Append daily posterior snapshot. Idempotent on (date, sector) key.
 

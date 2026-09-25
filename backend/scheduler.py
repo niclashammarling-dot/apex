@@ -335,7 +335,8 @@ def _eod_inputs(target: date, live: bool):
     return raw_data, sector_snapshots, ipo_shares
 
 
-def run_eod_regime(as_of: date | None = None) -> None:
+def run_eod_regime(as_of: date | None = None, *, overwrite: bool = False,
+                   now_ny: datetime | None = None) -> str:
     """
     End-of-day Bayesian regime update — scheduled pre-open (08:30 ET) FOR the
     previous session since 2026-09-22 (was 16:15 ET same day); the inputs are
@@ -346,33 +347,72 @@ def run_eod_regime(as_of: date | None = None) -> None:
       2. Download raw OHLCV for all tickers + ETFs (60d lookback)
       3. RegimeBayes.update() — compute posteriors, allocation, persist to DB
 
-    as_of: the trading date this update is FOR. None means "now" (the cron path).
-    The catch-up and replay paths pass the missed date explicitly; every input is
-    then read as it stood at 16:15 ET on that date — OHLCV truncated to as_of
-    (`_compute_rank_lrs` reads `iloc[-1]`, it does not mask by date), sector
-    snapshots as of the 16:15 cutoff, EDGAR window ending as_of — and the row is
-    stamped with as_of, not with the wall-clock date. Before 2026-09-16 the
-    catch-up stamped the restart date and the `INSERT OR IGNORE` on the history
-    table then dropped the genuine 16:15 write for that date.
+    as_of: the trading *session* this update is FOR. The catch-up and replay paths
+    pass it explicitly, both from the NYSE calendar. Every input is then read as it
+    stood at 16:15 ET on that date — OHLCV truncated to as_of (`_compute_rank_lrs`
+    reads `iloc[-1]`, it does not mask by date), sector snapshots as of the 16:15
+    cutoff, EDGAR window ending as_of — and the row is stamped with as_of, not with
+    the wall-clock date. Before 2026-09-16 the catch-up stamped the restart date and
+    the `INSERT OR IGNORE` on the history table then dropped the genuine 16:15 write.
+
+    as_of=None resolves to `_last_eod_due(now)` — the most recent NYSE session whose
+    16:15 ET slot has passed — *not* to the wall-clock date. Its only caller is the
+    manual `/sectors/regime-bayes/run?persist=true` button (there is no cron on this
+    path: since 2026-09-22 the 08:30 job registers `_check_missed_eod_regime`, which
+    always passes as_of). Taking the wall-clock date let a press on a non-session day
+    stamp a row with that date: the 16:15 guard below passes trivially on a Saturday
+    or Sunday, and a full 11-sector row dated Sunday 2026-08-23 sits in the trace,
+    which is the only path that produces one. Resolving the session removes the case
+    by construction rather than by a time comparison. Found 2026-09-25 from the
+    CHECK 65 streak walk, which the off-session row had been silently bridging.
+
+    Behaviour change, deliberate: a press between 00:00 and 16:15 ET on a weekday used
+    to be refused as intraday; it now computes the previous session, which is what the
+    08:30 cron does. A press after 16:15 ET still computes that day's session.
+
+    overwrite: `sector_posterior_history` is INSERT OR IGNORE, so a re-run cannot
+    rewrite it — but `upsert_sector_posteriors` and the result cache are unconditional,
+    so a re-run *does* replace the live posterior state (the next session's decayed
+    prior) and the cached allocation with freshly fetched inputs, leaving the two
+    disagreeing silently. A target session that already has history rows is therefore
+    refused unless overwrite=True.
+
+    Returns a status string: "ok", "refused_intraday", "refused_exists", "no_inputs",
+    or "failed".
     """
     # Anchor to the NY trading date, not the server's OS-local date — this job
     # can run close to Stockholm's midnight rollover (6h ahead of ET), which would
     # otherwise mislabel today's ET trading day as tomorrow.
-    live       = as_of is None
-    target     = as_of or datetime.now(NY).date()
-    if datetime.now(NY) < datetime.combine(target, time(16, 15), tzinfo=NY):
-        # Applies to the live path too: the /sectors/regime-bayes/run button and the
-        # old catch-up both ran this mid-session, stamped today, and INSERT OR IGNORE
-        # then dropped the genuine 16:15 write. 7 of the 10 rows in 09-02..09-15 were
-        # produced that way (trace shows 2-3 update() runs on each of those days).
+    live   = as_of is None
+    now_ny = now_ny or datetime.now(NY)
+    target = as_of or _last_eod_due(now_ny)
+    if now_ny < datetime.combine(target, time(16, 15), tzinfo=NY):
+        # Reachable now only via an explicit as_of (replay of a future/today date).
+        # The old live path hit it constantly: the button and the old catch-up ran
+        # mid-session, stamped today, and INSERT OR IGNORE then dropped the genuine
+        # 16:15 write. 7 of the 10 rows in 09-02..09-15 were produced that way.
         # Mid-session reads go through preview_eod_regime(), which persists nothing.
         logger.error(f"EOD regime: {target} 16:15 ET close has not passed — refusing (inputs would be intraday)")
-        return
-    logger.info(f"EOD regime update starting… (as_of={target}{'' if live else ', replay'})")
+        return "refused_intraday"
+
+    if not overwrite:
+        from backend.db import count_sector_posterior_history
+        existing = count_sector_posterior_history(target.isoformat())
+        if existing:
+            logger.error(
+                f"EOD regime: {target} already has {existing} persisted posterior row(s) — refusing. "
+                f"A re-run leaves the history table alone (INSERT OR IGNORE) but overwrites the live "
+                f"posterior state and the result cache from inputs fetched now, so the two would "
+                f"disagree. Pass overwrite=true to replace deliberately."
+            )
+            return "refused_exists"
+
+    logger.info(f"EOD regime update starting… (as_of={target}{'' if live else ', replay'}"
+                f"{', overwrite' if overwrite else ''})")
 
     inputs = _eod_inputs(target, live)
     if inputs is None:
-        return
+        return "no_inputs"
     raw_data, sector_snapshots, ipo_shares = inputs
 
     # Step 3: RegimeBayes update
@@ -383,8 +423,10 @@ def run_eod_regime(as_of: date | None = None) -> None:
             f"Regime update complete — leader={result.leader} "
             f"qualifiers={result.qualifiers}"
         )
+        return "ok"
     except Exception as e:
         logger.error(f"RegimeBayes update failed: {e}")
+        return "failed"
 
 
 def preview_eod_regime():
