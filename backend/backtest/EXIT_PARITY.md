@@ -292,9 +292,52 @@ Two further consequences, both wider than this file:
   which is the compounding-counterfactual caveat already recorded — this sizes
   it: it is not a small correction.
 
-The pre-filter over-count still applies (the candidate list is read before the
-cooldown, sector-exposure, VIX and earnings filters), so 105 is an upper bound on
-genuinely lost entries. It is an upper bound a long way from zero.
+**The pre-filter over-count cuts the other way now, and 105 was not a usable
+bound.** It made the retracted zero stronger; it makes 105 *weaker*, because the
+filters it skips — cooldown, sector exposure, VIX, earnings — are exactly the
+ones most likely to fire when the book is full. CVX, EOG, COP and OXY are all
+Energy and account for 84 of the turn-aways between them, so if any Energy name
+was held, `MAX_SECTOR_EXPOSURE` would have rejected them with a free slot
+available. Same for cooldown right after an exit.
+
+### `max_positions` binds — measured with the full filter chain (2026-09-25)
+
+Niclas's method, which removes the hand-built probe entirely: run the engine at
+`max_positions = 3` and at `4` on the same window and diff the entry lists. An
+entry appearing only at 4 passed every filter and was blocked by the slot count
+alone. Nothing to mis-bind.
+
+    intraday stops          trades  return   sharpe  maxDD  | only at N  lost vs 3
+      max_positions = 3      85     0.1139   1.792   0.0456 |
+      max_positions = 4     116     0.1428   1.974   0.0464 |    49         18
+      max_positions = 5     142     0.0576   0.980   0.0714 |    83         26
+
+    close-only              trades  return   sharpe  maxDD  | only at N  lost vs 3
+      max_positions = 3      75     0.3128   3.263   0.0261 |
+      max_positions = 4      96     0.2123   2.485   0.0526 |    47         26
+      max_positions = 5     114     0.1552   1.976   0.0403 |    68         29
+
+**One extra slot unlocks 49 entries that cleared every filter** (net +31 after
+the 18 that the changed path costs). So the constraint is real and sized, and
+"plausibly binding" would now be under-stating it. The non-zero "lost vs 3"
+column is the compounding counterfactual again — 4 is not a superset of 3.
+
+### And the direction of the `max_positions` effect flips between the engines
+
+The close-only engine says an extra slot **hurts**: 0.3128 → 0.2123, sharpe
+3.263 → 2.485. The intraday engine says it **helps**: 0.1139 → 0.1428, sharpe
+1.792 → 1.974, with 5 clearly worse than either.
+
+`max_positions` is an optimizer parameter (`best_params["max_positions"] = 3`).
+So this is the second parameter whose argmax the blindness inverts, after stop
+width — and for the same structural reason: holding more positions means more
+exposure to intraday stop-outs the close-only engine cannot see, so the blind
+engine systematically under-prices the cost of concentration and over-prices the
+benefit of a tight book. Anything tuned on the close-only engine that trades off
+position count is suspect in the same way the 5% stop was.
+
+This was not on the four-step list. It belongs to step (3), the live-anchored
+comparison line, since it changes which parameter set "beats what is running".
 
 ### Rules for symmetric TP, when it is built
 
