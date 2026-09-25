@@ -227,17 +227,45 @@ a scratch), **SL** (a win booked as a loss — the sign flip).
     0.06   71      18      | 16        1     1   0    0   |  5.6%     -142.06
     0.07   71      18      | 16        1     1   0    0   |  5.6%     -136.22
 
+**Units — the two tables count different things.** The 27/27/27/30 row above
+counts touch-**BARS**; the table here counts touch-**TRADES**. At SL 5% that is
+27 bars across 18 trades, because 8 trades touched the limit on more than one bar
+(QCOM 2026-05-22 on three, five others on two). They are the same population
+measured differently; nine trades did not disappear.
+
 **The sign-flip channel is one trade per width** (two at 4%). Almost everything
 that touched the target intraday went on to book a TP on a later close anyway.
 So the symmetric model is overwhelmingly a **timing and slot-occupancy** effect,
 and the expectation is a level shift of the surface rather than a reordering.
 
-The slot channel is not nothing, though, and it is the compounding one. At SL 5%
-the 16 "TP later" trades sat open for **61 extra calendar days** between first
-touching the limit and being booked on a close — median 4, max 11 (LLY touched
-2026-05-28, booked 2026-06-08). Against three slots over the window that is a
-material share of capacity, and freed slots change later entries, which is
-exactly why no single cell reads cleanly.
+**Slot cost, in trading days.** Calendar days against a trading-day capacity
+mixes units. At SL 5% the 16 "TP later" trades were held **41 trading days** past
+their first touch — median 2, max 7. Against 3 slots × 188 trading days = 564
+slot-days, that is **7.27%** of capacity.
+
+### The slot channel is zero on this window — measured, not assumed
+
+Whether those freed slot-days could actually have reordered the grid is
+answerable from the current run, without building the mirror: during the 16
+touch-to-book windows, was any candidate ever turned away for want of a slot?
+
+    41 window-days total
+      at capacity (3/3) on 23 of them
+      of those 23, ALL 23 had no unheld candidate that day
+    candidate-days lost to a full book: 0
+
+So symmetric TP is a **pure level shift on this window**: one sign flip, and no
+reordering channel through slots.
+
+**Read the zero for what it is.** It is not "the book had room" — the book was
+full on 23 of the 41 window-days, and full on 109 of all 188 days (occupancy
+0/1/2/3 on 3/16/60/109 days). It is "the book was full and there was nothing to
+buy". That makes the result contingent on candidate scarcity at
+`lock1_threshold = 0.73`, not on slack in the book. A lower threshold generates
+more candidates and could open the channel, so this zero does not transfer to
+another parameter set — and the count is an over-estimate of availability
+anyway, since it reads `_get_candidates_from_cache` before the cooldown, sector
+exposure, VIX and earnings filters. An over-counted zero is a stronger zero.
 
 ### Rules for symmetric TP, when it is built
 
@@ -262,6 +290,17 @@ on a one-sided exit model would bake the asymmetry into the calibration.
 Started 2026-09-25 12:27 CEST under intraday stops with close-only targets.
 Labelled as such, it is the "before" for symmetric TP, so the ~2.7 hours of
 compute buys a before/after rather than being discarded.
+
+**Why the engine is not edited while it runs.** The rule is *do not edit what the
+measurement depends on while the measurement is running* — not "the modules are
+already imported", which is not a guarantee. `multiprocessing` spawns fresh
+interpreters on Windows, and each worker re-imports the engine from disk, so an
+edit mid-sweep can land in later runs silently while the earlier ones used the
+old code, producing a grid that is internally inconsistent and looks fine.
+`backend/backtest/` has no `multiprocessing`, `ProcessPool`, `concurrent.futures`
+or `joblib` (checked 2026-09-25), so this sweep is single-process and the
+in-memory reasoning happens to hold — but the rule is the protection, and the
+import state is a coincidence that a future parallel sweep would remove.
 
 **Not in today's scope; it changes what step (1) means.** The four-step sequence
 specified intraday stops, and intraday stops is what shipped. Symmetric bracket
