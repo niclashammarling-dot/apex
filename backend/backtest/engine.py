@@ -592,32 +592,35 @@ def _check_exits(
             and peak_gain >= profit_lock_trigger_pct
         )
 
+        # Live order — wallet.py::check_exits is TP -> SL -> profit-lock trail
+        # -> TIME, and its docstring calls the fixed SL "a hard floor, always
+        # active". This ladder used to test `ratchet_active` BEFORE the fixed
+        # stop, which made the SL branch unreachable for the rest of a trade's
+        # life once peak gain had cleared the trigger — so the comment above
+        # describing the fixed SL as the floor was true only until the ratchet
+        # armed. Restored 2026-09-25; see EXIT_PARITY.md R5 for the
+        # before/after. engine_fast.py carries the identical ladder and the
+        # identical fix.
+        #
+        # legacy_tsl: bare-trailing-stop mode, preserved for backward
+        # compatibility with callers testing a plain TSL with no profit-lock
+        # tiering (pre-2026-05-27 live behaviour). Only reachable when
+        # profit-lock isn't configured at all. Production has not run it since
+        # 2026-06-03, so it has no live counterpart to order against; it sits
+        # after SL for consistency with the profit-lock branch, not from
+        # evidence.
+        legacy_tsl = (
+            trailing_stop_pct is not None
+            and not (profit_lock_trigger_pct and profit_lock_trail_pct)
+        )
         if pnl_pct >= eff_tp:
             reason, outcome = "TP", "WIN"
-        elif ratchet_active:
-            trail_pct = (peak - current) / peak
-            if trail_pct >= profit_lock_trail_pct:
-                reason, outcome = "TSL", "WIN" if pnl_pct >= 0 else "LOSS"
-            elif days_held >= time_stop_days:
-                reason, outcome = "TIME", "EXPIRED"
-            else:
-                continue
-        elif trailing_stop_pct is not None and not (profit_lock_trigger_pct and profit_lock_trail_pct):
-            # Legacy bare-trailing-stop mode, preserved for backward
-            # compatibility with callers testing a plain TSL with no
-            # profit-lock tiering (pre-2026-05-27 live behaviour). Only
-            # reachable when profit-lock isn't configured at all — when it
-            # is, the fixed SL above is the pre-trigger floor, matching
-            # production; trailing_stop_pct is not consulted in that case.
-            trail_pct = (peak - current) / peak
-            if trail_pct >= trailing_stop_pct:
-                reason, outcome = "TSL", "WIN" if pnl_pct >= 0 else "LOSS"
-            elif days_held >= time_stop_days:
-                reason, outcome = "TIME", "EXPIRED"
-            else:
-                continue
         elif pnl_pct <= -eff_sl:
             reason, outcome = "SL", "LOSS"
+        elif ratchet_active and (peak - current) / peak >= profit_lock_trail_pct:
+            reason, outcome = "TSL", "WIN" if pnl_pct >= 0 else "LOSS"
+        elif legacy_tsl and (peak - current) / peak >= trailing_stop_pct:
+            reason, outcome = "TSL", "WIN" if pnl_pct >= 0 else "LOSS"
         elif days_held >= time_stop_days:
             reason, outcome = "TIME", "EXPIRED"
         else:
