@@ -37,6 +37,7 @@ from backend.config import (
     TIME_STOP_DAYS,
     WIN_RATE_MIN_TRADES,
 )
+from backend.backtest.exit_rules import Bar, ParityStats, build_ohlc_cache, check_intraday_stop
 from backend.signals import aggregator, momentum, relative_strength, trend, volume
 from backend.signals.ev_kelly import compute as ev_kelly_compute
 
@@ -102,6 +103,9 @@ def run(
     sl_cooldown_days:   int         = 5,
     tp_cooldown_days:   int         = 0,
     precomputed:        dict  | None = None,
+    intraday_stops:     bool        = True,
+    ratchet_from_high:  bool        = False,
+    parity_stats:       ParityStats | None = None,
 ) -> BacktestResult:
     tp       = take_profit_pct    if take_profit_pct    is not None else TAKE_PROFIT_PCT
     sl       = stop_loss_pct      if stop_loss_pct      is not None else STOP_LOSS_PCT
@@ -136,6 +140,7 @@ def run(
         vix_cache     = precomputed["vix_cache"]
         rs_cache      = precomputed["rs_cache"] if use_leading_rs else {}
         signal_cache  = precomputed["signal_cache"]
+        ohlc_cache    = precomputed.get("ohlc_cache")
         logger.info(f"Backtest (fast): using prebuilt caches — {len(trading_days)} trading days")
     else:
         logger.info(f"Backtest (fast): loading data {start} → {end}")
@@ -160,6 +165,7 @@ def run(
         logger.info(f"Backtest (fast): {len(trading_days)} trading days — building caches…")
 
         price_cache  = _build_price_cache(raw_data, all_tickers, trading_days)
+        ohlc_cache   = build_ohlc_cache(raw_data, all_tickers)
         spy_cache    = _build_spy_cache(raw_data, trading_days)
         etf_cache    = _build_etf_cache(raw_data, etf_tickers, trading_days)
         vix_cache    = _build_vix_cache(raw_data, trading_days)
@@ -191,7 +197,10 @@ def run(
 
         # 1. Check exits
         closed_today = _check_exits_fast(
-            open_trades, price_cache, today, today_str, tp, sl, tdays, tsl, pl_trig, pl_trail
+            open_trades, price_cache, today, today_str, tp, sl, tdays, tsl, pl_trig, pl_trail,
+            ohlc_cache=ohlc_cache if intraday_stops else None,
+            parity_stats=parity_stats,
+            ratchet_from_high=ratchet_from_high,
         )
         for ct in closed_today:
             trade  = ct["_trade"]
@@ -422,6 +431,7 @@ def precompute(start_date: str, end_date: str) -> dict:
     logger.info(f"precompute: {len(trading_days)} trading days — building caches…")
 
     price_cache = _build_price_cache(raw_data, all_tickers, trading_days)
+    ohlc_cache  = build_ohlc_cache(raw_data, all_tickers)
     spy_cache   = _build_spy_cache(raw_data, trading_days)
     etf_cache   = _build_etf_cache(raw_data, etf_tickers, trading_days)
     vix_cache   = _build_vix_cache(raw_data, trading_days)
@@ -444,6 +454,7 @@ def precompute(start_date: str, end_date: str) -> dict:
         "sector_etf":    sector_etf,
         "trading_days":  trading_days,
         "price_cache":   price_cache,
+        "ohlc_cache":    ohlc_cache,
         "spy_cache":     spy_cache,
         "etf_cache":     etf_cache,
         "vix_cache":     vix_cache,
@@ -737,6 +748,9 @@ def _check_exits_fast(
     trailing_stop_pct:       float | None = None,
     profit_lock_trigger_pct: float | None = None,
     profit_lock_trail_pct:   float | None = None,
+    ohlc_cache: dict[tuple[str, str], Bar] | None = None,
+    parity_stats: ParityStats | None = None,
+    ratchet_from_high: bool = False,
 ) -> list[dict]:
     # See engine.py::_check_exits for the full derivation of this fix
     # (2026-08-17/18) — this function carried the identical defect.
@@ -753,13 +767,45 @@ def _check_exits_fast(
         if current is None:
             continue
 
+        eff_tp = trade.get("tp", take_profit_pct)
+        eff_sl = trade.get("sl", stop_loss_pct)
+
+        # ── Intraday stop (EXIT_PARITY.md R1-R4) ────────────────────────────
+        # Tested BEFORE the close-based peak update on purpose: R4 measures the
+        # trail against the peak as it stood at the START of the bar, because
+        # live's ratchet is a 5-minute poll that usually never sees the bar's
+        # high. Moving this below the peak update silently converts the rule to
+        # its optimistic bound.
+        if ohlc_cache is not None:
+            hit = check_intraday_stop(
+                trade, ohlc_cache.get((trade["ticker"], today_str)),
+                eff_sl, eff_tp, trailing_stop_pct,
+                profit_lock_trigger_pct, profit_lock_trail_pct,
+                today_str=today_str, stats=parity_stats,
+                ratchet_from_high=ratchet_from_high,
+            )
+            if hit is not None:
+                fill, reason, outcome = hit
+                # pnl from the unrounded fill; round only for the record.
+                pnl_pct = (fill - trade["entry_price"]) / trade["entry_price"]
+                closed.append({"_trade": trade, "record": TradeRecord(
+                    ticker=trade["ticker"], sector=trade["sector"],
+                    entry_date=trade["entry_date"], exit_date=today_str,
+                    entry_price=trade["entry_price"], exit_price=round(fill, 4),
+                    shares=trade["shares"], amount=trade["amount"],
+                    pnl=round(trade["amount"] * pnl_pct, 2),
+                    pnl_pct=round(pnl_pct, 4),
+                    outcome=outcome, exit_reason=reason,
+                    signal_score=trade["signal_score"],
+                    days_held=_trading_days_count(trade["entry_date"], today_str),
+                )})
+                continue
+
         if current > trade.get("peak_price", trade["entry_price"]):
             trade["peak_price"] = current
 
         pnl_pct   = (current - trade["entry_price"]) / trade["entry_price"]
         days_held = _trading_days_count(trade["entry_date"], today_str)
-        eff_tp    = trade.get("tp", take_profit_pct)
-        eff_sl    = trade.get("sl", stop_loss_pct)
         peak      = trade.get("peak_price", trade["entry_price"])
         peak_gain = (peak - trade["entry_price"]) / trade["entry_price"]
 

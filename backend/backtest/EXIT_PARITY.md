@@ -127,15 +127,35 @@ passes profit-lock, so this had to be driven directly):
             (ticker, entry date, exit date, reason, outcome, price, pnl)
 
 Verified by dumping the trade log on both sides of the change, not by comparing
-aggregates. The two orderings coincide here because a 1% trail fires several
-bars before a ratcheted position can fall to the 5% fixed stop, so the
-unreachable branch was never reached.
+aggregates.
 
-**This does not clear `profit_lock_sweep`.** That sweep runs a different window
-(2021-01-01 → 2026-05-01), on the slow engine, with triggers down to 0.01 where
-the ratchet arms far earlier and the fixed stop is correspondingly more
-reachable. Whether its `tsl_exits` headline was contaminated is open until the
-re-run below.
+**The no-op is structural at these parameters, not luck** (Niclas, 2026-09-25).
+At 0.04/0.01 the ratchet arms at +4% and rests the stop at peak × 0.99, i.e. at
+least +2.96% over entry. Once armed, any close below that level fires the trail.
+So the fixed SL can only become the binding branch if a single close-to-close
+move carries the price from above the trail to below −5% — a drop of about 8% in
+one day. Below that, the trail has already closed the trade on an earlier bar.
+None of the 83 trades had such a move, so the reorder could only ever have
+changed labels on bars that did not occur.
+
+**Provenance of live's 0.04/0.01, stated at the width the evidence supports.**
+Not "selected on miscounted data". The correct claim is: *unaffected on this
+window, untested at wider one-day moves.* The miscount risk lives at the tighter
+grid points, where the gap between the trail and the fixed stop is smaller — and
+even there it still needs a large single-day drop. `profit_lock_sweep` runs a
+different window (2021-01-01 → 2026-05-01) on the slow engine with triggers down
+to 0.01, so whether any of its `tsl_exits` were mislabelled is open until the
+re-run below. That is a question about the sweep's tighter cells, not about the
+shipped parameter.
+
+**Why the intraday path cannot regress this way.** `resting_stop` returns
+`max(fixed, trailed)` and the reason is simply whichever term binds. That mirrors
+live, which has one resting STOP leg that `_maybe_ratchet_bracket_sl` only
+PATCHes upward (its gate 4 skips when the new stop would not move up) — there is
+never a separate SL competing with a TSL. With one effective level there is no
+branch order to get wrong, and a gap-through is just `open <= effective stop`,
+filled at the open. R5 therefore protects the CLOSE path only, which still
+matters for bars absent from the OHLC cache and for TP/TIME exits.
 
 ## R6 — OHLC source
 
@@ -176,6 +196,46 @@ are a one-time certification recorded in this file with the parquet hash, not a
 repeatable CI artifact. Exit timing frees slots and therefore changes later
 entries, so the full run is a compounding counterfactual and cannot be a unit
 fixture.
+
+### 1b certified, 2026-09-25 — PASS
+
+Native implementation vs the monkeypatched reference, same parquet
+(`c45df0b1b512.parquet`, 2025-08-14 → 2026-09-18), same 09-21 best params,
+window 2025-12-22 → 2026-09-18:
+
+    arm          score    sharpe   maxDD   win     trades  return
+    reference    0.56542  1.792    0.0456  0.435   85      0.1139
+    native       0.56542  1.792    0.0456  0.435   85      0.1139
+
+    reference    intraday 30  gap 11  total 41  invisible 27
+    native       intraday 30  gap 11  total 41  invisible 27
+
+Missed-set keys identical; zero fill/stop/close mismatches on shared keys.
+
+**R3's exposure is zero on this window.** `both_touched = 0` at every stop width
+in the grid, so no bar reached both the stop and the target and the stop-wins
+rule never had to break a tie. The concern that the reference's 27 silently
+contained sign-flipped reclassifications is therefore retired *for this window* —
+measured, not argued. The counter stays, because the next window is not this one.
+
+### Stop-width grid under the native engine, 2026-09-25
+
+    SL     close    intraday   delta     stops  invisible  both-touched
+    0.04   0.612    0.07325    +0.53875   58     34         0
+    0.05   1.09335  0.56542    +0.52793   41     27         0
+    0.06   1.02105  0.32863    +0.69242   33     19         0
+    0.07   0.6469   1.07905    -0.43215   16      9         0
+
+    argmax close-only: SL 5%      argmax intraday: SL 7%
+
+Reproduces the reference grid exactly. **The argmax still moves 5% → 7% under
+the fixed engine, so the 5% recommendation was an artifact of the blindness.**
+The caveat the experiment recorded still stands and is not discharged by the
+port: the 7% cell *improves* under the treatment, which can only be trade-path
+effects, so no single cell is a clean read and the shift is suggestive. One
+window, four widths.
+
+Full suite after both changes: 349 passed.
 
 Neither level covers R4 or R5, which change behaviour away from the reference
 by design and ship with their own before/after.
@@ -218,5 +278,4 @@ audit surface.
   landed** — not after R5 alone. Record (i) the corrected `tsl_exits` split and
   (ii) whether argmax moves off 0.04/0.01. **No parameter change here**;
   changing live's profit-lock is the modelling session's call.
-- The stop-width grid, to see whether argmax still lands at 7% under the fixed
-  engine. If it does, the 5% was an artifact of the blindness.
+- ~~The stop-width grid~~ — run 2026-09-25, argmax 5% → 7%, recorded above.

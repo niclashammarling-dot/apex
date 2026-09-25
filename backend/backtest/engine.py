@@ -110,6 +110,7 @@ from backend.config import (
     TIME_STOP_DAYS,
     WIN_RATE_MIN_TRADES,
 )
+from backend.backtest.exit_rules import Bar, ParityStats, build_ohlc_cache, check_intraday_stop
 from backend.signals import aggregator, momentum, relative_strength, trend, volume
 from backend.signals.ev_kelly import compute as ev_kelly_compute
 
@@ -186,6 +187,9 @@ def run(
     macro_pre_event_penalty: float | None = None,
     etf_negative_penalty: float | None = None,
     etf_negative_floor:   float        = -1.0,
+    intraday_stops:     bool        = True,
+    ratchet_from_high:  bool        = False,
+    parity_stats:       ParityStats | None = None,
 ) -> BacktestResult:
     """
     Run a historical backtest from start_date to end_date.
@@ -263,6 +267,10 @@ def run(
     trading_days = _trading_days(start, end, raw_data)
     logger.info(f"Backtest: {len(trading_days)} trading days, {len(all_tickers)-1} tickers")
 
+    # Intraday stop bars — same builder engine_fast uses, so the two engines
+    # cannot drift on how a bar is read (EXIT_PARITY.md R6).
+    ohlc_cache = build_ohlc_cache(raw_data, all_tickers) if intraday_stops else None
+
     # Pre-fetch earnings dates if filter is enabled
     earnings_dates: dict[str, set[date]] = {}
     if earnings_filter_days is not None:
@@ -286,7 +294,12 @@ def run(
         today_str = today.isoformat()
 
         # 1. Check exits on open positions first
-        closed_today = _check_exits(open_trades, raw_data, today, today_str, tp, sl, tdays, tsl, pl_trig, pl_trail)
+        closed_today = _check_exits(
+            open_trades, raw_data, today, today_str, tp, sl, tdays, tsl, pl_trig, pl_trail,
+            ohlc_cache=ohlc_cache if intraday_stops else None,
+            parity_stats=parity_stats,
+            ratchet_from_high=ratchet_from_high,
+        )
         for ct in closed_today:
             trade  = ct["_trade"]
             record = ct["record"]
@@ -546,6 +559,9 @@ def _check_exits(
     trailing_stop_pct: float | None = None,
     profit_lock_trigger_pct: float | None = None,
     profit_lock_trail_pct: float | None = None,
+    ohlc_cache: dict[tuple[str, str], Bar] | None = None,
+    parity_stats: ParityStats | None = None,
+    ratchet_from_high: bool = False,
 ) -> list[dict]:
     # Malformed profit-lock config: one set without the other previously did
     # nothing silently (the old `if trigger and trail` guard swallowed it).
@@ -564,15 +580,45 @@ def _check_exits(
         if current is None:
             continue
 
+        eff_tp = trade.get("tp", take_profit_pct)
+        eff_sl = trade.get("sl", stop_loss_pct)
+
+        # ── Intraday stop (EXIT_PARITY.md R1-R4) ────────────────────────────
+        # Tested BEFORE the peak update on purpose: R4 measures the trail
+        # against the peak as it stood at the START of the bar, because live's
+        # ratchet is a 5-minute poll that usually never sees the bar's high.
+        # engine_fast.py carries the identical block against its own cache.
+        if ohlc_cache is not None:
+            hit = check_intraday_stop(
+                trade, ohlc_cache.get((trade["ticker"], today_str)),
+                eff_sl, eff_tp, trailing_stop_pct,
+                profit_lock_trigger_pct, profit_lock_trail_pct,
+                today_str=today_str, stats=parity_stats,
+                ratchet_from_high=ratchet_from_high,
+            )
+            if hit is not None:
+                fill, reason, outcome = hit
+                # pnl from the unrounded fill; round only for the record.
+                pnl_pct = (fill - trade["entry_price"]) / trade["entry_price"]
+                closed.append({"_trade": trade, "record": TradeRecord(
+                    ticker=trade["ticker"], sector=trade["sector"],
+                    entry_date=trade["entry_date"], exit_date=today_str,
+                    entry_price=trade["entry_price"], exit_price=round(fill, 4),
+                    shares=trade["shares"], amount=trade["amount"],
+                    pnl=round(trade["amount"] * pnl_pct, 2),
+                    pnl_pct=round(pnl_pct, 4),
+                    outcome=outcome, exit_reason=reason,
+                    signal_score=trade["signal_score"],
+                    days_held=_trading_days_count(trade["entry_date"], today_str),
+                )})
+                continue
+
         # Update peak price for trailing stop / profit-lock ratchet
         if current > trade.get("peak_price", trade["entry_price"]):
             trade["peak_price"] = current
 
         pnl_pct = (current - trade["entry_price"]) / trade["entry_price"]
         days_held = _trading_days_count(trade["entry_date"], today_str)
-
-        eff_tp = trade.get("tp", take_profit_pct)
-        eff_sl = trade.get("sl", stop_loss_pct)
         peak = trade.get("peak_price", trade["entry_price"])
         peak_gain = (peak - trade["entry_price"]) / trade["entry_price"]
 
