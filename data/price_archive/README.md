@@ -78,3 +78,10 @@ TMHC and TPH, all held here, and no roster name has fallen through the gap betwe
 inclusion and caching. Re-run both sweeps after any roster removal — the completeness
 check is cheap and its value is that it can return "nothing missing" honestly rather
 than by omission.
+
+**This instruction has no consumer yet, and says so rather than pretending otherwise.**
+As written it is a paragraph someone has to remember to read, which is the same shape as
+the nightly-audit retirement policy that never fired. Queued: both sweeps as a script,
+plus a check that fires when `data/tickers.json` has changed since the sweep recorded
+here last ran, so the next removal prompts the sweep instead of depending on this file
+being opened. Last sweep: **2026-09-25**, against `tickers.json` at `233acdc`.
