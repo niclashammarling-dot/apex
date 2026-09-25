@@ -375,6 +375,46 @@ what it adds or to path effects on survivors) and **rules out** the invisible-di
 story, without establishing a replacement. Filed as an observation. The mechanism
 stays open rather than being narrated.
 
+### The path-luck null, tested (2026-09-25)
+
+"Mechanism open" is not the same as having no hypothesis, and the default worth
+testing first is a **null**, not a third story: the flip could be path luck. The
+two engines free slots at different moments, so they admit different trades. If
+the +1,480.77 carried by the 17 non-breaching displaced trades sits in two or
+three names, the flip is one window's draw of which big winners happened to find
+a free slot, and it would not survive another window.
+
+It is one sort of 17 rows.
+
+    close-only, 17 non-breaching displaced trades, total +1480.77
+      CRM  +309.32 (20.9%)   AMD  +156.26 (10.6%)   ASML +121.98 (8.2%)
+      HAL  +118.47 ( 8.0%)   COP  +116.81 ( 7.9%)   MRVL +110.92 (7.5%)
+      AMAT +104.70 ( 7.1%)   MRVL +103.60 ( 7.0%)   TMO   +97.10 (6.6%)
+      HD    +88.02 ( 5.9%)   CAT   +77.42 ( 5.2%)   CVX   +52.21 (3.5%)
+      OXY   +51.97 ( 3.5%)   EOG   +37.85 ( 2.6%)
+      CSX    -9.46   META  -14.76   PFE  -41.64
+      -> 5 trades needed for 50% of the total; top 3 share 39.7%
+
+**The null is weakened, not confirmed.** It takes five trades to reach half the
+value, the largest single name is 20.9%, and **14 of the 17 reached TP** — the
+value is spread across a broad set of winners rather than riding on two or three.
+So there is something to dig for; this is not purely which lottery tickets landed
+in a free slot.
+
+Recorded as "no established mechanism; the path-luck null is weakened — value
+spread over 14 positive trades, 5 needed for 50%" rather than as an open
+question, which is the more useful thing to hand the modelling session.
+
+Two limits on that. Seventeen trades from one window is a small sample, and
+"spread over 14" is more robust than "two names" without being robust. And the
+intraday side's 8 non-breaching displaced trades are *more* concentrated (top 3 =
+49.5%), so the two sides differ in a way this check does not explain.
+
+**Still deferred until after symmetric TP.** The one-sided confound touches
+exactly this axis — missed TPs hold slots longer, and slot count is what is being
+compared. The concentration check only sizes how much there is to dig for; it
+does not make digging now any more sound.
+
 This was not on the four-step list. It belongs to step (3), the live-anchored
 comparison line, since it changes which parameter set "beats what is running".
 
