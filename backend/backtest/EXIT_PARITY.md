@@ -475,6 +475,76 @@ open on the upside — is a distinct piece of work and needs its own before/afte
 and its own tie-break rule, since a bar that touches both legs then genuinely
 does need R3 (and R3 would stop being a dead counter).
 
+## `profit_lock_sweep` re-run — the one-sided baseline (2026-09-25)
+
+Completed 14:34 CEST. **20 runs, not 26** — the `trail < trigger` constraint
+removes 6 of the 25 grid cells, plus the baseline. Intraday stops ON, targets on
+the close, so this is the one-sided baseline and the "before" for symmetric TP.
+
+    Baseline (no profit-lock)   n= 534  WR=46.8%  PF=1.323  TSL= 33  bal=$12,635
+
+    trig=4% trail=0.5%          n= 630  WR=55.2%  PF=1.443  TSL=196  bal=$15,754
+    trig=4% trail=1.0%  <- LIVE n= 608  WR=55.3%  PF=1.428  TSL=163  bal=$15,993
+    trig=4% trail=1.5%  <- BEST n= 594  WR=55.6%  PF=1.537  TSL=141  bal=$16,596
+    trig=4% trail=2.0%          n= 580  WR=55.3%  PF=1.447  TSL=124  bal=$15,328
+    trig=4% trail=2.5%          n= 595  WR=55.0%  PF=1.453  TSL=107  bal=$14,794
+    trig=3% trail=2.0%          n= 648  WR=57.4%  PF=1.328  TSL=191  bal=$14,655
+    trig=5% trail=1.5%          n= 555  WR=51.0%  PF=1.384  TSL= 83  bal=$13,808
+    trig=1% trail=0.5%          n=1029  WR=65.9%  PF=1.154  TSL=612  bal=$13,150
+
+**Reading the `◀ best` markers:** they are a *running* best — the sweep marks any
+cell beating the maximum so far, so four cells carry one. Only `4% / 1.5%` is the
+argmax.
+
+**`TSL=33` on the no-profit-lock baseline is correct, not a mislabel.**
+`profit_lock_sweep.py:90` passes `trailing_stop_pct = TRAILING_STOP_PCT = 0.09`
+to the baseline, so those are legacy bare-trailing exits at 9% — which is what
+"Baseline (TSL only, no profit-lock)" says. The grid cells pass the same 0.09
+*plus* profit-lock, where the legacy branch is gated off by
+`not (profit_lock_trigger_pct and profit_lock_trail_pct)`, so it is inert. The
+whole TSL column is sound. (Checked because a trailing-exit count under "no
+profit-lock" would otherwise have made every TSL figure suspect.)
+
+### The argmax: a plateau, not a one-step move
+
+The first reading — "argmax moves one grid step, 1.0% → 1.5%" — over-states it.
+At trigger 4% the trail neighbours are essentially level: 0.5% → 1.443,
+1.0% → 1.428, 1.5% → **1.537**, 2.0% → 1.447, 2.5% → 1.453. **A single cell
+standing above flat neighbours is what noise looks like on a grid.** The robust
+statement is: *trail 0.5–2.5% at trigger 4% is a plateau around PF ≈ 1.44, and
+1.5% is its highest point on this run.*
+
+And the one-sided caveat applies to this axis too: trail width governs how long a
+trade stays alive to reach its target, and targets are still decided on the
+close. Symmetric TP can move this argmax as it can the others.
+
+### The contamination question stays open, with a corrected spec
+
+I proposed running two cells under the old close-path ladder to see whether
+`829bae5`'s `tsl_exits` were contaminated. **That check could not have returned a
+positive** (Niclas). R5 only reorders the *close-path* ladder; this sweep runs
+intraday stops with 100% High/Low coverage, so every stop is decided by
+`resting_stop`, whose label is just whichever term binds, and the close-path
+SL/TSL branches are never reached. The two arms would have produced identical
+counts whether or not the original sweep was contaminated — the same shape as the
+ugrep search that could not match and the float-keyed capture dict.
+
+It also means the counts above are **not** "correct because R5 landed". They are
+correct because the intraday path never consults the branch order.
+
+Correct spec, recorded so it costs ~15 minutes if anyone ever needs it:
+
+    close-only engine (intraday_stops=False), old ladder vs new ladder,
+    on the TIGHT cells (trigger 1%, trail 0.5%), where the fixed stop binds
+    after a ~5.5% one-day drop rather than ~8% — plausible over five years.
+
+**Deliberately not run** (Niclas): it answers whether the old sweep was valid on
+its own terms, and the live parameter is being re-decided on a better engine
+regardless. No outcome changes a decision.
+
+**No parameter change from this run.** Changing live's profit-lock is the
+modelling session's call.
+
 ## Scope the reference does NOT cover
 
 - **TSL is absent from the reference entirely.** Its intraday pass reads only
