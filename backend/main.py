@@ -35,7 +35,14 @@ class _NaNSafeResponse(JSONResponse):
 # Stdout sink is provided by loguru by default.
 # Add a rotating file sink so logs survive process restarts.
 
-_LOG_DIR = Path(__file__).parent.parent / "logs"
+# APEX_LOG_DIR overrides the directory; tests/conftest.py points it at the
+# test temp dir. Found 2026-09-26: any test importing backend.main attached this
+# sink to the production logs/, so suite runs wrote "Scheduler started" and
+# "EOD regime missed … running" lines into apex_<date>.log — the file the halt
+# track record and scheduler-start counts are read from. Test-written halt lines
+# were kept out only by collection order. Set before import: the sink is added
+# at module load.
+_LOG_DIR = Path(os.environ.get("APEX_LOG_DIR") or Path(__file__).parent.parent / "logs")
 _LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 logger.add(

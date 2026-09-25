@@ -18,8 +18,11 @@ import pytest
 
 def pytest_configure(config):
     """Redirect DB to a temp file before any test modules are imported."""
-    import backend.db as db_module
     tmp = tempfile.mkdtemp(prefix="apex_test_")
+    # Before any backend import: backend.main attaches its file sink at module
+    # load, to logs/ unless APEX_LOG_DIR says otherwise (2026-09-26).
+    os.environ["APEX_LOG_DIR"] = str(Path(tmp) / "logs")
+    import backend.db as db_module
     db_module.DB_PATH = Path(tmp) / "apex_test.db"
     # Give the temp DB its schema here, not per test file. Found 2026-09-16:
     # two test_gate_runners.py tests failed on `no such table: alert_latches`
