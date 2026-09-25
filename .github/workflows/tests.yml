@@ -2,7 +2,11 @@ name: APEX Tests
 
 on:
   push:
-    branches: [master]
+    # ci-verify/** exists so a deliberate break can be pushed and OBSERVED
+    # failing without opening a PR. A workflow nobody has watched fail is the
+    # "exists therefore runs" premise the audit loop was falsified on three
+    # times in one summer; one observed red run is the affirmative evidence.
+    branches: [master, 'ci-verify/**']
   pull_request:
   workflow_dispatch:
 
@@ -27,3 +31,10 @@ jobs:
         env:
           PYTHONPATH: .
         run: pytest -q -p no:cacheprovider
+
+      # tests/test_exit_parity.py is EXIT_PARITY.md test 1a and its consumer is
+      # this job. Its inputs are frozen (tests/fixtures/exit_parity_cases.json),
+      # so its result can only change when backend/backtest/exit_rules.py,
+      # engine.py or engine_fast.py change — which is why it belongs on a
+      # trigger the host keeps rather than on a schedule. Called out here so a
+      # future reader does not "move it to the nightly" for tidiness.

@@ -268,6 +268,26 @@ rule on a branch, watch the workflow fail, revert. That observed failure is the
 affirmative evidence — the same standard the audit loop failed three times in
 one summer. Auditing the rest of `tests.yml` stays out of scope.
 
+*Status 2026-09-25: consumer wired, red run NOT YET OBSERVED.*
+`tests/test_exit_parity.py` (7 tests) runs under `.github/workflows/tests.yml`,
+which fires on push to `master`, on any PR, and now on `ci-verify/**` — that
+branch pattern was added so the break can be pushed and watched without opening
+a PR. The observation itself is outstanding: this session has no `gh` CLI and no
+GitHub token, so it can push the break but cannot read the run's result, and a
+run nobody has looked at is exactly the thing this step exists to rule out.
+
+Until someone reports the red run, test 1a is **"exists and runs, not verified"**
+— the middle two of the four facts (exists / runs / actually evaluates / results
+read). To discharge:
+
+    git checkout -b ci-verify/exit-rule
+    # flip R2's gap branch: fill at the stop instead of the open, in
+    # backend/backtest/exit_rules.py — test_every_stop_exit_reproduces and
+    # test_gap_and_intraday_split_matches should both go red
+    git push -u origin ci-verify/exit-rule
+    # watch Actions; confirm FAILURE and that the failing assertions are those two
+    git push origin --delete ci-verify/exit-rule
+
 **Test 2 → recurring report.** Live exits keep accruing, so day-agreement and
 the fill-bias distribution are a natural nightly/periodic check on the existing
 audit surface.
