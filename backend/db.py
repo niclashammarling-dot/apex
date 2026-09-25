@@ -1840,19 +1840,30 @@ def get_latest_sector_scores(as_of: str | None = None) -> dict[str, float]:
     as_of: ISO timestamp (same clock as sector_snapshots.timestamp); when given,
     "most recent" means the last snapshot at or before it — the input the EOD
     regime update would have seen at that moment. Used by the replay path.
+
+    EXCLUDED_SECTORS are filtered out. Found 2026-09-26: an excluded sector
+    stops being polled but keeps its last row, and "latest per sector" returned
+    it forever — Financials/Utilities/ConsumerStaples from 2025-06-13, Materials
+    from 2026-07-07. compute_dynamic_caps averaged over them (mean_score 0.3977
+    vs 0.3815 on 09-25, every unclamped live cap ~4% tighter); RegimeBayes'
+    cold-start _current_leader could name one.
     """
+    from backend.config import EXCLUDED_SECTORS
+    excluded = list(EXCLUDED_SECTORS)
+    marks = ",".join("?" * len(excluded)) or "''"
     conn = get_db()
     try:
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT s.sector, s.avg_score
             FROM sector_snapshots s
             INNER JOIN (
                 SELECT sector, MAX(timestamp) AS max_ts
                 FROM sector_snapshots
                 WHERE (? IS NULL OR timestamp <= ?)
+                  AND sector NOT IN ({marks})
                 GROUP BY sector
             ) latest ON s.sector = latest.sector AND s.timestamp = latest.max_ts
-        """, (as_of, as_of)).fetchall()
+        """, (as_of, as_of, *excluded)).fetchall()
         return {r["sector"]: r["avg_score"] for r in rows}
     finally:
         conn.close()
