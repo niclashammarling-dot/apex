@@ -77,3 +77,7 @@ data/.eod_replay.lock
 # (open(SCHEDULER_LOCK, "w")). Tracked until 2026-09-24, which put a PID diff in
 # every commit made while a window was running.
 data/scheduler.lock
+
+# Runtime completion markers — written by the nightly collectors each run, same class
+# as scheduler.lock: state, not source. Gated on before a dependent step runs.
+data/pcr_collect_done.json

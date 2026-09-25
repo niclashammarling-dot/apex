@@ -665,91 +665,282 @@ def check69():
 
 # ── CHECK 65 — Posterior saturation monitor ───────────────────────────────────
 
+# This check's own thresholds, not the model's — surfaced here and in CHECKS.md so a
+# change is a visible decision. The model's clamp, decay and LR guard are imported from
+# regime_bayes at call time so the check self-invalidates if the model moves.
+CHECK65_PIN_STREAK_CRIT  = 2     # consecutive ceiling-pinned sessions before a touch is a ratchet
+CHECK65_DIVERGENCE_PRE   = 0.90  # conviction level at which conviction/momentum divergence is named
+CHECK65_DIVERGENCE_AGG   = 0.55  # aggregate below which conviction is no longer tracking momentum
+CHECK65_FLOOR_CUTOFF     = 0.5   # below this a binding clamp is the floor, not saturation
+
+_LR_FIELDS = ("lr_ticker", "lr_etf", "lr_rs", "lr_ipo", "lr_rank")
+
+
+def _lr_decomposition(rec: dict) -> tuple[float, str | None, float | None]:
+    """
+    Combined LR applied today and the single term that contributed the most lift.
+
+    The dominant term is the largest LR above 1.0 — the product is what moves the
+    posterior, so naming any one term is a pointer for the reader, not an attribution.
+    Returns (product, dominant_name, dominant_value); dominant is None when nothing lifts.
+    """
+    product = 1.0
+    terms: list[tuple[str, float]] = []
+    for k in _LR_FIELDS:
+        v = rec.get(k)
+        if isinstance(v, (int, float)) and v > 0:
+            product *= float(v)
+            terms.append((k, float(v)))
+    lifting = [t for t in terms if t[1] > 1.0]
+    if not lifting:
+        return product, None, None
+    name, val = max(lifting, key=lambda kv: kv[1])
+    return product, name, val
+
+
+def _nyse_sessions(first: str, last: str) -> tuple[list[str], str]:
+    """
+    NYSE session dates in [first, last], and the basis used.
+
+    Falls back to weekdays-only when pandas_market_calendars is unavailable, and says
+    so — a fallback that looks like the real thing is how a holiday becomes a gap.
+    """
+    try:
+        import pandas_market_calendars as mcal
+        sched = mcal.get_calendar("NYSE").schedule(start_date=first, end_date=last)
+        return [d.isoformat() for d in sched.index.date], "NYSE sessions"
+    except Exception:
+        d0, d1 = date.fromisoformat(first), date.fromisoformat(last)
+        out, d = [], d0
+        while d <= d1:
+            if d.weekday() < 5:
+                out.append(d.isoformat())
+            d += timedelta(days=1)
+        return out, "weekdays (pandas_market_calendars unavailable — holidays not modelled)"
+
+
+def _ceiling_pin_streak(records: list[dict], sector: str, upto: str,
+                        ceil_cutoff: float) -> dict:
+    """
+    Consecutive *sessions* ending at `upto` on which `sector` was pinned at the ceiling.
+
+    The spine is the NYSE session calendar, not the trace's own dates. A session with no
+    trace row is `unknown` and **breaks** the streak rather than being bridged: the trace
+    is written by eod_regime, so a missing row means the regime pipeline did not run that
+    session, and a streak walked over trace dates alone under-reports duration in exactly
+    that case — silently, and worst when the pipeline itself was broken. Found 2026-09-25:
+    Healthcare 08-18 → 08-25 is six sessions but only five trace rows, and one of those
+    five (2026-08-23) is a *Sunday* catch-up run that bridged the two missing weekday
+    sessions 08-20 and 08-21 invisibly.
+
+    Off-session rows (weekend/holiday catch-up runs) are counted and reported, not used as
+    links. Duplicate (date, sector) rows collapse to the last written, matching CHECK 71.
+    Gap detection itself belongs to CHECK 77 — this only refuses to hide a gap.
+
+    Returns {streak, unknown_before, off_session_rows, basis}: `unknown_before` is the run
+    of row-less sessions immediately preceding the break, so the reader can tell a genuine
+    end of pin from a pipeline gap.
+    """
+    by_date: dict[str, dict] = {}
+    for r in records:
+        if r.get("sector") == sector and r.get("date"):
+            by_date[r["date"]] = r
+    if not by_date:
+        return {"streak": 0, "unknown_before": 0, "off_session_rows": 0, "basis": "no rows"}
+
+    sessions, basis = _nyse_sessions(min(by_date), upto)
+    session_set     = set(sessions)
+    # `upto` anchors the walk even when it is not itself a session — a weekend catch-up run
+    # is the day being reported on, so it can be the anchor; it is never a link below.
+    idx = [d for d in sessions if d <= upto]
+    if upto not in session_set:
+        idx.append(upto)
+
+    streak, unknown_before, i = 0, 0, len(idx) - 1
+    visited_from = upto
+    while i >= 0:
+        visited_from = idx[i]
+        r = by_date.get(idx[i])
+        if r is None:
+            break                          # row-less session: unknown, not a link
+        pre = r.get("pre_clamp_posterior")
+        if r.get("clamp_binding") and isinstance(pre, (int, float)) and pre > ceil_cutoff:
+            streak += 1
+            i -= 1
+        else:
+            break                          # genuine end of the pin
+    while i >= 0 and by_date.get(idx[i]) is None:
+        unknown_before += 1                # size the gap the streak stopped at
+        visited_from = idx[i]
+        i -= 1
+
+    # Off-session rows are reported only where they bear on this streak: inside the span
+    # the walk actually looked at. A Sunday catch-up sitting in the gap is the thing that
+    # made the old trace-date walk bridge it.
+    off_session = sum(1 for d in by_date
+                      if d not in session_set and visited_from <= d <= upto and d != upto)
+    return {"streak": streak, "unknown_before": unknown_before,
+            "off_session_rows": off_session, "basis": basis}
+
+
 def check65():
     """
-    Flag any sector whose pre_clamp_posterior exceeded the clamp ceiling (0.95) in the
-    most recent regime run, or that is approaching it (> 0.90) while aggregate is weak.
+    Posterior saturation monitor — reports ceiling pins by *duration*, and conviction/
+    momentum divergence *independently* of them.
 
-    Reads regime_signal_trace.jsonl — appended daily by regime_bayes.py. The stored
-    posterior in sector_posterior_history is always the *clamped* value; only the
-    pre_clamp_posterior field in the trace reveals when the clamp is binding.
+    Reads regime_signal_trace.jsonl, appended daily by regime_bayes.py. The stored
+    posterior in sector_posterior_history is always the clamped value; only
+    pre_clamp_posterior reveals when the clamp is binding.
 
-    Thresholds:
-      - clamp_binding=True: CRITICAL — a signal formula delivered a raw posterior above
-        0.95, overriding all other signals. The clamp fired; investigate which LR caused
-        it (lr_ipo_raw field is most commonly the culprit).
-      - pre_clamp_posterior > 0.90 with aggregate_score < 0.55: WARNING — approaching
-        saturation with weak sector momentum; conviction/momentum divergence, potential
-        early rotation candidate.
+    Two findings, evaluated independently — they are not alternatives, and the pair is
+    the interesting state:
 
-    Fires on the latest date present in the trace file.
-    Silently skips if the file does not exist (regime has not run since the JSONL
-    feature was added — no false alarm on first deploy).
+      - **Ceiling pin.** clamp_binding with pre_clamp above CHECK65_FLOOR_CUTOFF. The
+        floor side (0.05 binding on a depressed sector) is the regime gate working, not
+        saturation, and is skipped — the first real-data run on 2026-09-11 flagged six
+        floor-clamps as CRITICAL "exceeded ceiling" at posterior 0.04. Severity is
+        duration, not the touch: WARNING on a single session, CRITICAL from
+        CHECK65_PIN_STREAK_CRIT consecutive sessions, because a pin persists through the
+        stored posterior. Once pinned, the next session's prior is
+        POSTERIOR_DECAY × ceiling + (1 − POSTERIOR_DECAY) × base, so a much smaller
+        combined LR re-saturates — the detail line prints that re-saturation LR next to
+        the combined LR actually applied. A sustained pin is therefore partly
+        self-sustaining: today's prior carries yesterday's evidence, and for the
+        persistent terms (ticker recovery status changes slowly, sector IPO share is a
+        30-day window) that is the same evidence counted again.
+
+      - **Conviction/momentum divergence.** pre_clamp above CHECK65_DIVERGENCE_PRE while
+        aggregate_score is below CHECK65_DIVERGENCE_AGG: maximum conviction on decaying
+        momentum, a rotation candidate. Before 2026-09-25 this was the `elif` arm of the
+        pin branch and so could never fire while the clamp was binding — which is exactly
+        when it matters. Healthcare 2026-08-25 (aggregate 0.546) and 2026-09-01 (0.478)
+        were both reported as pins with LR-calibration advice instead. CRITICAL when it
+        coincides with a pin, WARNING alone.
+
+    The detail line names the term that actually dominated today's product. It used to
+    name lr_ipo_raw unconditionally — a fossil of the founding 2026-07-16 incident
+    (ipo_share 1.0 → lr_ipo_raw 205.6), which Laplace smoothing and the LR cap fixed. It
+    printed "lr_ipo_raw=1.0; check all LR formulas for uncapped range" on 2026-09-23,
+    where the dominant term was lr_ticker=4.0 and no LR had been near LR_WARN_CEIL in the
+    whole trace. Stale remediation text is the CHECK 81 failure repeated.
+
+    Host-only; SKIPPED in CI. Fires on the latest date present in the trace.
     """
     trace_path = REPO / "data" / "regime_signal_trace.jsonl"
     if not require_data_file(65, "posterior saturation monitor", trace_path):
         return
-
     try:
-        lines = trace_path.read_text().strip().splitlines()
+        from backend.regime.regime_bayes import (
+            LR_WARN_CEIL, POSTERIOR_CLAMP_CEIL, POSTERIOR_DECAY,
+        )
     except Exception as e:
-        flag(65, "posterior saturation monitor", "WARNING",
-             "data/regime_signal_trace.jsonl",
-             f"could not read trace file: {e}")
-        return
-
-    if not lines:
+        flag(65, "posterior saturation monitor", "WARNING", "backend/regime/regime_bayes.py",
+             f"could not import POSTERIOR_CLAMP_CEIL / POSTERIOR_DECAY / LR_WARN_CEIL: {e} — "
+             f"check did not evaluate")
         return
 
     records = []
-    for line in lines:
+    for line in trace_path.read_text(errors="ignore").splitlines():
+        line = line.strip()
+        if not line:
+            continue
         try:
             records.append(json.loads(line))
         except Exception:
             continue
-
     if not records:
+        flag(65, "posterior saturation monitor", "WARNING", "data/regime_signal_trace.jsonl",
+             "trace file present but no parseable rows — check did not evaluate")
         return
 
-    latest_date = max(r.get("date", "") for r in records)
-    today_records = [r for r in records if r.get("date") == latest_date]
+    latest_date    = max(r.get("date", "") for r in records)
+    n_sectors      = len({r.get("sector") for r in records if r.get("date") == latest_date})
+    base_prior     = 1.0 / max(n_sectors, 1)
+    pinned_prior   = POSTERIOR_DECAY * POSTERIOR_CLAMP_CEIL + (1.0 - POSTERIOR_DECAY) * base_prior
+    # LR needed to lift a post-pin prior back over the ceiling, in odds terms.
+    resat_lr = ((POSTERIOR_CLAMP_CEIL / (1.0 - POSTERIOR_CLAMP_CEIL))
+                / (pinned_prior / (1.0 - pinned_prior)))
 
-    for r in today_records:
-        sector        = r.get("sector", "?")
-        clamp_binding = r.get("clamp_binding", False)
-        pre_clamp     = r.get("pre_clamp_posterior")
-        aggregate     = r.get("aggregate_score", 1.0)
-        lr_ipo_raw    = r.get("lr_ipo_raw")
-        ipo_share     = r.get("ipo_share")
+    # Duplicate (date, sector) rows (same-day re-runs) collapse to the last written,
+    # matching CHECK 71 — without this a re-run emits the same finding twice.
+    today_rows: dict[str, dict] = {}
+    for r in records:
+        if r.get("date") == latest_date and r.get("sector"):
+            today_rows[r["sector"]] = r
 
-        # clamp_binding is two-sided: the floor (0.05) binding on a depressed
-        # sector is the regime gate working, not saturation. Only the ceiling
-        # side is this check's subject (first real-data run 2026-09-11 flagged
-        # six floor-clamps as CRITICAL "exceeded ceiling" at posterior 0.04).
-        if clamp_binding and pre_clamp is not None and pre_clamp < 0.5:
+    for _sector, r in sorted(today_rows.items()):
+        sector    = r.get("sector", "?")
+        pre       = r.get("pre_clamp_posterior")
+        aggregate = r.get("aggregate_score")
+        alloc     = r.get("allocation")
+        if not isinstance(pre, (int, float)):
             continue
 
-        if clamp_binding:
-            detail = (
-                f"{sector}: pre_clamp_posterior={pre_clamp:.4f} exceeded clamp ceiling 0.95 "
-                f"on {latest_date}. "
-            )
-            if lr_ipo_raw is not None and lr_ipo_raw > 10.0:
-                detail += (
-                    f"lr_ipo_raw={lr_ipo_raw:.1f} (ipo_share={ipo_share}) was the trigger — "
-                    f"check ipo_sentiment smoothing or LR cap."
-                )
-            else:
-                detail += f"lr_ipo_raw={lr_ipo_raw}; check all LR formulas for uncapped range."
-            flag(65, "posterior saturation monitor", "CRITICAL",
-                 "data/regime_signal_trace.jsonl", detail)
+        pinned    = bool(r.get("clamp_binding")) and pre > CHECK65_FLOOR_CUTOFF
+        diverging = (pre > CHECK65_DIVERGENCE_PRE
+                     and isinstance(aggregate, (int, float))
+                     and aggregate < CHECK65_DIVERGENCE_AGG)
+        if not pinned and not diverging:
+            continue
 
-        elif pre_clamp is not None and pre_clamp > 0.90 and aggregate < 0.55:
-            flag(65, "posterior saturation monitor", "WARNING",
-                 "data/regime_signal_trace.jsonl",
-                 f"{sector}: pre_clamp_posterior={pre_clamp:.4f} approaching ceiling with "
-                 f"aggregate_score={aggregate:.4f} on {latest_date} — "
-                 f"conviction/momentum divergence; potential rotation signal.")
+        product, dom_name, dom_val = _lr_decomposition(r)
+        prior = r.get("decayed_prior")
+        where = (f"aggregate={aggregate:.4f}" if isinstance(aggregate, (int, float)) else "aggregate=?")
+        if isinstance(alloc, (int, float)):
+            where += f", allocation={alloc:.4f}"
+        dom = (f"dominant {dom_name}={dom_val:g}" if dom_name else "no term above 1.0")
+        uncapped = dom_val is not None and dom_val >= LR_WARN_CEIL
+
+        if pinned:
+            st     = _ceiling_pin_streak(records, sector, latest_date, CHECK65_FLOOR_CUTOFF)
+            streak = st["streak"]
+            sev    = "CRITICAL" if streak >= CHECK65_PIN_STREAK_CRIT else "WARNING"
+            detail = (
+                f"{sector}: ceiling pin, session {streak} — pre_clamp={pre:.4f} > "
+                f"{POSTERIOR_CLAMP_CEIL} on {latest_date}, {where}. "
+                f"prior={prior if prior is None else f'{prior:.4f}'} × combined LR {product:.2f} "
+                f"({dom}). "
+            )
+            if uncapped:
+                detail += (f"{dom_name} is at or past LR_WARN_CEIL {LR_WARN_CEIL} — that term's "
+                           f"formula has escaped calibration; start there. ")
+            else:
+                detail += (f"No term reached LR_WARN_CEIL {LR_WARN_CEIL}: the lift is the product, "
+                           f"not one formula. ")
+            if streak >= CHECK65_PIN_STREAK_CRIT:
+                detail += (f"After a pinned session the prior decays only to {pinned_prior:.4f}, so "
+                           f"combined LR {resat_lr:.2f} re-saturates — a pin this long is carrying "
+                           f"yesterday's evidence forward, and the slow-moving terms (ticker recovery "
+                           f"status, 30-day IPO share) are being counted again.")
+            else:
+                detail += (f"Single session; {CHECK65_PIN_STREAK_CRIT} consecutive escalates, because "
+                           f"from a pinned prior only combined LR {resat_lr:.2f} is needed again.")
+            if st["unknown_before"]:
+                detail += (f" Streak is a floor, not the duration: the {st['unknown_before']} "
+                           f"session(s) before it have no trace row, so the pin there is unknown "
+                           f"and the walk stopped rather than bridging it — see CHECK 77 for the "
+                           f"regime-pipeline gap.")
+            if st["off_session_rows"]:
+                detail += (f" {st['off_session_rows']} off-session trace row(s) for this sector "
+                           f"(weekend/holiday catch-up) were counted but not used as links.")
+            if not st["basis"].startswith("NYSE"):
+                detail += f" Session basis: {st['basis']}."
+            flag(65, "posterior saturation monitor", sev, "data/regime_signal_trace.jsonl", detail)
+
+        if diverging:
+            sev = "CRITICAL" if pinned else "WARNING"
+            detail = (
+                f"{sector}: conviction/momentum divergence — pre_clamp={pre:.4f} > "
+                f"{CHECK65_DIVERGENCE_PRE} while {where} on {latest_date}"
+                f"{' and the ceiling clamp is binding' if pinned else ''}. "
+                f"Maximum conviction on decaying momentum; rotation candidate. "
+                f"Sector allocation cancels out of per-position sizing "
+                f"(_compute_bayesian_multipliers divides by the level ticker_allocations "
+                f"multiplies back) and survives only in sector_caps._bayesian_weight, which is "
+                f"a ratio to the top sector — so read live exposure from open positions in this "
+                f"sector before treating this as a capital problem."
+            )
+            flag(65, "posterior saturation monitor", sev, "data/regime_signal_trace.jsonl", detail)
 
 
 # ── CHECK 71 — Per-sector posterior-ceiling entry-floor sweep ─────────────────
