@@ -208,6 +208,61 @@ sound", not as "7% is the answer".
 The `profit_lock_sweep` re-run started 2026-09-25 12:27 CEST carries the same
 one-sidedness and its output must be read under this caveat.
 
+### What became of the missed TPs under the close model (2026-09-25)
+
+Niclas's correction to the caveat above, and the measurement that settles it.
+The missed-TP counts are nearly **flat** across widths (28, 27, 27, 30). What
+moves is the denominator — the invisible stops the intraday model adds shrink as
+the stop widens (34 → 9). So the symmetric fix adds a similar TP effect to every
+cell; it does not pile missed wins onto 7%.
+
+How much it can reorder the grid depends on what those trades actually became
+under the close-only model. Three outcomes, very different in kind: **TP later on
+the close** (same sign, only timing and slot occupancy), **TIME** (smaller win or
+a scratch), **SL** (a win booked as a loss — the sign flip).
+
+    SL     trades  touched | TP later  TIME  SL  TSL  EOB | SL share  pnl of SL-fated
+    0.04   73      19      | 15        2     2   0    0   | 10.5%     -115.52
+    0.05   75      18      | 16        1     1   0    0   |  5.6%     -143.53
+    0.06   71      18      | 16        1     1   0    0   |  5.6%     -142.06
+    0.07   71      18      | 16        1     1   0    0   |  5.6%     -136.22
+
+**The sign-flip channel is one trade per width** (two at 4%). Almost everything
+that touched the target intraday went on to book a TP on a later close anyway.
+So the symmetric model is overwhelmingly a **timing and slot-occupancy** effect,
+and the expectation is a level shift of the surface rather than a reordering.
+
+The slot channel is not nothing, though, and it is the compounding one. At SL 5%
+the 16 "TP later" trades sat open for **61 extra calendar days** between first
+touching the limit and being booked on a close — median 4, max 11 (LLY touched
+2026-05-28, booked 2026-06-08). Against three slots over the window that is a
+material share of capacity, and freed slots change later entries, which is
+exactly why no single cell reads cleanly.
+
+### Rules for symmetric TP, when it is built
+
+Mirror of the stop side, specified now while the reasoning is live:
+
+- **Gap-up through the limit fills at the OPEN.** A limit sell fills at the limit
+  or better, so the favourable gap is the mirror of R2's adverse one.
+- **Both-touched bars get the floor/ceiling flag**, exactly like R4's ratchet:
+  stop-first is the conservative floor, TP-first the ceiling. Daily bars admit no
+  taste-free answer, but the spread is measurable, and **this is where R3's
+  counter finally has something to count** — it has read 0 on every run so far
+  precisely because the TP side was never modelled intraday.
+
+### Sequencing: symmetric TP goes directly after (1), ahead of (2)
+
+Niclas, 2026-09-25. The reason step (1) came first applies unchanged: the
+asymmetry is a function of the axis being compared, so it does **not** cancel in
+a comparison. And step (2) is a cost term calibrated against fills — building it
+on a one-sided exit model would bake the asymmetry into the calibration.
+
+**The in-flight `profit_lock_sweep` keeps its value as the ONE-SIDED BASELINE.**
+Started 2026-09-25 12:27 CEST under intraday stops with close-only targets.
+Labelled as such, it is the "before" for symmetric TP, so the ~2.7 hours of
+compute buys a before/after rather than being discarded.
+
 **Not in today's scope; it changes what step (1) means.** The four-step sequence
 specified intraday stops, and intraday stops is what shipped. Symmetric bracket
 modelling — the TP leg intraday, at the limit price, with a gap-through at the
