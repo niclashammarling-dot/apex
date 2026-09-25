@@ -545,6 +545,49 @@ regardless. No outcome changes a decision.
 **No parameter change from this run.** Changing live's profit-lock is the
 modelling session's call.
 
+## Two premises under step (1), checked 2026-09-25
+
+**Time-in-force — CONFIRMED, not assumed.** R2's gap-through rule (fill at the
+open) requires the legs to be resting *at* the open. `brokers/alpaca.py:261` sets
+`time_in_force=TimeInForce.GTC` on the bracket parent and the legs inherit it; the
+OCO exit path (287) and the standalone stop fallback (501) are GTC too. If the
+brackets were DAY orders re-placed each session, a gap-down open would have no
+resting stop and the fill would happen at re-submission, at a different price —
+which would change all 11 gap-through fills and the planned symmetric-TP gap rule.
+They are not. Alpaca cancels GTC orders after 90 days; `TIME_STOP_DAYS = 40`
+trading days (~56 calendar) bounds it in principle, and the longest hold any live
+trade has actually reached is **37.1 calendar days**, so the premise holds without
+exception.
+
+**Session coverage — OPEN, with a prerequisite that must come first.** Alpaca
+stops trigger only in regular hours. If the cached daily bars carry pre- or
+post-market prints, the engine detects touches live stops could not fill on, and
+it would over-count invisible stops — and, after the mirror, missed targets too.
+`yf.download` (`engine_fast.py:896`) passes no `interval` and no `prepost`, so by
+yfinance's documented defaults these are regular-session daily bars. **That is an
+argument from defaults, not a provenance check**, and asserting it would be
+exactly the move this session kept punishing.
+
+The second-source check needs one thing handled first, or it will measure the
+wrong quantity (Niclas): **price adjustment.** Every download site passes
+`auto_adjust=True` — `engine_fast.py:900`, `engine.py:724`, and five others
+including `scheduler.py:313/323`, the EOD regime inputs. The cache therefore holds
+split- and dividend-adjusted prices: **39 of the 41 fixture entry prices are not
+cent-denominated** (`343.23297119140625`, `217.94515991210938`). Inside the
+backtest this is harmless, because entry, stop and bar share one scale. Against
+Alpaca's actual prices it breaks two things:
+
+- *The session check itself.* Adjusted yfinance lows differ from Alpaca's
+  regular-session lows, and that difference could be misread as extended-hours
+  contamination — or could mask it.
+- *Test 2's fill-bias measurement.* The "persistent adverse bias" of modelled
+  versus actual fills would partly be the dividend adjustment factor rather than
+  execution, and step (2)'s cost term would then be calibrated on it.
+
+Spec, in order: fetch with `auto_adjust=False` (or undo the adjustment), *then*
+compare Alpaca's daily bars against it on the live SL exit days. The same
+prerequisite applies to test 2 whenever it is built.
+
 ## Scope the reference does NOT cover
 
 - **TSL is absent from the reference entirely.** Its intraday pass reads only
@@ -651,7 +694,11 @@ one summer. Auditing the rest of `tests.yml` stays out of scope.
 `tests/test_exit_parity.py` (7 tests) runs under `.github/workflows/tests.yml`,
 which fires on push to `master`, on any PR, and on `ci-verify/**` — that branch
 pattern was added so a break can be pushed and watched without opening a PR, and
-it stays for the next verification.
+it stays for the next verification. **Trigger for using it again:** adding any new
+CI test that claims to guard something — that is when an observed red run is
+needed. Not a review date, which would only ever confirm "nothing to verify",
+which is the same empty green tick this file rejected for running the frozen test
+nightly.
 
 The evidence, read by Niclas at **10:28 UTC on 2026-09-25**:
 
