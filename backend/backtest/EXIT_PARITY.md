@@ -322,19 +322,58 @@ the 18 that the changed path costs). So the constraint is real and sized, and
 "plausibly binding" would now be under-stating it. The non-zero "lost vs 3"
 column is the compounding counterfactual again — 4 is not a superset of 3.
 
-### And the direction of the `max_positions` effect flips between the engines
+### The 3→4 step flips; the parameter does not (narrowed 2026-09-25)
 
-The close-only engine says an extra slot **hurts**: 0.3128 → 0.2123, sharpe
-3.263 → 2.485. The intraday engine says it **helps**: 0.1139 → 0.1428, sharpe
-1.792 → 1.974, with 5 clearly worse than either.
+Stated precisely, because the first version over-claimed. Intraday runs
+0.1139 → 0.1428 → 0.0576; close-only falls monotonically 0.3128 → 0.2123 →
+0.1552. **At 5 both engines agree the extra slot hurts.** So the defensible claim
+is: *the blind engine says fewer is always better, while the fixed engine shows
+an interior optimum at 4 within a 3–5 grid.* That is still an argmax the
+blindness moves, but it is one cell, not the parameter.
 
-`max_positions` is an optimizer parameter (`best_params["max_positions"] = 3`).
-So this is the second parameter whose argmax the blindness inverts, after stop
-width — and for the same structural reason: holding more positions means more
-exposure to intraday stop-outs the close-only engine cannot see, so the blind
-engine systematically under-prices the cost of concentration and over-prices the
-benefit of a tight book. Anything tuned on the close-only engine that trades off
-position count is suspect in the same way the 5% stop was.
+**Two caveats travel with it.**
+
+1. *It is the one-sided model again.* These intraday runs have stops intraday and
+   targets on the close. Missed TPs hold slots longer, and slot count is exactly
+   the axis being compared — so this carries the stop-width caveat, probably more
+   strongly than stop width did.
+2. *"Binds" and "helps" have different evidential weight.* The 49 entries are a
+   structural fact about the book. The +0.029 return and +0.18 Sharpe at 4 are
+   one window. Record as **binding (robust)** and **direction at 3→4 (single
+   window, one-sided model)**.
+
+### Attribution: the flip is in the displaced trades, and the mechanism is still open
+
+The earlier mechanism sketch — "the blind engine under-prices each position's
+risk, so it should favour more exposure" — is **withdrawn**. It predicts the
+wrong sign, and an opposite story (a concentrated book of top candidates held
+through invisible dips looks excellent) fits equally well. A story that fits
+either sign is not a mechanism.
+
+Decomposing the 3→4 change into marginal entries and displacement, which
+reconciles exactly:
+
+    intraday    added (49) +438.16 | removed (18)  +14.92 | common (67) -134.09 | net  +289.15
+    close-only  added (47) +100.96 | removed (26) +808.94 | common (49) -296.85 | net -1004.83
+
+**The flip is not displacement.** The common-trade path effect is negative in
+*both* engines (−134 vs −297) — same sign, so it cannot produce a sign change.
+The flip lives in the **removed** term: the trades the 4th slot pushes out of the
+book are worth **+808.94 under the blind engine and +14.92 under the fixed one**.
+Composition differs accordingly — close-only displaces 15 TPs against 7 SLs;
+intraday displaces 7 TPs against 10 SLs.
+
+**But the obvious explanation does not survive checking.** If the displaced
+trades were valuable to the blind engine because their intraday stop-outs were
+invisible, the +808.94 should sit in trades that breached the stop intraday. It
+does not: only **9 of the 26** ever breached, and those 9 booked **−671.83** —
+they were already losers on the close path too. The +808.94 comes mostly from
+trades that never touched the stop at all.
+
+So the attribution **localises** the flip (to what the 4th slot displaces, not to
+what it adds or to path effects on survivors) and **rules out** the invisible-dip
+story, without establishing a replacement. Filed as an observation. The mechanism
+stays open rather than being narrated.
 
 This was not on the four-step list. It belongs to step (3), the live-anchored
 comparison line, since it changes which parameter set "beats what is running".
