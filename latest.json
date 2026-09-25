@@ -1,6 +1,6 @@
 {
- "generated_at": "2026-09-24T20:34:22+00:00",
- "host_commit": "e4e0788",
+ "generated_at": "2026-09-25T20:35:27+00:00",
+ "host_commit": "7a6fba5",
  "findings": [
   [
    4,
@@ -28,7 +28,7 @@
    "Lock 4 PCR channel under per-ticker P25 (demo)",
    "INFO",
    "data/apex.db:demo_gate_history",
-   "Session coverage since build (cycles written / expected at 20m): 09-18 13/19, 09-21 21/19, 09-22 38/19, 09-23 20/19, 09-24 38/19; trailing-3 mean 168%. baseline (0.85, demo since 2026-05-21): 234/1049 PCR passes = 22.3%. per_ticker_p25: 10/114 = 8.8% [4.8%, 15.4%]. Composition of passes \u2014 blocked-under-0.85 names: 30% of passes vs 33% of evaluations (baseline 0% by construction); open-under-0.85 names: 20% of passes vs 51% of evaluations (baseline 85% of passes)."
+   "Session coverage since build (cycles written / expected at 20m): 09-21 21/19, 09-22 38/19, 09-23 20/19, 09-24 38/19, 09-25 35/19; trailing-3 mean 163%. baseline (0.85, demo since 2026-05-21): 234/1049 PCR passes = 22.3%. per_ticker_p25: 12/142 = 8.5% [4.9%, 14.2%]. Composition of passes \u2014 blocked-under-0.85 names: 42% of passes vs 42% of evaluations (baseline 0% by construction); open-under-0.85 names: 17% of passes vs 46% of evaluations (baseline 86% of passes)."
   ],
   [
    81,
@@ -42,49 +42,42 @@
    "Posterior history provenance and gap count",
    "WARNING",
    "data/apex.db:sector_posterior_history",
-   "13 of 81 NYSE sessions since 2026-05-29 have no posterior row (16%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-07-29, 2026-07-31, 2026-08-03, 2026-08-05, 2026-08-20, 2026-08-21, 2026-08-26, 2026-08-27. Standing level, not an event \u2014 the July\u2013August holes are unadjudicable (no written_at, logs rotated)."
+   "13 of 82 NYSE sessions since 2026-05-29 have no posterior row (16%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-07-29, 2026-07-31, 2026-08-03, 2026-08-05, 2026-08-20, 2026-08-21, 2026-08-26, 2026-08-27. Standing level, not an event \u2014 the July\u2013August holes are unadjudicable (no written_at, logs rotated)."
   ],
   [
    78,
    "PCR history gap count",
    "WARNING",
    "data/apex.db:lock4_pcr_history",
-   "45 of 87 NYSE sessions since 2026-05-21 have no PCR rows (52%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-09-01, 2026-09-02, 2026-09-03, 2026-09-10, 2026-09-14, 2026-09-16, 2026-09-17, 2026-09-21. Standing level \u2014 the per-ticker P25 calibration reads a 48%-present sample."
-  ],
-  [
-   65,
-   "posterior saturation monitor",
-   "CRITICAL",
-   "data/regime_signal_trace.jsonl",
-   "Semiconductors: pre_clamp_posterior=0.9720 exceeded clamp ceiling 0.95 on 2026-09-23. lr_ipo_raw=1.0; check all LR formulas for uncapped range."
+   "45 of 88 NYSE sessions since 2026-05-21 have no PCR rows (51%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-09-01, 2026-09-02, 2026-09-03, 2026-09-10, 2026-09-14, 2026-09-16, 2026-09-17, 2026-09-21. Standing level \u2014 the per-ticker P25 calibration reads a 49%-present sample."
   ],
   [
    67,
    "Industrials composite dilution monitor",
    "SUPPRESSED",
    "data/apex.db:sector_snapshots",
-   "[CRITICAL suppressed \u2014 market-wide decline: 8/11 sectors below 75% of their 60d peak (Communication, ConsumerDisc, Defense, Energy, Homebuilders, Industrials, RealEstate, Transportation). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Industrials avg_score=0.3965 (at 2026-09-24T19:51:28.934499+00:00) is below critical floor 0.48; baseline was 0.6009 on 2026-08-08 (pre-ETN/PWR/TT). At neutral posterior (~0.55), adjusted_score \u2248 0.218, below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove ETN/PWR/TT via ticker_config.remove_ticker() and diagnose signal history before re-adding."
+   "[CRITICAL suppressed \u2014 market-wide decline: 9/11 sectors below 75% of their 60d peak (Communication, ConsumerDisc, Defense, Energy, Homebuilders, Industrials, RealEstate, Technology, Transportation). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Industrials avg_score=0.4494 (at 2026-09-25T19:51:26.938516+00:00) is below critical floor 0.48; baseline was 0.6009 on 2026-08-08 (pre-ETN/PWR/TT). At neutral posterior (~0.55), adjusted_score \u2248 0.247, below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove ETN/PWR/TT via ticker_config.remove_ticker() and diagnose signal history before re-adding."
   ],
   [
    68,
    "Defense composite dilution monitor",
    "SUPPRESSED",
    "data/apex.db:sector_snapshots",
-   "[CRITICAL suppressed \u2014 market-wide decline: 8/11 sectors below 75% of their 60d peak (Communication, ConsumerDisc, Defense, Energy, Homebuilders, Industrials, RealEstate, Transportation). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Defense avg_score=0.1437 (at 2026-09-24T19:51:28.934499+00:00) is below critical floor 0.6; baseline was 0.7169 on 2026-08-08 (pre-AXON/HWM). At neutral posterior (~0.55), adjusted_score \u2248 0.079, below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove AXON/HWM via ticker_config.remove_ticker() and diagnose signal history before re-adding."
+   "[CRITICAL suppressed \u2014 market-wide decline: 9/11 sectors below 75% of their 60d peak (Communication, ConsumerDisc, Defense, Energy, Homebuilders, Industrials, RealEstate, Technology, Transportation). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Defense avg_score=0.1493 (at 2026-09-25T19:51:26.938516+00:00) is below critical floor 0.6; baseline was 0.7169 on 2026-08-08 (pre-AXON/HWM). At neutral posterior (~0.55), adjusted_score \u2248 0.082, below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove AXON/HWM via ticker_config.remove_ticker() and diagnose signal history before re-adding."
   ],
   [
    69,
    "Technology composite dilution monitor",
    "SUPPRESSED",
    "data/apex.db:sector_snapshots",
-   "[WARNING suppressed \u2014 market-wide decline: 8/11 sectors below 75% of their 60d peak (Communication, ConsumerDisc, Defense, Energy, Homebuilders, Industrials, RealEstate, Transportation). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Technology avg_score=0.5238 (at 2026-09-24T19:51:28.934499+00:00) dropped below 0.56; baseline was 0.6257 on 2026-08-08 (pre-ANET). Investigate ANET signal quality in sector_snapshots before next gate cycle. ANET's confirmation-window flag depends on this staying clear."
+   "[CRITICAL suppressed \u2014 market-wide decline: 9/11 sectors below 75% of their 60d peak (Communication, ConsumerDisc, Defense, Energy, Homebuilders, Industrials, RealEstate, Technology, Transportation). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Technology avg_score=0.4958 (at 2026-09-25T19:51:26.938516+00:00) is below critical floor 0.51; baseline was 0.6257 on 2026-08-08 (pre-ANET). At neutral posterior (~0.55), adjusted_score \u2248 0.273, below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove ANET via ticker_config.remove_ticker() and diagnose signal history before re-adding."
   ],
   [
    71,
    "entry-floor ceiling sweep",
    "WARNING",
    "data/regime_signal_trace.jsonl",
-   "2026-09-23: 6/11 eligible sectors cannot clear the 0.37 entry floor at any posterior (composite must be \u2265 0.3895 = floor/0.95); enterable: Communication, Healthcare, Industrials, Semiconductors, Technology. Enterable by date (last 25): 8,8,6,7,7,7,5,4,4,4,4,4,4,4,4,3,5,4,4,3,4,5,4,5,5. Dark: ConsumerDisc agg=0.2823 ceil_adj=0.2682 dark 21/25d persistent; Defense agg=0.1574 ceil_adj=0.1495 dark 22/25d persistent; Energy agg=0.2822 ceil_adj=0.2681 dark 3/25d; Homebuilders agg=0.2561 ceil_adj=0.2433 dark 23/25d persistent; RealEstate agg=0.1999 ceil_adj=0.1899 dark 21/25d persistent; Transportation agg=0.2426 ceil_adj=0.2305 dark 21/25d persistent."
+   "2026-09-24: 7/11 eligible sectors cannot clear the 0.37 entry floor at any posterior (composite must be \u2265 0.3895 = floor/0.95); enterable: Healthcare, Industrials, Semiconductors, Technology. Enterable by date (last 26): 8,8,6,7,7,7,5,4,4,4,4,4,4,4,4,3,5,4,4,3,4,5,4,5,5,4. Dark: Communication agg=0.3450 ceil_adj=0.3277 dark 1/26d; ConsumerDisc agg=0.2893 ceil_adj=0.2748 dark 22/26d persistent; Defense agg=0.1437 ceil_adj=0.1365 dark 23/26d persistent; Energy agg=0.3499 ceil_adj=0.3324 dark 4/26d; Homebuilders agg=0.3024 ceil_adj=0.2873 dark 24/26d persistent; RealEstate agg=0.2398 ceil_adj=0.2278 dark 22/26d persistent; Transportation agg=0.2325 ceil_adj=0.2209 dark 22/26d persistent."
   ],
   [
    45,
@@ -97,7 +90,7 @@
    45,
    "Static code analysis",
    "WARNING",
-   "backend/routers/signals_router.py:855",
+   "backend/routers/signals_router.py:871",
    "`with get_db() as conn` \u2014 sqlite3 context manager never closes the connection; use try/finally conn.close()"
   ],
   [
@@ -106,6 +99,13 @@
    "WARNING",
    "tests/test_live_reconciliation.py",
    "hardcoded absolute date(s) alongside a call into decaying wall-clock function(s) check_live_exits \u2014 verify this still exercises the intended branch, not one it drifted into"
+  ],
+  [
+   76,
+   "backtest engine parity",
+   "CRITICAL",
+   "backend/backtest/engine_fast.py:9",
+   "engines diverge on 2026-03-02\u21922026-05-29 with documented divergences neutralised: slow 43 trades, fast 43, common 42; first differing entry ('NOW', '2026-05-29', '2026-05-29', 'END_OF_BACKTEST', 974.34, 0.0) \u2014 an undocumented model difference, not a PRODUCTION_GAP.md row"
   ]
  ],
  "skipped": [],
@@ -184,6 +184,6 @@
  "alert_channel": {
   "ok": true,
   "detail": "SMTP login ok as niclas.hammarling@gmail.com via smtp.gmail.com",
-  "checked_at": "2026-09-24T20:34:23+00:00"
+  "checked_at": "2026-09-25T20:35:29+00:00"
  }
 }
