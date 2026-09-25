@@ -235,37 +235,66 @@ measured differently; nine trades did not disappear.
 
 **The sign-flip channel is one trade per width** (two at 4%). Almost everything
 that touched the target intraday went on to book a TP on a later close anyway.
-So the symmetric model is overwhelmingly a **timing and slot-occupancy** effect,
-and the expectation is a level shift of the surface rather than a reordering.
+So the *direct* effect is timing rather than sign — but see the slot section
+below: the timing effect feeds a slot channel that does bind, so this does **not**
+add up to a level shift.
 
 **Slot cost, in trading days.** Calendar days against a trading-day capacity
 mixes units. At SL 5% the 16 "TP later" trades were held **41 trading days** past
 their first touch — median 2, max 7. Against 3 slots × 188 trading days = 564
 slot-days, that is **7.27%** of capacity.
 
-### The slot channel is zero on this window — measured, not assumed
+### The slot channel is NOT zero — it binds hard (corrected 2026-09-25)
 
-Whether those freed slot-days could actually have reordered the grid is
-answerable from the current run, without building the mirror: during the 16
-touch-to-book windows, was any candidate ever turned away for want of a slot?
+**Retraction.** An earlier version of this section reported "candidate-days lost
+to a full book: 0" and concluded symmetric TP was a pure level shift. That zero
+was an instrument artifact, not a measurement. The probe captured the candidate
+list keyed on `a[6]` of `_get_candidates_from_cache`, which is `spy_regime`, a
+float — `today_str` is the fifth positional arg (`engine_fast.py:699`). So the
+dict was keyed by floats, every date lookup missed, and an empty dict rendered as
+a clean zero. It was reported before being caught.
 
-    41 window-days total
-      at capacity (3/3) on 23 of them
-      of those 23, ALL 23 had no unheld candidate that day
-    candidate-days lost to a full book: 0
+What caught it was running the same query over all 188 days at Niclas's
+suggestion, which printed **"days with ANY candidate at all: 0/188"** — flatly
+impossible when 75 trades were entered. The probe now asserts that count is
+non-zero before reporting anything, so an empty capture fails loudly instead of
+reporting a zero. A "no candidates were turned away" result and a "the candidate
+list never loaded" result look identical in the output unless something holds the
+control closed.
 
-So symmetric TP is a **pure level shift on this window**: one sign flip, and no
-reordering channel through slots.
+Corrected, with the capture bound by name:
 
-**Read the zero for what it is.** It is not "the book had room" — the book was
-full on 23 of the 41 window-days, and full on 109 of all 188 days (occupancy
-0/1/2/3 on 3/16/60/109 days). It is "the book was full and there was nothing to
-buy". That makes the result contingent on candidate scarcity at
-`lock1_threshold = 0.73`, not on slack in the book. A lower threshold generates
-more candidates and could open the channel, so this zero does not transfer to
-another parameter set — and the count is an over-estimate of availability
-anyway, since it reads `_get_candidates_from_cache` before the cooldown, sector
-exposure, VIX and earnings filters. An over-counted zero is a stronger zero.
+    during the 16 touch-to-book windows
+      41 window-days; at capacity on 23
+      of those 23, 21 HAD an unheld candidate waiting     (previously reported 0)
+
+    across all 188 trading days
+      at capacity on 109
+      of those, 105 had an unheld candidate               (previously reported 0)
+      most frequently turned away: CVX 25, AMD 25, EOG 23,
+        MRNA 22, COP 18, OXY 18, JNJ 15, CAT 14
+
+**This reverses the conclusion.** The slot count is binding almost everywhere at
+`lock1_threshold = 0.73`: the book is full on 58% of days and on 96% of those
+there is something it cannot buy. The 41 freed slot-days symmetric TP would
+release are therefore very likely to be *used*, so the compounding channel is
+live and **the level-shift expectation is not supported**. Symmetric TP can
+reorder the grid, and the before/after has to be read as a compounding
+counterfactual like every other cell here.
+
+Two further consequences, both wider than this file:
+
+- **`max_positions` is not a free parameter at this threshold** — it is an active
+  constraint on 105 of 188 days. Anything that treats position count as
+  non-binding, including the modelling session, needs this.
+- **Slot-occupancy artifacts are live in the sweep now running**, and in the
+  stop-width grid. Freeing or consuming a slot changes later entries throughout,
+  which is the compounding-counterfactual caveat already recorded — this sizes
+  it: it is not a small correction.
+
+The pre-filter over-count still applies (the candidate list is read before the
+cooldown, sector-exposure, VIX and earnings filters), so 105 is an upper bound on
+genuinely lost entries. It is an upper bound a long way from zero.
 
 ### Rules for symmetric TP, when it is built
 
