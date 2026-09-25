@@ -44,3 +44,37 @@ Note also `engine.py:667` / `engine_fast.py:848`: a cache read failure calls
 `unlink(missing_ok=True)` and re-downloads. For a delisted name that deletes the only
 copy and silently returns a narrower universe, under a WARNING that reads like recovery.
 Quarantine-by-rename is queued as the fix.
+
+## Rule: never drop a file here as a duplicate
+
+Do not delete a file in this archive on the strength of a label, a filename, a row count
+or a size match. **Compare column sets and values first.** Deleting is the one operation
+this archive cannot recover from, and the cost of being wrong is silent: the file goes,
+and nothing reports which name went with it.
+
+This is written from the near miss that produced the archive. `84485b3bd4de` and
+`919d91e598ff` have identical row counts (341), identical date ranges, near-identical
+sizes and 112 tickers each — every cheap signal says duplicate. They differ by one name
+apiece, and one of those names is TPH, unrecoverable and held nowhere else. The proposal
+on the table was to commit one file and halve the footprint; it was withdrawn only
+because the column sets were compared before acting.
+
+## Completeness: is anything already lost with no copy at all?
+
+The sweep above finds every off-roster name that *some* cache still holds. It cannot
+find a name added to the roster and removed again between cache builds, which would
+leave no copy anywhere. `data/tickers.json` is fully tracked, so that set is computable:
+every name ever present in any revision of it, diffed against every name held in any
+cache or in this archive.
+
+Run 2026-09-25 across all 12 revisions of `tickers.json`: **109 names have ever been on
+the roster; 138 names appear in some cache; exactly one roster name has never been
+cached — MA**, present in a single revision (`c1374b0`, 2026-05-05, the expansion to five
+tickers per sector) and gone by the next. MA is still listed and downloads normally
+(412 rows over the test window), so nothing is permanently lost through that path.
+
+**So the archive is complete as of 2026-09-25**: the three unrecoverable names are BLD,
+TMHC and TPH, all held here, and no roster name has fallen through the gap between
+inclusion and caching. Re-run both sweeps after any roster removal — the completeness
+check is cheap and its value is that it can return "nothing missing" honestly rather
+than by omission.
