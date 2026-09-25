@@ -58,7 +58,43 @@ def _ny_today() -> str:
     return datetime.now(ZoneInfo("America/New_York")).date().isoformat()
 
 
-def _compute_apex_day_pnl(positions: list[dict]) -> tuple[float, list[str]]:
+def _realized_day_contribution(ticker: str, entry_timestamp: str, exit_price: float,
+                               qty: float, lifetime_pnl: float, ny_today) -> tuple[float, bool, bool]:
+    """
+    Today's share of one exit's realized P&L — the single implementation,
+    used for exits already booked in live_trades and for fills the exit
+    tracker hasn't booked yet (2026-09-25). Returns (amount, carried,
+    fell_back).
+
+      - Entered today: entry-to-exit (lifetime_pnl) already is a daily
+        figure — used as-is.
+      - Carried over from an earlier day: exit_price vs. prior_close, not
+        vs. entry — entry-to-exit would double-count the pre-today portion
+        of the move.
+      - No prior close available: falls back to lifetime_pnl, a
+        known-imprecise term (logged, and counted for CHECK 75).
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from backend.brokers.alpaca import get_prior_close
+
+    entry_date = datetime.fromisoformat(entry_timestamp).astimezone(
+        ZoneInfo("America/New_York")
+    ).date()
+    if entry_date == ny_today:
+        return lifetime_pnl, False, False
+    prior_close = get_prior_close(ticker)
+    if prior_close is None:
+        logger.warning(
+            f"Live gate: no prior close for {ticker} exit — "
+            "using lifetime pnl for this leg's realized contribution"
+        )
+        return lifetime_pnl, True, True
+    return (exit_price - prior_close) * qty, True, False
+
+
+def _compute_apex_day_pnl(positions: list[dict]) -> tuple[float, list[str], dict[str, str]]:
     """
     APEX-side day P&L, independent of the broker's equity/last_equity
     snapshot: realized pnl already booked today (from live_trades, our own
@@ -70,27 +106,40 @@ def _compute_apex_day_pnl(positions: list[dict]) -> tuple[float, list[str]]:
 
     Both terms are genuine daily figures, not lifetime ones (fixed
     2026-08-16, see
-    2026-08-12-apex-dual-logging-daily-pnl-conflation-prefix-reference —
-    the pre-fix version summed unrealized_pnl (since-entry) and pnl
-    (entry-to-exit), which diverges from broker's true day_pnl in
-    proportion to how far a position has drifted from entry, not to any
-    data-quality problem; a threshold built on that number can't tell the
-    two apart):
-      - Unrealized: unrealized_intraday_pnl (today's mark vs. prior close),
-        not unrealized_pnl (since-entry).
-      - Realized: for exits where entry was also today, entry-to-exit pnl
-        already is a daily figure — used as-is. For exits carried over from
-        an earlier day, exit_price vs. prior_close (not vs. entry_price) —
-        entry-to-exit would double-count the pre-today portion of the move.
+    2026-08-12-apex-dual-logging-daily-pnl-conflation-prefix-reference):
+    unrealized reads unrealized_intraday_pnl (today's mark vs. prior close),
+    not unrealized_pnl (since-entry); realized goes through
+    _realized_day_contribution.
 
-    Returns (apex_day_pnl, tickers_open_in_db_but_missing_from_broker) — the
-    missing list is itself evidence, not folded silently into the pnl sum as
-    zero (that would hide exactly the defect this is meant to catch).
+    An OPEN row absent from the broker is first checked for a sell fill
+    since its entry (find_exit_fill — same two invariants the exit tracker
+    uses: fill postdates entry, fill not already consumed by another row).
+    A fill covering the whole qty is an exit the tracker hasn't booked yet:
+    counted as realized from the fill, not flagged (2026-09-25 QCOM,
+    2026-09-16 OXY/EOG/COP — the gate ran seconds before the tracker and
+    halted on the broker being *ahead* of the ledger). A partial fill counts
+    its filled qty and still flags the remainder; no fill still flags.
+
+    Known, conservative behaviour: find_exit_fill returns one order's fill
+    (newest qualifying leg in the orders feed, or one order group in
+    activities). A split exit — part through the TP leg, the rest through
+    another sell — therefore halts on the remainder. Acceptable because it
+    fails closed; the booking-side version of the same gap is filed with
+    the split-exit spec (sum every sell fill since entry, VWAP, book only
+    when summed qty equals the position).
+
+    Returns (apex_day_pnl, missing, evidence):
+      - missing: tickers open in the DB, absent from the broker, and not
+        fully explained by a fill — itself evidence, not folded silently
+        into the pnl sum as zero.
+      - evidence: ticker -> one-line description of what the fill lookup
+        found, for every ticker absent from the broker (explained or not).
     """
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
-    from backend.brokers.alpaca import get_prior_close
+    from backend.brokers import alpaca as broker
+    from backend.live_trades_tracker import find_exit_fill
 
     ny_today = datetime.now(ZoneInfo("America/New_York")).date()
     ny_midnight = datetime.now(ZoneInfo("America/New_York")).replace(
@@ -101,28 +150,44 @@ def _compute_apex_day_pnl(positions: list[dict]) -> tuple[float, list[str]]:
     carried = 0   # exits opened on an earlier day — the legs that need a prior close
     fallbacks = 0
     for t in get_live_trades_exited_since(ny_midnight):
-        entry_date = datetime.fromisoformat(t["timestamp"]).astimezone(
-            ZoneInfo("America/New_York")
-        ).date()
-        if entry_date == ny_today:
-            # Opened and exited same day — entry price already is today's
-            # reference point, entry-to-exit is a daily figure as-is.
-            realized += t["pnl"]
+        amount, was_carried, fell_back = _realized_day_contribution(
+            t["ticker"], t["timestamp"], t["exit_price"], t["qty"], t["pnl"], ny_today)
+        realized += amount
+        carried += was_carried
+        fallbacks += fell_back
+
+    positions_by_ticker = {p["ticker"]: p for p in positions}
+    unrealized = 0.0
+    missing = []
+    evidence: dict[str, str] = {}
+    for t in get_open_live_trades():
+        pos = positions_by_ticker.get(t["ticker"])
+        if pos is not None:
+            unrealized += pos["unrealized_intraday_pnl"] or 0.0
             continue
-        carried += 1
-        prior_close = get_prior_close(t["ticker"])
-        if prior_close is None:
-            # Can't compute a daily figure for this exit — fall back to the
-            # lifetime pnl rather than dropping it, but this is a known-
-            # imprecise term when it happens (logged, not silent).
-            logger.warning(
-                f"Live gate: no prior close for {t['ticker']} exit — "
-                "using lifetime pnl for this leg's realized contribution"
-            )
-            fallbacks += 1
-            realized += t["pnl"]
+
+        fill = find_exit_fill(t["ticker"], broker, t["timestamp"])
+        filled_qty = fill["qty"] or 0.0
+        if fill["evidence"] != "found" or filled_qty <= 0:
+            missing.append(t["ticker"])
+            evidence[t["ticker"]] = f"no sell fill since entry ({fill['evidence']})"
             continue
-        realized += (t["exit_price"] - prior_close) * t["qty"]
+
+        filled_qty = min(filled_qty, t["qty"])
+        amount, was_carried, fell_back = _realized_day_contribution(
+            t["ticker"], t["timestamp"], fill["price"], filled_qty,
+            round((fill["price"] - t["entry_price"]) * filled_qty, 2), ny_today)
+        realized += amount
+        carried += was_carried
+        fallbacks += fell_back
+        fill_desc = (f"sell fill {filled_qty:g}/{t['qty']:g} sh @ ${fill['price']:.2f} "
+                     f"at {fill['exited_at']}")
+        if filled_qty < t["qty"]:
+            missing.append(t["ticker"])
+            evidence[t["ticker"]] = (f"{fill_desc} — {t['qty'] - filled_qty:g} sh unexplained")
+        else:
+            evidence[t["ticker"]] = f"{fill_desc}, not yet booked — counted as realized"
+
     # Denominator line for CHECK 75: a zero fallback count is only evidence
     # of a working path when carried > 0. Emitted whenever there is a
     # carried-over leg, whether or not any fell back.
@@ -131,17 +196,7 @@ def _compute_apex_day_pnl(positions: list[dict]) -> tuple[float, list[str]]:
             f"Live gate: prior-close legs processed={carried} fallbacks={fallbacks}"
         )
 
-    positions_by_ticker = {p["ticker"]: p for p in positions}
-    unrealized = 0.0
-    missing = []
-    for t in get_open_live_trades():
-        pos = positions_by_ticker.get(t["ticker"])
-        if pos is None:
-            missing.append(t["ticker"])
-            continue
-        unrealized += pos["unrealized_intraday_pnl"] or 0.0
-
-    return round(realized + unrealized, 2), missing
+    return round(realized + unrealized, 2), missing, evidence
 
 
 def run() -> list[dict]:
@@ -177,6 +232,7 @@ def run() -> list[dict]:
 
     positions_read_ok = apex_pnl_read_ok = False
     apex_day_pnl, missing_from_broker, divergence = None, [], None
+    fill_evidence: dict[str, str] = {}
     if acct is not None:
         # A failed positions read is tracked explicitly, not folded into
         # "positions=[]". If get_positions() throws while there happen to be
@@ -195,17 +251,18 @@ def run() -> list[dict]:
 
         apex_pnl_read_ok = True
         try:
-            apex_day_pnl, missing_from_broker = _compute_apex_day_pnl(positions)
+            apex_day_pnl, missing_from_broker, fill_evidence = _compute_apex_day_pnl(positions)
         except Exception as e:
             logger.error(f"Live gate: could not compute APEX-side day P&L — {e}")
-            apex_day_pnl, missing_from_broker = None, []
+            apex_day_pnl, missing_from_broker, fill_evidence = None, [], {}
             apex_pnl_read_ok = False
 
         if apex_pnl_read_ok:
             divergence = round(acct["day_pnl"] - apex_day_pnl, 2)
             logger.info(f"Live gate: day P&L — broker ${acct['day_pnl']:.2f} vs APEX ${apex_day_pnl:.2f} "
                         f"(divergence ${divergence:.2f}" +
-                        (f", missing from broker: {missing_from_broker}" if missing_from_broker else "") + ")")
+                        (f", missing from broker: {missing_from_broker}" if missing_from_broker else "") + ")"
+                        + "".join(f"\n  {tk}: {ev}" for tk, ev in fill_evidence.items()))
         else:
             logger.warning("Live gate: skipping divergence check — APEX-side day P&L unavailable")
 
@@ -242,6 +299,14 @@ def run() -> list[dict]:
         logger.warning("Live gate: Alpaca account is blocked — skipping cycle")
         return []
 
+    # Track record, recorded 2026-09-25 so two firings aren't read as one:
+    # this halt has fired twice in production (09-16 OXY/EOG/COP, 09-25
+    # QCOM), both false — the exit-fill race _compute_apex_day_pnl now
+    # covers — and has never caught a real disappearance. HON (08-11), the
+    # incident it was built for, predates it. The only evidence it catches
+    # what it exists for is the regression test
+    # test_no_fill_still_halts (tests/test_live_reconciliation.py).
+    #
     # Data-quality gate — evaluated every cycle, independent of the loss-cap
     # threshold. A wrong broker snapshot corrupts position sizing (which reads
     # acct["equity"]/acct["cash"] directly) regardless of whether the
@@ -272,7 +337,8 @@ def run() -> list[dict]:
                      + "; ".join(reasons))
         if set_alert_latch(f"data_quality:{today}"):
             from backend.alerts import alert_data_quality_divergence
-            alert_data_quality_divergence(acct["day_pnl"], apex_day_pnl, missing_from_broker)
+            alert_data_quality_divergence(acct["day_pnl"], apex_day_pnl, missing_from_broker,
+                                          fill_evidence)
         return []
 
     # Daily loss cap check — only reached once broker and APEX are confirmed

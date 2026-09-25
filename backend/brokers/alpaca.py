@@ -129,6 +129,8 @@ def get_orders(limit: int = 50, nested: bool = False) -> list[dict]:
                         "side":             _enum_value(leg.side),
                         "order_type":       _enum_value(leg.order_type),
                         "status":           _enum_value(leg.status),
+                        "qty":              float(leg.qty) if leg.qty else None,
+                        "filled_qty":       float(leg.filled_qty) if leg.filled_qty else None,
                         "filled_avg_price": float(leg.filled_avg_price) if leg.filled_avg_price else None,
                         "filled_at":        leg.filled_at.isoformat() if leg.filled_at else None,
                     }

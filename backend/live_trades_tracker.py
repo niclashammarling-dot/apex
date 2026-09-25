@@ -153,9 +153,22 @@ def _maybe_ratchet_bracket_sl(trade: dict, peak: float, cfg: dict, broker) -> No
         None,
     )
     if sl_leg is None:
+        # A filled sell leg on the same bracket explains the missing stop:
+        # the stop itself filled (COP 2026-09-16, TSL) or the TP filled and
+        # the OCO cancelled it (QCOM 2026-09-25). Either way the exit is
+        # real and booking is pending — not a warning. Anything else (no
+        # filled leg at all) is still an unexplained disappearance.
+        filled = _find_filled_sell_leg(order)
+        if filled is not None:
+            logger.info(
+                f"Profit-lock ratchet [{ticker}] trade_id={trade_id}: no open STOP leg — "
+                f"{_leg_reason(filled, entry_price)} leg filled at "
+                f"${filled['filled_avg_price']:.2f}; exit booking pending"
+            )
+            return
         logger.warning(
             f"Profit-lock ratchet [{ticker}] trade_id={trade_id} parent={parent_id}: "
-            f"no open STOP leg found — position may be exiting or bracket partially filled"
+            f"no open STOP leg found and no filled sell leg explains it"
         )
         return
 
@@ -320,14 +333,19 @@ def check_live_exits() -> list[dict]:
         else:
             peak = trade.get("peak_price") or entry_price
 
+        filled_leg = _find_filled_sell_leg(order) if order else None
+
         # ── Profit-lock ratchet ─────────────────────────────────────────────
-        _maybe_ratchet_bracket_sl(trade, peak, cfg, broker)
+        # Skipped once a leg has filled — the position is exiting and there
+        # is no stop left to move (2026-09-25: the ratchet used to run first
+        # and warn "no open STOP leg" on every bracket exit).
+        if not filled_leg:
+            _maybe_ratchet_bracket_sl(trade, peak, cfg, broker)
 
         # ── Vol slope observation (prospective data collection) ──────────────
         _log_vol_slope(trade)
 
         # ── Check TP/SL bracket legs ────────────────────────────────────────
-        filled_leg = _find_filled_sell_leg(order) if order else None
         if filled_leg:
             exit_price  = filled_leg["filled_avg_price"]
             pnl         = round((exit_price - entry_price) * trade["qty"], 2)
@@ -547,6 +565,11 @@ def check_live_exits() -> list[dict]:
                 except Exception as _ae:
                     logger.warning(f"Live exit reconciliation [{ticker}]: alert failed — {_ae}")
                 continue
+            # Known gap (2026-09-25, deferred): books the whole qty at one
+            # order's fill price. A split exit (part TP leg, rest another
+            # sell) books wrong P&L. Fix spec, not "same shape as the gate":
+            # sum every sell fill since entry, book at the VWAP only when
+            # the summed qty equals the position, otherwise flag.
             logger.info(f"Live exit reconciliation [{ticker}]: position closed externally, exit=${exit_price:.2f}")
             pnl     = round((exit_price - trade["entry_price"]) * trade["qty"], 2)
             outcome = "WIN" if pnl > 0 else "LOSS"
@@ -815,10 +838,20 @@ def _find_filled_sell_leg(order: dict) -> dict | None:
 
 
 def _find_exit_from_orders(ticker: str, broker, entry_timestamp: str) -> tuple[float | None, str, str, str]:
+    """(exit_price, exit_reason, exited_at, evidence) — see find_exit_fill."""
+    f = find_exit_fill(ticker, broker, entry_timestamp)
+    return f["price"], f["reason"], f["exited_at"], f["evidence"]
+
+
+def find_exit_fill(ticker: str, broker, entry_timestamp: str) -> dict:
     """
     Search recent Alpaca orders, then /account/activities, for the most
-    recent filled sell for ticker. Returns
-    (exit_price, exit_reason, exited_at, evidence).
+    recent filled sell for ticker. Returns a dict with keys price, qty,
+    reason, exited_at, evidence. qty is the filled quantity of the matched
+    fill (None when the feed doesn't report it) — the live gate compares it
+    against the trade's qty so a partial fill can't explain a whole
+    position (2026-09-25). Read-only apart from logging; shared by the exit
+    tracker (via _find_exit_from_orders) and the live gate's day-P&L check.
 
     `evidence` names which state produced the result, because a None here
     is not one thing (2026-08-23 — the "empty/failed read indistinguishable
@@ -871,7 +904,7 @@ def _find_exit_from_orders(ticker: str, broker, entry_timestamp: str) -> tuple[f
         orders = broker.get_orders(limit=100, nested=True)
     except Exception as e:
         logger.warning(f"_find_exit_from_orders [{ticker}]: get_orders failed — {e}")
-        return None, "MANUAL", datetime.now(timezone.utc).isoformat(), "orders_unavailable"
+        return _no_fill("orders_unavailable")
 
     # Flatten: include top-level orders + nested bracket legs so TP/SL fills are visible
     flat: list[dict] = []
@@ -928,7 +961,8 @@ def _find_exit_from_orders(ticker: str, broker, entry_timestamp: str) -> tuple[f
         else:
             exit_reason = "MANUAL"
 
-        return exit_price, exit_reason, exited_at, "found"
+        return {"price": exit_price, "qty": candidate.get("filled_qty"), "reason": exit_reason,
+                "exited_at": exited_at, "evidence": "found"}
 
     # Orders feed found nothing usable. Before declaring "no fill" —
     # corroborate against /account/activities, an independent read of the
@@ -950,7 +984,7 @@ def _find_exit_from_orders(ticker: str, broker, entry_timestamp: str) -> tuple[f
         activities = broker.get_activities("FILL", after=entry_timestamp)
     except Exception as e:
         logger.warning(f"_find_exit_from_orders [{ticker}]: activities corroboration unavailable — {e}")
-        return None, "MANUAL", datetime.now(timezone.utc).isoformat(), "activities_unavailable"
+        return _no_fill("activities_unavailable")
 
     sell_fills = [
         a for a in activities
@@ -1011,7 +1045,8 @@ def _find_exit_from_orders(ticker: str, broker, entry_timestamp: str) -> tuple[f
 
         logger.info(f"_find_exit_from_orders [{ticker}]: orders feed empty, activities feed "
                     f"found a corroborating fill (${exit_price}, {len(rows)} slice(s)) — using it")
-        return exit_price, "MANUAL", exited_at, "found"
+        return {"price": exit_price, "qty": total_qty, "reason": "MANUAL",
+                "exited_at": exited_at, "evidence": "found"}
 
     if saw_in_progress:
         # A sell order for this ticker is actively filling — this is not an
@@ -1021,14 +1056,19 @@ def _find_exit_from_orders(ticker: str, broker, entry_timestamp: str) -> tuple[f
         # named at review, paid for no reason: the next cycle will very likely
         # see the completing row. Callers must not freeze on this — bounded
         # retry, not UNRECONCILED.
-        return None, "MANUAL", datetime.now(timezone.utc).isoformat(), "exit_in_progress"
+        return _no_fill("exit_in_progress")
 
     # No candidate cleared both invariants in either feed, and both feeds
     # were actually read successfully — two independent confirmations of
     # absence, not one. Freeze and alert, don't fabricate.
     logger.warning(f"_find_exit_from_orders [{ticker}]: orders and activities both show "
                     f"no corroborating fill since entry")
-    return None, "MANUAL", datetime.now(timezone.utc).isoformat(), "both_feeds_empty"
+    return _no_fill("both_feeds_empty")
+
+
+def _no_fill(evidence: str) -> dict:
+    return {"price": None, "qty": None, "reason": "MANUAL",
+            "exited_at": datetime.now(timezone.utc).isoformat(), "evidence": evidence}
 
 
 def _current_price(ticker: str) -> float | None:

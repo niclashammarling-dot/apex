@@ -411,7 +411,7 @@ def _live_patches(candidates, open_tickers=None, failed_tickers=None,
         # Tests that specifically want a divergence (or the loss-cap path
         # in particular) pass apex_day_pnl explicitly.
         patch("backend.gate.gate_runner_live._compute_apex_day_pnl",
-              return_value=(apex_day_pnl if apex_day_pnl is not None else acct["day_pnl"], [])),
+              return_value=(apex_day_pnl if apex_day_pnl is not None else acct["day_pnl"], [], {})),
         # Lazy imports for rotation + Bayesian — patch at source
         patch("backend.sector_transitions.compute_ticker_rotation_scores", return_value={}),  # 17
         patch("backend.sector_transitions.get_rotation_forecast",

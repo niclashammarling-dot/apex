@@ -131,6 +131,8 @@ class TestOrderStatusExtraction:
             side = OrderSide.SELL
             order_type = OrderType.STOP
             status = OrderStatus.CANCELED
+            qty = "4"
+            filled_qty = None
             filled_avg_price = None
             filled_at = None
 
@@ -552,6 +554,70 @@ class TestProfitLockRatchetLegSelection:
         broker.replace_stop_leg.assert_called_once()
         called_leg_id = broker.replace_stop_leg.call_args[0][0]
         assert called_leg_id == "d9c160d8-b2af-4a77-96d5-d9003b17ebe8"
+
+
+class TestProfitLockRatchetExplainedMissingStop:
+    """
+    "no open STOP leg found" is a WARNING only when nothing explains it
+    (2026-09-25). A filled sell leg on the same bracket does: the TP filled
+    and the OCO cancelled the stop (QCOM 09-25), or the stop itself filled
+    (COP 09-16, TSL). Those log INFO; a missing stop with no filled leg
+    stays a WARNING.
+    """
+
+    def _trade(self):
+        return {"ticker": "QCOM", "id": 66, "alpaca_order_id": "parent-66",
+                "entry_price": 193.65, "qty": 6}
+
+    def _cfg(self):
+        return {"profit_lock_trigger_pct": 0.04, "profit_lock_trail_pct": 0.01}
+
+    def _ratchet(self, legs):
+        from backend.live_trades_tracker import _maybe_ratchet_bracket_sl
+        broker = MagicMock()
+        broker.get_order_by_id.return_value = {"legs": legs}
+        with patch("backend.live_trades_tracker.logger.warning") as warn_mock, \
+             patch("backend.live_trades_tracker.logger.info") as info_mock:
+            _maybe_ratchet_bracket_sl(self._trade(), peak=205.43, cfg=self._cfg(), broker=broker)
+        broker.replace_stop_leg.assert_not_called()
+        return warn_mock, info_mock
+
+    def test_filled_tp_leg_explains_missing_stop_logs_info(self):
+        warn_mock, info_mock = self._ratchet([
+            {"id": "tp", "side": "sell", "order_type": "limit", "status": "filled",
+             "filled_avg_price": 205.28, "filled_at": "2026-09-25T16:06:35+00:00"},
+            {"id": "sl", "side": "sell", "order_type": "stop", "status": "canceled",
+             "stop_price": 203.05, "filled_avg_price": None},
+        ])
+        warn_mock.assert_not_called()
+        assert any("TP leg filled" in str(c.args[0]) for c in info_mock.call_args_list)
+
+    def test_filled_stop_leg_explains_missing_stop_logs_info(self):
+        warn_mock, info_mock = self._ratchet([
+            {"id": "tp", "side": "sell", "order_type": "limit", "status": "canceled",
+             "filled_avg_price": None},
+            {"id": "sl", "side": "sell", "order_type": "stop", "status": "filled",
+             "stop_price": 203.05, "filled_avg_price": 203.01,
+             "filled_at": "2026-09-25T16:06:35+00:00"},
+        ])
+        warn_mock.assert_not_called()
+        assert any("TSL leg filled" in str(c.args[0]) for c in info_mock.call_args_list)
+
+    def test_missing_stop_without_filled_leg_still_warns(self):
+        warn_mock, _ = self._ratchet([
+            {"id": "tp", "side": "sell", "order_type": "limit", "status": "canceled",
+             "filled_avg_price": None},
+            {"id": "sl", "side": "sell", "order_type": "stop", "status": "canceled",
+             "stop_price": 203.05, "filled_avg_price": None},
+        ])
+        assert any("no open stop leg" in str(c.args[0]).lower()
+                   for c in warn_mock.call_args_list)
+
+
+def _clear_dq_latches():
+    """Clear the whole data_quality: latch family rather than guessing keys."""
+    from backend.db import clear_alert_latches_except
+    clear_alert_latches_except("data_quality:", set())
 
 
 def _open_trade(ticker="HON", entry_price=249.13, qty=4.0, order_id="ord-hon-1",
@@ -1166,7 +1232,7 @@ class TestGateRefusal:
                 return_value={"trading_blocked": False, "account_blocked": False, "day_pnl": -978.32}))
             stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
             stack.enter_context(patch("backend.gate.gate_runner_live._compute_apex_day_pnl",
-                                       return_value=(0.0, [])))
+                                       return_value=(0.0, [], {})))
             candidates_mock = stack.enter_context(patch(
                 "backend.gate.gate_runner_live.get_lock1_candidates"))
 
@@ -1210,7 +1276,7 @@ class TestGateRefusal:
                     return_value={"trading_blocked": False, "account_blocked": False, "day_pnl": 0.0}))
                 stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
                 stack.enter_context(patch("backend.gate.gate_runner_live._compute_apex_day_pnl",
-                                           return_value=(0.0, [])))
+                                           return_value=(0.0, [], {})))
                 gate_runner_live.run()
                 return alert_mock.call_count
 
@@ -1243,7 +1309,7 @@ class TestGateRefusal:
                 # divergence, so it must classify as a loss-cap halt, not a
                 # data-quality halt (see TestGateRefusal's data-quality tests).
                 stack.enter_context(patch("backend.gate.gate_runner_live._compute_apex_day_pnl",
-                                           return_value=(-480.0, [])))
+                                           return_value=(-480.0, [], {})))
                 stack.enter_context(patch(
                     "backend.live_config.get_live_config",
                     return_value={"daily_loss_cap": 100.0},
@@ -1293,7 +1359,7 @@ class TestDataQualityDivergence:
             ))
             stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
             stack.enter_context(patch("backend.gate.gate_runner_live._compute_apex_day_pnl",
-                                       return_value=(apex_pnl, missing)))
+                                       return_value=(apex_pnl, missing, {})))
             stack.enter_context(patch(
                 "backend.live_config.get_live_config", return_value={"daily_loss_cap": cap},
             ))
@@ -1308,22 +1374,22 @@ class TestDataQualityDivergence:
     def test_large_divergence_reclassifies_as_data_quality(self):
         """Broker says -$978 loss, APEX's own ledger says $0 — HON's exact shape."""
         from backend.db import clear_alert_latch
-        clear_alert_latch("data_quality:2026-08-11")
+        _clear_dq_latches()
         result, loss_cap_mock, dq_mock = self._run(day_pnl=-978.32, apex_pnl=0.0, missing=[])
-        clear_alert_latch("data_quality:2026-08-11")
+        _clear_dq_latches()
         assert result == []
-        dq_mock.assert_called_once_with(-978.32, 0.0, [])
+        dq_mock.assert_called_once_with(-978.32, 0.0, [], {})
         loss_cap_mock.assert_not_called()
 
     def test_missing_from_broker_forces_data_quality_even_if_dollar_gap_small(self):
         """A DB-open ticker absent from the broker snapshot is itself the
         defect signature, independent of how large the dollar divergence is."""
         from backend.db import clear_alert_latch
-        clear_alert_latch("data_quality:2026-08-11")
+        _clear_dq_latches()
         result, loss_cap_mock, dq_mock = self._run(day_pnl=-110.0, apex_pnl=-100.0, missing=["HON"])
-        clear_alert_latch("data_quality:2026-08-11")
+        _clear_dq_latches()
         assert result == []
-        dq_mock.assert_called_once_with(-110.0, -100.0, ["HON"])
+        dq_mock.assert_called_once_with(-110.0, -100.0, ["HON"], {})
         loss_cap_mock.assert_not_called()
 
     def test_agreeing_ledger_stays_a_genuine_loss_cap_halt(self):
@@ -1339,8 +1405,8 @@ class TestDataQualityDivergence:
 
     def test_data_quality_alert_is_day_capped(self):
         from backend.db import clear_alert_latch
-        clear_alert_latch("data_quality:2026-08-11")
-        clear_alert_latch("data_quality:2026-08-12")
+        _clear_dq_latches()
+        _clear_dq_latches()
 
         _, _, dq_mock1 = self._run(day_pnl=-978.32, apex_pnl=0.0, missing=[], latch_day="2026-08-11")
         assert dq_mock1.call_count == 1
@@ -1349,8 +1415,8 @@ class TestDataQualityDivergence:
         _, _, dq_mock3 = self._run(day_pnl=-978.32, apex_pnl=0.0, missing=[], latch_day="2026-08-12")
         assert dq_mock3.call_count == 1  # new trading day: alerts again
 
-        clear_alert_latch("data_quality:2026-08-11")
-        clear_alert_latch("data_quality:2026-08-12")
+        _clear_dq_latches()
+        _clear_dq_latches()
 
     def test_subcap_divergence_still_triggers_data_quality(self):
         """
@@ -1361,12 +1427,12 @@ class TestDataQualityDivergence:
         meantime.
         """
         from backend.db import clear_alert_latch
-        clear_alert_latch("data_quality:2026-08-11")
+        _clear_dq_latches()
         result, loss_cap_mock, dq_mock = self._run(
             day_pnl=-50.0, apex_pnl=200.0, missing=[], cap=500.0)
-        clear_alert_latch("data_quality:2026-08-11")
+        _clear_dq_latches()
         assert result == []
-        dq_mock.assert_called_once_with(-50.0, 200.0, [])
+        dq_mock.assert_called_once_with(-50.0, 200.0, [], {})
         loss_cap_mock.assert_not_called()
 
     def test_positions_read_failure_triggers_data_quality_not_a_crash(self):
@@ -1378,7 +1444,7 @@ class TestDataQualityDivergence:
         """
         from backend.db import clear_alert_latch
         from backend.gate import gate_runner_live
-        clear_alert_latch("data_quality:2026-08-11")
+        _clear_dq_latches()
 
         with ExitStack() as stack:
             stack.enter_context(patch("backend.gate.gate_runner_live.LIVE_ENABLED", True))
@@ -1404,7 +1470,7 @@ class TestDataQualityDivergence:
                 "backend.gate.gate_runner_live.get_live_trades_exited_since", return_value=[]))
             result = gate_runner_live.run()
 
-        clear_alert_latch("data_quality:2026-08-11")
+        _clear_dq_latches()
         assert result == []
         dq_mock.assert_called_once()
 
@@ -1414,7 +1480,7 @@ class TestDataQualityDivergence:
         rather than a fabricated number."""
         from backend.db import clear_alert_latch
         from backend.gate import gate_runner_live
-        clear_alert_latch("data_quality:2026-08-11")
+        _clear_dq_latches()
 
         with ExitStack() as stack:
             stack.enter_context(patch("backend.gate.gate_runner_live.LIVE_ENABLED", True))
@@ -1435,9 +1501,9 @@ class TestDataQualityDivergence:
             dq_mock = stack.enter_context(patch("backend.alerts.alert_data_quality_divergence"))
             result = gate_runner_live.run()
 
-        clear_alert_latch("data_quality:2026-08-11")
+        _clear_dq_latches()
         assert result == []
-        dq_mock.assert_called_once_with(-10.0, None, [])
+        dq_mock.assert_called_once_with(-10.0, None, [], {})
 
 
 class TestApexDayPnl:
@@ -1471,7 +1537,7 @@ class TestApexDayPnl:
                 "backend.gate.gate_runner_live.get_open_live_trades",
                 return_value=[{"ticker": "MSFT"}, {"ticker": "CRM"}],
             ))
-            pnl, missing = gate_runner_live._compute_apex_day_pnl([
+            pnl, missing, _ = gate_runner_live._compute_apex_day_pnl([
                 {"ticker": "MSFT", "unrealized_intraday_pnl": -4.8},
                 {"ticker": "CRM", "unrealized_intraday_pnl": -1.6},
             ])
@@ -1501,7 +1567,7 @@ class TestApexDayPnl:
                 "backend.brokers.alpaca.get_prior_close",
                 return_value=230.005,
             ))
-            pnl, missing = gate_runner_live._compute_apex_day_pnl([])
+            pnl, missing, _ = gate_runner_live._compute_apex_day_pnl([])
         assert pnl == pytest.approx((234.21 - 230.005) * 4)
         assert missing == []
 
@@ -1526,23 +1592,88 @@ class TestApexDayPnl:
                 "backend.brokers.alpaca.get_prior_close",
                 return_value=None,
             ))
-            pnl, missing = gate_runner_live._compute_apex_day_pnl([])
+            pnl, missing, _ = gate_runner_live._compute_apex_day_pnl([])
         assert pnl == pytest.approx(-60.84)
         assert missing == []
 
-    def test_open_trade_missing_from_broker_is_surfaced_not_zero_filled(self):
+    # ── An OPEN row absent from the broker (2026-09-25) ─────────────────────
+    # Driven through the real find_exit_fill with only the broker feeds
+    # mocked, so the since-entry invariant is exercised, not stubbed. QCOM
+    # row 66's real numbers: entered 09-21, TP filled 09-25 16:06:35Z at
+    # $205.28 x 6, prior close ~$194.29.
+
+    _QCOM = {"id": 66, "ticker": "QCOM", "timestamp": "2026-09-21T18:57:52+00:00",
+             "entry_price": 193.65, "qty": 6.0}
+
+    def _bracket(self, filled_qty, filled_at="2026-09-25T16:06:35+00:00"):
+        return {"id": "parent-66", "ticker": "QCOM", "side": "buy", "type": "market",
+                "filled_qty": 6.0, "filled_price": 193.65,
+                "filled_at": "2026-09-21T18:57:53+00:00",
+                "legs": [
+                    {"id": "tp", "side": "sell", "order_type": "limit", "status": "filled",
+                     "qty": 6.0, "filled_qty": filled_qty, "filled_avg_price": 205.28,
+                     "filled_at": filled_at},
+                    {"id": "sl", "side": "sell", "order_type": "stop", "status": "canceled",
+                     "qty": 6.0, "filled_qty": None, "filled_avg_price": None,
+                     "filled_at": None},
+                ]}
+
+    def _day_pnl(self, orders, activities=()):
         from backend.gate import gate_runner_live
         with ExitStack() as stack:
             stack.enter_context(patch(
-                "backend.gate.gate_runner_live.get_live_trades_exited_since", return_value=[],
-            ))
+                "backend.gate.gate_runner_live.get_live_trades_exited_since", return_value=[]))
             stack.enter_context(patch(
-                "backend.gate.gate_runner_live.get_open_live_trades",
-                return_value=[{"ticker": "HON"}],
-            ))
-            pnl, missing = gate_runner_live._compute_apex_day_pnl([])  # HON absent from broker
+                "backend.gate.gate_runner_live.get_open_live_trades", return_value=[dict(self._QCOM)]))
+            stack.enter_context(patch("backend.brokers.alpaca.get_prior_close", return_value=194.29))
+            stack.enter_context(patch("backend.brokers.alpaca.get_orders", return_value=orders))
+            stack.enter_context(patch("backend.brokers.alpaca.get_activities",
+                                      return_value=list(activities)))
+            return gate_runner_live._compute_apex_day_pnl([])  # QCOM absent from broker
+
+    def test_filled_sell_since_entry_explains_absence_no_halt(self):
+        """The 09-25 shape: broker already flat, ledger not yet booked. The
+        fill is counted as realized — (205.28 - 194.29) x 6 = 65.94, the
+        divergence the false halt reported — and QCOM is not flagged."""
+        pnl, missing, evidence = self._day_pnl([self._bracket(filled_qty=6.0)])
+        assert missing == []
+        assert pnl == pytest.approx((205.28 - 194.29) * 6, abs=0.01)
+        assert "not yet booked" in evidence["QCOM"]
+
+    def test_no_fill_still_halts(self):
+        """Positive control: absent from the broker, no fill in either feed
+        — the HON shape. Must still be flagged, and contribute nothing.
+
+        As of 2026-09-25 this test is the ONLY evidence the data-quality
+        halt catches what it was built for: in production it has fired
+        twice (09-16, 09-25), both false, and never on a real
+        disappearance. Do not weaken or delete it without replacing that
+        evidence."""
+        pnl, missing, evidence = self._day_pnl(orders=[], activities=[])
+        assert missing == ["QCOM"]
         assert pnl == 0.0
-        assert missing == ["HON"]
+        assert "both_feeds_empty" in evidence["QCOM"]
+
+    def test_filled_sell_before_entry_does_not_explain_absence(self):
+        """A filled sell from an earlier QCOM trade (before row 66's entry)
+        in both feeds must not explain a genuine disappearance — without the
+        since-entry invariant, any ticker ever traded would be explained
+        away."""
+        earlier = self._bracket(filled_qty=6.0, filled_at="2026-09-10T15:00:00+00:00")
+        earlier_activity = {"ticker": "QCOM", "side": "sell", "price": 188.0, "qty": 6.0,
+                            "leaves_qty": 0.0, "order_id": "old",
+                            "filled_at": "2026-09-10T15:00:00+00:00"}
+        pnl, missing, _ = self._day_pnl([earlier], activities=[earlier_activity])
+        assert missing == ["QCOM"]
+        assert pnl == 0.0
+
+    def test_partial_fill_counts_filled_qty_and_halts_on_remainder(self):
+        """A fill covering 3 of 6 shares: the 3 are counted at their fill,
+        the remaining 3 are unexplained and still flag."""
+        pnl, missing, evidence = self._day_pnl([self._bracket(filled_qty=3.0)])
+        assert missing == ["QCOM"]
+        assert pnl == pytest.approx((205.28 - 194.29) * 3, abs=0.01)
+        assert "3 sh unexplained" in evidence["QCOM"]
 
 
 class TestAuditCheck66:

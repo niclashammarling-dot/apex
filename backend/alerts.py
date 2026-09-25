@@ -178,7 +178,8 @@ def alert_position_untracked(ticker: str) -> None:
 
 
 def alert_data_quality_divergence(broker_day_pnl: float, apex_day_pnl: float | None,
-                                   missing_from_broker: list[str]) -> None:
+                                   missing_from_broker: list[str],
+                                   fill_evidence: dict[str, str] | None = None) -> None:
     """
     Either broker-reported day P&L disagrees with APEX's own realized+
     unrealized reconstruction by more than LIVE_DATA_QUALITY_DIVERGENCE (same
@@ -186,34 +187,44 @@ def alert_data_quality_divergence(broker_day_pnl: float, apex_day_pnl: float | N
     loss, $0 APEX-side), or the APEX-side reconstruction itself couldn't be
     computed (apex_day_pnl is None — broker.get_positions() or the DB read
     failed outright, not just disagreed). Both are "don't trust the broker
-    number enough to size off it" — same halt, same alert. The label says
-    which surface to distrust instead of implying a real trading loss.
+    number enough to size off it" — same halt, same alert.
+
+    Worded neutrally (2026-09-25): the alert used to name the broker
+    snapshot as the suspect surface, and on 09-16 and 09-25 the broker was
+    right — the ledger was minutes behind an exit fill. Which side is wrong
+    is what the fill evidence below is for, not something the alert
+    presumes. fill_evidence carries, per ticker absent from the broker,
+    what the sell-fill lookup found.
     """
     mode  = _mode_label()
-    title = f"[APEX {mode}] Data-Quality Halt (not a real loss)"
-    missing_note = (
-        f" Missing from broker position snapshot: {', '.join(missing_from_broker)}."
-        if missing_from_broker else ""
-    )
+    title = f"[APEX {mode}] Ledger/Broker Disagreement — Live Entries Halted"
     if apex_day_pnl is None:
         comparison = (
             "APEX's own realized+unrealized reconstruction could not be computed this "
             "cycle (broker positions unreadable or a DB read failed) — broker day P&L "
-            f"is unverified, not just unverified-and-disagreeing (${broker_day_pnl:.2f})."
+            f"(${broker_day_pnl:.2f}) could not be checked against the ledger."
         )
     else:
         comparison = (
-            f"Broker day P&L (${broker_day_pnl:.2f}) diverges from APEX's own "
-            f"realized+unrealized reconstruction (${apex_day_pnl:.2f}) by "
-            f"${broker_day_pnl - apex_day_pnl:.2f}."
+            f"Broker day P&L ${broker_day_pnl:.2f}, APEX ledger reconstruction "
+            f"${apex_day_pnl:.2f} — difference ${broker_day_pnl - apex_day_pnl:.2f}."
         )
+    lines = []
+    for ticker in missing_from_broker:
+        ev = (fill_evidence or {}).get(ticker, "fill lookup not run")
+        lines.append(f"  {ticker}: OPEN in ledger, absent from broker positions; {ev}")
+    for ticker, ev in (fill_evidence or {}).items():
+        if ticker not in missing_from_broker:
+            lines.append(f"  {ticker}: absent from broker positions, explained — {ev}")
+    detail = ("\n\nPer ticker:\n" + "\n".join(lines)) if lines else ""
     body  = (
-        f"{comparison}{missing_note}\n\n"
-        "Trading is halted with the same effect as a loss-cap trip, but this "
-        "is not a booked trading loss — the broker's account/positions "
-        "snapshot is the suspect surface, not the ledger. Do not resize or "
-        "resume entries off the broker equity number until it reconciles "
-        "with portfolio-history and the activity ledger."
+        f"{comparison}{detail}\n\n"
+        "New live entries are skipped while the two disagree. The check re-runs "
+        "every live gate cycle and entries resume on the first cycle where they "
+        "agree; this alert is sent once per trading day. Not a booked loss. "
+        "A ticker absent from the broker with no sell fill since entry is the "
+        "HON shape — reconcile it against portfolio-history and the activity "
+        "ledger before trusting either number."
     )
     _dispatch(title, body)
 
