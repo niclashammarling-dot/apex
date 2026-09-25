@@ -779,7 +779,25 @@ def start_scheduler() -> None:
         minutes=GATE_INTERVAL,
         # Offset live gate by half the interval so demo and live never fire together.
         # Halves peak concurrent yfinance load on the shared _YF_SEMAPHORE in lock4_leading.
-        start_date=datetime.now(tz=scheduler.timezone) + timedelta(minutes=GATE_INTERVAL // 2),
+        # Plus half an exit-check interval (2026-09-25): GATE_INTERVAL is a multiple of
+        # EXIT_CHECK_INTERVAL, so without it every live gate run fired in the same second
+        # as check_live_exits and read the broker before the tracker had booked a fresh
+        # exit fill (QCOM 09-25, OXY/EOG/COP 09-16 — the only two data-quality halts on
+        # record, both this race). Defence in depth only: the gate's own fill lookup in
+        # _compute_apex_day_pnl is the fix.
+        #
+        # Why the midpoint and not "a few seconds after the tracker": no fixed offset
+        # can guarantee the gate reads after a *finished* tracker run. Measured over
+        # 401 tracker runs (09-10 → 09-25 logs): p50 1.7s, p95 5s, but real runs of
+        # 1-4.5 min exist (09-10 19:26-19:50 back-to-back ~250s; 09-14 several). A
+        # seconds-after offset loses to every run longer than it; the midpoint clears
+        # everything up to 150s and sits furthest from both neighbouring ticks. The
+        # cost — the ledger may be up to 2.5 min behind the broker when the gate
+        # reads — is covered by the fill lookup, and the other staleness effects are
+        # conservative (a just-exited ticker still OPEN in the DB is skipped as held).
+        # Do not tighten this toward the tracker tick to "freshen" the ledger.
+        start_date=datetime.now(tz=scheduler.timezone)
+                   + timedelta(minutes=GATE_INTERVAL // 2, seconds=EXIT_CHECK_INTERVAL * 30),
         id="run_live_gate",
         replace_existing=True,
     )
