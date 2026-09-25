@@ -32,6 +32,7 @@ from backend.db import (
     get_db,
     get_open_trades,
     get_portfolio_summary,
+    get_sector_score,
     insert_trade,
     update_trade_peak_price,
 )
@@ -312,7 +313,7 @@ def check_regime_exits() -> list[dict]:
             "exit_price":       current,
             "notional":         trade["amount"],
             "held_days":        _trading_days_since(trade["timestamp"]),
-            "sector_avg_score": _sector_avg_score(sector),
+            "sector_avg_score": get_sector_score(sector),
             "pnl":              pnl,
             "pnl_pct":          pnl_pct,
         })
@@ -452,16 +453,3 @@ def _trading_days_since(timestamp_iso: str) -> int:
     entry = datetime.fromisoformat(timestamp_iso).date()
     today = datetime.now(timezone.utc).date()
     return max(0, len(pd.bdate_range(start=entry, end=today)) - 1)
-
-
-def _sector_avg_score(sector: str) -> float | None:
-    """Most recent avg_score for the sector from sector_snapshots."""
-    conn = get_db()
-    try:
-        row = conn.execute(
-            "SELECT avg_score FROM sector_snapshots WHERE sector=? ORDER BY timestamp DESC LIMIT 1",
-            (sector,),
-        ).fetchone()
-        return row["avg_score"] if row else None
-    finally:
-        conn.close()

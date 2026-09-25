@@ -1832,10 +1832,51 @@ def get_existing_snapshot_dates(start_date: str, end_date: str) -> set[str]:
         conn.close()
 
 
+# A sector score older than the open of the SECTOR_SCORE_MAX_SESSIONS-th most
+# recent NYSE session is dropped rather than used. 2 so that a read before the
+# day's first poll (pre-open caps, the 08:30 ET EOD run) still sees the previous
+# session, while one fully missed session of polling drops the sector.
+SECTOR_SCORE_MAX_SESSIONS = 2
+
+
+def _sector_score_floor(as_of: datetime) -> str:
+    """
+    UTC ISO lower bound for sector_snapshots reads as of `as_of`: the open of
+    the SECTOR_SCORE_MAX_SESSIONS-th most recent NYSE session whose OPEN is at
+    or before as_of. Keyed on open time, not date: before 09:30 ET today's
+    session has not begun and does not count, so the window always spans the
+    same number of begun sessions whatever the time of day.
+
+    Walks the NYSE calendar (holidays skipped). If the calendar is unavailable,
+    falls back to weekdays opening 09:30 ET and says so in a WARNING.
+    """
+    from datetime import time, timedelta
+    from zoneinfo import ZoneInfo
+    ny = ZoneInfo("America/New_York")
+    start = (as_of - timedelta(days=14)).date()
+    try:
+        import pandas_market_calendars as mcal
+        sched = mcal.get_calendar("NYSE").schedule(start_date=start.isoformat(),
+                                                   end_date=as_of.date().isoformat())
+        opens = [o.to_pydatetime() for o in sched["market_open"]]
+    except Exception as e:
+        logger.warning(f"Sector score bound: NYSE calendar unavailable ({e}) — "
+                       f"weekday fallback, holidays not skipped")
+        opens = []
+        d = start
+        while d <= as_of.date():
+            if d.weekday() < 5:
+                opens.append(datetime.combine(d, time(9, 30), tzinfo=ny))
+            d += timedelta(days=1)
+    begun = [o for o in opens if o <= as_of]
+    floor = begun[-SECTOR_SCORE_MAX_SESSIONS]
+    return floor.astimezone(timezone.utc).isoformat()
+
+
 def get_latest_sector_scores(as_of: str | None = None) -> dict[str, float]:
     """
     Returns the most recent avg_score per sector.
-    Used by dynamic sector cap computation.
+    Used by dynamic sector cap computation and the EOD RegimeBayes update.
 
     as_of: ISO timestamp (same clock as sector_snapshots.timestamp); when given,
     "most recent" means the last snapshot at or before it — the input the EOD
@@ -1847,26 +1888,56 @@ def get_latest_sector_scores(as_of: str | None = None) -> dict[str, float]:
     from 2026-07-07. compute_dynamic_caps averaged over them (mean_score 0.3977
     vs 0.3815 on 09-25, every unclamped live cap ~4% tighter); RegimeBayes'
     cold-start _current_leader could name one.
+
+    Rows older than _sector_score_floor(as_of) are ignored — the same query had
+    no lower bound, which is how the fossils survived. A polled sector with no
+    row inside the bound is omitted and logged: compute_dynamic_caps then gives
+    it the flat max_sector_exposure and leaves it out of the mean; RegimeBayes
+    reads it as aggregate_score 0.0, so it cannot lead or qualify that day.
+
+    Ties on (sector, timestamp) resolve to the highest id — the historical
+    backfill has 1,884 duplicate pairs with differing scores (last 2025-06-13),
+    and the old join returned both, leaving the dict to SQLite's row order.
     """
     from backend.config import EXCLUDED_SECTORS
+    at = datetime.fromisoformat(as_of) if as_of else datetime.now(timezone.utc)
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=timezone.utc)
+    floor = _sector_score_floor(at)
     excluded = list(EXCLUDED_SECTORS)
     marks = ",".join("?" * len(excluded)) or "''"
     conn = get_db()
     try:
         rows = conn.execute(f"""
-            SELECT s.sector, s.avg_score
-            FROM sector_snapshots s
-            INNER JOIN (
-                SELECT sector, MAX(timestamp) AS max_ts
+            SELECT sector, avg_score FROM (
+                SELECT sector, avg_score,
+                       ROW_NUMBER() OVER (PARTITION BY sector
+                                          ORDER BY timestamp DESC, id DESC) AS rn
                 FROM sector_snapshots
-                WHERE (? IS NULL OR timestamp <= ?)
+                WHERE timestamp >= ?
+                  AND (? IS NULL OR timestamp <= ?)
                   AND sector NOT IN ({marks})
-                GROUP BY sector
-            ) latest ON s.sector = latest.sector AND s.timestamp = latest.max_ts
-        """, (as_of, as_of, *excluded)).fetchall()
-        return {r["sector"]: r["avg_score"] for r in rows}
+            ) WHERE rn = 1
+        """, (floor, as_of, as_of, *excluded)).fetchall()
+        scores = {r["sector"]: r["avg_score"] for r in rows}
     finally:
         conn.close()
+    try:
+        from backend.ticker_config import get_sectors
+        missing = sorted(set(get_sectors()) - set(EXCLUDED_SECTORS) - set(scores))
+    except Exception:
+        missing = []
+    if missing:
+        logger.warning(f"Sector scores: no snapshot since {floor} for {', '.join(missing)} "
+                       f"— omitted (as_of={as_of or 'now'})")
+    return scores
+
+
+def get_sector_score(sector: str, as_of: str | None = None) -> float | None:
+    """Current avg_score for one sector under get_latest_sector_scores' rules, or
+    None. Replaces two identical unbounded point lookups in wallet.py and
+    live_trades_tracker.py (regime-exit alert text only)."""
+    return get_latest_sector_scores(as_of).get(sector)
 
 
 def prune_sector_snapshots(keep_days: int = 1825) -> int:  # default 5 years

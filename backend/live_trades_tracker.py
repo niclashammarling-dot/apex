@@ -22,6 +22,7 @@ from backend.db import (
     close_live_trade,
     get_alert_latch_age_hours,
     get_open_live_trades,
+    get_sector_score,
     mark_live_trade_unreconciled,
     set_alert_latch,
     set_live_trade_profit_lock_activated,
@@ -73,20 +74,6 @@ def _trading_days_since(iso_timestamp: str) -> int:
     start = datetime.fromisoformat(iso_timestamp).date()
     today = date.today()
     return len(pd.bdate_range(start, today)) - 1
-
-
-def _sector_avg_score(sector: str) -> float | None:
-    """Most recent avg_score for the sector from sector_snapshots."""
-    from backend.db import get_db
-    conn = get_db()
-    try:
-        row = conn.execute(
-            "SELECT avg_score FROM sector_snapshots WHERE sector=? ORDER BY timestamp DESC LIMIT 1",
-            (sector,),
-        ).fetchone()
-        return row["avg_score"] if row else None
-    finally:
-        conn.close()
 
 
 def _ticker_consecutive_down_days(ticker: str, n: int) -> bool:
@@ -690,7 +677,7 @@ def check_live_regime_exits() -> list[dict]:
             "exit_price":       exit_price,
             "notional":         trade["notional"],
             "held_days":        _trading_days_since(trade["timestamp"]),
-            "sector_avg_score": _sector_avg_score(sector),
+            "sector_avg_score": get_sector_score(sector),
             "pnl":              pnl,
             "pnl_pct":          pnl_pct,
         })
