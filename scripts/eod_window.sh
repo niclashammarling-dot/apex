@@ -27,9 +27,10 @@
 #   - Stop at 16:45 ET (PCR snapshot completes ~16:31:35; publish_audit_state
 #     at 16:33 runs the full mechanical audit, 72 s measured, incl. a backtest).
 set -u
-APEX=/home/promenix/apex
+APEX=${APEX_ROOT:-/home/promenix/apex}
+PY=${APEX_PYTHON:-$APEX/venv/bin/python}
 PORT=8000
-LOG_DIR=$APEX/logs
+LOG_DIR=${APEX_LOG_DIR:-$APEX/logs}
 mkdir -p "$LOG_DIR"
 LOG=$LOG_DIR/eod_window_$(TZ=America/New_York date +%F).log
 log() { echo "$(date '+%F %T %Z') | $*" >> "$LOG"; }
@@ -50,8 +51,27 @@ if [[ $win_epoch =~ ^[0-9]+$ ]]; then
 else
     log "clock drift vs Windows: unmeasured (powershell unavailable)"
 fi
+# NYSE session gate (2026-09-26): the Windows triggers exclude weekends, not
+# holidays, so a weekday holiday started the backend — 2026-09-07 Labor Day wrote
+# a sector snapshot row, and with the window held to 16:40 the 16:30 collect_pcr
+# would stamp a PCR snapshot with the holiday's date. Checked before the ET guard
+# and not skipped by the TEST hold (APEX_SESSION_DATE=YYYY-MM-DD overrides the
+# date, for tests). Lookup failure starts anyway: a holiday start costs a few
+# rows the in-process gates also refuse; a missed start costs a session.
+"$PY" "$APEX/scripts/nyse_session.py" "${APEX_SESSION_DATE:-}" 2>>"$LOG"
+case $? in
+    0) ;;
+    1) log "not an NYSE session (${APEX_SESSION_DATE:-$(TZ=America/New_York date +%F)}) — nothing started"; exit 0 ;;
+    *) log "NYSE calendar lookup failed — starting anyway (see stderr above)" ;;
+esac
 if [[ -z $TEST ]] && (( 10#$et_hm < 1605 || 10#$et_hm > 1645 )); then
     log "outside ET window (ET now $et_hm) — nothing started"
+    exit 0
+fi
+# APEX_WINDOW_DRY_RUN=1: stop here — every guard above has run, nothing starts
+# (tests/test_window_session_gate.py; never set by the scheduled task).
+if [[ -n ${APEX_WINDOW_DRY_RUN:-} ]]; then
+    log "dry run — guards passed, would start"
     exit 0
 fi
 
