@@ -155,12 +155,74 @@ def route_criticals() -> None:
         print(f"(CRITICAL dispatch failed: {e})", file=sys.stderr)
 
 
+WATCH_BRANCH = "heartbeat-watch"
+
+
+def watcher_gap(today: str, is_session: bool | None, record: dict | None) -> str | None:
+    """The alert text if the off-host heartbeat watcher did not act on today's
+    session, else None. None-session (calendar lookup failed) is checked as a session."""
+    if is_session is False:
+        return None
+    if record is None:
+        return f"no watch record on origin/{WATCH_BRANCH} at all — the watcher has never recorded a run"
+    if record.get("checked_date") != today:
+        return (f"the watcher's last recorded run is for {record.get('checked_date')} "
+                f"({record.get('run', '?')}), not today's session {today}")
+    return None
+
+
+def check_watcher_ran() -> None:
+    """Counter-watch for .github/workflows/session-heartbeat.yml (2026-09-26).
+
+    The heartbeat watcher is itself a check that can go silent: GitHub drops
+    delayed scheduled runs and disables scheduled workflows in a public repo
+    after 60 days without activity. Each acting run writes watch.json to
+    origin/heartbeat-watch; this reads it at 16:33 ET and alerts on a session
+    day it is missing. Mutual, not total: a day the backend AND the watcher
+    both fail is silent (this runs inside the backend's scheduler).
+    """
+    import json
+    from zoneinfo import ZoneInfo
+    today = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+    try:
+        import pandas_market_calendars as mcal
+        is_session = len(mcal.get_calendar("NYSE").schedule(start_date=today, end_date=today)) > 0
+    except Exception:
+        is_session = None
+    _git("fetch", "-q", "origin", f"+refs/heads/{WATCH_BRANCH}:refs/remotes/origin/{WATCH_BRANCH}", check=False)
+    raw = _git("show", f"refs/remotes/origin/{WATCH_BRANCH}:watch.json", check=False)
+    try:
+        record = json.loads(raw) if raw else None
+    except ValueError:
+        record = {"checked_date": f"unparseable watch.json: {raw[:80]}"}
+    gap = watcher_gap(today, is_session, record)
+    if gap is None:
+        print(f"Heartbeat watcher: ran for {today}" if is_session is not False
+              else "Heartbeat watcher: not a session, not checked")
+        return
+    print(f"HEARTBEAT WATCHER GAP: {gap}", file=sys.stderr)
+    try:
+        sys.path.insert(0, str(REPO))
+        from backend.alerts import _dispatch
+        _dispatch("[APEX] Session heartbeat watcher did not run today",
+                  gap + "\n\nThe 08:45 ET check (.github/workflows/session-heartbeat.yml) "
+                  "is the only thing that notices a backend that never started. Check the "
+                  "Actions page: a dropped scheduled run, or the workflow disabled "
+                  "(60-day inactivity rule, public repo).")
+    except Exception as e:  # alerting must never mask the publish result
+        print(f"(watcher-gap dispatch failed: {e})", file=sys.stderr)
+
+
 def main() -> int:
     run_checks()
     stamp_alert_channel()
     commit = push_state()
     print(f"Published {STATE_FILE.relative_to(REPO)} → origin/{BRANCH} @ {commit[:8]}")
     route_criticals()
+    try:
+        check_watcher_ran()
+    except Exception as e:  # the counter-watch must never mask the publish result
+        print(f"(watcher counter-check failed: {e})", file=sys.stderr)
     if _liveness_due():
         check_ci_liveness()
     else:

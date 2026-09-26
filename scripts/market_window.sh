@@ -43,7 +43,14 @@
 set -u
 APEX=${APEX_ROOT:-/home/promenix/apex}
 PY=${APEX_PYTHON:-$APEX/venv/bin/python}
-PORT=8000
+PORT=${APEX_PORT:-8000}
+UVICORN=${APEX_UVICORN:-$APEX/venv/bin/uvicorn}
+# Readiness bound for the heartbeat (2026-09-26). The initial sector poll runs
+# inside the lifespan before uvicorn binds, so start → /health took 45 s, 191 s,
+# 138 s, 144 s on 09-22..09-25 (launch line → "Scheduler started"). 120 s would
+# have pushed no heartbeat on three of four days; 480 s is 2.5× the worst seen
+# and still lands before the 08:45 ET watcher.
+READY_TIMEOUT=${APEX_READY_TIMEOUT:-480}
 LOG_DIR=${APEX_LOG_DIR:-$APEX/logs}
 mkdir -p "$LOG_DIR"
 LOG=$LOG_DIR/market_window_$(TZ=America/New_York date +%F).log
@@ -94,7 +101,7 @@ fi
 
 cd "$APEX" || exit 1
 log "starting uvicorn (no --reload), ET now $et_hm"
-APEX_SERVE=1 "$APEX/venv/bin/uvicorn" backend.main:app --host 127.0.0.1 --port "$PORT" >> "$LOG" 2>&1 &
+APEX_SERVE=1 "$UVICORN" backend.main:app --host 127.0.0.1 --port "$PORT" >> "$LOG" 2>&1 &
 PID=$!
 
 on_signal() {
@@ -104,6 +111,34 @@ on_signal() {
 }
 trap 'on_signal TERM' TERM
 trap 'on_signal HUP' HUP
+
+# Session heartbeat (2026-09-26): once /health answers scheduler_owner=true,
+# push heartbeat.json to origin/heartbeat (scripts/push_heartbeat.py). The
+# off-host watcher (.github/workflows/session-heartbeat.yml, 08:45 ET) alerts
+# when a session has none — so "not ready in time" pushes nothing on purpose:
+# a backend that started but never took the scheduler lock is a failed start.
+# A test hold pushes only to an explicit APEX_HEARTBEAT_REMOTE, never origin.
+ready_deadline=$(( $(date +%s) + READY_TIMEOUT ))
+ready=0
+while (( $(date +%s) < ready_deadline )); do
+    if ! kill -0 "$PID" 2>/dev/null; then break; fi   # the watch loop below logs the exit
+    if curl -s -m 5 "http://127.0.0.1:$PORT/health" | grep -Eq '"scheduler_owner": ?true'; then
+        ready=1; break
+    fi
+    sleep 5 & wait $!
+done
+if (( ready )); then
+    log "ready: scheduler owner confirmed, $(( $(date +%s) + READY_TIMEOUT - ready_deadline ))s after start"
+    if [[ -n $TEST && -z ${APEX_HEARTBEAT_REMOTE:-} ]]; then
+        log "test hold — heartbeat not pushed"
+    elif hb=$("$PY" "$APEX/scripts/push_heartbeat.py" 2>&1); then
+        log "$hb"
+    else
+        log "heartbeat push FAILED — the 08:45 ET watcher will alert: $hb"
+    fi
+elif kill -0 "$PID" 2>/dev/null; then
+    log "not ready: no scheduler_owner=true from /health within ${READY_TIMEOUT}s — no heartbeat pushed"
+fi
 
 # Watch the child until 16:40 ET today; a child that dies first is a failure
 # the task scheduler relaunches (RestartOnFailure in APEX-market-window.xml).

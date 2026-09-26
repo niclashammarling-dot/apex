@@ -1,0 +1,100 @@
+name: APEX Session Heartbeat
+
+# Proves "the backend STARTED and HELD THE SCHEDULER LOCK by 08:45 ET" on every
+# NYSE session — nothing more. A crash after the heartbeat is not covered here.
+# Scope, window gate and why this lives off-host: scripts/heartbeat_watch.py.
+#
+# Two crons, one acting run per day: 12:45 UTC is 08:45 ET in EDT, 13:45 UTC is
+# 08:45 ET in EST; the other run of each pair lands outside 08:30–09:30 ET and
+# exits quietly. Kept off :00 — GitHub's high-load (and dropped-job) slot.
+#
+# Forced runs (positive control): push any commit to ci-verify/heartbeat-YYYY-MM-DD
+# (no token on the host, so no API dispatch), or use Run workflow with a date.
+# A forced run skips the window gate, evaluates that date, and sends a real mail
+# tagged [FORCED TEST RUN] when it would alert.
+#
+# 60-day rule: GitHub disables scheduled workflows in a PUBLIC repo after 60 days
+# without "repository activity" (undefined in the docs, checked 2026-09-26), and
+# the heartbeat's force-pushes to a non-default branch may not count. A disabled
+# watcher is silent — the host counter-watch (audit/publish_state.py
+# check_watcher_ran, 16:33 ET) alerts on any session day with no watch record.
+
+on:
+  schedule:
+    - cron: '45 12 * * 1-5'
+    - cron: '45 13 * * 1-5'
+  push:
+    branches: ['ci-verify/heartbeat-*']
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Forced run: ET session date to evaluate (YYYY-MM-DD)'
+        required: true
+
+permissions:
+  contents: write     # the heartbeat-watch record
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install calendar
+        run: pip install -q 'pandas-market-calendars>=4.0.0'
+
+      - name: Forced date
+        id: force
+        env:
+          REF: ${{ github.ref_name }}
+          INPUT_DATE: ${{ inputs.date }}
+        run: |
+          d="$INPUT_DATE"
+          [[ -z $d && $REF == ci-verify/heartbeat-* ]] && d="${REF#ci-verify/heartbeat-}"
+          echo "date=$d" >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate
+        id: eval
+        run: python scripts/heartbeat_watch.py ${{ steps.force.outputs.date && format('--date {0}', steps.force.outputs.date) || '' }}
+
+      - name: Send alert
+        if: steps.eval.outputs.action == 'alert'
+        env:
+          ALERT_EMAIL_TO:   ${{ secrets.ALERT_EMAIL_TO }}
+          ALERT_EMAIL_FROM: ${{ secrets.ALERT_EMAIL_FROM }}
+          ALERT_SMTP_USER:  ${{ secrets.ALERT_SMTP_USER }}
+          ALERT_SMTP_PASS:  ${{ secrets.ALERT_SMTP_PASS }}
+          SUBJECT: ${{ steps.eval.outputs.subject }}
+        run: python scripts/heartbeat_watch.py --send "$SUBJECT" "${{ steps.eval.outputs.body_file }}"
+
+      - name: Record watch
+        # Scheduled acting runs only: the counter-watch must not be satisfied by a test.
+        if: always() && steps.force.outputs.date == '' && (steps.eval.outputs.action == 'ok' || steps.eval.outputs.action == 'alert' || steps.eval.outputs.action == 'skip-holiday')
+        env:
+          GIT_AUTHOR_NAME: heartbeat-watch
+          GIT_AUTHOR_EMAIL: actions@users.noreply.github.com
+          GIT_COMMITTER_NAME: heartbeat-watch
+          GIT_COMMITTER_EMAIL: actions@users.noreply.github.com
+          ACTION: ${{ steps.eval.outputs.action }}
+          DAY: ${{ steps.eval.outputs.day }}
+          MAIL: ${{ steps.eval.outputs.action == 'alert' && 'attempted' || 'none' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          printf '{"checked_date": "%s", "action": "%s", "mail": "%s", "run": "%s", "at_utc": "%s"}\n' \
+            "$DAY" "$ACTION" "$MAIL" "$RUN_URL" "$(date -u +%FT%TZ)" > watch.json
+          blob=$(git hash-object -w watch.json)
+          tree=$(printf '100644 blob %s\twatch.json\n' "$blob" | git mktree)
+          commit=$(git commit-tree "$tree" -m "heartbeat watch $DAY $ACTION")
+          git push -q origin "+$commit:refs/heads/heartbeat-watch"
+
+      - name: Fail on alert
+        # A red run is the second signal beside the mail.
+        if: steps.eval.outputs.action == 'alert'
+        run: |
+          echo "::error::${{ steps.eval.outputs.subject }}"
+          exit 1
