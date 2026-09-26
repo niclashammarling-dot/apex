@@ -182,8 +182,8 @@ def test_manual_run_refuses_a_session_that_already_has_posteriors():
 
     A re-run therefore cannot change the history row while it does replace the live
     posterior state — the next session's decayed prior — and the cached allocation,
-    from inputs fetched now. The two would then disagree silently, so the press is
-    refused unless overwrite is explicit.
+    from inputs fetched now, decayed from a state that already includes the session.
+    The press is refused; there is no override.
     """
     _clear_history()
     db.insert_sector_posterior_history("2026-09-14", {"Technology": 0.5})
@@ -194,14 +194,27 @@ def test_manual_run_refuses_a_session_that_already_has_posteriors():
     inputs.assert_not_called(); rb.assert_not_called()
 
 
-def test_manual_run_overwrite_proceeds_and_says_so():
+def test_no_overwrite_escape_exists():
+    """Removed 2026-09-26: re-running a persisted session decays from live state that
+    already includes it — double-counted into sector_posteriors and the cache, and from
+    there into the next session's history row. The only recompute path is
+    scripts/replay_eod_regime.py, which resets to the previous session first."""
+    with pytest.raises(TypeError):
+        sched.run_eod_regime(overwrite=True)
+
+
+def test_endpoint_ignores_stale_overwrite_and_refuses():
+    from fastapi.testclient import TestClient
+
+    from backend.main import app
     _clear_history()
-    db.insert_sector_posterior_history("2026-09-14", {"Technology": 0.5})
-    fake_now = datetime(2026, 9, 15, 11, 51, tzinfo=NY)
-    with patch.object(sched, "_eod_inputs", return_value=None) as inputs:
-        status = sched.run_eod_regime(now_ny=fake_now, overwrite=True)
-    assert status == "no_inputs"                      # got past the guard, failed later
-    assert inputs.call_args.args[0] == date(2026, 9, 14)
+    target = sched._last_eod_due(datetime.now(NY))
+    db.insert_sector_posterior_history(target.isoformat(), {"Technology": 0.5})
+    with patch.object(sched, "_eod_inputs") as inputs, patch.object(sched, "_get_regime_bayes") as rb:
+        r = TestClient(app).post("/api/sectors/regime-bayes/run?persist=true&overwrite=true")
+    assert r.json()["result"] == "refused_exists"
+    inputs.assert_not_called()
+    rb.assert_not_called()
 
 
 def test_catchup_path_is_unaffected_by_the_exists_guard():

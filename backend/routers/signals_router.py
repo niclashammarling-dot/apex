@@ -730,7 +730,7 @@ def sectors_regime_bayes():
 
 
 @router.post("/sectors/regime-bayes/run")
-def trigger_regime_bayes(persist: bool = False, overwrite: bool = False):
+def trigger_regime_bayes(persist: bool = False):
     """Manually trigger an EOD regime update.
 
     persist=false (default): compute-and-return on today's inputs as they stand —
@@ -744,20 +744,22 @@ def trigger_regime_bayes(persist: bool = False, overwrite: bool = False):
     passed, not for the wall-clock date: this endpoint is the only caller of
     run_eod_regime's as_of=None path, and taking the wall-clock date let a press on
     a weekend stamp a row with a non-session date (the Sunday 2026-08-23 trace row).
-    It refuses when that session already has persisted posteriors, because a re-run
-    overwrites the live posterior state and result cache while INSERT OR IGNORE
-    leaves the history table alone. overwrite=true replaces them deliberately.
+    It refuses when that session already has persisted posteriors: a re-run would
+    decay from live state that already includes the session and double-count it.
+    There is no overwrite (removed 2026-09-26; a stale ?overwrite=true is ignored
+    and gets the refusal) — recomputing a persisted session is
+    scripts/replay_eod_regime.py.
     The response reports which of those happened rather than always saying ok.
     """
     from backend.scheduler import run_eod_regime, preview_eod_regime
     try:
         if persist:
-            status = run_eod_regime(overwrite=overwrite)
+            status = run_eod_regime()
             return {"status": "ok" if status == "ok" else "refused",
                     "persisted": status == "ok", "result": status,
                     "note": {
                         "ok":               "persisted for the last due session",
-                        "refused_exists":   "that session already has posteriors — pass overwrite=true to replace",
+                        "refused_exists":   "that session already has posteriors — recompute with scripts/replay_eod_regime.py",
                         "refused_intraday": "16:15 ET close has not passed",
                         "no_inputs":        "input fetch failed — see server log",
                         "failed":           "update raised — see server log",

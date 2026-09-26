@@ -335,7 +335,7 @@ def _eod_inputs(target: date, live: bool):
     return raw_data, sector_snapshots, ipo_shares
 
 
-def run_eod_regime(as_of: date | None = None, *, overwrite: bool = False,
+def run_eod_regime(as_of: date | None = None, *,
                    now_ny: datetime | None = None) -> str:
     """
     End-of-day Bayesian regime update — scheduled pre-open (08:30 ET) FOR the
@@ -370,12 +370,17 @@ def run_eod_regime(as_of: date | None = None, *, overwrite: bool = False,
     to be refused as intraday; it now computes the previous session, which is what the
     08:30 cron does. A press after 16:15 ET still computes that day's session.
 
-    overwrite: `sector_posterior_history` is INSERT OR IGNORE, so a re-run cannot
-    rewrite it — but `upsert_sector_posteriors` and the result cache are unconditional,
-    so a re-run *does* replace the live posterior state (the next session's decayed
-    prior) and the cached allocation with freshly fetched inputs, leaving the two
-    disagreeing silently. A target session that already has history rows is therefore
-    refused unless overwrite=True.
+    A target session that already has history rows is refused, always. There is no
+    in-process way to recompute one: RegimeBayes.update decays from self._posteriors,
+    the live state AFTER the latest session, so re-running session D applies D's
+    evidence on top of D's own posterior (double-counted) — or, for an older D, on
+    top of later sessions' state, which it then writes as the live posterior. History
+    (INSERT OR IGNORE) would keep the one correct row; sector_posteriors and the
+    result cache would take the wrong one, and the next session would decay from it
+    into history. The `overwrite=True` escape added 2026-09-25 did exactly that and
+    was removed 2026-09-26 without ever having fired (one trace block for every
+    session since). Recomputing a persisted session is scripts/replay_eod_regime.py:
+    it resets state to D-1 first, on a DB copy by default.
 
     Returns a status string: "ok", "refused_intraday", "refused_exists", "no_inputs",
     or "failed".
@@ -395,20 +400,18 @@ def run_eod_regime(as_of: date | None = None, *, overwrite: bool = False,
         logger.error(f"EOD regime: {target} 16:15 ET close has not passed — refusing (inputs would be intraday)")
         return "refused_intraday"
 
-    if not overwrite:
-        from backend.db import count_sector_posterior_history
-        existing = count_sector_posterior_history(target.isoformat())
-        if existing:
-            logger.error(
-                f"EOD regime: {target} already has {existing} persisted posterior row(s) — refusing. "
-                f"A re-run leaves the history table alone (INSERT OR IGNORE) but overwrites the live "
-                f"posterior state and the result cache from inputs fetched now, so the two would "
-                f"disagree. Pass overwrite=true to replace deliberately."
-            )
-            return "refused_exists"
+    from backend.db import count_sector_posterior_history
+    existing = count_sector_posterior_history(target.isoformat())
+    if existing:
+        logger.error(
+            f"EOD regime: {target} already has {existing} persisted posterior row(s) — refusing. "
+            f"A re-run would decay from the live state, which already includes {target}, and "
+            f"double-count it. To recompute a persisted session use scripts/replay_eod_regime.py "
+            f"(resets to the previous session first)."
+        )
+        return "refused_exists"
 
-    logger.info(f"EOD regime update starting… (as_of={target}{'' if live else ', replay'}"
-                f"{', overwrite' if overwrite else ''})")
+    logger.info(f"EOD regime update starting… (as_of={target}{'' if live else ', replay'})")
 
     inputs = _eod_inputs(target, live)
     if inputs is None:
