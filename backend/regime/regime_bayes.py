@@ -531,13 +531,16 @@ class RegimeBayes:
         result.regime_state = market_regime_state(result, prev_state)
         if prev_state is not None and result.regime_state != prev_state:
             logger.info(f"Regime [{today_str}]: market state {prev_state} → {result.regime_state}")
-        self._last_result = result
 
         # Persist posteriors and full result — both survive restarts
         # Excluded sectors are not updated in this cycle; omit them from DB writes
         # so stale sub-floor values don't accumulate as misleading rows.
         active_posteriors = {s: self._posteriors[s] for s in all_sectors if s in self._posteriors}
         self._save_session_posteriors(today_str, active_posteriors, restore=posteriors_before)
+        # Only after the persist: _last_result is what the gates, Lock 1 and the
+        # trackers read. Assigned before it (until 2026-09-26), a failed persist
+        # left them trading on a session the DB, cache and history never got.
+        self._last_result = result
         self._save_result(result)
         self._append_signal_trace(entries)
 
