@@ -119,8 +119,15 @@ def main() -> int:
     ap.add_argument("--send", nargs=2, metavar=("SUBJECT", "BODY_FILE"))
     a = ap.parse_args()
     if a.send:
-        with open(a.send[1]) as fh:
-            send_mail(a.send[0], fh.read())
+        # The error goes out as an Actions annotation: readable on a public repo
+        # without auth, where job logs are not. Secret names or the SMTP
+        # response only — never values.
+        try:
+            with open(a.send[1]) as fh:
+                send_mail(a.send[0], fh.read())
+        except Exception as e:
+            print(f"::error title=Heartbeat alert NOT sent::{type(e).__name__}: {e}")
+            return 2
         return 0
     force = date.fromisoformat(a.date) if a.date else None
     now = datetime.now(timezone.utc)

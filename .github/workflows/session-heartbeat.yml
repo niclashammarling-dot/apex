@@ -94,7 +94,7 @@ jobs:
 
       - name: Fail on alert
         # A red run is the second signal beside the mail.
-        if: steps.eval.outputs.action == 'alert'
+        if: always() && steps.eval.outputs.action == 'alert'
         run: |
           echo "::error::${{ steps.eval.outputs.subject }}"
           exit 1
