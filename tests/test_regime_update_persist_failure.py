@@ -6,14 +6,16 @@ trackers). It was assigned before _save_session_posteriors, so a failed persist
 restored _posteriors but left the gate trading on the unpersisted session's
 leader and allocation, while DB, cache and history stayed on the previous one.
 """
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import patch
 
 import pandas as pd
 import pytest
 
+import backend.scheduler as sched
 from backend import db
 from backend.regime.regime_bayes import RegimeBayes
+from backend.scheduler import NY
 
 SECTORS = {"Technology": {"tickers": ["AAPL"], "etf": "XLK"},
            "Energy": {"tickers": ["XOM"], "etf": "XLE"}}
@@ -49,3 +51,42 @@ def test_failed_persist_leaves_last_result_on_the_previous_session():
             _update(rb, date(2026, 9, 25))
     assert rb.last_result() is prev
     assert rb.last_result().date == "2026-09-24"
+
+
+# ── Alert on a failed run (2026-09-26) ───────────────────────────────────────
+
+def _failing_run(monkeypatch, alert_side_effect=None, sent=None, clear=True):
+    if clear:
+        conn = db.get_db()
+        conn.execute("DELETE FROM sector_posterior_history")
+        conn.execute("DELETE FROM alert_latches")
+        conn.commit()
+        conn.close()
+    sent = [] if sent is None else sent
+    monkeypatch.setattr("backend.alerts.alert_eod_regime_failed",
+                        alert_side_effect or (lambda s, e: sent.append((s, e))))
+    monkeypatch.setattr(sched, "_eod_inputs", lambda target, live: (pd.DataFrame(), {}, {}))
+
+    class _RB:
+        def update(self, *a, **k):
+            raise RuntimeError("persist failed")
+    monkeypatch.setattr(sched, "_get_regime_bayes", lambda: _RB())
+    status = sched.run_eod_regime(as_of=date(2026, 9, 25),
+                                  now_ny=datetime(2026, 9, 28, 8, 30, tzinfo=NY))
+    return status, sent
+
+
+def test_failed_run_sends_the_alert_once_per_session(monkeypatch):
+    status, sent = _failing_run(monkeypatch)
+    assert status == "failed"
+    assert sent == [("2026-09-25", "persist failed")]
+    status, sent = _failing_run(monkeypatch, sent=sent, clear=False)   # retry, same session
+    assert status == "failed"
+    assert len(sent) == 1                                              # latched: no second email
+
+
+def test_alert_that_raises_leaves_the_eod_return_intact(monkeypatch):
+    def boom(s, e):
+        raise RuntimeError("smtp down")
+    status, _ = _failing_run(monkeypatch, alert_side_effect=boom)
+    assert status == "failed"

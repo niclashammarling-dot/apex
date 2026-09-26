@@ -230,6 +230,18 @@ def alert_data_quality_divergence(broker_day_pnl: float, apex_day_pnl: float | N
     _dispatch(title, body)
 
 
+def alert_eod_regime_failed(session: str, error: str) -> None:
+    """EOD regime update for `session` raised — nothing persisted (2026-09-26)."""
+    mode  = _mode_label()
+    title = f"[APEX {mode}] EOD Regime Failed — {session} not written"
+    body  = (f"The EOD regime update for session {session} failed: {error}\n"
+             f"Nothing was persisted (single transaction) and the in-memory regime "
+             f"stays on the previous session, so the gate trades on that regime until "
+             f"a run succeeds. The next 08:30 ET run (or a backend restart) retries "
+             f"{session}; CHECK 77 (2) names it as a missing session at the 16:33 ET audit.")
+    _dispatch(title, body)
+
+
 def alert_gate_blocked(reason: str) -> None:
     mode  = _mode_label()
     title = f"[APEX {mode}] Gate Blocked"

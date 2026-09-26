@@ -458,7 +458,22 @@ def run_eod_regime(as_of: date | None = None, *,
         return "ok"
     except Exception as e:
         logger.error(f"RegimeBayes update failed: {e}")
+        _alert_eod_regime_failed(target, e)
         return "failed"
+
+
+def _alert_eod_regime_failed(target: date, error: Exception) -> None:
+    """Critical on a failed EOD regime run, once per session (2026-09-26). Before,
+    a failure was an ERROR line: the gate traded on the previous session's regime
+    all day and CHECK 77 (2) named the gap only at the 16:33 ET audit. Runs only
+    on failure; never raises into the EOD path."""
+    try:
+        from backend.alerts import alert_eod_regime_failed
+        from backend.db import set_alert_latch
+        if set_alert_latch(f"eod_regime:{target.isoformat()}:failed"):
+            alert_eod_regime_failed(target.isoformat(), str(error))
+    except Exception as ex:
+        logger.error(f"EOD regime failure alert could not be sent: {ex}")
 
 
 def preview_eod_regime():
