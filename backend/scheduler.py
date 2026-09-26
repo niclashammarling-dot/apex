@@ -357,6 +357,13 @@ def _eod_inputs(target: date, live: bool):
     except Exception as e:
         logger.error(f"EOD regime: raw data download failed — aborting: {e}")
         return None
+    # yfinance does not raise when every symbol fails (rate limit, outage): it
+    # prints "Failed download" and returns an empty frame (checked 2026-09-26,
+    # yfinance 1.2.2). Until then that frame went into rb.update and PERSISTED a
+    # posterior row computed from no data, reported as "ok".
+    if raw_data is None or raw_data.empty:
+        logger.error(f"EOD regime: raw data download returned nothing for {target} — aborting")
+        return None
 
     sector_snapshots = get_latest_sector_scores(
         as_of=None if live else _eod_cutoff_utc(target)
@@ -444,6 +451,7 @@ def run_eod_regime(as_of: date | None = None, *,
 
     inputs = _eod_inputs(target, live)
     if inputs is None:
+        _alert_eod_regime_failed(target, "input fetch returned nothing (no_inputs)", key="no_inputs")
         return "no_inputs"
     raw_data, sector_snapshots, ipo_shares = inputs
 
@@ -462,15 +470,20 @@ def run_eod_regime(as_of: date | None = None, *,
         return "failed"
 
 
-def _alert_eod_regime_failed(target: date, error: Exception) -> None:
-    """Critical on a failed EOD regime run, once per session (2026-09-26). Before,
-    a failure was an ERROR line: the gate traded on the previous session's regime
-    all day and CHECK 77 (2) named the gap only at the 16:33 ET audit. Runs only
-    on failure; never raises into the EOD path."""
+def _alert_eod_regime_failed(target: date, error, key: str = "failed") -> None:
+    """Critical on an EOD regime run that wrote nothing — status "failed", or
+    "no_inputs" on an NYSE session — once per session and key (2026-09-26).
+    Before, both were ERROR lines: the gate traded on the previous session's
+    regime all day and CHECK 77 (2) named the gap only at the 16:33 ET audit.
+    Every caller targets a session by construction; the no_inputs gate is kept
+    so a future caller cannot turn a non-session into an alert. Runs only on
+    failure; never raises into the EOD path."""
     try:
         from backend.alerts import alert_eod_regime_failed
         from backend.db import set_alert_latch
-        if set_alert_latch(f"eod_regime:{target.isoformat()}:failed"):
+        if key == "no_inputs" and not _nyse_sessions_for_date(target.isoformat()):
+            return
+        if set_alert_latch(f"eod_regime:{target.isoformat()}:{key}"):
             alert_eod_regime_failed(target.isoformat(), str(error))
     except Exception as ex:
         logger.error(f"EOD regime failure alert could not be sent: {ex}")
