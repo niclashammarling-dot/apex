@@ -82,6 +82,35 @@ def _nyse_sessions_for_date(date_str: str) -> int:
     return 0 if _nyse_session_bounds(date_str) is None else 1
 
 
+def is_session_today(what: str) -> bool:
+    """
+    True if today (ET) is an NYSE session. For jobs that write market data under
+    today's date without an hours check of their own — the startup poll
+    (force=True) and the 16:30 collect_pcr. Found 2026-09-26: neither consulted
+    the calendar; since 09-18 market_window.sh holds the backend up to 16:40 ET
+    on every weekday, so a weekday holiday would get a sector snapshot and a full
+    PCR snapshot stamped with the holiday's date, holding the previous session's
+    data (Labor Day 09-07 got the snapshot; the window script did not exist yet,
+    so no PCR). Calendar failure → True with a WARNING: a missed PCR session is
+    irrecoverable, a holiday row is identifiable by its date.
+    """
+    today = datetime.now(NY).date().isoformat()
+    try:
+        session = _nyse_sessions_for_date(today) == 1
+    except Exception as e:
+        logger.warning(f"{what}: NYSE calendar unavailable ({e}) — running anyway")
+        return True
+    if not session:
+        logger.info(f"{what}: {today} is not an NYSE session — skipped")
+    return session
+
+
+def collect_pcr_if_session() -> None:
+    """The 16:30 collect_pcr job, calendar-gated like its catch-up below."""
+    if is_session_today("collect_pcr"):
+        collect_pcr_snapshot()
+
+
 def is_market_open() -> bool:
     now = datetime.now(NY)
     if now.weekday() >= 5:
@@ -826,7 +855,7 @@ def start_scheduler() -> None:
         misfire_grace_time=3600,
     )
     scheduler.add_job(
-        collect_pcr_snapshot,
+        collect_pcr_if_session,
         "cron",
         day_of_week="mon-fri",
         hour=16,

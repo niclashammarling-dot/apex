@@ -13,7 +13,7 @@ from loguru import logger
 from backend.db import init_db
 from backend.routers.live_router import router as live_router
 from backend.routers.signals_router import router as signals_router
-from backend.scheduler import poll_all_sectors, scheduler, start_scheduler
+from backend.scheduler import is_session_today, poll_all_sectors, scheduler, start_scheduler
 
 
 def _sanitize(obj: Any) -> Any:
@@ -103,11 +103,14 @@ async def lifespan(app: FastAPI):
         logger.warning("APEX_SERVE=1 but the scheduler lock is held by another instance — API only")
     else:
         app.state.scheduler_lock = lock
-        logger.info("Running initial sector poll…")
-        try:
-            poll_all_sectors(force=True)
-        except Exception as e:
-            logger.warning(f"Initial poll failed (non-fatal): {e}")
+        # force=True skips the hours check (a 08:15 ET start polls pre-open);
+        # it must not skip the session check — 2026-09-07 Labor Day row.
+        if is_session_today("Initial sector poll"):
+            logger.info("Running initial sector poll…")
+            try:
+                poll_all_sectors(force=True)
+            except Exception as e:
+                logger.warning(f"Initial poll failed (non-fatal): {e}")
         start_scheduler()
     yield
     if scheduler.running:
