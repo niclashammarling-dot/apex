@@ -449,8 +449,7 @@ def preview_eod_regime():
         sectors_cfg    = get_sectors()
         sector_etf_map = {s: cfg["etf"] for s, cfg in sectors_cfg.items()}
         rb = RegimeBayes(sectors_cfg, sector_etf_map, _build_transition_priors())
-        rb._save_posteriors        = lambda *_: None
-        rb._save_posterior_history = lambda *_: None
+        rb._save_session_posteriors = lambda *_, **__: None
         rb._save_result            = lambda *_: None
         rb._append_signal_trace    = lambda *_: None
         return rb.update(target, raw_data, sector_snapshots, ipo_shares)

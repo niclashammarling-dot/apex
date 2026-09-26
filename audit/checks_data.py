@@ -794,6 +794,77 @@ def _nyse_sessions(start: date, end: date) -> list[date]:
     return [ts.date() for ts in sched.index]
 
 
+CHECK77_LIVE_STATE = "live state ≠ history"
+
+
+def _check77_live_state(name: str, db, rows) -> None:
+    """
+    Sub-check (3): sector_posteriors (the live state the next session decays from)
+    must equal the latest sector_posterior_history row for every sector in it, and
+    regime_result_cache.json must be dated that same session.
+
+    Why (2026-09-26): run_eod_regime's overwrite=True re-ran a persisted session
+    from live state that already included it — sector_posteriors and the cache took
+    the double-counted values while history kept the original. Sub-check (1) judges
+    history rows only, so it could never see this; nothing checked the three
+    writers against each other. The escape is removed (apex dc33663) and the two DB
+    writes are one transaction (persist_session_posteriors), so this should never
+    fire; it is the check that would see the class if another path reopens it.
+
+    Detection window — the honest limit: this sees a divergence only until the
+    next session's EOD run. That run decays from the wrong live state and writes
+    the result into history, after which live and history agree again and are both
+    wrong. A durable check is a replay of history against itself on a DB copy
+    (scripts/replay_eod_regime.py), filed as a candidate, not built. The
+    millisecond gap between the two DB writes that existed before 2026-09-26 is
+    closed by the transaction; the cache file is written after it and can lag by
+    the length of one run.
+    """
+    try:
+        conn = sqlite3.connect(db)
+        live = dict(conn.execute("SELECT sector, posterior FROM sector_posteriors").fetchall())
+        conn.close()
+    except Exception as e:
+        flag(77, name, "WARNING", "data/apex.db:sector_posteriors",
+             f"{CHECK77_LIVE_STATE}: could not query sector_posteriors: {e}")
+        return
+    hist_rows = [(d, s) for d, s, _ in rows]
+    latest = max(d for d, _ in hist_rows)
+    try:
+        conn = sqlite3.connect(db)
+        hist = dict(conn.execute(
+            "SELECT sector, posterior FROM sector_posterior_history WHERE date = ?", (latest,)).fetchall())
+        conn.close()
+    except Exception as e:
+        flag(77, name, "WARNING", "data/apex.db:sector_posterior_history",
+             f"{CHECK77_LIVE_STATE}: could not read {latest}: {e}")
+        return
+    diffs = []
+    for sector, hp in sorted(hist.items()):
+        lp = live.get(sector)
+        if lp is None:
+            diffs.append(f"{sector}: history {hp:.4f}, no live row")
+        elif abs(lp - hp) > 1e-9:
+            diffs.append(f"{sector}: live {lp:.4f} vs history {hp:.4f}")
+    cache_note = ""
+    cache = REPO / "data/regime_result_cache.json"
+    if cache.exists():
+        try:
+            cdate = json.loads(cache.read_text()).get("date")
+        except Exception as e:
+            cdate = f"unreadable ({e})"
+        if cdate != latest:
+            cache_note = f"result cache dated {cdate}, history's latest session {latest}"
+    if diffs or cache_note:
+        parts = ([f"{len(diffs)} sector(s) differ from history {latest} — " + "; ".join(diffs[:6])
+                  + (" …" if len(diffs) > 6 else "")] if diffs else []) + ([cache_note] if cache_note else [])
+        flag(77, name, "CRITICAL", "backend/regime/regime_bayes.py:_save_session_posteriors",
+             f"{CHECK77_LIVE_STATE}: {' | '.join(parts)}. The next session decays from the live "
+             f"state; once it runs, the divergence is written into history and this check goes "
+             f"quiet. Recompute from {latest}'s predecessor with scripts/replay_eod_regime.py "
+             f"(DB copy first) before the next 08:30 ET run.")
+
+
 def check77():
     """
     sector_posterior_history: every row must have been written at or after the
@@ -865,6 +936,9 @@ def check77():
              f"{'; '.join(bad[:6])}{' …' if len(bad) > 6 else ''}. Such a row also "
              f"blocks the genuine write (INSERT OR IGNORE) and feeds the next day's prior; "
              f"repair with scripts/replay_eod_regime.py, do not delete in place.")
+
+    # (3) live-state agreement (2026-09-26)
+    _check77_live_state(name, db, rows)
 
     # (2) gap count against the exchange calendar
     have  = {d for d, _, _ in rows}

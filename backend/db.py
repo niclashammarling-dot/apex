@@ -2358,25 +2358,41 @@ def get_sector_posteriors() -> dict[str, float]:
         conn.close()
 
 
-def upsert_sector_posteriors(posteriors: dict[str, float]) -> None:
-    """Persist Bayesian posteriors. Called after every daily regime update."""
+def persist_session_posteriors(date_str: str, posteriors: dict[str, float]) -> None:
+    """
+    Write one session's posteriors to sector_posteriors (live state) and
+    sector_posterior_history in ONE transaction. Raises on failure; nothing is
+    written then.
+
+    Found 2026-09-26: the two writes were separate connections and commits, the
+    upsert first. A failed history insert left live state a session ahead of
+    history with nothing recording why, and the next session decayed from it.
+    The history insert is plain INSERT, not OR IGNORE: if the session already has
+    rows, both writes roll back — live state can never move without its history
+    row (run_eod_regime refuses such a session before computing; this makes it
+    structural). scripts/replay_eod_regime.py deletes the rows before replaying.
+    """
     from datetime import datetime, timezone
     now  = datetime.now(timezone.utc).isoformat()
+    rows = list(posteriors.items())
     conn = get_db()
     try:
-        conn.executemany(
-            """
-            INSERT INTO sector_posteriors (sector, posterior, updated_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(sector) DO UPDATE SET
-                posterior  = excluded.posterior,
-                updated_at = excluded.updated_at
-            """,
-            [(sector, posterior, now) for sector, posterior in posteriors.items()],
-        )
-        conn.commit()
-    except Exception as e:
-        logger.warning(f"upsert_sector_posteriors: {e}")
+        with conn:
+            conn.executemany(
+                """
+                INSERT INTO sector_posteriors (sector, posterior, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(sector) DO UPDATE SET
+                    posterior  = excluded.posterior,
+                    updated_at = excluded.updated_at
+                """,
+                [(sector, posterior, now) for sector, posterior in rows],
+            )
+            conn.executemany(
+                "INSERT INTO sector_posterior_history (date, sector, posterior, written_at) "
+                "VALUES (?, ?, ?, ?)",
+                [(date_str, sector, posterior, now) for sector, posterior in rows],
+            )
     finally:
         conn.close()
 
@@ -2412,11 +2428,10 @@ def count_sector_posterior_history(date_str: str) -> int:
     """How many sector rows are already persisted for a session date.
 
     Non-zero means the EOD regime update for that session has already run and its
-    posteriors are the ones downstream sessions decayed from. `insert_sector_posterior_history`
-    is INSERT OR IGNORE, so a re-run cannot change this table — but `upsert_sector_posteriors`
-    and the result cache are unconditional overwrites, so a re-run *does* replace the live
-    posterior state and the cached allocation. Callers that might target an already-written
-    session check this first (run_eod_regime).
+    posteriors are the ones downstream sessions decayed from. Re-running such a session in
+    process would decay from live state that already includes it (double-count), so
+    run_eod_regime refuses it on this count; persist_session_posteriors additionally rolls
+    back if the rows exist.
     """
     conn = get_db()
     try:

@@ -355,6 +355,7 @@ class RegimeBayes:
         rank_lrs = _compute_rank_lrs(raw_data, self.sector_etf_map)
 
         entries: list[SectorEntry] = []
+        posteriors_before = dict(self._posteriors)   # restored if the persist fails
 
         for sector in all_sectors:
             aggregate_score = sector_snapshots.get(sector, 0.0)
@@ -536,8 +537,7 @@ class RegimeBayes:
         # Excluded sectors are not updated in this cycle; omit them from DB writes
         # so stale sub-floor values don't accumulate as misleading rows.
         active_posteriors = {s: self._posteriors[s] for s in all_sectors if s in self._posteriors}
-        self._save_posteriors(active_posteriors)
-        self._save_posterior_history(today_str, active_posteriors)
+        self._save_session_posteriors(today_str, active_posteriors, restore=posteriors_before)
         self._save_result(result)
         self._append_signal_trace(entries)
 
@@ -600,21 +600,28 @@ class RegimeBayes:
             logger.warning(f"Regime: could not load posteriors from DB ({e}) — using uniform")
             return {sector: uniform for sector in self.sectors_cfg}
 
-    def _save_posteriors(self, posteriors: dict[str, float]) -> None:
-        """Persist current posteriors to DB."""
+    def _save_session_posteriors(self, date_str: str, posteriors: dict[str, float],
+                                 restore: dict[str, float]) -> None:
+        """
+        Persist live posteriors and today's history row in one transaction
+        (db.persist_session_posteriors). On failure the in-memory state is put
+        back to `restore` (the pre-update copy) and the error re-raised:
+        self._posteriors already holds today's values, and keeping them would put
+        this instance a session ahead of the DB — the next catch-up would decay
+        from them and count the session twice. Restored from memory, not reloaded
+        from the DB: the DB is what just failed, and _load_posteriors falls back
+        to uniform. Re-raising also skips the result-cache and trace writes, so
+        all three stay on the previous session. (2026-09-26; was two independent
+        writes, each swallowing its own failure.)
+        """
+        from backend.db import persist_session_posteriors
         try:
-            from backend.db import upsert_sector_posteriors
-            upsert_sector_posteriors(posteriors)
+            persist_session_posteriors(date_str, posteriors)
         except Exception as e:
-            logger.warning(f"Regime: failed to persist posteriors: {e}")
-
-    def _save_posterior_history(self, date_str: str, posteriors: dict[str, float]) -> None:
-        """Append today's posteriors to history table. Idempotent — safe to call on restart."""
-        try:
-            from backend.db import insert_sector_posterior_history
-            insert_sector_posterior_history(date_str, posteriors)
-        except Exception as e:
-            logger.warning(f"Regime: failed to persist posterior history: {e}")
+            logger.error(f"Regime [{date_str}]: posterior persist failed, nothing written — "
+                         f"in-memory state restored to the previous session: {e}")
+            self._posteriors = restore
+            raise
 
     def _save_result(self, result: RegimeResult) -> None:
         """Persist last RegimeResult to disk so it survives restarts."""

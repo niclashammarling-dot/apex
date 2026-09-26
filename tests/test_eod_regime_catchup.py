@@ -235,7 +235,11 @@ def test_preview_persists_nothing():
     """preview_eod_regime returns a result and leaves DB, result cache and singleton untouched."""
     import backend.regime.regime_bayes as rbm
     db.init_db()
-    conn = db.get_db(); conn.execute("DELETE FROM sector_posterior_history"); conn.commit(); conn.close()
+    conn = db.get_db()
+    conn.execute("DELETE FROM sector_posterior_history")
+    conn.execute("DELETE FROM sector_posteriors")
+    conn.commit()
+    conn.close()
     idx = pd.date_range("2026-08-01", "2026-09-15", freq="B")
     frame = pd.DataFrame({"Close": range(len(idx))}, index=idx)
     saved = []
@@ -245,11 +249,12 @@ def test_preview_persists_nothing():
          patch("backend.ticker_config.get_sectors", return_value={"Technology": {"tickers": ["AAPL"], "etf": "XLK"}}), \
          patch.object(rbm, "write_json_atomic", side_effect=lambda *a, **k: saved.append(a)), \
          patch.object(rbm.RegimeBayes, "update", autospec=True,
-                      side_effect=lambda self, *a, **k: (self._save_posteriors({}), self._save_posterior_history("2026-09-15", {}), self._save_result(None), "R")[-1]):
+                      side_effect=lambda self, *a, **k: (self._save_session_posteriors("2026-09-15", {"Technology": 0.5}, restore={}), self._save_result(None), "R")[-1]):
         out = sched.preview_eod_regime()
     assert out == "R"
     assert saved == []
     conn = db.get_db()
     assert conn.execute("SELECT COUNT(*) FROM sector_posterior_history").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM sector_posteriors").fetchone()[0] == 0
     conn.close()
     singleton.assert_not_called()   # preview never touches the scheduler singleton
