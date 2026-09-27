@@ -146,7 +146,9 @@ def main() -> int:
             f"this check ran ({now.astimezone(NY):%H:%M} ET).\n\n"
             f"Look at: logs/market_window_{day}.log on the desk PC (missing file = the task never "
             f"reached the script; 'not an NYSE session' = the session gate answered wrong; "
-            f"'not ready' = started but never held the scheduler lock).\n\n"
+            f"'not ready' = started but never held the scheduler lock; "
+            f"'heartbeat push FAILED' = the backend IS up and holds the lock, only the push to "
+            f"GitHub failed — check uvicorn is running before treating this as an outage).\n\n"
             f"Scope: this check proves 'started with lock by 08:45 ET', not 'alive at the open'."
             + ("\n\nThis is a FORCED test run (--date), not a scheduled check." if force else ""))
     out = os.environ.get("GITHUB_OUTPUT")
