@@ -18,11 +18,16 @@ name: APEX Session Heartbeat
 # the heartbeat's force-pushes to a non-default branch may not count. A disabled
 # watcher is silent — the host counter-watch (audit/publish_state.py
 # check_watcher_ran, 16:33 ET) alerts on any session day with no watch record.
+#
+# Failure notices for SCHEDULED runs go to the account that last modified the
+# cron lines; push/dispatch runs notify the actor. Commits before 2026-09-27 were
+# authored promenix@localhost (no account), so the cron lines were re-touched
+# under the account's noreply address. Unverified until a scheduled run fails.
 
 on:
   schedule:
-    - cron: '45 12 * * 1-5'
-    - cron: '45 13 * * 1-5'
+    - cron: '45 12 * * 1-5'   # 08:45 ET in EDT
+    - cron: '45 13 * * 1-5'   # 08:45 ET in EST
   push:
     branches: ['ci-verify/heartbeat-*']
   workflow_dispatch:
