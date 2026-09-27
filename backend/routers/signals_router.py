@@ -931,6 +931,52 @@ def get_market_window(days: int = 10):
     return {"gate_interval_min": GATE_INTERVAL, "sessions": sessions}
 
 
+@router.get("/ops/rejections")
+def get_live_rejections(days: int = 10):
+    """
+    Why live trades were rejected or failed, and what the sector cap test saw
+    (2026-09-27). Per day: TRADE_REJECTED / TRADE_FAILED counts by
+    outcome_reason; rows written before the column existed count as
+    "unattributed" — their reason was only ever in the 14-day log. Cap rows:
+    every live decision where the execution-side cap test ran, with the
+    enforced cap (dynamic, or flat_fallback when compute_dynamic_caps had no
+    entry) and whether the flat cap would have decided differently. Observe
+    only; the two-caps decision reads this.
+    """
+    import json
+    from collections import Counter
+    from datetime import datetime, timedelta, timezone
+
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT timestamp, ticker, sector, gate_decision, outcome_reason, cap_check "
+            "FROM live_gate_history WHERE timestamp >= ? "
+            "AND (gate_decision IN ('TRADE_REJECTED', 'TRADE_FAILED') OR cap_check IS NOT NULL) "
+            "ORDER BY timestamp DESC",
+            (since,),
+        ).fetchall()
+
+    by_day: dict[str, Counter] = {}
+    caps, disagree = [], Counter()
+    for r in rows:
+        if r["gate_decision"] in ("TRADE_REJECTED", "TRADE_FAILED"):
+            reason = (r["outcome_reason"] or "unattributed").split(":", 1)[0]
+            by_day.setdefault(r["timestamp"][:10], Counter())[reason] += 1
+        if r["cap_check"]:
+            cc = json.loads(r["cap_check"])
+            caps.append({"timestamp": r["timestamp"], "ticker": r["ticker"], "sector": r["sector"],
+                         "decision": r["gate_decision"], **cc})
+            disagree[cc["source"]] += 1
+            if cc["over_cap"] != cc["over_flat"]:
+                disagree["dynamic_rejects_flat_allows" if cc["over_cap"] else "flat_rejects_dynamic_allows"] += 1
+    return {
+        "days":    [{"date": d, "reasons": dict(c)} for d, c in sorted(by_day.items(), reverse=True)],
+        "caps":    caps,
+        "summary": {"cap_tests": len(caps), **disagree},
+    }
+
+
 # ── Drift monitor ─────────────────────────────────────────────────────────────
 
 @router.get("/drift/alerts")

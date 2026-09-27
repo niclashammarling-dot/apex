@@ -418,6 +418,8 @@ def run() -> list[dict]:
             "earnings_near":         None,
             "days_to_earnings":      None,
             "overflow_slot":         False,
+            "outcome_reason":        None,
+            "cap_check":             None,
         })
 
     if skipped:
@@ -545,6 +547,7 @@ def run() -> list[dict]:
             if ticker in open_tickers:
                 logger.info(f"Live trade skipped [{ticker}]: position already open (pre-L5)")
                 result["outcome"] = "TRADE_REJECTED"
+                result["outcome_reason"] = "position_open"
                 result.pop("_l5_lock_results", None)
                 result.pop("_l5_context", None)
             elif open_count >= max_positions:
@@ -581,6 +584,7 @@ def run() -> list[dict]:
             if ticker in open_tickers:
                 logger.info(f"Live trade skipped [{ticker}]: position already open")
                 result["outcome"] = "TRADE_REJECTED"
+                result["outcome_reason"] = "position_open"
             elif open_count >= max_positions:
                 # Overflow slot — check escalating quant threshold
                 sector             = signal.get("sector", "")
@@ -601,16 +605,20 @@ def run() -> list[dict]:
                     if notional < 10:
                         logger.warning(f"Live trade rejected [{ticker}]: notional too small (${notional:.2f})")
                         result["outcome"] = "TRADE_REJECTED"
+                        result["outcome_reason"] = "notional_too_small"
                     else:
                         sector    = signal.get("sector", "")
-                        sec_cap   = dynamic_caps_live.get(sector, cfg.get("max_sector_exposure", 0.30))
-                        projected = round(sector_exposure_live.get(sector, 0.0) + notional / _starting_balance, 3)
-                        if projected > sec_cap:
+                        cap_check = _sector_cap_check(sector, notional, sector_exposure_live, dynamic_caps_live,
+                                                      cfg.get("max_sector_exposure", 0.30), _starting_balance)
+                        result["cap_check"] = cap_check
+                        sec_cap, projected = cap_check["cap"], cap_check["projected"]
+                        if cap_check["over_cap"]:
                             logger.warning(
                                 f"Live trade rejected [{ticker}]: {sector} sector cap — "
                                 f"projected {projected:.0%} > cap {sec_cap:.0%}"
                             )
                             result["outcome"] = "TRADE_REJECTED"
+                            result["outcome_reason"] = "sector_cap"
                         else:
                             try:
                                 order_id = broker.place_bracket_order(
@@ -634,6 +642,7 @@ def run() -> list[dict]:
                             except Exception as e:
                                 logger.error(f"Live trade failed [{ticker}]: {e}")
                                 result["outcome"] = "TRADE_FAILED"
+                                result["outcome_reason"] = f"broker_error: {e}"[:300]
             else:
                 position_pct   = result["lock3"]["position_size_pct"] if result.get("lock3") else cfg["max_position_size"]
                 available_cash = max(0.0, min(acct["equity"], acct["cash"]))
@@ -641,16 +650,20 @@ def run() -> list[dict]:
                 if notional < 10:
                     logger.warning(f"Live trade rejected [{ticker}]: notional too small (${notional:.2f})")
                     result["outcome"] = "TRADE_REJECTED"
+                    result["outcome_reason"] = "notional_too_small"
                 else:
                     sector    = signal.get("sector", "")
-                    sec_cap   = dynamic_caps_live.get(sector, cfg.get("max_sector_exposure", 0.30))
-                    projected = round(sector_exposure_live.get(sector, 0.0) + notional / _starting_balance, 3)
-                    if projected > sec_cap:
+                    cap_check = _sector_cap_check(sector, notional, sector_exposure_live, dynamic_caps_live,
+                                                  cfg.get("max_sector_exposure", 0.30), _starting_balance)
+                    result["cap_check"] = cap_check
+                    sec_cap, projected = cap_check["cap"], cap_check["projected"]
+                    if cap_check["over_cap"]:
                         logger.warning(
                             f"Live trade rejected [{ticker}]: {sector} sector cap — "
                             f"projected {projected:.0%} > cap {sec_cap:.0%}"
                         )
                         result["outcome"] = "TRADE_REJECTED"
+                        result["outcome_reason"] = "sector_cap"
                     else:
                         try:
                             order_id = broker.place_bracket_order(
@@ -669,6 +682,7 @@ def run() -> list[dict]:
                         except Exception as e:
                             logger.error(f"Live trade failed [{ticker}]: {e}")
                             result["outcome"] = "TRADE_FAILED"
+                            result["outcome_reason"] = f"broker_error: {e}"[:300]
 
         insert_live_gate_result({
             "timestamp":              result["timestamp"],
@@ -691,6 +705,8 @@ def run() -> list[dict]:
             "earnings_near":          result.get("earnings_near"),
             "days_to_earnings":       result.get("days_to_earnings"),
             "overflow_slot":          result.get("overflow_slot", False),
+            "outcome_reason":         result.get("outcome_reason"),
+            "cap_check":              result.get("cap_check"),
         })
 
         _log_summary(ticker, result)
@@ -733,6 +749,32 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
         result["_l5_context"]      = context
     return result
 
+
+
+def _sector_cap_check(sector: str, notional: float, exposure: dict[str, float],
+                      dynamic_caps: dict[str, float], flat_cap: float,
+                      starting_balance: float) -> dict:
+    """The execution-side sector cap test, with the evidence persisted per row.
+
+    Two caps sit on one decision: Lock 5 is shown the flat max_sector_exposure
+    and judges it, execution enforces dynamic_caps (falling back to the flat
+    value when compute_dynamic_caps returned nothing for the sector). Observe
+    only (2026-09-27): `over_flat` records whether the flat cap would have
+    rejected this trade, so rows where the two disagree are countable. The
+    enforced test is `over_cap`, unchanged.
+    """
+    cap       = dynamic_caps.get(sector, flat_cap)
+    before    = exposure.get(sector, 0.0)
+    projected = round(before + notional / starting_balance, 3)
+    return {
+        "source":    "dynamic" if sector in dynamic_caps else "flat_fallback",
+        "cap":       round(cap, 4),
+        "flat":      round(flat_cap, 4),
+        "before":    before,
+        "projected": projected,
+        "over_cap":  projected > cap,
+        "over_flat": projected > flat_cap,
+    }
 
 
 def _record_live_trade(signal: dict, notional: float, order_id: str, cfg: dict) -> None:

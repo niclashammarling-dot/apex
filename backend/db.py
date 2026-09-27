@@ -1,3 +1,4 @@
+import json
 import re
 import sqlite3
 from datetime import datetime, timezone
@@ -329,6 +330,14 @@ def init_db() -> None:
         # overflow_slot: 1 when the trade executed into a slot beyond max_positions
         _add_column_if_missing(conn, "live_gate_history", "overflow_slot",     "INTEGER DEFAULT 0")
         _add_column_if_missing(conn, "demo_gate_history", "overflow_slot",     "INTEGER DEFAULT 0")
+        # outcome_reason: why a live TRADE_REJECTED / TRADE_FAILED happened — position_open |
+        # notional_too_small | sector_cap | broker_error: <msg>. Before 2026-09-27 only the
+        # log said which, and logs are kept 14 days. NULL on older rows and on other outcomes.
+        # cap_check: JSON of the execution-side sector cap test wherever it ran (executed or
+        # rejected) — enforced cap and its source, the flat cap, projected exposure, and
+        # whether each cap would reject. Observe-only evidence for the two-caps decision.
+        _add_column_if_missing(conn, "live_gate_history", "outcome_reason",    "TEXT")
+        _add_column_if_missing(conn, "live_gate_history", "cap_check",         "TEXT")
 
         # Migrate old gate_decision values to canonical FILTERED_* form
         conn.executescript("""
@@ -1284,13 +1293,15 @@ def insert_live_gate_result(row: dict) -> int:
                lock1_pass, lock2_pass, lock_leading_pass, lock_leading_checks,
                lock3_pass, gate_decision, lock3_reasoning, alpaca_order_id,
                l2_summary, lock3_sentiment_score, lock3_conviction, macro_reason,
-               ticker_signal, earnings_near, days_to_earnings, overflow_slot)
+               ticker_signal, earnings_near, days_to_earnings, overflow_slot,
+               outcome_reason, cap_check)
             VALUES
               (:timestamp, :ticker, :sector, :signal_score,
                :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
                :lock3_pass, :gate_decision, :lock3_reasoning, :alpaca_order_id,
                :l2_summary, :lock3_sentiment_score, :lock3_conviction, :macro_reason,
-               :ticker_signal, :earnings_near, :days_to_earnings, :overflow_slot)
+               :ticker_signal, :earnings_near, :days_to_earnings, :overflow_slot,
+               :outcome_reason, :cap_check)
         """
         _assert_insert_fields("insert_live_gate_result", _SQL, row)
         cur = conn.execute(_SQL, {**row,
@@ -1303,7 +1314,9 @@ def insert_live_gate_result(row: dict) -> int:
               "ticker_signal":          row.get("ticker_signal"),
               "earnings_near":          row.get("earnings_near"),
               "days_to_earnings":       row.get("days_to_earnings"),
-              "overflow_slot":          1 if row.get("overflow_slot") else 0})
+              "overflow_slot":          1 if row.get("overflow_slot") else 0,
+              "outcome_reason":         row.get("outcome_reason"),
+              "cap_check":              json.dumps(row["cap_check"]) if row.get("cap_check") else None})
         conn.commit()
         return cur.lastrowid
     finally:
