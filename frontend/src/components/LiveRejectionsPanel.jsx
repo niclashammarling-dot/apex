@@ -41,7 +41,7 @@ export default function LiveRejectionsPanel() {
       </div>
       {data.days.length === 0 ? <div className="t-meta">no rejections or failures in 10 days</div> : (
         <table className="t-tbl" style={{ marginBottom: 12 }}>
-          <thead><tr><th>Day (UTC)</th><th>Reasons</th></tr></thead>
+          <thead><tr><th>Day</th><th>Reasons</th></tr></thead>
           <tbody>
             {data.days.map(d => (
               <tr key={d.date}>

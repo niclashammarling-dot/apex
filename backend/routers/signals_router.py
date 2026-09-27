@@ -946,6 +946,9 @@ def get_live_rejections(days: int = 10):
     import json
     from collections import Counter
     from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+
+    _STHLM = ZoneInfo("Europe/Stockholm")
 
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     with get_db() as conn:
@@ -962,7 +965,9 @@ def get_live_rejections(days: int = 10):
     for r in rows:
         if r["gate_decision"] in ("TRADE_REJECTED", "TRADE_FAILED"):
             reason = (r["outcome_reason"] or "unattributed").split(":", 1)[0]
-            by_day.setdefault(r["timestamp"][:10], Counter())[reason] += 1
+            # Day in Stockholm local — the operator's clock, not the UTC row date.
+            day = datetime.fromisoformat(r["timestamp"]).astimezone(_STHLM).date().isoformat()
+            by_day.setdefault(day, Counter())[reason] += 1
         if r["cap_check"]:
             cc = json.loads(r["cap_check"])
             caps.append({"timestamp": r["timestamp"], "ticker": r["ticker"], "sector": r["sector"],
