@@ -8,7 +8,7 @@ name: Schedule probe (temporary)
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/6 * * * *'
 
 jobs:
   probe:
