@@ -340,11 +340,16 @@ def _shape_html(path: Path, kind: str) -> str:
     label = shape_label(data, kind)
     if label:
         out += f"<p style='color:#ef4444;font-size:12px;font-weight:600;margin:4px 0;'>{label}</p>"
-    if kind == "sweep" and data.get("distinct_outcomes") is not None:
-        inert = data.get("inert_axes") or []
-        out += (f"<p style='color:#9ca3af;font-size:11px;margin:2px 0;'>Distinct outcomes: "
-                f"{data['distinct_outcomes']} of {data.get('valid_combos')} valid combos"
-                + (f"; never changed a result: {', '.join(inert)}" if inert else "") + "</p>")
+    if kind == "sweep":
+        if data.get("distinct_outcomes") is None:
+            # A payload written before 2026-09-29 has no count: unknown, not zero or blank.
+            txt = (f"Distinct outcomes: unknown of {data.get('valid_combos', '?')} valid combos "
+                   f"(results predate outcome counting — duplicate configs may be listed)")
+        else:
+            inert = data.get("inert_axes") or []
+            txt = (f"Distinct outcomes: {data['distinct_outcomes']} of {data.get('valid_combos')} valid combos"
+                   + (f"; never changed a result: {', '.join(inert)}" if inert else ""))
+        out += f"<p style='color:#9ca3af;font-size:11px;margin:2px 0;'>{txt}</p>"
     return out
 
 

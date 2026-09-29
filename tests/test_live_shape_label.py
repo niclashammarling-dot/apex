@@ -118,3 +118,15 @@ def test_weekly_report_section_carries_label(tmp_path):
     p.write_text(json.dumps({"valid_combos": 3240, "distinct_outcomes": 1080, "inert_axes": ["vix_threshold"]}))
     html = _shape_html(p, "sweep")
     assert "OFF-SHAPE" in html and "1080 of 3240" in html
+
+
+def test_old_format_payload_still_labelled_and_counts_unknown(tmp_path):
+    """Friday 10-02 renders Monday 09-28's payload, written before this code: no
+    live_shape_hash, no distinct_outcomes, no inert_axes."""
+    from backend.weekly_report import _shape_html
+    p = tmp_path / "sweep_results.json"
+    p.write_text(json.dumps({"generated_at": "2026-09-28T15:02:59", "total_combos": 3240,
+                             "valid_combos": 3240, "top_configs": []}))
+    html = _shape_html(p, "sweep")
+    assert "OFF-SHAPE" in html
+    assert "Distinct outcomes: unknown of 3240" in html
