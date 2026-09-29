@@ -90,3 +90,17 @@ def test_ops_window_surfaces_a_failed_catchup_on_its_session():
     if today in sessions:                        # today is an NYSE session
         assert sessions[today]["startup_catchups_failed"] == ["_check_missed_live_exits"]
     assert all(s["startup_catchups_failed"] == [] for d, s in sessions.items() if d != today)
+
+
+def test_each_catchup_leaves_one_log_line(monkeypatch):
+    """A start is only checkable if every catch-up says it ran — most log nothing
+    when there is nothing to catch up."""
+    from loguru import logger
+    seen = []
+    sink = logger.add(lambda m: seen.append(m.record["message"]))
+    try:
+        _start(monkeypatch, raising={"_check_missed_pcr_collect"})
+    finally:
+        logger.remove(sink)
+    for name in sch.STARTUP_CATCHUPS:
+        assert sum(name in m for m in seen) == 1, name

@@ -842,6 +842,7 @@ def _run_startup_catchup(name: str) -> None:
     """
     try:
         globals()[name]()   # looked up at call time: tests stub these by name
+        logger.info(f"Startup catch-up {name}: ok")   # one line each, so a start is checkable
     except Exception as e:
         logger.exception(f"Startup catch-up {name} raised — continuing startup: {e!r}")
         try:
