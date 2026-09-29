@@ -174,6 +174,16 @@ def watcher_gap(today: str, is_session: bool | None, record: dict | None) -> str
 
 WATCHER_RECORD = REPO / "audit" / "state" / "watcher.json"
 
+# Off by decision (Niclas, 2026-09-29). GitHub delivers this repo's scheduled
+# runs 6-7 h late (09-28: 15:49 and 16:13 ET for the 08:45 slots). The watcher
+# then takes skip-window and records nothing, so this mail would fire every
+# session night: an alert that fires every night becomes wallpaper. The check
+# still runs and records to watcher.json (/api/ops/window W column). Paper
+# stakes: a missed day is not fatal, and Niclas checks the backend by eye after
+# work (15-17 CEST). Re-enable together with the dead-man's switch (external
+# ping service), [deferred: until real money goes into Alpaca].
+WATCHER_GAP_ALERT = False
+
 
 def _record_watcher(date: str, status: str, detail: str) -> None:
     """The counter-watch's own durable result (2026-09-29): its first real alert
@@ -221,6 +231,9 @@ def check_watcher_ran() -> None:
         return
     _record_watcher(today, "gap", gap)
     print(f"HEARTBEAT WATCHER GAP: {gap}", file=sys.stderr)
+    if not WATCHER_GAP_ALERT:
+        print("(watcher-gap mail off by decision — recorded in watcher.json only)", file=sys.stderr)
+        return
     try:
         sys.path.insert(0, str(REPO))
         from backend.alerts import _dispatch

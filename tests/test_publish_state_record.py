@@ -61,3 +61,29 @@ def test_ops_window_surfaces_the_watcher_result(monkeypatch, tmp_path):
         assert sessions[today]["eod"]["watcher"] is False
         assert sessions[today]["eod"]["watcher_detail"] == "no watch record"
     assert all(s["eod"]["watcher"] is None for d, s in sessions.items() if d != today)
+
+
+def test_gap_is_recorded_but_not_mailed_while_alert_is_off(monkeypatch, tmp_path):
+    """Decision 2026-09-29: gap mail off until the dead-man's switch; the record stays."""
+    assert ps.WATCHER_GAP_ALERT is False
+    import backend.alerts as alerts
+    sent = []
+    monkeypatch.setattr(ps, "WATCHER_RECORD", tmp_path / "watcher.json")
+    monkeypatch.setattr(ps, "_git", lambda *a, **k: "")
+    monkeypatch.setattr(ps, "watcher_gap", lambda today, is_session, record: "no watch record")
+    monkeypatch.setattr(alerts, "_dispatch", lambda title, body: sent.append(title))
+    ps.check_watcher_ran()
+    assert sent == []
+    assert json.loads((tmp_path / "watcher.json").read_text())["status"] == "gap"
+
+
+def test_gap_mails_when_alert_is_switched_back_on(monkeypatch, tmp_path):
+    import backend.alerts as alerts
+    sent = []
+    monkeypatch.setattr(ps, "WATCHER_GAP_ALERT", True)
+    monkeypatch.setattr(ps, "WATCHER_RECORD", tmp_path / "watcher.json")
+    monkeypatch.setattr(ps, "_git", lambda *a, **k: "")
+    monkeypatch.setattr(ps, "watcher_gap", lambda today, is_session, record: "no watch record")
+    monkeypatch.setattr(alerts, "_dispatch", lambda title, body: sent.append(title))
+    ps.check_watcher_ran()
+    assert sent == ["[APEX] Session heartbeat watcher did not run today"]
