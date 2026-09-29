@@ -13,6 +13,7 @@ from __future__ import annotations
 import itertools
 import json
 from backend.json_io import write_json_atomic
+from backend.backtest.live_shape import inert_axes, outcome_signature, shape_label
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -103,6 +104,7 @@ def run_sweep() -> None:
                 "max_drawdown":     r["max_drawdown"],
                 "total_trades":     r["total_trades"],
                 "spy_return_pct":   r["spy_return_pct"],
+                "outcome":          outcome_signature(r["trade_log"]),
             })
         except Exception as e:
             logger.debug(f"Sweep combo {i}/{total} (l1={l1} tp={tp} sl={sl} hold={hold} vix={vix} rs={rs} mpos={mpos}) failed: {e}")
@@ -117,12 +119,18 @@ def run_sweep() -> None:
     # Sort by Sharpe descending (ties broken by total return)
     results.sort(key=lambda r: (r["sharpe"], r["total_return_pct"]), reverse=True)
 
+    # Combos with identical trade lists are one backtest (2026-09-28: VIX never
+    # bound in the window, so every config appeared three times in the top 3).
+    distinct = len({r["outcome"] for r in results})
+    inert = inert_axes(results, tuple(GRID))
     payload = {
         "generated_at": _now_iso(),
         "start_date":   start_date,
         "end_date":     end_date,
         "total_combos": total,
         "valid_combos": len(results),
+        "distinct_outcomes": distinct,
+        "inert_axes":   inert,
         "top_configs":  results[:20],
     }
     write_json_atomic(_RESULTS_PATH, payload, indent=2)
@@ -138,10 +146,10 @@ def run_sweep() -> None:
         f"return={results[0]['total_return_pct']*100:.1f}%"
     )
 
-    _notify_sweep(results[:3], start_date, end_date)
+    _notify_sweep(results[:3], start_date, end_date, payload)
 
 
-def _notify_sweep(top: list[dict], start_date: str, end_date: str) -> None:
+def _notify_sweep(top: list[dict], start_date: str, end_date: str, payload: dict) -> None:
     """Send a brief Slack/email alert with the top 3 sweep configs."""
     from backend.alerts import _cfg, _send_email, _send_slack
     from backend.demo_config import get_demo_config
@@ -151,8 +159,11 @@ def _notify_sweep(top: list[dict], start_date: str, end_date: str) -> None:
 
     subject = "[APEX] Weekend Sweep Complete"
 
-    lines = [
+    label = shape_label(payload, "sweep")
+    lines = ([label, ""] if label else []) + [
         f"Parameter sweep over {start_date} → {end_date} finished.",
+        f"Distinct outcomes: {payload['distinct_outcomes']} of {payload['valid_combos']} valid combos"
+        + (f"; never changed a result: {', '.join(payload['inert_axes'])}" if payload["inert_axes"] else ""),
         "",
         f"Current demo config: L1={current['lock1_threshold']} "
         f"TP={current['take_profit_pct']*100:.0f}% "
@@ -170,7 +181,7 @@ def _notify_sweep(top: list[dict], start_date: str, end_date: str) -> None:
             f"TP={r['take_profit_pct']*100:.0f}% "
             f"SL={r['stop_loss_pct']*100:.0f}% "
             f"hold={r['time_stop_days']}d "
-            f"pos={r['max_positions']} | "
+            f"pos={r['max_positions']} vix={r['vix_threshold'] or 'off'} rs={'on' if r['use_leading_rs'] else 'off'} | "
             f"Sharpe={r['sharpe']:.2f}  return={r['total_return_pct']*100:.1f}%"
             f"  WR={r['win_rate']*100:.0f}% (n={r['total_trades']})"
             f"{alpha}"

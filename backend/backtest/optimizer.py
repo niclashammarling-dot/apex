@@ -513,14 +513,21 @@ def _notify(
         from backend.alerts import _cfg, _send_email, _send_slack
         cfg = _cfg()
 
-        subject = "[APEX] Overnight Optimizer Complete"
+        subject = "[APEX] Weekly Optimizer Complete"
         m = final_metrics
         spy_line = ""
         if m.get("spy_return_pct") is not None:
             alpha = (m.get("total_return_pct") or 0) - m["spy_return_pct"]
             spy_line = f"\n  SPY return:   {m['spy_return_pct']*100:.1f}%  (alpha {alpha*100:+.1f}%)"
 
-        body = f"""Overnight optimizer finished.
+        from backend.backtest.live_shape import shape_label
+        try:   # the file _save_results just wrote: its live_shape_hash (if any) decides
+            saved = json.loads(RESULTS_PATH.read_text())
+        except Exception:
+            saved = {}
+        label = shape_label(saved, "optimizer")
+        head = f"{label}\n\n" if label else ""
+        body = head + f"""Weekly optimizer finished.
 
 Experiments: {kept} kept / {total} total
 Best composite score: {best_score:.4f}

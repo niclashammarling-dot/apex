@@ -327,6 +327,27 @@ _SWEEP_UNREADABLE = "unreadable"
 _SWEEP_OK = "ok"
 
 
+def _shape_html(path: Path, kind: str) -> str:
+    """The off-shape / stale label for a results file, plus (sweep) how many distinct
+    outcomes the grid produced — shown above the numbers, never after them
+    (2026-09-29: the report presented off-shape results as describing the system)."""
+    from backend.backtest.live_shape import shape_label
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+        return ""
+    out = ""
+    label = shape_label(data, kind)
+    if label:
+        out += f"<p style='color:#ef4444;font-size:12px;font-weight:600;margin:4px 0;'>{label}</p>"
+    if kind == "sweep" and data.get("distinct_outcomes") is not None:
+        inert = data.get("inert_axes") or []
+        out += (f"<p style='color:#9ca3af;font-size:11px;margin:2px 0;'>Distinct outcomes: "
+                f"{data['distinct_outcomes']} of {data.get('valid_combos')} valid combos"
+                + (f"; never changed a result: {', '.join(inert)}" if inert else "") + "</p>")
+    return out
+
+
 def _sweep_best() -> tuple[str, str, list[dict] | None]:
     """Returns (state, detail, top_configs). top_configs is only set when state == ok."""
     if not _SWEEP_PATH.exists():
@@ -737,7 +758,7 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
             )
             for i, r in enumerate(sweep_top)
         )
-        sweep_html = f"""
+        sweep_html = _shape_html(_SWEEP_PATH, "sweep") + f"""
         <table style='border-collapse:collapse;width:100%;font-size:13px;color:#e5e7eb;'>
           <thead><tr>
             {th('#')}{th('L1 thresh')}{th('TP / SL')}{th('Hold days')}{th('Sharpe')}{th('Return')}{th('Win rate')}
@@ -783,7 +804,7 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
             floor_txt = ("NOISE FLOOR STALE — objective or window changed since it was measured "
                          f"({nf['measured']}); re-measure before reading any trend")
         floor_color = "#6b7280" if opt["noise_floor_valid"] else "#ef4444"
-        opt_html = f"""
+        opt_html = _shape_html(_OPT_PATH, "optimizer") + f"""
         <p style='color:#e5e7eb;font-size:13px;margin:4px 0;'>
           Best score <b>{opt['best_score']:.3f}</b>
           <span style='color:{floor_color};font-size:11px;'>({floor_txt})</span><br/>
