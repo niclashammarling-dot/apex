@@ -242,6 +242,18 @@ def alert_eod_regime_failed(session: str, error: str) -> None:
     _dispatch(title, body)
 
 
+def alert_startup_catchup_failed(name: str, error: str) -> None:
+    """A startup catch-up raised; startup continued without it (2026-09-29)."""
+    mode  = _mode_label()
+    title = f"[APEX {mode}] Startup catch-up failed — {name}"
+    body  = (f"{name} raised during backend startup: {error}\n"
+             f"Startup continued and the other catch-ups ran; the job this one covers "
+             f"for a missed slot did not run on this start. Traceback in "
+             f"logs/apex_<date>.log. Its scheduled job still fires at its next slot; "
+             f"a restart retries it.")
+    _dispatch(title, body)
+
+
 def alert_gate_blocked(reason: str) -> None:
     mode  = _mode_label()
     title = f"[APEX {mode}] Gate Blocked"

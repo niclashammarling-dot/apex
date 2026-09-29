@@ -49,7 +49,15 @@ export default function MarketWindowPanel() {
                                   background: pct < 0.5 ? "var(--t-red)" : "var(--t-accent)" }} />
                   </div>
                 </td>
-                <td><span className={"t-pill " + st.cls}>{st.label}</span></td>
+                <td>
+                  <span className={"t-pill " + st.cls}>{st.label}</span>
+                  {s.startup_catchups_failed?.length > 0 && (
+                    <span className="t-pill t-sev-high" style={{ marginLeft: 4 }}
+                          title={"startup catch-up raised, startup continued: " + s.startup_catchups_failed.join(", ")}>
+                      CATCH-UP ✗{s.startup_catchups_failed.length}
+                    </span>
+                  )}
+                </td>
                 <td title="regime (due 08:30 ET next session) · pcr rows · audit published" style={{ whiteSpace: "nowrap" }}>
                   {[["R", s.eod.regime], ["P", s.eod.pcr_rows > 0], ["A", s.eod.audit]].map(([k, ok]) => (
                     <span key={k} style={{ marginRight: 6, color: ok === null ? "var(--t-text-3)" : ok ? "var(--t-accent)" : "var(--t-red)" }}>

@@ -880,6 +880,13 @@ def get_market_window(days: int = 10):
             "SELECT DISTINCT date FROM sector_posterior_history WHERE date >= ?", (since,)).fetchall()}
         pcr = {r[0]: r[1] for r in conn.execute(
             "SELECT date, COUNT(*) FROM lock4_pcr_history WHERE date >= ? GROUP BY date", (since,)).fetchall()}
+        # Startup catch-ups that raised (2026-09-29): the latch key is the durable record
+        # (startup_catchup:<name>:<NY date>, set once per catch-up per day, never cleared).
+        catchup_failed: dict[str, list[str]] = {}
+        for (key,) in conn.execute("SELECT key FROM alert_latches WHERE key LIKE 'startup_catchup:%'").fetchall():
+            _, name, d = key.split(":", 2)
+            if d >= since:
+                catchup_failed.setdefault(d, []).append(name)
     cycles = {r["d"]: r["c"] for r in rows}
     # The nightly audit keeps only its latest state; earlier sessions read as unknown.
     audit_date = None
@@ -920,6 +927,7 @@ def get_market_window(days: int = 10):
                          else "running" if started else "not_started"),
             "events": events,
             "clock_drift_s": drift,
+            "startup_catchups_failed": sorted(catchup_failed.get(d, [])),
             # 2026-09-21: the window closed at 16:17 ET and neither collect_pcr nor the
             # audit ran; nothing on the dashboard said so. Same-day catch-ups exist now.
             # regime is due at 08:30 ET on the next session (moved pre-open 2026-09-22):

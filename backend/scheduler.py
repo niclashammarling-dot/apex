@@ -810,6 +810,43 @@ def _check_missed_weekly_report() -> None:
         send_weekly_report()
 
 
+# Run in this order after scheduler.start(). eod_regime first: the gate's first
+# cycle trades on whatever it writes.
+STARTUP_CATCHUPS = (
+    "_check_missed_eod_regime",
+    "_check_missed_calibration",
+    "_check_missed_weekly_report",
+    "_check_missed_sentiment_prefetch",
+    "_check_missed_live_exits",
+    "_check_missed_pcr_collect",
+    "_check_missed_audit_publish",
+)
+
+
+def _run_startup_catchup(name: str) -> None:
+    """Run one startup catch-up; a raise is logged and alerted, never propagated.
+
+    Before 2026-09-29 the catch-ups ran bare inside start_scheduler(), which
+    lifespan calls bare: one raise (a DB read in _eod_inputs, an Alpaca error in
+    the market-hours live-exit check) failed the lifespan, uvicorn never served,
+    every later catch-up was skipped — and a RestartOnFailure relaunch hit the
+    same raise again. Only the off-host heartbeat would notice. Now each runs on
+    its own; a failure alerts once per catch-up per NY date (persisted latch, so
+    a relaunch loop does not re-send) and startup continues.
+    """
+    try:
+        globals()[name]()   # looked up at call time: tests stub these by name
+    except Exception as e:
+        logger.exception(f"Startup catch-up {name} raised — continuing startup: {e!r}")
+        try:
+            from backend.alerts import alert_startup_catchup_failed
+            from backend.db import set_alert_latch
+            if set_alert_latch(f"startup_catchup:{name}:{datetime.now(NY).date().isoformat()}"):
+                alert_startup_catchup_failed(name, repr(e))
+        except Exception as ex:
+            logger.error(f"Startup catch-up alert for {name} could not be sent: {ex!r}")
+
+
 def start_scheduler() -> None:
     scheduler.add_job(
         poll_all_sectors,
@@ -953,13 +990,8 @@ def start_scheduler() -> None:
     # warming Monday's first poll; at any Monday-afternoon slot it fires after
     # that poll. Restore under a Sunday slot if the host ever runs weekends.
     scheduler.start()
-    _check_missed_eod_regime()
-    _check_missed_calibration()
-    _check_missed_weekly_report()
-    _check_missed_sentiment_prefetch()
-    _check_missed_live_exits()
-    _check_missed_pcr_collect()
-    _check_missed_audit_publish()
+    for name in STARTUP_CATCHUPS:
+        _run_startup_catchup(name)
     logger.info(
         f"Scheduler started — sectors every {POLL_INTERVAL_SECTORS}m, "
         f"gate every {GATE_INTERVAL}m, "
