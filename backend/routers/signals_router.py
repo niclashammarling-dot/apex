@@ -896,6 +896,17 @@ def get_market_window(days: int = 10):
         audit_date = datetime.fromisoformat(gen).astimezone(NY).date().isoformat() if gen else None
     except (OSError, ValueError):
         pass
+    # Counter-watch result (2026-09-29): latest only, like the audit. True = the
+    # off-host heartbeat watcher recorded that session; False = gap alerted or the
+    # counter-check errored; None = no record for that date.
+    watcher = {}
+    try:
+        import json
+        w = json.loads((_AUDIT_DIR / "state" / "watcher.json").read_text())
+        if w.get("status") in ("ran", "gap", "error"):
+            watcher[w["date"]] = {"ok": w["status"] == "ran", "detail": w.get("detail", "")}
+    except (OSError, ValueError, KeyError):
+        pass
 
     sessions = []
     for i in range(days, -1, -1):
@@ -934,7 +945,9 @@ def get_market_window(days: int = 10):
             # None until then, so today's row does not read as a missed run all day.
             "eod": {"regime": True if d in regime else (False if _regime_due(bounds[1]) else None),
                     "pcr_rows": pcr.get(d, 0),
-                    "audit": (d == audit_date) if (audit_date is None or d >= audit_date) else None},
+                    "audit": (d == audit_date) if (audit_date is None or d >= audit_date) else None,
+                    "watcher": watcher.get(d, {}).get("ok"),
+                    "watcher_detail": watcher.get(d, {}).get("detail", "")},
         })
     return {"gate_interval_min": GATE_INTERVAL, "sessions": sessions}
 

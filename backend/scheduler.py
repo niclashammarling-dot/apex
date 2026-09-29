@@ -293,8 +293,14 @@ def publish_audit_state() -> None:
     if r.returncode != 0:
         logger.error(f"publish_audit_state failed (rc={r.returncode}): "
                      f"{(r.stderr or r.stdout).strip()[-800:]}")
-    else:
-        logger.info(f"publish_audit_state: {r.stdout.strip().splitlines()[-4:]}")
+        return
+    # Every line, both streams (2026-09-29). This used to log stdout[-4:] and drop
+    # stderr on rc 0, where the counter-watch writes its gap line and any alert
+    # failure: its first real alert (09-28 22:34) left no trace on the host.
+    for line in r.stdout.strip().splitlines():
+        logger.info(f"publish_audit_state: {line}")
+    for line in r.stderr.strip().splitlines():
+        logger.warning(f"publish_audit_state (stderr): {line}")
 
 
 def _eod_cutoff_utc(d: date) -> str:

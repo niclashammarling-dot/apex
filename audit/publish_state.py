@@ -24,6 +24,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 REPO       = Path(__file__).parent.parent
 STATE_FILE = REPO / "audit" / "state" / "latest.json"
@@ -171,6 +172,22 @@ def watcher_gap(today: str, is_session: bool | None, record: dict | None) -> str
     return None
 
 
+WATCHER_RECORD = REPO / "audit" / "state" / "watcher.json"
+
+
+def _record_watcher(date: str, status: str, detail: str) -> None:
+    """The counter-watch's own durable result (2026-09-29): its first real alert
+    (09-28) was recorded nowhere on the host — the gap line went to stderr, which
+    the caller discarded. /api/ops/window reads this file. Never raises."""
+    import json
+    try:
+        WATCHER_RECORD.write_text(json.dumps({
+            "date": date, "status": status, "detail": detail,
+            "at": datetime.now(timezone.utc).isoformat()}, indent=2))
+    except Exception as e:
+        print(f"(watcher record not written: {e})", file=sys.stderr)
+
+
 def check_watcher_ran() -> None:
     """Counter-watch for .github/workflows/session-heartbeat.yml (2026-09-26).
 
@@ -197,9 +214,12 @@ def check_watcher_ran() -> None:
         record = {"checked_date": f"unparseable watch.json: {raw[:80]}"}
     gap = watcher_gap(today, is_session, record)
     if gap is None:
-        print(f"Heartbeat watcher: ran for {today}" if is_session is not False
+        ran = is_session is not False
+        _record_watcher(today, "ran" if ran else "not_session", "")
+        print(f"Heartbeat watcher: ran for {today}" if ran
               else "Heartbeat watcher: not a session, not checked")
         return
+    _record_watcher(today, "gap", gap)
     print(f"HEARTBEAT WATCHER GAP: {gap}", file=sys.stderr)
     try:
         sys.path.insert(0, str(REPO))
@@ -222,6 +242,8 @@ def main() -> int:
     try:
         check_watcher_ran()
     except Exception as e:  # the counter-watch must never mask the publish result
+        _record_watcher(datetime.now(ZoneInfo("America/New_York")).date().isoformat(),
+                        "error", f"counter-check raised: {e!r}")
         print(f"(watcher counter-check failed: {e})", file=sys.stderr)
     if _liveness_due():
         check_ci_liveness()
