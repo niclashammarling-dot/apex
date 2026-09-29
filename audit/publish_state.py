@@ -146,7 +146,7 @@ def route_criticals() -> None:
     body = (f"{len(crits)} CRITICAL finding(s) in the host audit run "
             f"{payload.get('generated_at', '?')} (commit {str(payload.get('host_commit', '?'))[:8]}):\n\n"
             + "\n\n".join(lines)
-            + "\n\nFull state: origin/audit-state audit/state/latest.json")
+            + "\n\nFull state: git show origin/audit-state:latest.json")
     print(f"CRITICAL routing: {len(crits)} finding(s) — CHECKs {', '.join(str(f[0]) for f in crits)}")
     try:
         sys.path.insert(0, str(REPO))
