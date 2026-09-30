@@ -19,7 +19,7 @@ import json
 import re
 import subprocess
 from pathlib import Path
-from datetime import date, timedelta
+from datetime import date
 
 from audit._audit_core import REPO, TODAY, REPORT, findings, triggered, skipped, SKIPPED, flag
 from audit import checks_config, checks_gate, checks_data, checks_sector, checks_code
@@ -142,24 +142,36 @@ def _is_liveness_value(v: str) -> bool:
         return False
 
 
+_CELL_SPLIT = re.compile(r"(?<!\\)\|")
+
+
+def registry_cells(line: str) -> list[str]:
+    """A CHECKS.md table row split into stripped cells on UNESCAPED pipes. Prose in a
+    cell may quote a regex with `\\|` (row 79 does); a plain split("|") shifted every
+    later cell of that row, and only the 2026-09-23 guard kept the writer from
+    rewriting it with its prose read as the files column (found 2026-09-30)."""
+    return [p.strip() for p in _CELL_SPLIT.split(line)]
+
+
 def update_registry():
     checks_path = REPO / "audit/CHECKS.md"
     if not checks_path.exists():
         return
 
     today            = date.today().isoformat()
-    retirement_days  = 90
     lines            = checks_path.read_text().splitlines()
     new_lines        = []
-    retirement_candidates = []
     guarded: list = []
     skipped_nums = {s[0] for s in skipped}
 
     for line in lines:
-        parts = [p.strip() for p in line.split("|")]
+        parts = registry_cells(line)
         if len(parts) >= 9 and parts[1].isdigit():
             num  = int(parts[1])
             name, added, prompted, files = parts[2], parts[3], parts[4], parts[5]
+            # control (2026-09-30): kept verbatim. This writer used to rebuild every
+            # row as exactly seven cells, which would have deleted it on first run.
+            control = parts[8] if len(parts) >= 10 else ""
             # Guard (2026-09-23): this writer replaces parts[6]/parts[7] wholesale.
             # Seven rows (9, 13, 45, 70, 77, 78, 79) carry design amendments inside
             # the last_clean cell — CHECK 45's is 822 characters — because the cell
@@ -177,22 +189,13 @@ def update_registry():
             else:
                 lt = today if num in triggered else parts[6]
                 lc = parts[7] if num in triggered else today
-            try:
-                days_since = (date.today() - date.fromisoformat(lt)).days
-                if days_since >= retirement_days:
-                    since = (date.today() - timedelta(days=retirement_days)).isoformat()
-                    if any(
-                        _git_stdout_or_raise(
-                            ["git", "log", "--oneline", f"--since={since}", "--", f]
-                        ).strip()
-                        for f in files.split(",")
-                    ):
-                        retirement_candidates.append((num, name, days_since))
-            except Exception:
-                # Swallowed deliberately: a git failure here means "not a retirement
-                # candidate" (conservative direction) rather than an aborted report.
-                pass
-            new_lines.append(f"| {num} | {name} | {added} | {prompted} | {files} | {lt} | {lc} |")
+            # Retirement by silence removed (2026-09-30). "No trigger in 90 days while its
+            # files changed" named quiet checks as retirement candidates — but a check
+            # that never fired may be guarding something real and rare (the overflow
+            # path read as unreachable on 0 rows, 09-27, fired 09-29). Retirement now
+            # goes by the ledger: broken control not worth fixing, guarded path gone, or
+            # a run of false alarms with no catch. Quiet-and-armed stays.
+            new_lines.append(f"| {num} | {name} | {added} | {prompted} | {files} | {lt} | {lc} | {control} |")
         else:
             new_lines.append(line)
 
@@ -204,8 +207,8 @@ def update_registry():
              f"registry row {num}: last_triggered/last_clean is not a date or — , so the "
              f"liveness columns were NOT updated for this check. A design note is being kept "
              f"in a machine-owned cell; move it to a notes column or the check's docstring. "
-             f"Until then this check's liveness is frozen and the retirement clock cannot read it.")
-    return retirement_candidates
+             f"Until then this check's liveness is frozen.")
+    return []
 
 
 # ── Report writer ─────────────────────────────────────────────────────────────
@@ -237,7 +240,7 @@ def _registry_names() -> dict:
     path = REPO / "audit/CHECKS.md"
     if path.exists():
         for line in path.read_text().splitlines():
-            parts = [p.strip() for p in line.split("|")]
+            parts = registry_cells(line)
             if len(parts) >= 4 and parts[1].isdigit():
                 names.setdefault(int(parts[1]), parts[2])
     return names

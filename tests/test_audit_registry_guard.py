@@ -131,3 +131,24 @@ def test_writer_never_touches_the_real_registry(tmp_path, monkeypatch):
     text, _ = _run(tmp_path, monkeypatch, ROW_PLAIN, triggered=set())
     assert mc.REPO == tmp_path / "repo"
     assert (tmp_path / "repo/audit/CHECKS.md").read_text() == text
+
+
+def test_writer_keeps_the_control_cell_and_escaped_pipes(tmp_path, monkeypatch):
+    """2026-09-30: the writer rebuilt every row as seven cells, which would have deleted
+    the control column on its first run; and a plain split("|") shifted any row whose
+    prose quotes a regex."""
+    row = ("| 5 | Regex quoting | 2026-09-30 | grep for `a\\|b\\|c` markers | audit/x.py | — | — "
+           "| tests/test_x.py::test_fires |\n")
+    _run(tmp_path, monkeypatch, row, triggered={5})
+    out = (tmp_path / "repo/audit/CHECKS.md").read_text()
+    line = [l for l in out.splitlines() if l.startswith("| 5 |")][0]
+    assert "`a\\|b\\|c`" in line and line.rstrip().endswith("| tests/test_x.py::test_fires |")
+    assert "| audit/x.py |" in line
+
+
+def test_quiet_checks_are_not_retirement_candidates(tmp_path, monkeypatch):
+    """Retirement by silence removed: never firing is not grounds (the 09-27 'unreachable' path fired 09-29)."""
+    from audit import mechanical_checks as mc
+    old = "| 3 | Long quiet | 2025-01-01 | rare risk | audit/x.py | 2025-01-02 | 2025-06-01 |  |\n"
+    _run(tmp_path, monkeypatch, old, triggered=set())
+    assert mc.update_registry() == []
