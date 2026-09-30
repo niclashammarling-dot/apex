@@ -338,6 +338,11 @@ def init_db() -> None:
         # whether each cap would reject. Observe-only evidence for the two-caps decision.
         _add_column_if_missing(conn, "live_gate_history", "outcome_reason",    "TEXT")
         _add_column_if_missing(conn, "live_gate_history", "cap_check",         "TEXT")
+        # One value per gate cycle, shared by every row it writes (2026-09-30): CHECK 83
+        # keyed on row minutes and read one slow cycle (09-28, 1m40s under weekly_research)
+        # as two schedulers. NULL on rows written before this column.
+        _add_column_if_missing(conn, "live_gate_history", "cycle_started_at", "TEXT")
+        _add_column_if_missing(conn, "demo_gate_history", "cycle_started_at", "TEXT")
 
         # Migrate old gate_decision values to canonical FILTERED_* form
         conn.executescript("""
@@ -1003,13 +1008,13 @@ def insert_demo_gate_result(row: dict) -> None:
                  lock1_pass, lock2_pass, lock_leading_pass, lock_leading_checks,
                  lock3_pass, gate_decision, lock3_reasoning, l2_summary,
                  lock3_sentiment_score, lock3_conviction, macro_reason, ticker_signal,
-                 earnings_near, days_to_earnings, overflow_slot)
+                 earnings_near, days_to_earnings, overflow_slot, cycle_started_at)
             VALUES
                 (:timestamp, :ticker, :sector, :signal_score,
                  :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
                  :lock3_pass, :gate_decision, :lock3_reasoning, :l2_summary,
                  :lock3_sentiment_score, :lock3_conviction, :macro_reason, :ticker_signal,
-                 :earnings_near, :days_to_earnings, :overflow_slot)
+                 :earnings_near, :days_to_earnings, :overflow_slot, :cycle_started_at)
         """
         _assert_insert_fields("insert_demo_gate_result", _SQL, row)
         conn.execute(_SQL, {**row,
@@ -1018,7 +1023,8 @@ def insert_demo_gate_result(row: dict) -> None:
               "ticker_signal":         row.get("ticker_signal"),
               "earnings_near":         row.get("earnings_near"),
               "days_to_earnings":      row.get("days_to_earnings"),
-              "overflow_slot":         1 if row.get("overflow_slot") else 0})
+              "overflow_slot":         1 if row.get("overflow_slot") else 0,
+              "cycle_started_at":      row.get("cycle_started_at")})
         conn.commit()
     finally:
         conn.close()
@@ -1294,14 +1300,14 @@ def insert_live_gate_result(row: dict) -> int:
                lock3_pass, gate_decision, lock3_reasoning, alpaca_order_id,
                l2_summary, lock3_sentiment_score, lock3_conviction, macro_reason,
                ticker_signal, earnings_near, days_to_earnings, overflow_slot,
-               outcome_reason, cap_check)
+               outcome_reason, cap_check, cycle_started_at)
             VALUES
               (:timestamp, :ticker, :sector, :signal_score,
                :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
                :lock3_pass, :gate_decision, :lock3_reasoning, :alpaca_order_id,
                :l2_summary, :lock3_sentiment_score, :lock3_conviction, :macro_reason,
                :ticker_signal, :earnings_near, :days_to_earnings, :overflow_slot,
-               :outcome_reason, :cap_check)
+               :outcome_reason, :cap_check, :cycle_started_at)
         """
         _assert_insert_fields("insert_live_gate_result", _SQL, row)
         cur = conn.execute(_SQL, {**row,
@@ -1316,7 +1322,8 @@ def insert_live_gate_result(row: dict) -> int:
               "days_to_earnings":       row.get("days_to_earnings"),
               "overflow_slot":          1 if row.get("overflow_slot") else 0,
               "outcome_reason":         row.get("outcome_reason"),
-              "cap_check":              json.dumps(row["cap_check"]) if row.get("cap_check") else None})
+              "cap_check":              json.dumps(row["cap_check"]) if row.get("cap_check") else None,
+              "cycle_started_at":       row.get("cycle_started_at")})
         conn.commit()
         return cur.lastrowid
     finally:

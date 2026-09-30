@@ -72,6 +72,7 @@ def run() -> list[dict]:
             "gate_decision": decision, "lock3_reasoning": None,
         })
         insert_demo_gate_result({
+            "cycle_started_at": ts,
             "timestamp": ts, "ticker": c["ticker"], "sector": c.get("sector", ""),
             "signal_score": c["signal_score"],
             "lock1_pass": 1, "lock2_pass": 0, "lock_leading_pass": 0,
@@ -260,6 +261,7 @@ def run() -> list[dict]:
         results.append(result)
         update_signal_gate(signal["id"], result)
         insert_demo_gate_result({
+            "cycle_started_at": ts,
             "timestamp":              result["timestamp"],
             "ticker":                 ticker,
             "sector":                 signal.get("sector", ""),

@@ -398,6 +398,7 @@ def run() -> list[dict]:
         else:
             decision = "SKIPPED_COOLOFF"
         insert_live_gate_result({
+            "cycle_started_at": ts,
             "timestamp":             ts,
             "ticker":                c["ticker"],
             "sector":                c.get("sector", ""),
@@ -685,6 +686,7 @@ def run() -> list[dict]:
                             result["outcome_reason"] = f"broker_error: {e}"[:300]
 
         insert_live_gate_result({
+            "cycle_started_at": ts,
             "timestamp":              result["timestamp"],
             "ticker":                 ticker,
             "sector":                 signal.get("sector", ""),

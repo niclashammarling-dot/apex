@@ -1258,11 +1258,18 @@ def check83() -> None:
     if not require_data_file(83, name, db):
         return
     since = (date.today() - timedelta(days=_C83_DAYS - 1)).isoformat()
-    q = ("SELECT DISTINCT substr(timestamp, 1, 16) m FROM {t} WHERE timestamp >= ? ORDER BY m")
+    # A cycle is its cycle_started_at (2026-09-30), one value for every row it writes.
+    # Row minutes were the key before: the 09-28 demo cycle that overlapped
+    # weekly_research wrote its skips at 15:01 and its evaluations at 15:03 and read
+    # as two schedulers. Rows written before the column fall back to their own minute.
+    q = ("SELECT DISTINCT substr({key}, 1, 16) m FROM {t} WHERE timestamp >= ? ORDER BY m")
     try:
         conn = sqlite3.connect(db)
-        mins = {t: [r[0] for r in conn.execute(q.format(t=t), (since,)).fetchall()]
-                for t in ("live_gate_history", "demo_gate_history")}
+        mins = {}
+        for t in ("live_gate_history", "demo_gate_history"):
+            cols = {r[1] for r in conn.execute(f"PRAGMA table_info({t})")}
+            key = "COALESCE(cycle_started_at, timestamp)" if "cycle_started_at" in cols else "timestamp"
+            mins[t] = [r[0] for r in conn.execute(q.format(key=key, t=t), (since,)).fetchall()]
         conn.close()
     except Exception as e:
         flag(83, name, "WARNING", "data/apex.db:demo_gate_history", f"could not query: {e}")
