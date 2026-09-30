@@ -425,11 +425,14 @@ def run() -> list[dict]:
 
     if skipped:
         skipped_set = {c["ticker"] for c in skipped}
-        logger.info(f"Live gate runner: skipped {len(skipped)} ticker(s) "
-                    f"(open={len(open_tickers & skipped_set)}, "
+        # held= counts candidates this cycle already holds; the book size is separate
+        # (2026-09-30: "open=6" was read as the position count on 09-28 and 09-29).
+        logger.info(f"Live gate runner: skipped {len(skipped)} candidate(s) "
+                    f"(held={len(open_tickers & skipped_set)}, "
                     f"cooloff={len(failed_tickers & skipped_set)}, "
                     f"exit_cooloff={len(exited_tickers & skipped_set)}, "
-                    f"blocklist={len(blocklisted_tickers & skipped_set)})")
+                    f"blocklist={len(blocklisted_tickers & skipped_set)}) "
+                    f"— book holds {len(open_tickers)}")
 
     if not candidates:
         logger.info("Live gate runner: all candidates skipped (open positions / cooloff)")
