@@ -845,6 +845,22 @@ _WINDOW_LINE = re.compile(
     r"|outside ET window|port \d+ already bound|clock drift vs Windows: (-?\d+)s)"
 )
 
+def _audit_state(d: str, audit_date: str | None, now) -> bool | None:
+    """True = the nightly audit published for session d; False = it was due and did
+    not; None = not due yet (before 16:40 ET on d — publish runs 16:33 ET), or older
+    than the one state the audit keeps. Before 2026-09-30 today read False all day,
+    the same "a day that isn't over reads as a failed day" the regime column fixed."""
+    from datetime import datetime as _dt
+    from datetime import time as _time
+    from backend.scheduler import NY
+    if audit_date is not None and d < audit_date:
+        return None
+    if d == audit_date:
+        return True
+    due = _dt.combine(_dt.fromisoformat(d).date(), _time(16, 40), tzinfo=NY)
+    return False if now >= due else None
+
+
 @router.get("/ops/window")
 def get_market_window(days: int = 10):
     """
@@ -945,7 +961,7 @@ def get_market_window(days: int = 10):
             # None until then, so today's row does not read as a missed run all day.
             "eod": {"regime": True if d in regime else (False if _regime_due(bounds[1]) else None),
                     "pcr_rows": pcr.get(d, 0),
-                    "audit": (d == audit_date) if (audit_date is None or d >= audit_date) else None,
+                    "audit": _audit_state(d, audit_date, now),
                     "watcher": watcher.get(d, {}).get("ok"),
                     "watcher_detail": watcher.get(d, {}).get("detail", "")},
         })
