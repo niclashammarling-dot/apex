@@ -22,6 +22,7 @@
   "tp_cooloff_hours": 168,
   "max_sector_exposure": 0.4,
   "lock_leading_min_pass": 2,
+  "lock4_pcr_mode": "per_ticker_p25",
   "starting_balance": 2000,
   "max_drawdown_pct": 0.2,
   "etf_negative_floor": -1,
