@@ -1282,6 +1282,89 @@ def check83() -> None:
                  + "; ".join(hits[:6]) + (" …" if len(hits) > 6 else ""))
 
 
+# ── CHECK 84 — Lock 5 decided on a stale position count ────────────────────────
+
+_C84_DAYS  = 3    # trailing days read
+_C84_EVENT = 2    # a mismatch this recent is an event (WARNING); older ones are a tally
+# The counts Lock 5 cites for itself: "7 of 8 max positions", "open_positions (8)".
+_C84_CITED = (re.compile(r"(\d+) of \d+ max(?:imum)? positions"),
+              re.compile(r"open_positions \((\d+)\)"))
+
+
+def _c84_cited(reasoning: str | None) -> int | None:
+    for rx in _C84_CITED:
+        m = rx.search(reasoning or "")
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def check84() -> None:
+    """
+    CHECK 84 — Lock 5 decided on a stale position count.
+
+    2026-09-29 16:53 CEST: ADI's exit freed a slot, and KLAC and LRCX executed in
+    one cycle. Lock 5's reasoning for BOTH says "7 of 8 max positions used (one slot
+    available)": it reads the portfolio as of cycle start, so its rule 1
+    (open_positions == max_positions → reject) cannot bind the second same-cycle
+    candidate. The 09-27 cap article showed the same for sector exposure. This
+    makes the position case a nightly count, not an anecdote: for each live
+    TRADE_EXECUTED, the count Lock 5 cited vs the live_trades rows open at that
+    trade's own execution (inserts are in execution order; gate-row timestamps are
+    evaluation completions and are not).
+
+    Evidence, not a defect alarm: overflow entries above max_positions are designed
+    (2026-04-14). It feeds the decision to move limit enforcement out of Lock 5.
+      WARNING  a mismatch in the last _C84_EVENT days (names ticker, cited, actual)
+      INFO     tally over _C84_DAYS, incl. executions whose reasoning cites no count
+    SKIPPED without apex.db.
+    """
+    from datetime import timedelta
+    name = "Lock 5 decided on a stale position count"
+    db   = REPO / "data/apex.db"
+    if not require_data_file(84, name, db):
+        return
+    since  = (date.today() - timedelta(days=_C84_DAYS - 1)).isoformat()
+    recent = (date.today() - timedelta(days=_C84_EVENT - 1)).isoformat()
+    try:
+        conn = sqlite3.connect(db)
+        execs = conn.execute(
+            "SELECT timestamp, ticker, lock3_reasoning FROM live_gate_history "
+            "WHERE gate_decision = 'TRADE_EXECUTED' AND timestamp >= ? ORDER BY timestamp", (since,)).fetchall()
+        trades = conn.execute(
+            "SELECT id, ticker, timestamp, exited_at FROM live_trades WHERE timestamp >= ? "
+            "OR exited_at IS NULL OR exited_at >= ?", (since, since)).fetchall()
+        conn.close()
+    except Exception as e:
+        flag(84, name, "WARNING", "data/apex.db:live_gate_history", f"could not query: {e}")
+        return
+    mismatches, uncited, checked = [], 0, 0
+    for gts, ticker, reasoning in execs:
+        cited = _c84_cited(reasoning)
+        if cited is None:
+            uncited += 1
+            continue
+        # This execution's own live_trades row: same ticker, first insert at/after the gate row.
+        own = min((t for t in trades if t[1] == ticker and t[2] >= gts), key=lambda t: t[2], default=None)
+        if own is None:
+            continue
+        at = own[2]
+        actual = sum(1 for t in trades if t[0] != own[0] and t[2] < at and (t[3] is None or t[3] > at))
+        checked += 1
+        if cited < actual:
+            mismatches.append((gts[:10], f"{gts[5:16].replace('T', ' ')}Z {ticker}: cited {cited}, actual {actual}"))
+    events = [m for d, m in mismatches if d >= recent]
+    if events:
+        flag(84, name, "WARNING", "backend/gate/lock5_claude.py",
+             f"{len(events)} live execution(s) where Lock 5 cited fewer open positions than were "
+             f"open when it executed (cycle-start state): " + "; ".join(events[:6])
+             + (" …" if len(events) > 6 else ""))
+    elif mismatches or uncited:
+        flag(84, name, "INFO", "backend/gate/lock5_claude.py",
+             f"{_C84_DAYS}-day tally: {len(mismatches)} stale-count execution(s) of {checked} checked; "
+             f"{uncited} execution(s) cite no count")
+
+
 def run() -> None:
     check24()
     check25()
@@ -1299,3 +1382,4 @@ def run() -> None:
     check81()
     check82()
     check83()
+    check84()
