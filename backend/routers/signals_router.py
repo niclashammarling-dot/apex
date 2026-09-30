@@ -840,6 +840,12 @@ def get_audit_reports():
 # ── Market window (ops) ───────────────────────────────────────────────────────
 
 _LOG_DIR = Path(__file__).parent.parent.parent / "logs"
+# The launcher's heartbeat outcome (2026-09-30): the cell Niclas's after-work check
+# reads while the counter-watch mail is off. "heartbeat <date> pushed @ <sha>" is
+# push_heartbeat.py's success line; the two failure lines are market_window.sh's.
+_HEARTBEAT_OK   = re.compile(r"\| heartbeat \S+ pushed @ ")
+_HEARTBEAT_FAIL = re.compile(r"\| (heartbeat push FAILED|not ready: .*no heartbeat pushed)")
+
 _WINDOW_LINE = re.compile(
     r"^(\S+ \S+) \S+ \| (starting uvicorn|ended before window close|window closed|exit$"
     r"|outside ET window|port \d+ already bound|clock drift vs Windows: (-?\d+)s)"
@@ -931,10 +937,14 @@ def get_market_window(days: int = 10):
         if bounds is None:
             continue
         expected = max(1, int((bounds[1] - bounds[0]).total_seconds() // 60 // GATE_INTERVAL))
-        events, drift = [], None
+        events, drift, heartbeat = [], None, None
         log = _LOG_DIR / f"market_window_{d}.log"
         if log.exists():
             for line in log.read_text(errors="replace").splitlines():
+                if _HEARTBEAT_OK.search(line):
+                    heartbeat = True
+                elif _HEARTBEAT_FAIL.search(line) and heartbeat is None:
+                    heartbeat = False
                 m = _WINDOW_LINE.match(line)
                 if not m:
                     continue
@@ -954,6 +964,7 @@ def get_market_window(days: int = 10):
                          else "running" if started else "not_started"),
             "events": events,
             "clock_drift_s": drift,
+            "heartbeat_pushed": heartbeat,
             "startup_catchups_failed": sorted(catchup_failed.get(d, [])),
             # 2026-09-21: the window closed at 16:17 ET and neither collect_pcr nor the
             # audit ran; nothing on the dashboard said so. Same-day catch-ups exist now.
@@ -965,7 +976,13 @@ def get_market_window(days: int = 10):
                     "watcher": watcher.get(d, {}).get("ok"),
                     "watcher_detail": watcher.get(d, {}).get("detail", "")},
         })
-    return {"gate_interval_min": GATE_INTERVAL, "sessions": sessions}
+    try:   # while off by decision, the panel greys W instead of showing a daily red
+        from audit.publish_state import WATCHER_GAP_ALERT
+        watcher_alert_enabled = bool(WATCHER_GAP_ALERT)
+    except Exception:
+        watcher_alert_enabled = None
+    return {"gate_interval_min": GATE_INTERVAL, "sessions": sessions,
+            "watcher_alert_enabled": watcher_alert_enabled}
 
 
 @router.get("/ops/rejections")

@@ -58,13 +58,21 @@ export default function MarketWindowPanel() {
                     </span>
                   )}
                 </td>
-                <td title={"regime (due 08:30 ET next session) · pcr rows · audit published · off-host heartbeat watcher recorded the session"
+                <td title={"heartbeat pushed by the launcher · regime (due 08:30 ET next session) · pcr rows · audit published · off-host heartbeat watcher recorded the session"
                            + (s.eod.watcher_detail ? " — " + s.eod.watcher_detail : "")} style={{ whiteSpace: "nowrap" }}>
-                  {[["R", s.eod.regime], ["P", s.eod.pcr_rows > 0], ["A", s.eod.audit], ["W", s.eod.watcher ?? null]].map(([k, ok]) => (
+                  {[["H", s.heartbeat_pushed ?? null], ["R", s.eod.regime], ["P", s.eod.pcr_rows > 0], ["A", s.eod.audit]].map(([k, ok]) => (
                     <span key={k} style={{ marginRight: 6, color: ok === null ? "var(--t-text-3)" : ok ? "var(--t-accent)" : "var(--t-red)" }}>
                       {k}{ok === null ? "·" : ok ? "✓" : "✗"}
                     </span>
                   ))}
+                  {data.watcher_alert_enabled === false ? (
+                    <span style={{ color: "var(--t-text-3)" }}
+                          title="counter-watch mail off by decision until real money — see apex-moc go-live checklist; result still recorded">W off</span>
+                  ) : (
+                    <span style={{ color: s.eod.watcher == null ? "var(--t-text-3)" : s.eod.watcher ? "var(--t-accent)" : "var(--t-red)" }}>
+                      W{s.eod.watcher == null ? "·" : s.eod.watcher ? "✓" : "✗"}
+                    </span>
+                  )}
                 </td>
                 <td>{s.clock_drift_s == null ? "—" : `${s.clock_drift_s}s`}</td>
                 <td>{last ? `${last.at.slice(11)} ${last.event}` : "—"}</td>
