@@ -104,3 +104,18 @@ def test_each_catchup_leaves_one_log_line(monkeypatch):
         logger.remove(sink)
     for name in sch.STARTUP_CATCHUPS:
         assert sum(name in m for m in seen) == 1, name
+
+
+def test_scheduler_started_is_logged_before_the_catchups(monkeypatch):
+    """The log must show when jobs began, not when catch-ups finished (09-29: 1.5 min apart)."""
+    from loguru import logger
+    seen = []
+    sink = logger.add(lambda m: seen.append(m.record["message"]))
+    try:
+        _start(monkeypatch, raising=set())
+    finally:
+        logger.remove(sink)
+    started = next(i for i, m in enumerate(seen) if m.startswith("Scheduler started"))
+    first = next(i for i, m in enumerate(seen) if m.startswith("Startup catch-up "))
+    done = next(i for i, m in enumerate(seen) if m.startswith("Startup catch-ups done"))
+    assert started < first < done

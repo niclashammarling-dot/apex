@@ -1025,10 +1025,16 @@ def start_scheduler() -> None:
     # warming Monday's first poll; at any Monday-afternoon slot it fires after
     # that poll. Restore under a Sunday slot if the host ever runs weekends.
     scheduler.start()
-    for name in STARTUP_CATCHUPS:
-        _run_startup_catchup(name)
+    # Logged here, when jobs actually begin (2026-09-30). It used to print after the
+    # catch-ups, 1.5 min late on 09-29, and was read as the moment jobs started —
+    # but the catch-ups run concurrently with the jobs, not before them.
     logger.info(
         f"Scheduler started — sectors every {POLL_INTERVAL_SECTORS}m, "
         f"gate every {GATE_INTERVAL}m, "
-        f"exit checks every {EXIT_CHECK_INTERVAL}m (America/New_York)"
+        f"exit checks every {EXIT_CHECK_INTERVAL}m (America/New_York); "
+        f"startup catch-ups now run alongside the jobs"
     )
+    t0 = datetime.now()
+    for name in STARTUP_CATCHUPS:
+        _run_startup_catchup(name)
+    logger.info(f"Startup catch-ups done in {(datetime.now() - t0).total_seconds():.1f}s")
