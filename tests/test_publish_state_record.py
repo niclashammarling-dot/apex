@@ -87,3 +87,19 @@ def test_gap_mails_when_alert_is_switched_back_on(monkeypatch, tmp_path):
     monkeypatch.setattr(alerts, "_dispatch", lambda title, body: sent.append(title))
     ps.check_watcher_ran()
     assert sent == ["[APEX] Session heartbeat watcher did not run today"]
+
+
+def test_stderr_keeps_the_subprocess_log_level(monkeypatch):
+    err = ("2026-09-29 22:34:28.392 | INFO     | backend.alerts:_send_email:338 - Email alert sent: [APEX] x\n"
+           "HEARTBEAT WATCHER GAP: no watch record")
+    monkeypatch.setattr(subprocess, "run",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout="ok", stderr=err))
+    seen = []
+    sink = logger.add(lambda m: seen.append((m.record["level"].name, m.record["message"])))
+    try:
+        sch.publish_audit_state()
+    finally:
+        logger.remove(sink)
+    stderr = [(lvl, msg.split("(stderr): ", 1)[1]) for lvl, msg in seen if "(stderr)" in msg]
+    assert [lvl for lvl, m in stderr if "Email alert sent" in m] == ["INFO"]
+    assert [lvl for lvl, m in stderr if m.startswith("HEARTBEAT WATCHER GAP")] == ["WARNING"]

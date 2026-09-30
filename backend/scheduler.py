@@ -1,3 +1,4 @@
+import re
 import threading
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -273,6 +274,9 @@ def _sync_watchlist() -> None:
         logger.debug(f"Watchlist sync: {len(recovering)} recovering, {removed} removed")
 
 
+_LOGURU_LEVEL = re.compile(r"^\S+ \S+ \| (TRACE|DEBUG|INFO|SUCCESS|WARNING|ERROR|CRITICAL)\s*\|")
+
+
 def publish_audit_state() -> None:
     """
     Run the mechanical audit checks here, where apex.db and the app-written
@@ -301,7 +305,11 @@ def publish_audit_state() -> None:
     for line in r.stdout.strip().splitlines():
         logger.info(f"publish_audit_state: {line}")
     for line in r.stderr.strip().splitlines():
-        logger.warning(f"publish_audit_state (stderr): {line}")
+        # The subprocess's own loguru lines arrive on stderr with their level in them
+        # ("… | INFO     | backend.alerts:…"): keep it, so "Email alert sent" is not a
+        # WARNING. Lines without one (the gap line, prints, tracebacks) stay WARNING.
+        m = _LOGURU_LEVEL.match(line)
+        logger.log(m.group(1) if m else "WARNING", f"publish_audit_state (stderr): {line}")
 
 
 def _eod_cutoff_utc(d: date) -> str:
