@@ -1,3 +1,4 @@
+import threading
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from functools import lru_cache
@@ -377,8 +378,27 @@ def _eod_inputs(target: date, live: bool):
     return raw_data, sector_snapshots, ipo_shares
 
 
+# One EOD computation at a time (2026-09-30). The startup catch-up runs concurrently
+# with the scheduled jobs (scheduler.start() comes first), so a launch still catching
+# up at 08:30 ET would run the same session twice on the one RegimeBayes singleton:
+# both pass the existence check before either persists, one commits, the other's
+# plain-INSERT persist fails and restores ITS pre-update copy — memory back on D-1
+# while the DB holds D — and sends a false "EOD regime failed" alert. Reentrant: the
+# catch-up holds it across its MAX(date) read and calls run_eod_regime inside it.
+# In-process only: a second PROCESS is kept off by the scheduler flock (2026-09-21);
+# across processes the history PK (date, sector) keeps the DB right, not the memory.
+_EOD_LOCK = threading.RLock()
+
+
 def run_eod_regime(as_of: date | None = None, *,
                    now_ny: datetime | None = None) -> str:
+    """Serialised entry point; see _run_eod_regime_unlocked for the computation."""
+    with _EOD_LOCK:
+        return _run_eod_regime_unlocked(as_of, now_ny=now_ny)
+
+
+def _run_eod_regime_unlocked(as_of: date | None = None, *,
+                             now_ny: datetime | None = None) -> str:
     """
     End-of-day Bayesian regime update — scheduled pre-open (08:30 ET) FOR the
     previous session since 2026-09-22 (was 16:15 ET same day); the inputs are
@@ -620,6 +640,14 @@ def _last_eod_due(now: datetime) -> date:
 
 
 def _check_missed_eod_regime() -> None:
+    """Startup catch-up and the 08:30 ET job. Holds _EOD_LOCK across the MAX(date)
+    read and the runs, so a second caller waits, re-reads, finds the session
+    written and returns silently — not refused_exists, not an alert."""
+    with _EOD_LOCK:
+        _eod_catchup_unlocked()
+
+
+def _eod_catchup_unlocked() -> None:
     """
     Run the EOD regime update for every session due and not yet written. Called at
     startup and, since 2026-09-22, as the 08:30 ET cron itself — the pre-open run
