@@ -1267,20 +1267,32 @@ def check83() -> None:
     q = ("SELECT DISTINCT substr({key}, 1, 16) m FROM {t} WHERE timestamp >= ? ORDER BY m")
     try:
         conn = sqlite3.connect(db)
-        mins = {}
+        mins, stamped = {}, {}
         for t in ("live_gate_history", "demo_gate_history"):
             cols = {r[1] for r in conn.execute(f"PRAGMA table_info({t})")}
             key = "COALESCE(cycle_started_at, timestamp)" if "cycle_started_at" in cols else "timestamp"
             mins[t] = [r[0] for r in conn.execute(q.format(key=key, t=t), (since,)).fetchall()]
+            stamped[t] = ({r[0] for r in conn.execute(
+                f"SELECT DISTINCT substr(cycle_started_at, 1, 16) FROM {t} "
+                f"WHERE timestamp >= ? AND cycle_started_at IS NOT NULL", (since,)).fetchall()}
+                if "cycle_started_at" in cols else set())
         conn.close()
     except Exception as e:
         flag(83, name, "WARNING", "data/apex.db:demo_gate_history", f"could not query: {e}")
         return
+    # The denominator (2026-10-01): a clean run used to emit nothing, so "nothing
+    # flagged" could not be told from "nothing judged". The 09-30 read was the
+    # instance — no pair since the rekey had a stamped start on both sides that
+    # the old key would have judged differently. Pairs between two stamped
+    # starts are the ones the cycle_started_at key actually decides.
+    examined = []
     for t, ms in mins.items():
-        hits = []
+        hits, n_pairs, n_stamped = [], 0, 0
         for a, b in pairwise(ms):
             if a[:10] != b[:10]:
                 continue
+            n_pairs += 1
+            n_stamped += a in stamped[t] and b in stamped[t]
             gap = (int(b[11:13]) * 60 + int(b[14:16])) - (int(a[11:13]) * 60 + int(a[14:16]))
             if 1 < gap < _C83_MIN_GAP:      # gap 1 = one cycle straddling a minute boundary
                 hits.append(f"{a[5:10]} {a[11:]}→{b[11:]} ({gap}m)")
@@ -1289,6 +1301,10 @@ def check83() -> None:
                  f"{t.split('_')[0]}: {len(hits)} off-phase cycle pair(s) in the last {_C83_DAYS} days — "
                  f"a second backend instance ran its own scheduler against the same DB: "
                  + "; ".join(hits[:6]) + (" …" if len(hits) > 6 else ""))
+        examined.append(f"{t.split('_')[0]} {n_pairs} pair(s), {n_stamped} between stamped starts, "
+                        f"{len(hits)} off-phase")
+    flag(83, name, "INFO", "data/apex.db:live_gate_history",
+         f"examined over the last {_C83_DAYS} days: " + "; ".join(examined))
 
 
 # ── CHECK 84 — Lock 5 decided on a stale position count ────────────────────────

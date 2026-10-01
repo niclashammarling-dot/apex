@@ -21,7 +21,7 @@ def _run83(tmp_path, monkeypatch, live_minutes, demo_minutes):
     monkeypatch.setattr(core, "triggered", set())
     monkeypatch.setattr(cg, "flag", core.flag)
     cg.check83()
-    return [(f[2], f[4]) for f in core.findings if f[0] == 83]
+    return [(f[2], f[4]) for f in core.findings if f[0] == 83 and f[2] != "INFO"]   # alarms only; INFO is the denominator
 
 
 ONE = ["14:34", "14:54", "15:14", "15:34"]                       # one 20-min scheduler
@@ -66,7 +66,7 @@ def _run83_cycles(tmp_path, monkeypatch, rows):
     monkeypatch.setattr(core, "triggered", set())
     monkeypatch.setattr(cg, "flag", core.flag)
     cg.check83()
-    return [(f[2], f[4]) for f in core.findings if f[0] == 83]
+    return [(f[2], f[4]) for f in core.findings if f[0] == 83 and f[2] != "INFO"]   # alarms only; INFO is the denominator
 
 
 def test_one_slow_cycle_is_one_cycle_when_stamped(tmp_path, monkeypatch):
@@ -88,3 +88,15 @@ def test_two_stamped_cycles_three_minutes_apart_still_flag(tmp_path, monkeypatch
     rows = [("live_gate_history", f"{d}T14:54:05+00:00", f"{d}T14:54:00+00:00"),
             ("live_gate_history", f"{d}T14:57:05+00:00", f"{d}T14:57:00+00:00")]
     assert [s for s, _ in _run83_cycles(tmp_path, monkeypatch, rows)] == ["CRITICAL"]
+
+
+def test_clean_run_reports_its_denominator(tmp_path, monkeypatch):
+    """2026-10-01: 'nothing flagged' must be distinguishable from 'nothing judged'."""
+    from audit import _audit_core as core
+    d = date.today().isoformat()
+    stamped = [("demo_gate_history", f"{d}T{m}:05+00:00", f"{d}T{m}:00+00:00") for m in ONE]
+    unstamped = [("live_gate_history", f"{d}T{m}:05+00:00", None) for m in ONE]
+    assert _run83_cycles(tmp_path, monkeypatch, stamped + unstamped) == []
+    info = [f[4] for f in core.findings if f[0] == 83 and f[2] == "INFO"]
+    assert info == [f"examined over the last 3 days: live 3 pair(s), 0 between stamped starts, 0 off-phase; "
+                    f"demo 3 pair(s), 3 between stamped starts, 0 off-phase"]
