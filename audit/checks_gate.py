@@ -818,25 +818,30 @@ _C80_MIN_ROWS   = 100            # rate read needs this many per_ticker_p25 rows
 _C80_GATE_MIN   = 20             # backend.config.GATE_INTERVAL; the audit runs without backend imports
 
 
-def _c80_session_coverage(cycles: list[tuple[str, int]]) -> list[tuple[str, int, int]]:
+def _c80_session_coverage(cycles: dict[str, list[str]]) -> list[tuple[str, int, int]]:
     """(date, cycles written, cycles expected) per NYSE session with any demo gate row.
 
-    Expected = session length / GATE_INTERVAL from the exchange calendar, so an
-    early close expects ~10, a full day 19–20. Dates the calendar does not know
-    as sessions are dropped (a row on a non-session is CHECK 77's business).
+    cycles is audit.gate_cycles.cycle_starts(): one entry per cycle_started_at
+    (2026-10-01; distinct row minutes before, which counted a cycle straddling a
+    minute twice). Expected = grid slots in the calendar session at the phase the
+    scheduler ran (19 or 20 on a full day, ~10 on an early close). Dates the
+    calendar does not know as sessions are dropped (CHECK 77's business).
     """
     if not cycles:
         return []
     import pandas_market_calendars as mcal
-    cycles = sorted(cycles)
-    sched = mcal.get_calendar("NYSE").schedule(start_date=cycles[0][0], end_date=cycles[-1][0])
+
+    from audit.gate_cycles import expected_cycles
+    days = sorted(cycles)
+    sched = mcal.get_calendar("NYSE").schedule(start_date=days[0], end_date=days[-1])
     out = []
-    for d, c in cycles:
+    for d in days:
         if d not in sched.index.strftime("%Y-%m-%d"):
             continue
         row = sched.loc[d]
-        minutes = (row["market_close"] - row["market_open"]).total_seconds() / 60
-        out.append((d, int(c), max(1, int(minutes // _C80_GATE_MIN))))
+        out.append((d, len(cycles[d]), expected_cycles(row["market_open"].to_pydatetime(),
+                                                       row["market_close"].to_pydatetime(),
+                                                       cycles[d], _C80_GATE_MIN)))
     return out
 _C80_MIN_PASSES = 30             # composition read needs this many PCR passes
 
@@ -903,11 +908,8 @@ def check80() -> None:
         return
     try:
         conn = sqlite3.connect(db)
-        cycles = conn.execute(
-            "SELECT date(timestamp) d, COUNT(DISTINCT substr(timestamp, 1, 16)) c "
-            "FROM demo_gate_history WHERE timestamp >= ? GROUP BY d ORDER BY d",
-            (_C80_BUILD_TS,),
-        ).fetchall()
+        from audit.gate_cycles import cycle_starts
+        cycles = cycle_starts(conn, "demo_gate_history", _C80_BUILD_TS)
         rows = conn.execute(
             "SELECT timestamp, ticker, lock_leading_checks FROM demo_gate_history "
             "WHERE timestamp >= ? AND lock_leading_checks LIKE '%pc_ratio%'",

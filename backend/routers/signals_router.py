@@ -893,11 +893,10 @@ def get_market_window(days: int = 10):
             nxt += timedelta(days=1)
         return now >= datetime.combine(nxt, datetime.min.time(), tzinfo=NY).replace(hour=8, minute=30)
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT date(timestamp) d, COUNT(DISTINCT substr(timestamp, 1, 16)) c "
-            "FROM demo_gate_history WHERE timestamp >= ? GROUP BY d ORDER BY d",
-            (since,),
-        ).fetchall()
+        # One cycle = one cycle_started_at, both books (audit/gate_cycles.py, 2026-10-01).
+        from audit.gate_cycles import cycle_starts, expected_cycles
+        starts = {"demo": cycle_starts(conn, "demo_gate_history", since),
+                  "live": cycle_starts(conn, "live_gate_history", since)}
         regime = {r[0] for r in conn.execute(
             "SELECT DISTINCT date FROM sector_posterior_history WHERE date >= ?", (since,)).fetchall()}
         pcr = {r[0]: r[1] for r in conn.execute(
@@ -909,7 +908,6 @@ def get_market_window(days: int = 10):
             _, name, d = key.split(":", 2)
             if d >= since:
                 catchup_failed.setdefault(d, []).append(name)
-    cycles = {r["d"]: r["c"] for r in rows}
     # The nightly audit keeps only its latest state; earlier sessions read as unknown.
     audit_date = None
     try:
@@ -936,7 +934,7 @@ def get_market_window(days: int = 10):
         bounds = _nyse_session_bounds(d)
         if bounds is None:
             continue
-        expected = max(1, int((bounds[1] - bounds[0]).total_seconds() // 60 // GATE_INTERVAL))
+        demo_starts, live_starts = starts["demo"].get(d, []), starts["live"].get(d, [])
         events, drift, heartbeat = [], None, None
         log = _LOG_DIR / f"market_window_{d}.log"
         if log.exists():
@@ -957,8 +955,10 @@ def get_market_window(days: int = 10):
         closed = any(e["event"] == "window closed" for e in events)
         sessions.append({
             "date": d,
-            "cycles": cycles.get(d, 0),
-            "expected": expected,
+            "cycles": len(demo_starts),
+            "expected": expected_cycles(bounds[0], bounds[1], demo_starts, GATE_INTERVAL),
+            "live_cycles": len(live_starts),
+            "live_expected": expected_cycles(bounds[0], bounds[1], live_starts, GATE_INTERVAL),
             "early_close": bounds[1].hour < 16,
             "launcher": ("ended_early" if ended_early else "closed" if closed
                          else "running" if started else "not_started"),

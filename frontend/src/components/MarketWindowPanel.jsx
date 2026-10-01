@@ -2,7 +2,9 @@ import React, { useEffect, useState } from "react";
 
 // Dashboard surface for the scheduled market window (scripts/market_window.sh):
 // per-session demo gate cycles vs expected and the launcher's own events, from
-// /api/ops/window. Same numbers CHECK 80's coverage line reads.
+// /api/ops/window. Same numbers CHECK 80's coverage line reads (audit/gate_cycles.py:
+// one cycle per cycle_started_at, expected = grid slots at the scheduler's phase).
+// Live cycles shown beside demo (L); the bar and coverage stay demo, as CHECK 80's do.
 const LAUNCHER = {
   running:     { label: "RUNNING",     cls: "t-pill-lock" },
   closed:      { label: "CLOSED",      cls: "t-pill-paper" },
@@ -42,7 +44,14 @@ export default function MarketWindowPanel() {
             return (
               <tr key={s.date}>
                 <td><strong>{s.date.slice(5)}</strong>{s.early_close ? " ½" : ""}</td>
-                <td>{s.cycles}/{s.expected}</td>
+                <td style={{ whiteSpace: "nowrap" }}>
+                  {s.cycles}/{s.expected}
+                  {s.live_expected != null && (
+                    <span className="t-meta" style={{ marginLeft: 6 }} title="live gate cycles / grid slots">
+                      L {s.live_cycles}/{s.live_expected}
+                    </span>
+                  )}
+                </td>
                 <td style={{ width: 90 }}>
                   <div style={{ height: 6, background: "var(--t-grid)", borderRadius: 2 }}>
                     <div style={{ width: `${pct * 100}%`, height: "100%", borderRadius: 2,
