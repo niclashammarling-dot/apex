@@ -360,21 +360,48 @@ def check_live_exits() -> list[dict]:
             except Exception as e:
                 if "position not found" in str(e).lower() or "40410000" in str(e):
                     # alpaca_positions is a snapshot taken at the top of this
-                    # cycle, before this trade's close_position() call — if it
-                    # showed the ticker present, this is two broker reads
-                    # disagreeing on the same symbol within one cycle, not
-                    # ordinary order-history lag. Named explicitly (2026-08-23)
-                    # because it's stronger evidence of a genuine fault than
-                    # either read alone, and had no distinct signal before.
-                    contradiction = alpaca_positions is not None and ticker in alpaca_positions
+                    # cycle, before this trade's close_position() call. Two
+                    # broker reads disagreeing about one symbol is named
+                    # explicitly (2026-08-23) because it's stronger evidence of
+                    # a genuine fault than either read alone.
+                    #
+                    # 2026-10-01 (item 6): the snapshot alone no longer counts
+                    # as the second read. A bracket leg can fill between the
+                    # snapshot and close_position() — the race no lock closes —
+                    # and the snapshot then turned a clean exit into a
+                    # CONTRADICTION freeze. A fresh get_positions() decides:
+                    #   still held                        → CONTRADICTION (09-01 rule, unchanged)
+                    #   gone + a fill covering the whole  → book
+                    #   gone + no fill / a partial fill   → UNRECONCILED
+                    # A fresh read that fails leaves the snapshot standing.
+                    snapshot_held = alpaca_positions is not None and ticker in alpaca_positions
+                    contradiction, held_by = False, ""
+                    if snapshot_held:
+                        try:
+                            contradiction = ticker in {p["ticker"] for p in broker.get_positions()}
+                            held_by = "this cycle's positions snapshot and a fresh re-read after close_position()"
+                        except Exception as _pe:
+                            logger.warning(f"Live time-stop [{ticker}]: fresh positions re-read failed "
+                                           f"({_pe}) — the cycle snapshot stands")
+                            contradiction = True
+                            held_by = "this cycle's positions snapshot (fresh re-read failed)"
                     if contradiction:
-                        logger.error(f"Live time-stop [{ticker}]: CONTRADICTION — this cycle's "
-                                      f"positions snapshot shows {ticker} held, but close_position() "
-                                      f"just reported it not found")
+                        logger.error(f"Live time-stop [{ticker}]: CONTRADICTION — {held_by} show "
+                                      f"{ticker} held, but close_position() just reported it not found")
+                    elif snapshot_held:
+                        logger.warning(f"Live time-stop [{ticker}]: snapshot showed it held, fresh re-read "
+                                       f"shows it gone — exited between the two reads; corroborating")
                     else:
                         logger.warning(f"Live time-stop [{ticker}]: position not found on broker — reconciling")
+                    fill = find_exit_fill(ticker, broker, trade["timestamp"])
                     exit_price, exit_reason, exited_at, evidence = \
-                        _find_exit_from_orders(ticker, broker, trade["timestamp"])
+                        fill["price"], fill["reason"], fill["exited_at"], fill["evidence"]
+                    if snapshot_held and not contradiction and exit_price is not None \
+                            and float(fill["qty"] or 0) + 1e-6 < float(trade["qty"]):
+                        evidence = (f"PARTIAL — position gone between the cycle snapshot and close_position(), "
+                                    f"but the fill found covers {fill['qty'] or 0:g} of {trade['qty']:g} "
+                                    f"(candidate ${exit_price:.2f} at {exited_at}, NOT booked)")
+                        exit_price = None
 
                     # A contradiction is never resolved by a third feed
                     # silently (2026-08-23) — even a corroborating fill from
@@ -388,7 +415,7 @@ def check_live_exits() -> list[dict]:
                     # strong — gets to settle on its own.
                     if contradiction:
                         note = (
-                            f"CONTRADICTION: this cycle's positions snapshot showed {ticker} held, "
+                            f"CONTRADICTION: {held_by} showed {ticker} held, "
                             f"but close_position() reported it not found at "
                             f"{datetime.now(timezone.utc).isoformat()}. "
                             f"_find_exit_from_orders evidence={evidence}"
