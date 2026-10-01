@@ -9,6 +9,7 @@ and closes the position at market.
 Called by the scheduler every EXIT_CHECK_INTERVAL minutes during market hours.
 Only runs when LIVE_ENABLED=true.
 """
+import threading
 from datetime import datetime, timezone
 
 import yfinance as yf
@@ -35,6 +36,16 @@ from backend.db import (
 # never matches. Pending = order could still receive a fill. Terminal = it
 # can't; anything reaching the position-reconciliation branch with a terminal
 # or unrecognized status should proceed to reconciliation, not wait forever.
+# One live exit pass at a time in this process (2026-10-01). Two callers reach
+# check_live_exit_conditions: the 5-min interval job and the startup catch-up
+# _check_missed_live_exits, which since bdbedb2 (09-30) runs alongside the jobs.
+# On a mid-session restart both can be inside the same pass, each holding its own
+# OPEN snapshot, both calling close_position() and close_live_trade() on one row.
+# Blocking, not skip: the second caller re-reads OPEN rows after the first has
+# booked, so it does no harm and no protection pass is dropped. In-process only —
+# across processes close_live_trade's OPEN predicate is the guard.
+EXIT_LOCK = threading.Lock()
+
 _PENDING_ORDER_STATUSES = {
     OrderStatus.NEW.value,
     OrderStatus.PARTIALLY_FILLED.value,
@@ -442,14 +453,15 @@ def check_live_exits() -> list[dict]:
                     pnl     = round((exit_price - entry_price) * trade["qty"], 2)
                     outcome = "WIN" if pnl > 0 else "LOSS"
                     logger.info(f"Live exit reconciliation [{ticker}]: time-stop found position gone externally, exit=${exit_price:.2f}")
-                    close_live_trade(
+                    if not close_live_trade(
                         trade_id    = trade["id"],
                         exit_price  = exit_price,
                         pnl         = pnl,
                         outcome     = outcome,
                         exit_reason = exit_reason,
                         exited_at   = exited_at,
-                    )
+                    ):
+                        continue
                     logger.info(
                         f"Live exit [{ticker}]: {exit_reason} "
                         f"entry=${trade['entry_price']:.2f} exit=${exit_price:.2f} "
@@ -564,14 +576,15 @@ def check_live_exits() -> list[dict]:
         else:
             continue
 
-        close_live_trade(
+        if not close_live_trade(
             trade_id    = trade["id"],
             exit_price  = exit_price,
             pnl         = pnl,
             outcome     = outcome,
             exit_reason = exit_reason,
             exited_at   = exited_at,
-        )
+        ):
+            continue    # another exit path booked or froze it first; close_live_trade warned
 
         logger.info(
             f"Live exit [{ticker}]: {exit_reason} "
@@ -654,14 +667,15 @@ def check_live_regime_exits() -> list[dict]:
         outcome = "WIN" if pnl > 0 else "LOSS"
         pnl_pct = (exit_price - trade["entry_price"]) / trade["entry_price"]
 
-        close_live_trade(
+        if not close_live_trade(
             trade_id    = trade["id"],
             exit_price  = exit_price,
             pnl         = pnl,
             outcome     = outcome,
             exit_reason = "REGIME",
             exited_at   = datetime.now(timezone.utc).isoformat(),
-        )
+        ):
+            continue
 
         logger.info(
             f"Live regime exit [{ticker}] sector={sector} "

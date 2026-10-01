@@ -1503,15 +1503,28 @@ def insert_live_trade(row: dict) -> int:
 
 
 def close_live_trade(trade_id: int, exit_price: float, pnl: float,
-                     outcome: str, exit_reason: str, exited_at: str) -> None:
+                     outcome: str, exit_reason: str, exited_at: str) -> int:
+    """
+    Book an exit on an OPEN row. Returns the rowcount: 1 booked, 0 the row was
+    no longer OPEN (2026-10-01). All three callers act on rows read as OPEN
+    earlier in the same pass; a second exit path that booked or froze the row in
+    between used to be silently overwritten — a WIN rewritten as a LOSS, or an
+    UNRECONCILED freeze replaced by a booked exit. The predicate is the guard
+    across processes; the tracker's _EXIT_LOCK only serialises callers in one.
+    resolve_unreconciled has its own UPDATE and does not come through here.
+    """
     conn = get_db()
     try:
-        conn.execute("""
+        cur = conn.execute("""
             UPDATE live_trades
             SET exit_price = ?, pnl = ?, outcome = ?, exit_reason = ?, exited_at = ?
-            WHERE id = ?
+            WHERE id = ? AND outcome = 'OPEN'
         """, (exit_price, pnl, outcome, exit_reason, exited_at, trade_id))
         conn.commit()
+        if cur.rowcount == 0:
+            logger.warning(f"close_live_trade: trade {trade_id} is no longer OPEN — "
+                           f"{exit_reason} exit at ${exit_price:.2f} ({outcome}) NOT booked")
+        return cur.rowcount
     finally:
         conn.close()
 

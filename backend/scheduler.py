@@ -177,19 +177,22 @@ def check_live_exit_conditions() -> None:
     if not is_market_open():
         return
     from backend.live_trades_tracker import (
+        EXIT_LOCK,
         cancel_orphan_brackets,
         check_live_exits,
         check_live_regime_exits,
     )
-    # Sweep orphaned bracket legs before processing exits — prevents sell orders
-    # attached to dead positions from creating short exposure.
-    cancel_orphan_brackets()
-    closed = check_live_exits()
-    if closed:
-        logger.info(f"Live exit check: closed {len(closed)} position(s)")
-    regime_closed = check_live_regime_exits()
-    if regime_closed:
-        logger.info(f"Live regime exit check: closed {len(regime_closed)} position(s)")
+    # Interval job and startup catch-up both land here; one pass at a time (EXIT_LOCK).
+    with EXIT_LOCK:
+        # Sweep orphaned bracket legs before processing exits — prevents sell orders
+        # attached to dead positions from creating short exposure.
+        cancel_orphan_brackets()
+        closed = check_live_exits()
+        if closed:
+            logger.info(f"Live exit check: closed {len(closed)} position(s)")
+        regime_closed = check_live_regime_exits()
+        if regime_closed:
+            logger.info(f"Live regime exit check: closed {len(regime_closed)} position(s)")
 
 
 def run_live_gate_candidates() -> None:
