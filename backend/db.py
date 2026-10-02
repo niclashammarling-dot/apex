@@ -1601,22 +1601,32 @@ def clear_alert_latches_except(prefix: str, keep_keys: set[str]) -> None:
         conn.close()
 
 
-def mark_live_trade_unreconciled(trade_id: int, note: str) -> None:
+def mark_live_trade_unreconciled(trade_id: int, note: str) -> int:
     """
     Position vanished from the broker with no fill, order, or activity record
     to explain it (distinct from a normal SL/TP/time exit). Freezes the trade
     out of get_open_live_trades() polling — no exit_price/pnl is fabricated —
     until a human or a confirmed broker record resolves it.
+
+    Freezes an OPEN row only and returns the rowcount: 1 frozen, 0 the row was
+    no longer OPEN (2026-10-02, the mirror of close_live_trade's guard). The
+    callers act on rows read as OPEN earlier in the pass; without the predicate
+    a freeze could overwrite an exit another process had just booked, and its
+    alert would report a position that was already accounted for.
     """
     from datetime import datetime, timezone
     conn = get_db()
     try:
-        conn.execute("""
+        cur = conn.execute("""
             UPDATE live_trades
             SET outcome = 'UNRECONCILED', exit_reason = ?, exited_at = ?
-            WHERE id = ?
+            WHERE id = ? AND outcome = 'OPEN'
         """, (note, datetime.now(timezone.utc).isoformat(), trade_id))
         conn.commit()
+        if cur.rowcount == 0:
+            logger.warning(f"mark_live_trade_unreconciled: trade {trade_id} is no longer OPEN — "
+                           f"freeze NOT applied ({note[:120]})")
+        return cur.rowcount
     finally:
         conn.close()
 

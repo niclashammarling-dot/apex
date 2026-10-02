@@ -427,7 +427,8 @@ def check_live_exits() -> list[dict]:
                         )
                         logger.error(f"Live time-stop [{ticker}]: UNRECONCILED (contradiction) — {note}")
                         clear_alert_latch(f"exit_in_progress:{trade['id']}")
-                        mark_live_trade_unreconciled(trade["id"], note)
+                        if not mark_live_trade_unreconciled(trade["id"], note):
+                            continue    # booked or frozen by another path first; no alert
                         try:
                             from backend.alerts import alert_position_unreconciled
                             alert_position_unreconciled(ticker, trade["entry_price"], trade["qty"], note)
@@ -469,7 +470,8 @@ def check_live_exits() -> list[dict]:
                             f"(entry ${trade['entry_price']:.2f} x {trade['qty']:g} on order {order_id})"
                         )
                         logger.error(f"Live time-stop [{ticker}]: UNRECONCILED — {note}")
-                        mark_live_trade_unreconciled(trade["id"], note)
+                        if not mark_live_trade_unreconciled(trade["id"], note):
+                            continue    # booked or frozen by another path first; no alert
                         try:
                             from backend.alerts import alert_position_unreconciled
                             alert_position_unreconciled(ticker, trade["entry_price"], trade["qty"], note)
@@ -584,7 +586,8 @@ def check_live_exits() -> list[dict]:
                 )
                 logger.error(f"Live exit reconciliation [{ticker}]: UNRECONCILED — {note}")
                 clear_alert_latch(f"exit_in_progress:{trade['id']}")
-                mark_live_trade_unreconciled(trade["id"], note)
+                if not mark_live_trade_unreconciled(trade["id"], note):
+                    continue    # booked or frozen by another path first; no alert
                 try:
                     from backend.alerts import alert_position_unreconciled
                     alert_position_unreconciled(ticker, trade["entry_price"], trade["qty"], note)

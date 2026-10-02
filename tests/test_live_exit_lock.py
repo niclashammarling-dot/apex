@@ -165,3 +165,83 @@ class TestTwoConcurrentCallers:
 
     def test_exit_lock_serialises_interval_job_and_startup_catchup(self):
         assert _run_two_concurrent_passes(None) == 1
+
+
+class TestUnreconciledFreezeOpenGuard:
+    """2026-10-02: the mirror of close_live_trade's guard — a freeze lands on OPEN rows only."""
+
+    def test_freezes_an_open_row_and_returns_one(self):
+        tid = _open_trade()
+        assert mark_live_trade_unreconciled(tid, "test freeze") == 1
+        assert _row(tid)["outcome"] == "UNRECONCILED"
+
+    def test_booked_exit_is_not_overwritten_by_a_freeze(self):
+        tid = _open_trade()
+        close_live_trade(tid, 106.0, 24.0, "WIN", "TP", "2026-10-01T14:00:00+00:00")
+        with patch("backend.db.logger.warning") as warn:
+            n = mark_live_trade_unreconciled(tid, "late freeze")
+        assert n == 0
+        row = _row(tid)
+        assert (row["outcome"], row["exit_price"], row["exit_reason"]) == ("WIN", 106.0, "TP")
+        assert warn.call_count == 1 and "NOT applied" in warn.call_args[0][0]
+
+    def test_second_freeze_keeps_the_first_note(self):
+        tid = _open_trade()
+        mark_live_trade_unreconciled(tid, "first freeze")
+        assert mark_live_trade_unreconciled(tid, "second freeze") == 0
+        assert _row(tid)["exit_reason"] == "first freeze"
+
+
+def _pass_where_other_process_books_during_exit_lookup(tid):
+    """Reconciliation path (position gone, no fill found): another process books
+    the row while this pass is looking for the exit. Returns the alert mock."""
+    def find_exit_after_other_process_booked(ticker, broker, entry_ts):
+        close_live_trade(tid, 106.0, 24.0, "WIN", "TP", "2026-10-01T14:00:00+00:00")
+        return None, "", "", "both_feeds_empty"
+
+    with ExitStack() as stack:
+        stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
+        stack.enter_context(patch("backend.live_config.get_live_config",
+                                  return_value={"max_hold_days": 25}))
+        stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
+        stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
+                                  return_value={"status": "filled", "filled_qty": 4, "legs": []}))
+        stack.enter_context(patch("backend.live_trades_tracker._find_exit_from_orders",
+                                  side_effect=find_exit_after_other_process_booked))
+        stack.enter_context(patch("backend.live_trades_tracker._current_price", return_value=None))
+        stack.enter_context(patch("backend.live_trades_tracker._log_vol_slope"))
+        stack.enter_context(patch("backend.alerts.alert_position_untracked"))
+        alert = stack.enter_context(patch("backend.alerts.alert_position_unreconciled"))
+
+        from backend.live_trades_tracker import check_live_exits
+        closed = check_live_exits()
+    assert closed == []
+    return alert
+
+
+class TestStaleSnapshotFreeze:
+
+    def test_positive_control_unguarded_freeze_overwrites_the_booking_and_alerts(self):
+        """Holds the guard open (the pre-10-02 UPDATE): proves the harness reaches the freeze."""
+        def unguarded(trade_id, note):
+            conn = get_db()
+            try:
+                conn.execute("UPDATE live_trades SET outcome = 'UNRECONCILED', exit_reason = ? "
+                             "WHERE id = ?", (note, trade_id))
+                conn.commit()
+            finally:
+                conn.close()
+            return 1
+
+        tid = _open_trade(ticker="FRZC", order_id="ord-frz-c")
+        with patch("backend.live_trades_tracker.mark_live_trade_unreconciled", side_effect=unguarded):
+            alert = _pass_where_other_process_books_during_exit_lookup(tid)
+        assert _row(tid)["outcome"] == "UNRECONCILED"
+        assert alert.call_count == 1
+
+    def test_pass_whose_row_was_booked_meanwhile_does_not_freeze_or_alert(self):
+        tid = _open_trade(ticker="FRZ", order_id="ord-frz-1")
+        alert = _pass_where_other_process_books_during_exit_lookup(tid)
+        row = _row(tid)
+        assert (row["outcome"], row["exit_price"]) == ("WIN", 106.0)
+        assert alert.call_count == 0
