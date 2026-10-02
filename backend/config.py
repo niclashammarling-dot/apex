@@ -86,11 +86,11 @@ PROFIT_LOCK_TRAIL_PCT   = 0.01   # drawdown from peak once profit-lock activates
 
 # --- Macro filter (Lock 1.5) ---
 MACRO_VIX_THRESHOLD           = 30.0
-MACRO_EVENT_BLACKOUT_DAYS     = 1     # days before FOMC, CPI, NFP (pre-event only)
+MACRO_EVENT_BLACKOUT_DAYS     = 1     # days before CPI/NFP that count as pre-event (FOMC: fixed 2-day hard block, lock1 _FOMC_PRE_EVENT_DAYS)
 MACRO_EARNINGS_BLACKOUT_DAYS  = 3     # days before a ticker's earnings (hard block)
 MACRO_EARNINGS_NEAR_DAYS      = 14    # near-term earnings window above hard block
 MACRO_EARNINGS_NEAR_PENALTY   = 0.15  # score multiplier reduction in near-term window
-MACRO_PRE_EVENT_PENALTY       = 0.05  # score multiplier reduction for pre-event (FOMC/CPI/NFP) window
+MACRO_PRE_EVENT_PENALTY       = 0.05  # score multiplier reduction in the CPI/NFP pre-event window (FOMC never reaches it: hard block)
 GATE_COOLOFF_HOURS            = 4     # hours before re-evaluating a ticker that failed L2/L3/MACRO
 EXIT_COOLOFF_HOURS            = 24    # hours before a LOSS/EXPIRED ticker can re-enter the gate
 TP_COOLOFF_HOURS              = 168   # hours before a WIN ticker can re-enter (7d — sweep-validated 2026-06-03)
