@@ -843,6 +843,8 @@ _LOG_DIR = Path(__file__).parent.parent.parent / "logs"
 # The launcher's heartbeat outcome (2026-09-30): the cell Niclas's after-work check
 # reads while the counter-watch mail is off. "heartbeat <date> pushed @ <sha>" is
 # push_heartbeat.py's success line; the two failure lines are market_window.sh's.
+# backend.code_identity.identity_line, logged at startup (2026-10-02). Last match wins.
+_SERVING_LINE   = re.compile(r"Serving commit (\w+) \(dirty: (True|False)")
 _HEARTBEAT_OK   = re.compile(r"\| heartbeat \S+ pushed @ ")
 _HEARTBEAT_FAIL = re.compile(r"\| (heartbeat push FAILED|not ready: .*no heartbeat pushed)")
 
@@ -950,6 +952,14 @@ def get_market_window(days: int = 10):
                     drift = int(m.group(3))
                 else:
                     events.append({"at": m.group(1)[:16], "event": m.group(2).strip()})
+        serving = None
+        app_log = _LOG_DIR / f"apex_{d}.log"
+        if app_log.exists():
+            for line in app_log.read_text(errors="replace").splitlines():
+                if "Serving commit" in line:
+                    m = _SERVING_LINE.search(line)
+                    serving = ({"commit": m.group(1), "dirty": m.group(2) == "True"} if m
+                               else {"commit": None, "dirty": None})
         started = any(e["event"] == "starting uvicorn" for e in events)
         ended_early = any(e["event"] == "ended before window close" for e in events)
         closed = any(e["event"] == "window closed" for e in events)
@@ -965,6 +975,7 @@ def get_market_window(days: int = 10):
             "events": events,
             "clock_drift_s": drift,
             "heartbeat_pushed": heartbeat,
+            "serving_commit": serving,
             "startup_catchups_failed": sorted(catchup_failed.get(d, [])),
             # 2026-09-21: the window closed at 16:17 ET and neither collect_pcr nor the
             # audit ran; nothing on the dashboard said so. Same-day catch-ups exist now.

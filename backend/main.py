@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
 
+from backend.code_identity import identity_line, read_code_identity
 from backend.db import init_db
 from backend.routers.live_router import router as live_router
 from backend.routers.signals_router import router as signals_router
@@ -58,6 +59,10 @@ logger.add(
 
 SCHEDULER_LOCK = Path(__file__).parent.parent / "data" / "scheduler.lock"
 
+# Read once, at import: the code this process loaded, not what the checkout
+# says later (backend/code_identity.py).
+CODE_IDENTITY = read_code_identity()
+
 
 def _acquire_scheduler_lock():
     """Exclusive flock on data/scheduler.lock, or None if another process holds it.
@@ -78,6 +83,7 @@ def _acquire_scheduler_lock():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("APEX backend starting…")
+    logger.info(identity_line(CODE_IDENTITY))
     init_db()
     from backend.demo_config import ensure_config_exists as ensure_demo
     from backend.live_config import ensure_config_exists as ensure_live
@@ -151,4 +157,5 @@ def health():
         for j in _sched.get_jobs()
     ]
     return {"status": "ok", "scheduler_jobs": jobs,
-            "scheduler_owner": app.state.scheduler_lock is not None}
+            "scheduler_owner": app.state.scheduler_lock is not None,
+            "code": CODE_IDENTITY}

@@ -35,7 +35,7 @@ export default function MarketWindowPanel() {
         {" · "}CYCLE {data.gate_interval_min}M
       </div>
       <table className="t-tbl">
-        <thead><tr><th>Session</th><th>Cycles</th><th></th><th>Launcher</th><th>EOD</th><th>Drift</th><th>Last event</th></tr></thead>
+        <thead><tr><th>Session</th><th>Cycles</th><th></th><th>Launcher</th><th>EOD</th><th>Commit</th><th>Drift</th><th>Last event</th></tr></thead>
         <tbody>
           {sessions.map(s => {
             const pct = Math.min(1, s.cycles / s.expected);
@@ -82,6 +82,12 @@ export default function MarketWindowPanel() {
                       W{s.eod.watcher == null ? "·" : s.eod.watcher ? "✓" : "✗"}
                     </span>
                   )}
+                </td>
+                <td title="commit the serving process loaded at startup (dirty = tracked code modified outside data/)"
+                    style={{ whiteSpace: "nowrap", color: s.serving_commit?.dirty ? "var(--t-red)" : undefined }}>
+                  {s.serving_commit == null ? "—"
+                    : s.serving_commit.commit == null ? "unknown"
+                    : s.serving_commit.commit.slice(0, 7) + (s.serving_commit.dirty ? " dirty" : "")}
                 </td>
                 <td>{s.clock_drift_s == null ? "—" : `${s.clock_drift_s}s`}</td>
                 <td>{last ? `${last.at.slice(11)} ${last.event}` : "—"}</td>
