@@ -36,6 +36,8 @@ runs then; the off-host heartbeat (session-heartbeat.yml) is the only cover.
 Review by 2026-10-31 (Niclas, 10-03): false alarms vs catches, threshold.
 
     venv/bin/python scripts/cycle_watch.py
+    venv/bin/python scripts/cycle_watch.py --test-alert   # one labelled mail through the real
+                                                           # path; exit 1 if nothing delivered
 """
 import os
 import socket
@@ -160,6 +162,18 @@ def main() -> int:
     # (found 10-03 before the first run). The launchers `cd "$APEX"` the same way.
     os.chdir(REPO)
     now = datetime.now(timezone.utc)
+    if "--test-alert" in sys.argv:
+        # Delivery check (2026-10-03, Niclas: an alert that has never fired looks exactly
+        # like a quiet day). Same function and dispatcher as a real alert; no latch, no
+        # session flag, no watch-log line (it would read as a session run to CHECK 82).
+        sys.path.insert(0, str(REPO))
+        from backend.alerts import alert_cycles_stale
+        ok = alert_cycles_stale("demo", _local(now - timedelta(minutes=52)), 52, process_state(), STALE_MIN,
+                                test=True)
+        (REPO / "logs").mkdir(exist_ok=True)
+        with (REPO / "logs" / "cycle_watch_test.log").open("a") as f:
+            f.write(f"{now.astimezone(STHLM):%Y-%m-%d %H:%M:%S %Z} | test alert {'DELIVERED' if ok else 'NOT delivered'}\n")
+        return 0 if ok else 1
     day = now.astimezone(NY).date()
     bounds, note = session_bounds(day)
     sys.path.insert(0, str(REPO))

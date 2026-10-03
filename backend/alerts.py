@@ -254,10 +254,12 @@ def alert_startup_catchup_failed(name: str, error: str) -> None:
     _dispatch(title, body)
 
 
-def alert_cycles_stale(side: str, last_local: str, age_min: int, process: str, stale_min: int) -> None:
+def alert_cycles_stale(side: str, last_local: str, age_min: int, process: str, stale_min: int,
+                       test: bool = False) -> bool:
     """No scheduled gate run for stale_min+ minutes in market hours (scripts/cycle_watch.py, 2026-10-03)."""
     mode  = _mode_label()
-    title = f"[APEX {mode}] No {side} gate cycle for {age_min} min"
+    title = (f"[APEX {mode}] TEST — cycle watch delivery check (not an outage)" if test
+             else f"[APEX {mode}] No {side} gate cycle for {age_min} min")
     body  = (f"The {side} gate job last started at {last_local} — {age_min} min ago, "
              f"threshold {stale_min} min, inside NYSE market hours.\n"
              f"Serving port: {process}.\n"
@@ -269,7 +271,11 @@ def alert_cycles_stale(side: str, last_local: str, age_min: int, process: str, s
              f"/health answers: the process is up but its scheduler is not running this job — "
              f"read logs/apex_<date>.log for the job.\n"
              f"One mail per side per day; the watch keeps logging to logs/cycle_watch_<date>.log.")
-    _dispatch(title, body)
+    if test:
+        body = ("TEST MAIL — sent by `scripts/cycle_watch.py --test-alert` to prove the real delivery path "
+                "(Windows task -> wsl.exe -> .env -> SMTP). Nothing is wrong. The text below is what a "
+                "real alert looks like.\n\n" + body)
+    return _dispatch(title, body)
 
 
 def alert_gate_blocked(reason: str) -> None:
@@ -281,8 +287,10 @@ def alert_gate_blocked(reason: str) -> None:
 
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 
-def _dispatch(title: str, body: str) -> None:
-    """Send to all configured channels. Failures are logged, never raised."""
+def _dispatch(title: str, body: str) -> bool:
+    """Send to all configured channels. Failures are logged, never raised.
+    Returns whether any channel delivered (2026-10-03: the cycle watch's test mode
+    needs the outcome; existing callers ignore it)."""
     cfg = _cfg()
     sent = False
 
@@ -301,6 +309,7 @@ def _dispatch(title: str, body: str) -> None:
             logger.error(f"Alert NOT DELIVERED (all configured channels failed) | {title} | {body}")
         else:
             logger.info(f"Alert (no channel configured) | {title} | {body}")
+    return sent
 
 
 def _send_slack(webhook_url: str, title: str, body: str) -> bool:

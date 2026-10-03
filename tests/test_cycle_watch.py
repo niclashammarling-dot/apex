@@ -252,3 +252,17 @@ def test_ops_window_carries_the_flag(tmp_path, monkeypatch):
     flag_session(d, "partial", "test", "cycle_watch")
     s = next(x for x in sr.get_market_window(days=10)["sessions"] if x["date"] == d)
     assert s["partial"]["status"] == "provisional" and s["partial"]["cause"] == "test"
+
+
+def test_test_alert_goes_through_dispatch_and_reports_outcome(watch_repo, monkeypatch):
+    """--test-alert: real alert function, labelled TEST, no latch/flag/session line; exit 1 when undelivered."""
+    from backend import alerts
+    run, sent, repo = watch_repo
+    monkeypatch.setattr(sys, "argv", ["cycle_watch.py", "--test-alert"])
+    monkeypatch.setattr(cw, "datetime", datetime)
+    assert cw.main() == 1                                   # the fixture's _dispatch stub returns None
+    assert sent and "TEST — cycle watch delivery check" in sent[-1]
+    monkeypatch.setattr(alerts, "_dispatch", lambda title, body: True)
+    assert cw.main() == 0
+    assert "DELIVERED" in (repo / "logs" / "cycle_watch_test.log").read_text()
+    assert not list((repo / "logs").glob("cycle_watch_20*.log"))
