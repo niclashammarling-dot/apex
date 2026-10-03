@@ -254,6 +254,24 @@ def alert_startup_catchup_failed(name: str, error: str) -> None:
     _dispatch(title, body)
 
 
+def alert_cycles_stale(side: str, last_local: str, age_min: int, process: str, stale_min: int) -> None:
+    """No scheduled gate run for stale_min+ minutes in market hours (scripts/cycle_watch.py, 2026-10-03)."""
+    mode  = _mode_label()
+    title = f"[APEX {mode}] No {side} gate cycle for {age_min} min"
+    body  = (f"The {side} gate job last started at {last_local} — {age_min} min ago, "
+             f"threshold {stale_min} min, inside NYSE market hours.\n"
+             f"Serving port: {process}.\n"
+             f"Port free: the backend is down. The market-window task's 5-min repeat should "
+             f"relaunch it; if this mail repeats tomorrow or logs/market_window_<date>.log "
+             f"shows no new start, the launcher itself is not running.\n"
+             f"Port bound but /health silent: the process is hung — kill it; the next repeat "
+             f"relaunches.\n"
+             f"/health answers: the process is up but its scheduler is not running this job — "
+             f"read logs/apex_<date>.log for the job.\n"
+             f"One mail per side per day; the watch keeps logging to logs/cycle_watch_<date>.log.")
+    _dispatch(title, body)
+
+
 def alert_gate_blocked(reason: str) -> None:
     mode  = _mode_label()
     title = f"[APEX {mode}] Gate Blocked"

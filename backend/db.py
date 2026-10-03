@@ -264,6 +264,17 @@ def init_db() -> None:
                 set_at TEXT NOT NULL
             );
 
+            -- One row per scheduled job: when its last run started and ended
+            -- (2026-10-03). Gate history is not proof of life — a cycle with no
+            -- Lock 1 candidates or a live halt writes no row — so the off-process
+            -- cycle watch (scripts/cycle_watch.py) reads this instead.
+            CREATE TABLE IF NOT EXISTS job_runs (
+                job         TEXT PRIMARY KEY,
+                started_at  TEXT NOT NULL,
+                finished_at TEXT,
+                outcome     TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS l5_token_usage (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp     TEXT    NOT NULL,
@@ -1525,6 +1536,23 @@ def close_live_trade(trade_id: int, exit_price: float, pnl: float,
             logger.warning(f"close_live_trade: trade {trade_id} is no longer OPEN — "
                            f"{exit_reason} exit at ${exit_price:.2f} ({outcome}) NOT booked")
         return cur.rowcount
+    finally:
+        conn.close()
+
+
+def stamp_job_run(job: str, phase: str, outcome: str | None = None) -> None:
+    """Record a scheduled job's start ("start") or end ("end", with outcome) in job_runs."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_db()
+    try:
+        if phase == "start":
+            conn.execute("INSERT INTO job_runs (job, started_at) VALUES (?, ?) "
+                         "ON CONFLICT(job) DO UPDATE SET started_at = excluded.started_at, "
+                         "finished_at = NULL, outcome = NULL", (job, now))
+        else:
+            conn.execute("UPDATE job_runs SET finished_at = ?, outcome = ? WHERE job = ?",
+                         (now, outcome, job))
+        conn.commit()
     finally:
         conn.close()
 

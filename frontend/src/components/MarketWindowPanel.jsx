@@ -35,7 +35,7 @@ export default function MarketWindowPanel() {
         {" · "}CYCLE {data.gate_interval_min}M
       </div>
       <table className="t-tbl">
-        <thead><tr><th>Session</th><th>Cycles</th><th></th><th>Launcher</th><th>EOD</th><th>Commit</th><th>Drift</th><th>Last event</th></tr></thead>
+        <thead><tr><th>Session</th><th>Cycles</th><th></th><th>Launcher</th><th>EOD</th><th>Watch</th><th>Commit</th><th>Drift</th><th>Last event</th></tr></thead>
         <tbody>
           {sessions.map(s => {
             const pct = Math.min(1, s.cycles / s.expected);
@@ -82,6 +82,17 @@ export default function MarketWindowPanel() {
                       W{s.eod.watcher == null ? "·" : s.eod.watcher ? "✓" : "✗"}
                     </span>
                   )}
+                </td>
+                <td title={s.cycle_watch
+                             ? `cycle watch (every 15 min, market hours): ${s.cycle_watch.runs} runs, ${s.cycle_watch.stale_runs} stale` +
+                               `${s.cycle_watch.alerted ? ", alert mailed" : ""} — last ${s.cycle_watch.last_at}: ${s.cycle_watch.last}`
+                             : "cycle watch: no run logged this session (task not firing, or before 2026-10-05)"}
+                    style={{ whiteSpace: "nowrap",
+                             color: s.cycle_watch == null ? "var(--t-text-3)"
+                                  : s.cycle_watch.stale_runs > 0 ? "var(--t-red)" : "var(--t-accent)" }}>
+                  {s.cycle_watch == null ? "—"
+                    : s.cycle_watch.stale_runs > 0 ? `✗ ${s.cycle_watch.stale_runs}/${s.cycle_watch.runs}`
+                    : `✓ ${s.cycle_watch.runs}`}
                 </td>
                 <td title="commit the serving process loaded at startup (dirty = tracked code modified outside data/)"
                     style={{ whiteSpace: "nowrap", color: s.serving_commit?.dirty ? "var(--t-red)" : undefined }}>

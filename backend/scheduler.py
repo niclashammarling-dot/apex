@@ -153,12 +153,35 @@ def poll_all_sectors(force: bool = False) -> None:
     _sync_watchlist()
 
 
+def _stamped(job: str, fn) -> None:
+    """Run a gate job between job_runs stamps (2026-10-03, read by scripts/cycle_watch.py).
+
+    A stamp failure is logged and never stops the job; the job's own exception
+    is recorded as the outcome and re-raised to APScheduler as before.
+    """
+    from backend.db import stamp_job_run
+
+    def _stamp(*args) -> None:
+        try:
+            stamp_job_run(job, *args)
+        except Exception as e:
+            logger.warning(f"job_runs stamp failed for {job}: {e!r}")
+
+    _stamp("start")
+    try:
+        fn()
+    except Exception as e:
+        _stamp("end", f"error: {e!r}"[:300])
+        raise
+    _stamp("end", "ok")
+
+
 def run_gate_candidates() -> None:
     if not is_market_open():
         logger.debug("Market closed — skipping gate evaluation")
         return
     from backend.gate import gate_runner
-    gate_runner.run()
+    _stamped("run_gate", gate_runner.run)
 
 
 def check_exit_conditions() -> None:
@@ -200,7 +223,7 @@ def run_live_gate_candidates() -> None:
         logger.debug("Market closed — skipping live gate evaluation")
         return
     from backend.gate import gate_runner_live
-    gate_runner_live.run()
+    _stamped("run_live_gate", gate_runner_live.run)
 
 
 def _snapshot_sectors(signals: list[dict]) -> None:

@@ -1140,20 +1140,36 @@ def check81() -> None:
              f"{_C81_EVENT_DAYS}: " + ", ".join(f"{c} ×{k}" for c, k in sorted(causes.items())))
 
 
-_C82_SESSIONS = 3            # trailing sessions read; today only once the window has closed (16:40 ET)
+_C82_SESSIONS = 4            # trailing sessions read, today included from the 09:30 ET open
 _C82_SINCE    = "2026-09-18"  # first scheduled window day; earlier sessions had no task to fire
+_C82_WATCH_SINCE = "2026-10-05"  # first session of the cycle-watch task (scripts/cycle_watch.py)
 
 
 def _c82_session_dates(n: int) -> list[str]:
-    """Last n NYSE session dates, today included only after 16:40 ET."""
+    """Last n NYSE session dates, today included from 09:30 ET.
+
+    Until 2026-10-03 today joined only after 16:40 ET — and the check's one
+    scheduled run is publish_audit_state at 16:33 ET, so it never read the day
+    it ran on: 10-02's 18:09 CEST outage was evaluated at 16:34 ET that day and
+    found nothing, first reportable at the next session's audit. n went 3 → 4
+    so the three prior sessions stay read alongside today.
+    """
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
 
     import pandas_market_calendars as mcal
     now_et = datetime.now(ZoneInfo("America/New_York"))
-    end = now_et.date() if now_et.strftime("%H%M") > "1640" else now_et.date() - timedelta(days=1)
+    end = now_et.date() if now_et.strftime("%H%M") >= "0930" else now_et.date() - timedelta(days=1)
     sched = mcal.get_calendar("NYSE").schedule(start_date=end - timedelta(days=14), end_date=end)
     return list(sched.index.strftime("%Y-%m-%d"))[-n:]
+
+
+def _c82_open_day() -> str | None:
+    """Today's date (ET) while its window is still open (before 16:40 ET), else None."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    now_et = datetime.now(ZoneInfo("America/New_York"))
+    return now_et.date().isoformat() if now_et.strftime("%H%M") < "1640" else None
 
 
 def check82() -> None:
@@ -1173,7 +1189,9 @@ def check82() -> None:
     (2026-10-03; until then the design relied on RestartOnFailure, which
     measurably never fires on a non-zero exit — 10-02 lost 3 h 51 m to it); a
     host reboot is covered by a LogonTrigger. This check reads those lines — the persisted cause — for
-    the trailing _C82_SESSIONS sessions (today only once the window is over):
+    the trailing _C82_SESSIONS sessions, today included from the open (while
+    its window is still open, a start without an `exit` is the running
+    instance, not a finding):
 
       CRITICAL  `ended before window close` on any session (an interruption
                 happened — the INFO relaunch line says whether recovery ran)
@@ -1186,6 +1204,9 @@ def check82() -> None:
                 early (2026-09-21: blind sleep on a fast monotonic clock)
       INFO      more than one `starting uvicorn` in a day — the relaunch path
                 ran; the count is the recovery working
+      WARNING   a closed session (from 2026-10-05) with no cycle_watch_<date>.log
+                line — the off-process cycle watch did not run in market hours,
+                so a dead or hung backend that day had no same-day alert
     SKIPPED without apex.db (the audit's local-environment marker; logs/ is
     not in CI's checkout and its absence there is not a finding).
     """
@@ -1197,6 +1218,7 @@ def check82() -> None:
     except Exception as e:
         flag(82, name, "WARNING", "audit/checks_gate.py:_c82_session_dates", f"calendar unavailable: {e}")
         return
+    open_day = _c82_open_day()
     for d in sessions:
         if d < _C82_SINCE:
             continue
@@ -1225,7 +1247,7 @@ def check82() -> None:
             flag(82, name, "CRITICAL", "scripts/market_window.sh",
                  f"{d}: {ln.split(' | ', 1)[1]} — the serving process was lost mid-window"
                  + (f"; relaunched ({len(starts)} starts)" if len(starts) > 1 else "; no relaunch logged"))
-        if starts and not exits and not early:
+        if starts and not exits and not early and d != open_day:
             flag(82, name, "CRITICAL", "scripts/market_window.sh",
                  f"{d}: `starting uvicorn` at {starts[-1].split(' | ')[0][11:]} with no `exit` line — "
                  f"the wrapper was killed without a signal (host reboot / WSL teardown); "
@@ -1233,6 +1255,15 @@ def check82() -> None:
         if len(starts) > 1 and not early:
             flag(82, name, "INFO", "scripts/market_window.sh",
                  f"{d}: {len(starts)} `starting uvicorn` lines — relaunch path ran")
+    for d in sessions:
+        if d < _C82_WATCH_SINCE or d == open_day:
+            continue
+        watch = REPO / "logs" / f"cycle_watch_{d}.log"
+        if not (watch.exists() and " | " in watch.read_text(errors="replace")):
+            flag(82, name, "WARNING", "scripts/windows/APEX-cycle-watch.xml",
+                 f"{d}: no cycle_watch log line — the cycle watch did not run in market hours "
+                 f"(task unregistered or failing, or the PC was off); a dead or hung backend "
+                 f"that session had no same-day alert")
 
 
 _C83_DAYS      = 3    # trailing days read

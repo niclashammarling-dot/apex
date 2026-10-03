@@ -960,6 +960,16 @@ def get_market_window(days: int = 10):
                     m = _SERVING_LINE.search(line)
                     serving = ({"commit": m.group(1), "dirty": m.group(2) == "True"} if m
                                else {"commit": None, "dirty": None})
+        # Cycle watch (2026-10-03, scripts/cycle_watch.py): one line per in-hours run.
+        # None = no run logged that session (before 10-05, or the watch task never fired).
+        watch = None
+        wlog = _LOG_DIR / f"cycle_watch_{d}.log"
+        if wlog.exists():
+            wl = [ln for ln in wlog.read_text(errors="replace").splitlines() if " | " in ln]
+            if wl:
+                watch = {"runs": len(wl), "stale_runs": sum("STALE" in ln for ln in wl),
+                         "alerted": any("alert sent" in ln for ln in wl),
+                         "last_at": wl[-1][11:16], "last": wl[-1].split(" | ", 1)[1]}
         started = any(e["event"] == "starting uvicorn" for e in events)
         ended_early = any(e["event"] == "ended before window close" for e in events)
         closed = any(e["event"] == "window closed" for e in events)
@@ -977,6 +987,7 @@ def get_market_window(days: int = 10):
             "heartbeat_pushed": heartbeat,
             "serving_commit": serving,
             "startup_catchups_failed": sorted(catchup_failed.get(d, [])),
+            "cycle_watch": watch,
             # 2026-09-21: the window closed at 16:17 ET and neither collect_pcr nor the
             # audit ran; nothing on the dashboard said so. Same-day catch-ups exist now.
             # regime is due at 08:30 ET on the next session (moved pre-open 2026-09-22):
