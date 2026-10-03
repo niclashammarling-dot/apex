@@ -12,6 +12,7 @@ Supported channels (configure in .env):
 
 If neither is configured, alerts are logged only (no-op).
 """
+import html
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -354,7 +355,9 @@ def _send_email(cfg: dict, title: str, body: str, html_body: str | None = None) 
         msg["From"]    = cfg["email_from"]
         msg["To"]      = cfg["email_to"]
         msg.attach(MIMEText(body, "plain"))
-        msg.attach(MIMEText(html_body if html_body else body.replace("\n", "<br>"), "html"))
+        # Escaped (2026-10-03): the first real cycle-watch mail showed "logs/market_window_.log"
+        # because the HTML part dropped "<date>" as a tag; every path placeholder was affected.
+        msg.attach(MIMEText(html_body if html_body else html.escape(body).replace("\n", "<br>"), "html"))
 
         with smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"]) as server:
             server.ehlo()

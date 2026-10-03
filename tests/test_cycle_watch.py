@@ -266,3 +266,37 @@ def test_test_alert_goes_through_dispatch_and_reports_outcome(watch_repo, monkey
     assert cw.main() == 0
     assert "DELIVERED" in (repo / "logs" / "cycle_watch_test.log").read_text()
     assert not list((repo / "logs").glob("cycle_watch_20*.log"))
+
+
+def test_alert_html_part_keeps_angle_bracket_placeholders(monkeypatch):
+    """10-03 delivery test: the received mail read `logs/market_window_.log` — the HTML part
+    dropped `<date>` as a tag. The plain body is escaped before it becomes HTML."""
+    import email
+    import smtplib
+
+    import importlib.util
+
+    import backend.alerts as patched
+    # conftest replaces alerts._send_email with a mock (no real mail from tests); load a
+    # fresh copy of the module for the real function — SMTP itself is stubbed below.
+    spec = importlib.util.spec_from_file_location("alerts_real", patched.__file__)
+    alerts = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(alerts)
+    sent = []
+
+    class _SMTP:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def ehlo(self): pass
+        def starttls(self): pass
+        def login(self, *a): pass
+        def sendmail(self, frm, to, raw): sent.append(raw)
+    monkeypatch.setattr(smtplib, "SMTP", _SMTP)
+    cfg = {"email_from": "a@x", "email_to": "b@x", "smtp_host": "h", "smtp_port": 587,
+           "smtp_user": "u", "smtp_pass": "p"}
+    assert alerts._send_email(cfg, "t", "see logs/market_window_<date>.log\nnext")
+    msg = email.message_from_string(sent[0])
+    parts = {p.get_content_type(): p.get_payload(decode=True).decode() for p in msg.walk() if not p.is_multipart()}
+    assert "market_window_<date>.log" in parts["text/plain"]
+    assert "market_window_&lt;date&gt;.log<br>next" in parts["text/html"]
