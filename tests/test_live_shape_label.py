@@ -89,7 +89,8 @@ def test_sweep_mail_leads_with_label_and_prints_every_varied_axis(monkeypatch):
            for v in (None, 30, 35)]
     payload = {"valid_combos": 3240, "distinct_outcomes": 1080, "inert_axes": ["vix_threshold"]}
     ws._notify_sweep(top, "2026-06-27", "2026-09-25", payload)
-    body = sent[0].replace("<br>", "\n")
+    assert "<br>" not in sent[0]   # plain body; _send_email escapes it and adds the HTML (2026-10-03)
+    body = sent[0]
     assert body.startswith("OFF-SHAPE")
     assert "1080 of 3240" in body and "never changed a result: vix_threshold" in body
     assert "vix=off" in body and "vix=30" in body and "vix=35" in body   # the three rows now differ
@@ -109,6 +110,7 @@ def test_optimizer_mail_leads_with_label(monkeypatch, tmp_path):
     o._notify(bp, 0.8866, {"sharpe": 2.9, "total_return_pct": 0.145, "spy_return_pct": 0.13}, 8, 200)
     subj, body = sent[0]
     assert subj == "[APEX] Weekly Optimizer Complete"
+    assert "<br>" not in body      # plain body (2026-10-03)
     assert body.startswith("OFF-SHAPE") and "legacy trailing stop" in body
 
 

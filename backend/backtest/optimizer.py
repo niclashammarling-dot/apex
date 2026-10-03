@@ -553,7 +553,7 @@ Full results: data/optimizer_results.json
         if cfg.get("slack_url"):
             _send_slack(cfg["slack_url"], subject, body)
         if cfg.get("email_to") and cfg.get("smtp_user") and cfg.get("smtp_pass"):
-            _send_email(cfg, subject, body.replace("\n", "<br>"))
+            _send_email(cfg, subject, body)   # plain body; _send_email escapes it and adds <br> (2026-10-03)
     except Exception as e:
         logger.debug(f"Optimizer notify failed: {e}")
 

@@ -194,7 +194,7 @@ def _notify_sweep(top: list[dict], start_date: str, end_date: str, payload: dict
     if cfg["slack_url"]:
         _send_slack(cfg["slack_url"], subject, body)
     if cfg["email_to"] and cfg["smtp_user"] and cfg["smtp_pass"]:
-        _send_email(cfg, subject, body.replace("\n", "<br>"))
+        _send_email(cfg, subject, body)   # plain body; _send_email escapes it and adds <br> (2026-10-03)
 
 
 def _now_iso() -> str:
