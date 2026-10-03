@@ -182,3 +182,73 @@ def test_ops_window_surfaces_the_watch_log(tmp_path, monkeypatch):
     w = next(s for s in sr.get_market_window(days=10)["sessions"] if s["date"] == d)["cycle_watch"]
     assert (w["runs"], w["stale_runs"], w["alerted"], w["last_at"]) == (2, 1, True, "19:00")
     assert w["last"].startswith("demo last 18:01")
+
+
+# ── session flags (2026-10-03): written by the watch, outside the backend ───────
+
+def test_stale_run_flags_session_provisionally_once(watch_repo, monkeypatch):
+    from backend.db import get_session_flags
+    run, sent, repo = watch_repo
+    # its own date: the suite's DB is shared, and 10-02 is flagged by the alert test above
+    monkeypatch.setattr(cw, "session_bounds", lambda day: ((datetime(2026, 9, 29, 13, 30, tzinfo=timezone.utc),
+                                                             datetime(2026, 9, 29, 20, 0, tzinfo=timezone.utc)), ""))
+    stale = {"run_gate": "2026-09-29T16:01:00+00:00", "run_live_gate": "2026-09-29T16:13:00+00:00"}
+    run(datetime(2026, 9, 29, 17, 0, tzinfo=timezone.utc), stale)
+    run(datetime(2026, 9, 29, 17, 15, tzinfo=timezone.utc), stale)
+    flags = [f for f in get_session_flags("2026-09-29", "2026-09-30")]
+    assert len(flags) == 1 and flags[0]["status"] == "provisional" and flags[0]["source"] == "cycle_watch"
+    assert "no demo/live gate start for 59 min" in flags[0]["cause"]
+    lines = (repo / "logs" / "cycle_watch_2026-09-29.log").read_text().splitlines()
+    assert "session flagged partial (provisional)" in lines[0] and "flagged" not in lines[1]
+
+
+def test_post_close_run_finalizes_the_flag(watch_repo, monkeypatch):
+    from backend.db import flag_session, get_session_flags
+    run, sent, repo = watch_repo
+    flag_session("2026-10-01", "partial", "test outage", "cycle_watch")
+    monkeypatch.setattr(cw, "session_bounds", lambda day: ((datetime(2026, 10, 1, 13, 30, tzinfo=timezone.utc),
+                                                             datetime(2026, 10, 1, 20, 0, tzinfo=timezone.utc)), ""))
+    monkeypatch.setattr(cw, "session_cycles", lambda db, day, bounds: (8, 19, 8, 20))
+    run(datetime(2026, 10, 1, 20, 15, tzinfo=timezone.utc), {})
+    f = get_session_flags("2026-10-01", "2026-10-02")[0]
+    assert (f["status"], f["cycles"], f["expected"], f["live_cycles"], f["live_expected"]) == ("final", 8, 19, 8, 20)
+    assert "finalized: demo 8/19, live 8/20" in (repo / "logs" / "cycle_watch_2026-10-01.log").read_text()
+
+
+def test_post_close_run_without_flag_writes_nothing(watch_repo, monkeypatch):
+    run, sent, repo = watch_repo
+    monkeypatch.setattr(cw, "session_bounds", lambda day: ((datetime(2026, 9, 30, 13, 30, tzinfo=timezone.utc),
+                                                             datetime(2026, 9, 30, 20, 0, tzinfo=timezone.utc)), ""))
+    run(datetime(2026, 9, 30, 20, 15, tzinfo=timezone.utc), {})
+    assert not (repo / "logs" / "cycle_watch_2026-09-30.log").exists()
+
+
+def test_weekly_report_leads_with_partial_session(monkeypatch, tmp_path):
+    import backend.weekly_report as wr
+    from backend.db import finalize_session_flag, flag_session
+    day = wr._week_start_iso()[:10]
+    flag_session(day, "partial", "console close, no relaunch", "cycle_watch")
+    finalize_session_flag(day, "partial", 8, 19, 8, 20)
+    monkeypatch.setattr(wr, "_SWEEP_PATH", tmp_path / "none.json")
+    monkeypatch.setattr(wr, "_OPT_PATH", tmp_path / "none.json")
+    monkeypatch.setattr(wr, "_gpt4o_commentary", lambda *a, **k: None)
+    monkeypatch.setattr(wr, "_fetch_prices", lambda tickers: {})
+    _, html, plain = wr.build_report()
+    for body in (html, plain):
+        assert f"PARTIAL SESSION {day} (demo 8/19, live 8/20 cycles) — console close, no relaunch" in body
+    assert plain.index("PARTIAL SESSION") < plain.index("Demo:")
+
+
+def test_ops_window_carries_the_flag(tmp_path, monkeypatch):
+    import backend.routers.signals_router as sr
+    from backend.db import flag_session
+    monkeypatch.setattr(sr, "_LOG_DIR", tmp_path)
+    from backend.db import get_db
+    d = sr.get_market_window(days=10)["sessions"][0]["date"]     # oldest row: no other test flags it
+    with get_db() as conn:
+        conn.execute("DELETE FROM session_flags WHERE date = ?", (d,))
+        conn.commit()
+    assert next(x for x in sr.get_market_window(days=10)["sessions"] if x["date"] == d)["partial"] is None
+    flag_session(d, "partial", "test", "cycle_watch")
+    s = next(x for x in sr.get_market_window(days=10)["sessions"] if x["date"] == d)
+    assert s["partial"]["status"] == "provisional" and s["partial"]["cause"] == "test"

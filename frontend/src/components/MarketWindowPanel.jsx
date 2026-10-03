@@ -43,7 +43,14 @@ export default function MarketWindowPanel() {
             const st = LAUNCHER[s.launcher];
             return (
               <tr key={s.date}>
-                <td><strong>{s.date.slice(5)}</strong>{s.early_close ? " ½" : ""}</td>
+                <td><strong>{s.date.slice(5)}</strong>{s.early_close ? " ½" : ""}
+                  {s.partial && (
+                    <span className="t-pill t-sev-high" style={{ marginLeft: 4 }}
+                          title={`flagged partial (${s.partial.status}) by the cycle watch: ${s.partial.cause}`}>
+                      PARTIAL
+                    </span>
+                  )}
+                </td>
                 <td style={{ whiteSpace: "nowrap" }}>
                   {s.cycles}/{s.expected}
                   {s.live_expected != null && (

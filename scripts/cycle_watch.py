@@ -22,6 +22,14 @@ closes from the calendar); outside it, exits without writing anything. Inside,
 writes one line per run to logs/cycle_watch_<ET date>.log (read by
 /api/ops/window) and sends at most one mail per job per day (alert_latches).
 
+Session flags (2026-10-03, Niclas: "the writer has to live outside the process
+that dies"): the first stale run of a day writes a provisional `partial` row to
+session_flags; the first run after the close (to CLOSE_FINALIZE_MIN) fills in the
+final demo/live cycles/expected from audit/gate_cycles. Both writes happen here,
+not in the backend — the EOD audit is a backend job and would be dead on exactly
+the day that needs the mark. CHECK 85 reconciles the flags against computed
+coverage (a low ratio with no flag, a flag on a normal ratio, a flag never finalized).
+
 Not covered: the PC off or asleep, or WSL unable to start — nothing on the host
 runs then; the off-host heartbeat (session-heartbeat.yml) is the only cover.
 
@@ -44,6 +52,7 @@ STHLM = ZoneInfo("Europe/Stockholm")
 STALE_MIN = 45          # > two missed 20-min cycles (GATE_INTERVAL)
 JOBS = {"run_gate": "demo", "run_live_gate": "live"}
 PORT = 8000
+CLOSE_FINALIZE_MIN = 150   # runs this long after the close may finalize today's flag
 
 
 def evaluate(now_utc: datetime, bounds: tuple[datetime, datetime] | None,
@@ -109,6 +118,38 @@ def process_state(port: int = PORT) -> str:
         return f"port {port} bound but /health not answering ({type(e).__name__}) — hung"
 
 
+def session_cycles(db: Path, day: str, bounds: tuple[datetime, datetime]) -> tuple[int, int, int, int]:
+    """(demo cycles, demo expected, live cycles, live expected) for one session — the
+    same count CHECK 80 and /api/ops/window use (audit/gate_cycles.py)."""
+    from audit.gate_cycles import cycle_starts, expected_cycles
+    interval = 20
+    try:
+        from backend.config import GATE_INTERVAL
+        interval = GATE_INTERVAL
+    except Exception:
+        pass
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=10)
+    try:
+        demo = cycle_starts(conn, "demo_gate_history", day).get(day, [])
+        live = cycle_starts(conn, "live_gate_history", day).get(day, [])
+    finally:
+        conn.close()
+    return (len(demo), expected_cycles(bounds[0], bounds[1], demo, interval),
+            len(live), expected_cycles(bounds[0], bounds[1], live, interval))
+
+
+def _finalize(day: str, bounds: tuple[datetime, datetime]) -> str | None:
+    """After the close: write the final ratio into today's flag, if one was written."""
+    from backend.db import finalize_session_flag, get_session_flags
+    flags = [f for f in get_session_flags(day) if f["date"] == day and f["status"] == "provisional"]
+    if not flags:
+        return None
+    c, e, lc, le = session_cycles(REPO / "data" / "apex.db", day, bounds)
+    for f in flags:
+        finalize_session_flag(day, f["kind"], c, e, lc, le)
+    return f"session flag finalized: demo {c}/{e}, live {lc}/{le}"
+
+
 def _local(dt: datetime | None) -> str:
     return dt.astimezone(STHLM).strftime("%H:%M %Z") if dt else "none today"
 
@@ -121,6 +162,12 @@ def main() -> int:
     now = datetime.now(timezone.utc)
     day = now.astimezone(NY).date()
     bounds, note = session_bounds(day)
+    sys.path.insert(0, str(REPO))
+    if bounds and bounds[1] < now <= bounds[1] + timedelta(minutes=CLOSE_FINALIZE_MIN):
+        done = _finalize(day.isoformat(), bounds)
+        if done:
+            _log(now, day, done)
+        return 0
     rows = evaluate(now, bounds, read_stamps(REPO / "data" / "apex.db"))
     if not rows:
         return 0
@@ -130,19 +177,26 @@ def main() -> int:
     stale = [r for r in rows if r["stale"]]
     sent = []
     if stale:
-        sys.path.insert(0, str(REPO))
         from backend.alerts import alert_cycles_stale
-        from backend.db import set_alert_latch
+        from backend.db import flag_session, set_alert_latch
+        if flag_session(day.isoformat(), "partial",
+                        f"no {'/'.join(r['side'] for r in stale)} gate start for "
+                        f"{max(r['age_min'] for r in stale)} min at {now.astimezone(STHLM):%H:%M %Z}; {state}",
+                        "cycle_watch"):
+            parts.append("session flagged partial (provisional)")
         for r in stale:
             if set_alert_latch(f"cycle_watch:{r['job']}:{day.isoformat()}"):
                 alert_cycles_stale(r["side"], _local(r["last"]), r["age_min"], state, STALE_MIN)
                 sent.append(r["side"])
-    line = " · ".join(parts) + f" · {state}" + (f" · alert sent: {', '.join(sent)}" if sent else "") + note
+    _log(now, day, " · ".join(parts) + f" · {state}" + (f" · alert sent: {', '.join(sent)}" if sent else "") + note)
+    return 0
+
+
+def _log(now: datetime, day, line: str) -> None:
     log = REPO / "logs" / f"cycle_watch_{day.isoformat()}.log"
     log.parent.mkdir(exist_ok=True)
     with log.open("a") as f:
         f.write(f"{now.astimezone(STHLM):%Y-%m-%d %H:%M:%S %Z} | {line}\n")
-    return 0
 
 
 if __name__ == "__main__":

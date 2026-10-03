@@ -268,6 +268,26 @@ def init_db() -> None:
             -- (2026-10-03). Gate history is not proof of life — a cycle with no
             -- Lock 1 candidates or a live halt writes no row — so the off-process
             -- cycle watch (scripts/cycle_watch.py) reads this instead.
+            -- Sessions whose results must not be read as a normal trading day
+            -- (2026-10-03, after 10-02 ran 8/19 cycles). Written outside the backend
+            -- by scripts/cycle_watch.py: provisional when a gate job first goes
+            -- stale, final (cycles/expected) on its first run after the close.
+            -- CHECK 85 reconciles these rows against computed coverage.
+            CREATE TABLE IF NOT EXISTS session_flags (
+                date          TEXT NOT NULL,
+                kind          TEXT NOT NULL,
+                status        TEXT NOT NULL,
+                cause         TEXT NOT NULL,
+                source        TEXT NOT NULL,
+                cycles        INTEGER,
+                expected      INTEGER,
+                live_cycles   INTEGER,
+                live_expected INTEGER,
+                first_seen_at TEXT NOT NULL,
+                finalized_at  TEXT,
+                PRIMARY KEY (date, kind)
+            );
+
             CREATE TABLE IF NOT EXISTS job_runs (
                 job         TEXT PRIMARY KEY,
                 started_at  TEXT NOT NULL,
@@ -1536,6 +1556,47 @@ def close_live_trade(trade_id: int, exit_price: float, pnl: float,
             logger.warning(f"close_live_trade: trade {trade_id} is no longer OPEN — "
                            f"{exit_reason} exit at ${exit_price:.2f} ({outcome}) NOT booked")
         return cur.rowcount
+    finally:
+        conn.close()
+
+
+def flag_session(date: str, kind: str, cause: str, source: str) -> bool:
+    """Provisional session flag; the first writer of the day wins. True if newly written."""
+    conn = get_db()
+    try:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO session_flags (date, kind, status, cause, source, first_seen_at) "
+            "VALUES (?, ?, 'provisional', ?, ?, ?)",
+            (date, kind, cause, source, datetime.now(timezone.utc).isoformat()))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def finalize_session_flag(date: str, kind: str, cycles: int, expected: int,
+                          live_cycles: int, live_expected: int) -> bool:
+    """Fill the final ratio into an existing flag. True if a flag existed."""
+    conn = get_db()
+    try:
+        cur = conn.execute(
+            "UPDATE session_flags SET status = 'final', cycles = ?, expected = ?, live_cycles = ?, "
+            "live_expected = ?, finalized_at = ? WHERE date = ? AND kind = ?",
+            (cycles, expected, live_cycles, live_expected,
+             datetime.now(timezone.utc).isoformat(), date, kind))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def get_session_flags(since: str, until: str | None = None) -> list[dict]:
+    conn = get_db()
+    try:
+        q = "SELECT * FROM session_flags WHERE date >= ?" + (" AND date < ?" if until else "") + " ORDER BY date"
+        return [dict(r) for r in conn.execute(q, (since, until) if until else (since,)).fetchall()]
+    except sqlite3.OperationalError:
+        return []            # table not created yet (backend not started since 10-03)
     finally:
         conn.close()
 

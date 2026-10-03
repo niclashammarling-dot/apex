@@ -575,12 +575,27 @@ def _gpt4o_commentary(
 
 # ── HTML builder ──────────────────────────────────────────────────────────────
 
+def _partial_sessions(since: str, until: str) -> list[str]:
+    """One line per flagged session in the week (session_flags, written by
+    scripts/cycle_watch.py; 2026-10-03). Shown before every number: a week with a
+    partial session has lower counts that are not a change in the system."""
+    from backend.db import get_session_flags
+    out = []
+    for f in get_session_flags(since[:10], until[:10]):
+        ratio = (f"demo {f['cycles']}/{f['expected']}, live {f['live_cycles']}/{f['live_expected']} cycles"
+                 if f["status"] == "final" else "ratio not finalized")
+        out.append(f"PARTIAL SESSION {f['date']} ({ratio}) — {f['cause']}. Counts and funnel totals "
+                   f"this week include it; per-trade results are unaffected.")
+    return out
+
+
 def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) -> tuple[str, str, str]:
     """Return (subject, html_body, plain_body)."""
     since  = _week_start_iso()
     until  = (datetime.fromisoformat(since) + timedelta(days=7)).isoformat()
     now    = datetime.now(timezone.utc)
     week_label = now.strftime("Week ending %B %d, %Y")
+    partials = _partial_sessions(since, until)
 
     demo  = _demo_stats(since, until)
     live  = _live_stats(since, until)
@@ -860,6 +875,7 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
   <div style='max-width:680px;margin:0 auto;'>
     <h2 style='color:#6366f1;margin:0 0 4px 0;'>APEX Weekly Report</h2>
     <p style='color:#6b7280;font-size:13px;margin:0 0 24px 0;'>{week_label}</p>
+    {"".join(f"<p style='color:#f59e0b;font-size:12px;font-weight:600;margin:0 0 8px 0;'>{p}</p>" for p in partials)}
 
     {commentary_html}
 
@@ -894,6 +910,7 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
 
     plain = f"""APEX Weekly Report — {week_label}
 """
+    plain += "".join(f"⚠ {p}\n" for p in partials)
     if commentary:
         plain += f"\nAI ANALYSIS\n  {commentary}\n"
 

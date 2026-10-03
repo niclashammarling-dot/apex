@@ -905,6 +905,13 @@ def get_market_window(days: int = 10):
             "SELECT date, COUNT(*) FROM lock4_pcr_history WHERE date >= ? GROUP BY date", (since,)).fetchall()}
         # Startup catch-ups that raised (2026-09-29): the latch key is the durable record
         # (startup_catchup:<name>:<NY date>, set once per catch-up per day, never cleared).
+        # Session flags (2026-10-03): written by the out-of-process cycle watch.
+        try:
+            partial = {r[0]: dict(zip(("status", "cause", "cycles", "expected"), r[1:])) for r in conn.execute(
+                "SELECT date, status, cause, cycles, expected FROM session_flags "
+                "WHERE kind = 'partial' AND date >= ?", (since,)).fetchall()}
+        except Exception:
+            partial = {}
         catchup_failed: dict[str, list[str]] = {}
         for (key,) in conn.execute("SELECT key FROM alert_latches WHERE key LIKE 'startup_catchup:%'").fetchall():
             _, name, d = key.split(":", 2)
@@ -988,6 +995,7 @@ def get_market_window(days: int = 10):
             "serving_commit": serving,
             "startup_catchups_failed": sorted(catchup_failed.get(d, [])),
             "cycle_watch": watch,
+            "partial": partial.get(d),
             # 2026-09-21: the window closed at 16:17 ET and neither collect_pcr nor the
             # audit ran; nothing on the dashboard said so. Same-day catch-ups exist now.
             # regime is due at 08:30 ET on the next session (moved pre-open 2026-09-22):

@@ -1423,6 +1423,78 @@ def check84() -> None:
              f"{uncited} execution(s) cite no count")
 
 
+_C85_SINCE    = "2026-10-02"  # first flagged session (seeded 10-03); earlier days have no flag to reconcile
+_C85_SESSIONS = 5
+_C85_PARTIAL  = 0.9           # demo cycles/expected below this is a partial session
+
+
+def check85() -> None:
+    """
+    CHECK 85 — Session flags reconcile with computed coverage.
+
+    2026-10-02 ran 8/19 cycles (a console close killed the backend at 18:09 CEST,
+    nothing relaunched); Niclas, 10-03: mark it in every consumer of the paper
+    record with a durable flag, written by something that keeps running when the
+    backend is down. scripts/cycle_watch.py writes session_flags (provisional
+    when a gate job goes stale, final after the close). The computed definition
+    (demo cycles/expected from audit/gate_cycles, as CHECK 80) cannot be
+    forgotten but undercounts quiet cycles (no Lock 1 candidates write no row);
+    the stored flag carries the cause but has a writer that can miss. Each
+    checks the other, for closed sessions since _C85_SINCE:
+
+      WARNING  ratio < _C85_PARTIAL with no flag — a missed outage (watch not
+               running, PC off), or the quiet-cycle undercount
+      WARNING  a flag on a ratio >= _C85_PARTIAL — the flag is wrong, or the
+               outage was short enough to cost under 10% of the session
+      WARNING  a flag still provisional on a closed session — the watch's
+               post-close run did not happen (finalize by hand)
+    SKIPPED without apex.db.
+    """
+    name = "Session flags reconcile with coverage"
+    db = REPO / "data/apex.db"
+    if not require_data_file(85, name, db):
+        return
+    from audit.gate_cycles import cycle_starts
+    try:
+        sessions = [d for d in _c82_session_dates(_C85_SESSIONS) if d >= _C85_SINCE and d != _c82_open_day()]
+    except Exception as e:
+        flag(85, name, "WARNING", "audit/checks_gate.py:_c82_session_dates", f"calendar unavailable: {e}")
+        return
+    if not sessions:
+        return
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        starts = cycle_starts(conn, "demo_gate_history", sessions[0])
+        try:
+            flags = {r["date"]: dict(r) for r in conn.execute(
+                "SELECT * FROM session_flags WHERE date >= ? AND kind = 'partial'", (sessions[0],))}
+        except sqlite3.OperationalError:
+            flags = {}
+        conn.close()
+    except Exception as e:
+        flag(85, name, "WARNING", "data/apex.db:session_flags", f"could not query: {e}")
+        return
+    cov = {d: (c, e) for d, c, e in _c80_session_coverage({d: starts.get(d, []) for d in sessions})}
+    for d in sessions:
+        c, e = cov.get(d, (0, 0))
+        ratio = c / e if e else 0.0
+        f = flags.get(d)
+        if f is None and ratio < _C85_PARTIAL:
+            flag(85, name, "WARNING", "scripts/cycle_watch.py",
+                 f"{d}: demo {c}/{e} cycles ({ratio:.0%}) and no session flag — an outage the cycle watch "
+                 f"did not record (watch not running, PC off), or quiet cycles undercounted; "
+                 f"if real, flag it so the paper record does not read it as a full session")
+        elif f is not None and ratio >= _C85_PARTIAL:
+            flag(85, name, "WARNING", "data/apex.db:session_flags",
+                 f"{d}: flagged partial ({f['cause']}) but demo coverage is {c}/{e} ({ratio:.0%}) — "
+                 f"the flag is wrong, or the outage cost under {1 - _C85_PARTIAL:.0%} of the session")
+        if f is not None and f["status"] != "final":
+            flag(85, name, "WARNING", "scripts/cycle_watch.py",
+                 f"{d}: session flag still provisional — the watch's post-close run did not finalize it "
+                 f"(computed now: demo {c}/{e})")
+
+
 def run() -> None:
     check24()
     check25()
@@ -1441,3 +1513,4 @@ def run() -> None:
     check82()
     check83()
     check84()
+    check85()
