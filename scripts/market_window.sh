@@ -103,6 +103,20 @@ if ss -ltn "( sport = :$PORT )" | grep -q ":$PORT"; then
     exit 0
 fi
 
+# Single-instance guard (2026-10-03, Niclas): the port probe above sees a backend
+# only once uvicorn has bound, which is after the initial sector poll (45-294 s
+# measured). A second launch inside that window passes the probe; its backend is
+# API-only (the scheduler flock) but can win port $PORT, leaving the real one unable to
+# bind and the probe reading "bound" all day. Task Scheduler's IgnoreNew does not
+# close it either: it tracks wsl.exe, not uvicorn. This lock is shared by both
+# launchers, and uvicorn inherits fd 9, so it lives exactly as long as the backend
+# does, orphaned or not.
+LAUNCH_LOCK=${APEX_LAUNCH_LOCK:-$APEX/data/launcher.lock}
+exec 9>"$LAUNCH_LOCK"
+if ! flock -n 9; then
+    log "launcher lock held ($LAUNCH_LOCK) — another launcher's backend is alive (not yet bound?), exiting"
+    exit 0
+fi
 cd "$APEX" || exit 1
 log "starting uvicorn (no --reload), ET now $et_hm"
 APEX_SERVE=1 "$UVICORN" backend.main:app --host 127.0.0.1 --port "$PORT" >> "$LOG" 2>&1 &
@@ -129,7 +143,7 @@ while (( $(date +%s) < ready_deadline )); do
     if curl -s -m 5 "http://127.0.0.1:$PORT/health" | grep -Eq '"scheduler_owner": ?true'; then
         ready=1; break
     fi
-    sleep 5 & wait $!
+    sleep 5 9>&- & wait $!
 done
 if (( ready )); then
     log "ready: scheduler owner confirmed, $(( $(date +%s) + READY_TIMEOUT - ready_deadline ))s after start"
@@ -154,7 +168,7 @@ while (( $(date +%s) < end_epoch )); do
         log "ended before window close (uvicorn exited rc=$rc), ET now $(TZ=America/New_York date +%H%M)"
         exit 1
     fi
-    sleep 30 & wait $!   # backgrounded so a trapped signal is handled at once
+    sleep 30 9>&- & wait $!   # backgrounded so a trapped signal is handled at once
 done
 
 log "window closed (ET now $(TZ=America/New_York date +%H%M)) — SIGTERM $PID"
