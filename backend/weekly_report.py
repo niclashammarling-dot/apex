@@ -327,19 +327,25 @@ _SWEEP_UNREADABLE = "unreadable"
 _SWEEP_OK = "ok"
 
 
-def _shape_html(path: Path, kind: str) -> str:
+def _shape_lines(path: Path, kind: str) -> list[tuple[str, bool]]:
     """The off-shape / stale label for a results file, plus (sweep) how many distinct
-    outcomes the grid produced — shown above the numbers, never after them
-    (2026-09-29: the report presented off-shape results as describing the system)."""
+    outcomes the grid produced, as (text, is_warning) lines — shown above the
+    numbers, never after them (2026-09-29: the report presented off-shape results
+    as describing the system).
+
+    One producer, two renderers (2026-10-03): the label lived only in the HTML
+    writer, so the mail's plain-text part showed the same numbers with neither
+    the OFF-SHAPE line nor the outcome count (first live run, 10-02).
+    """
     from backend.backtest.live_shape import shape_label
     try:
         data = json.loads(path.read_text())
     except Exception:
-        return ""
-    out = ""
+        return []
+    out: list[tuple[str, bool]] = []
     label = shape_label(data, kind)
     if label:
-        out += f"<p style='color:#ef4444;font-size:12px;font-weight:600;margin:4px 0;'>{label}</p>"
+        out.append((label, True))
     if kind == "sweep":
         if data.get("distinct_outcomes") is None:
             # A payload written before 2026-09-29 has no count: unknown, not zero or blank.
@@ -349,8 +355,19 @@ def _shape_html(path: Path, kind: str) -> str:
             inert = data.get("inert_axes") or []
             txt = (f"Distinct outcomes: {data['distinct_outcomes']} of {data.get('valid_combos')} valid combos"
                    + (f"; never changed a result: {', '.join(inert)}" if inert else ""))
-        out += f"<p style='color:#9ca3af;font-size:11px;margin:2px 0;'>{txt}</p>"
+        out.append((txt, False))
     return out
+
+
+def _shape_html(path: Path, kind: str) -> str:
+    return "".join(
+        f"<p style='color:#ef4444;font-size:12px;font-weight:600;margin:4px 0;'>{t}</p>" if warn
+        else f"<p style='color:#9ca3af;font-size:11px;margin:2px 0;'>{t}</p>"
+        for t, warn in _shape_lines(path, kind))
+
+
+def _shape_text(path: Path, kind: str) -> str:
+    return "".join(f"  {'⚠ ' if warn else ''}{t}\n" for t, warn in _shape_lines(path, kind))
 
 
 def _sweep_best() -> tuple[str, str, list[dict] | None]:
@@ -930,6 +947,7 @@ LOCK 1 THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
         plain += f"\nBEST BACKTEST CONFIGS: UNREADABLE — {sweep_detail}\n"
     if sweep_top:
         plain += "\nBEST BACKTEST CONFIGS (last 90d)\n"
+        plain += _shape_text(_SWEEP_PATH, "sweep")
         for i, r in enumerate(sweep_top):
             plain += (
                 f"  #{i+1}: L1={r.get('lock1_threshold')} "
@@ -945,6 +963,7 @@ LOCK 1 THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
         fm = opt.get("final_metrics", {})
         bp = opt["best_params"]
         plain += f"\nAUTORESEARCH OPTIMIZER ({opt_detail})\n"
+        plain += _shape_text(_OPT_PATH, "optimizer")
         plain += f"  best score {opt['best_score']:.3f}  kept {opt.get('experiments_kept', '?')}/{opt.get('experiments_total', '?')}\n"
         st = opt.get("start") or {}
         if opt["noise_floor_valid"]:

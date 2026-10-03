@@ -130,3 +130,32 @@ def test_old_format_payload_still_labelled_and_counts_unknown(tmp_path):
     html = _shape_html(p, "sweep")
     assert "OFF-SHAPE" in html
     assert "Distinct outcomes: unknown of 3240" in html
+
+
+def test_weekly_report_plain_part_carries_label_and_outcomes(tmp_path, monkeypatch):
+    """2026-10-02, first live run: the HTML part carried OFF-SHAPE and the outcome
+    line, the plain-text part dropped both (the text writer bypassed _shape_html).
+    The mail's two parts must show the same warnings — read through build_report."""
+    import backend.weekly_report as wr
+    sweep = tmp_path / "sweep_results.json"
+    sweep.write_text(json.dumps({"generated_at": "2026-09-28T15:02:59", "valid_combos": 3240,
+                                 "top_configs": [{"lock1_threshold": 0.75, "take_profit_pct": 0.06,
+                                                  "stop_loss_pct": 0.04, "time_stop_days": 20,
+                                                  "sharpe": 1.8, "total_return_pct": 0.035, "win_rate": 0.43}]}))
+    opt = tmp_path / "optimizer_results.json"
+    opt.write_text(json.dumps({"generated_at": "2026-09-28T16:00:00", "best_score": 0.88,
+                               "best_params": {"lock1_threshold": 0.76, "max_positions": 2},
+                               "final_metrics": {"sharpe": 2.9}}))
+    monkeypatch.setattr(wr, "_SWEEP_PATH", sweep)
+    monkeypatch.setattr(wr, "_OPT_PATH", opt)
+    monkeypatch.setattr(wr, "_gpt4o_commentary", lambda *a, **k: None)
+    monkeypatch.setattr(wr, "_fetch_prices", lambda tickers: {})
+    _, html, plain = wr.build_report()
+    for body in (html, plain):
+        assert body.count("OFF-SHAPE") == 2, body          # sweep and optimizer sections
+        assert "Distinct outcomes: unknown of 3240" in body
+    # above the numbers, never after them
+    sec = plain[plain.index("BEST BACKTEST CONFIGS"):]
+    assert sec.index("OFF-SHAPE") < sec.index("#1:")
+    osec = plain[plain.index("AUTORESEARCH OPTIMIZER"):]
+    assert osec.index("OFF-SHAPE") < osec.index("best score")
