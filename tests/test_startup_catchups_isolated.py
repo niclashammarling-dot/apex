@@ -59,7 +59,7 @@ def test_a_raise_alerts_and_the_rest_still_run(monkeypatch, bad):
 def test_relaunch_loop_alerts_once_per_catchup_per_day(monkeypatch):
     bad = "_check_missed_live_exits"
     _, first  = _start(monkeypatch, raising={bad})
-    _, second = _start(monkeypatch, raising={bad})    # RestartOnFailure relaunch, same day
+    _, second = _start(monkeypatch, raising={bad})    # relaunch, same day
     assert len(first) == 1 and second == []
 
 

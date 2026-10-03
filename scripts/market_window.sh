@@ -27,9 +27,13 @@
 #   - Port 8000 already bound → exit; that instance's APScheduler owns the day.
 #   - Interruption recovery (2026-09-21, from the 09-19 first-window-day note):
 #     the wrapper watches the child instead of sleeping blind. Child gone
-#     before 16:40 ET → "ended before window close" line, exit 1 → the task's
-#     RestartOnFailure relaunches (the ET guard and port probe make any
-#     relaunch safe). Host reboot kills the wrapper without an exit code, so
+#     before 16:40 ET → "ended before window close" line, exit 1. The
+#     relaunch is the 14:20 trigger's 5-min repetition (2026-10-03): IgnoreNew
+#     drops each repeat while this instance runs, the first repeat after it
+#     ends starts a new one (the ET guard and port probe make any relaunch
+#     safe). RestartOnFailure does not fire on a non-zero exit — measured
+#     2026-10-03 for exit 1 (HUP) and 0xC000013A (console window closed, the
+#     10-02 18:09 outage): event 102 "completed", no relaunch. Host reboot kills the wrapper without an exit code, so
 #     the task also has a LogonTrigger: same script, same guards. TERM/HUP
 #     are trapped so a WSL teardown that does deliver a signal self-logs.
 #   - The hold is a wall-clock loop on `date`, never a blind `sleep N`: on
@@ -141,7 +145,7 @@ elif kill -0 "$PID" 2>/dev/null; then
 fi
 
 # Watch the child until 16:40 ET today; a child that dies first is a failure
-# the task scheduler relaunches (RestartOnFailure in APEX-market-window.xml).
+# the next 5-min repeat of the task's 14:20 trigger relaunches (APEX-market-window.xml).
 end_epoch=$(TZ=America/New_York date -d "$(TZ=America/New_York date +%F) 16:40" +%s)
 [[ -n $TEST ]] && end_epoch=$(( $(date +%s) + TEST ))
 while (( $(date +%s) < end_epoch )); do

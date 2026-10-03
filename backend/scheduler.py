@@ -874,7 +874,7 @@ def _run_startup_catchup(name: str) -> None:
     Before 2026-09-29 the catch-ups ran bare inside start_scheduler(), which
     lifespan calls bare: one raise (a DB read in _eod_inputs, an Alpaca error in
     the market-hours live-exit check) failed the lifespan, uvicorn never served,
-    every later catch-up was skipped — and a RestartOnFailure relaunch hit the
+    every later catch-up was skipped — and a same-day relaunch hit the
     same raise again. Only the off-host heartbeat would notice. Now each runs on
     its own; a failure alerts once per catch-up per NY date (persisted latch, so
     a relaunch loop does not re-send) and startup continues.

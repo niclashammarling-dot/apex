@@ -1169,8 +1169,10 @@ def check82() -> None:
 
     Since 2026-09-21 market_window.sh watches its child and writes
     `ended before window close (uvicorn exited rc=N | signal X)` and exits 1,
-    so the task's RestartOnFailure relaunches it; a host reboot is covered by
-    a LogonTrigger. This check reads those lines — the persisted cause — for
+    and the next 5-min repeat of the task's 14:20 trigger relaunches it
+    (2026-10-03; until then the design relied on RestartOnFailure, which
+    measurably never fires on a non-zero exit — 10-02 lost 3 h 51 m to it); a
+    host reboot is covered by a LogonTrigger. This check reads those lines — the persisted cause — for
     the trailing _C82_SESSIONS sessions (today only once the window is over):
 
       CRITICAL  `ended before window close` on any session (an interruption
