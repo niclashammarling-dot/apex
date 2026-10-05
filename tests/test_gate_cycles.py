@@ -56,12 +56,31 @@ def test_early_close_counts_its_own_slots():
     assert expected_cycles(start, early, ["2026-11-27T14:33"], 20) == 11   # 09:33 … 12:53 ET (EST)
 
 
+# Fixed dates, window sized from them (2026-10-05): the test took "the latest
+# session" from the real clock, passed until the cutover, and failed on its
+# first day, when the latest session became a gate_cycles day. A window of a
+# fixed 10 days would lose the pre-cutover date again around 10-19.
+PRE_CUTOVER, POST_CUTOVER = "2026-10-02", "2026-10-05"
+
+
+def _window_days(d: str) -> int:
+    from datetime import date
+    return (date.today() - date.fromisoformat(d)).days + 3
+
+
+def _session(sr, d: str) -> dict:
+    return next(x for x in sr.get_market_window(days=_window_days(d))["sessions"] if x["date"] == d)
+
+
 def test_ops_window_reports_both_books_on_cycle_stamps(tmp_path, monkeypatch):
+    """Before GATE_CYCLES_FROM: cycles come from gate history, one per cycle_started_at."""
     import backend.routers.signals_router as sr
+    from audit.gate_cycles import GATE_CYCLES_FROM
     from backend.db import get_db
+    assert PRE_CUTOVER < GATE_CYCLES_FROM
     monkeypatch.setattr(sr, "_LOG_DIR", tmp_path)
-    before = sr.get_market_window(days=10)["sessions"][-1]
-    d = before["date"]
+    d = PRE_CUTOVER
+    before = _session(sr, d)
     rows = []
     for t, base in [("live_gate_history", 33), ("demo_gate_history", 41)]:
         for k in range(3):
@@ -75,13 +94,48 @@ def test_ops_window_reports_both_books_on_cycle_stamps(tmp_path, monkeypatch):
                          (ts, cyc))
         conn.commit()
     try:
-        s = next(x for x in sr.get_market_window(days=10)["sessions"] if x["date"] == d)
+        s = _session(sr, d)
         # delta, not absolute: the temp DB is shared with the rest of the suite
         assert (s["cycles"] - before["cycles"], s["live_cycles"] - before["live_cycles"]) == (3, 3)
         if before["cycles"] == 0 and before["live_cycles"] == 0 and not s["early_close"]:
             assert (s["expected"], s["live_expected"]) == (19, 20)
     finally:
         with get_db() as conn:
+            for t in ("live_gate_history", "demo_gate_history"):
+                conn.execute(f"DELETE FROM {t} WHERE ticker = 'TST'")
+            conn.commit()
+
+
+def test_ops_window_counts_gate_cycles_rows_from_the_cutover(tmp_path, monkeypatch):
+    """From GATE_CYCLES_FROM: scheduler rows in gate_cycles are the only source.
+    Gate-history rows and manual cycles on that day add nothing."""
+    import backend.routers.signals_router as sr
+    from audit.gate_cycles import GATE_CYCLES_FROM
+    from backend.db import get_db, init_db
+    assert POST_CUTOVER >= GATE_CYCLES_FROM
+    init_db()
+    monkeypatch.setattr(sr, "_LOG_DIR", tmp_path)
+    d = POST_CUTOVER
+    before = _session(sr, d)
+    with get_db() as conn:
+        for job, base in [("run_live_gate", 33), ("run_gate", 41)]:
+            for k in range(3):
+                hh, mm = divmod(13 * 60 + base + 20 * k, 60)
+                st = f"{d}T{hh:02d}:{mm:02d}:30+00:00"
+                conn.execute("INSERT INTO gate_cycles (job, trigger, started_at, finished_at, outcome, reason) "
+                             "VALUES (?, 'scheduler', ?, ?, 'ok', 'TST')", (job, st, st))
+            conn.execute("INSERT INTO gate_cycles (job, trigger, started_at, finished_at, outcome, reason) "
+                         "VALUES (?, 'manual', ?, ?, 'ok', 'TST')", (job, f"{d}T17:07:00+00:00", f"{d}T17:07:30+00:00"))
+        for t in ("live_gate_history", "demo_gate_history"):
+            conn.execute(f"INSERT INTO {t} (timestamp, ticker, sector, cycle_started_at) VALUES (?, 'TST', 'Test', ?)",
+                         (f"{d}T18:01:00+00:00", f"{d}T18:01:00+00:00"))
+        conn.commit()
+    try:
+        s = _session(sr, d)
+        assert (s["cycles"] - before["cycles"], s["live_cycles"] - before["live_cycles"]) == (3, 3)
+    finally:
+        with get_db() as conn:
+            conn.execute("DELETE FROM gate_cycles WHERE reason = 'TST'")
             for t in ("live_gate_history", "demo_gate_history"):
                 conn.execute(f"DELETE FROM {t} WHERE ticker = 'TST'")
             conn.commit()
