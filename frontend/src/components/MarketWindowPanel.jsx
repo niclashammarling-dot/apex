@@ -5,12 +5,37 @@ import React, { useEffect, useState } from "react";
 // /api/ops/window. Same numbers CHECK 80's coverage line reads (audit/gate_cycles.py:
 // one cycle per cycle_started_at, expected = grid slots at the scheduler's phase).
 // Live cycles shown beside demo (L); the bar and coverage stay demo, as CHECK 80's do.
+// From 2026-10-04 each cycle's exit reason (gate_cycles): quiet (Q), halted (H),
+// every evaluation raised (R), manual /gate/run cycles (M, not in the counts).
 const LAUNCHER = {
   running:     { label: "RUNNING",     cls: "t-pill-lock" },
   closed:      { label: "CLOSED",      cls: "t-pill-paper" },
   ended_early: { label: "ENDED EARLY", cls: "t-sev-high" },
   not_started: { label: "NO LAUNCHER", cls: "t-sev-medium" },
 };
+
+const QUIET = ["no_candidates", "all_skipped", "all_excluded"];
+const HALT = ["halt_unreconciled", "halt_data_quality", "broker_unreachable", "account_blocked", "loss_cap"];
+
+function CycleReasons({ r }) {
+  if (!r) return null;
+  const sum = (book, keys) => keys.reduce((a, k) => a + (r[book][k] || 0), 0);
+  const q = sum("demo", QUIET) + sum("live", QUIET);
+  const h = sum("live", HALT);
+  const x = sum("demo", ["all_raised"]) + sum("live", ["all_raised"]);
+  const m = r.manual.demo + r.manual.live;
+  const detail = ["demo", "live"].map(b =>
+    `${b}: ` + (Object.entries(r[b]).map(([k, n]) => `${k} ${n}`).join(", ") || "none")).join("\n")
+    + `\nmanual: demo ${r.manual.demo}, live ${r.manual.live}`;
+  return (
+    <span className="t-meta" style={{ marginLeft: 6 }} title={detail}>
+      Q {q}
+      {h > 0 && <span style={{ color: "var(--t-red)", marginLeft: 4 }}>H {h}</span>}
+      {x > 0 && <span style={{ color: "var(--t-red)", marginLeft: 4 }}>R {x}</span>}
+      {m > 0 && <span style={{ marginLeft: 4 }}>M {m}</span>}
+    </span>
+  );
+}
 
 export default function MarketWindowPanel() {
   const [data, setData] = useState(null);
@@ -58,6 +83,7 @@ export default function MarketWindowPanel() {
                       L {s.live_cycles}/{s.live_expected}
                     </span>
                   )}
+                  <CycleReasons r={s.cycle_reasons} />
                 </td>
                 <td style={{ width: 90 }}>
                   <div style={{ height: 6, background: "var(--t-grid)", borderRadius: 2 }}>

@@ -818,8 +818,24 @@ _C80_MIN_ROWS   = 100            # rate read needs this many per_ticker_p25 rows
 _C80_GATE_MIN   = 20             # backend.config.GATE_INTERVAL; the audit runs without backend imports
 
 
+def _c80_closed_sessions(since: str) -> list[str]:
+    """NYSE sessions from since through the last one whose window has closed (16:40 ET).
+
+    CHECK 80's coverage list (2026-10-04): it iterated the days that had demo
+    rows, so a session with none — backend down all day, or every cycle quiet
+    — was dropped instead of counted as 0/N, and raised the trailing mean.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    import pandas_market_calendars as mcal
+    today = datetime.now(ZoneInfo("America/New_York")).date()
+    sched = mcal.get_calendar("NYSE").schedule(start_date=since, end_date=today)
+    return [d for d in sched.index.strftime("%Y-%m-%d") if d != _c82_open_day()]
+
+
 def _c80_session_coverage(cycles: dict[str, list[str]]) -> list[tuple[str, int, int]]:
-    """(date, cycles written, cycles expected) per NYSE session with any demo gate row.
+    """(date, cycles written, cycles expected) per NYSE session in cycles' keys.
 
     cycles is audit.gate_cycles.cycle_starts(): one entry per cycle_started_at
     (2026-10-01; distinct row minutes before, which counted a cycle straddling a
@@ -894,11 +910,14 @@ def check80() -> None:
                2026-09-18 (scripts/market_window.sh); the treatment rows arrive
                only while it runs. Cycles actually written per NYSE session since
                the build are counted against the session's length / GATE_INTERVAL
-               (the calendar, so a half-day expects fewer). WARNING when the
+               (the calendar, so a half-day expects fewer); every closed calendar
+               session is listed, one with no cycles as 0/N (2026-10-04). From
+               GATE_CYCLES_FROM quiet cycles count (audit/gate_cycles.py);
+               before it they do not, so older sessions read low. WARNING when the
                trailing three sessions average under 50% coverage — the ETA is
                then a projection from a rate the schedule is not delivering.
-               Read after the close (publish_audit_state 16:33 ET); an intraday
-               run undercounts the session in progress.
+               Today joins after 16:40 ET (_c82_open_day), so the 16:33 ET
+               run reads the sessions before it.
     SKIPPED without apex.db.
     """
     import json
@@ -909,7 +928,7 @@ def check80() -> None:
     try:
         conn = sqlite3.connect(db)
         from audit.gate_cycles import cycle_starts
-        cycles = cycle_starts(conn, "demo_gate_history", _C80_BUILD_TS)
+        starts = cycle_starts(conn, "demo_gate_history", _C80_BUILD_TS)
         rows = conn.execute(
             "SELECT timestamp, ticker, lock_leading_checks FROM demo_gate_history "
             "WHERE timestamp >= ? AND lock_leading_checks LIKE '%pc_ratio%'",
@@ -966,7 +985,12 @@ def check80() -> None:
     ev_opened    = _share(post, opened)
     base_ps_open = _share([x for x in base if x[1]], opened)
 
-    coverage = _c80_session_coverage(cycles)
+    try:
+        sessions = _c80_closed_sessions(_C80_BUILD_TS)
+    except Exception as e:
+        flag(80, name, "WARNING", "audit/checks_gate.py:_c80_closed_sessions", f"calendar unavailable: {e}")
+        sessions = []
+    coverage = _c80_session_coverage({d: starts.get(d, []) for d in sessions})
     if coverage:
         cov_txt = ", ".join(f"{d[5:]} {c}/{e}" for d, c, e in coverage[-5:])
         trailing = [c / e for _, c, e in coverage[-3:] if e]
@@ -1283,6 +1307,12 @@ def check83() -> None:
     reads the fingerprint: within one day, two gate cycle start-minutes closer
     than _C83_MIN_GAP minutes on either table.
 
+    Cycles come from audit/gate_cycles.cycle_starts (2026-10-04): from
+    GATE_CYCLES_FROM, scheduler rows in gate_cycles — a second scheduler whose
+    cycles are quiet or halted now leaves a fingerprint, and a manual /gate/run
+    (off-phase by nature) does not read as one. Before it, gate rows, which
+    only show cycles that wrote a row.
+
       CRITICAL  any such pair in the trailing _C83_DAYS days (event severity;
                 names the table, day and the two minutes)
     SKIPPED without apex.db.
@@ -1297,14 +1327,14 @@ def check83() -> None:
     # Row minutes were the key before: the 09-28 demo cycle that overlapped
     # weekly_research wrote its skips at 15:01 and its evaluations at 15:03 and read
     # as two schedulers. Rows written before the column fall back to their own minute.
-    q = ("SELECT DISTINCT substr({key}, 1, 16) m FROM {t} WHERE timestamp >= ? ORDER BY m")
+    from audit.gate_cycles import GATE_CYCLES_FROM, cycle_starts, has_cycle_table
     try:
         conn = sqlite3.connect(db)
         mins, stamped = {}, {}
+        recorded_from = GATE_CYCLES_FROM if has_cycle_table(conn) else None
         for t in ("live_gate_history", "demo_gate_history"):
             cols = {r[1] for r in conn.execute(f"PRAGMA table_info({t})")}
-            key = "COALESCE(cycle_started_at, timestamp)" if "cycle_started_at" in cols else "timestamp"
-            mins[t] = [r[0] for r in conn.execute(q.format(key=key, t=t), (since,)).fetchall()]
+            mins[t] = [m for day in cycle_starts(conn, t, since).values() for m in day]
             stamped[t] = ({r[0] for r in conn.execute(
                 f"SELECT DISTINCT substr(cycle_started_at, 1, 16) FROM {t} "
                 f"WHERE timestamp >= ? AND cycle_started_at IS NOT NULL", (since,)).fetchall()}
@@ -1317,15 +1347,19 @@ def check83() -> None:
     # flagged" could not be told from "nothing judged". The 09-30 read was the
     # instance — no pair since the rekey had a stamped start on both sides that
     # the old key would have judged differently. Pairs between two stamped
-    # starts are the ones the cycle_started_at key actually decides.
+    # starts are the ones the cycle_started_at key actually decides; from the
+    # gate_cycles cutover every pair is between recorded starts.
     examined = []
     for t, ms in mins.items():
-        hits, n_pairs, n_stamped = [], 0, 0
+        hits, n_pairs, n_stamped, n_recorded = [], 0, 0, 0
         for a, b in pairwise(ms):
             if a[:10] != b[:10]:
                 continue
             n_pairs += 1
-            n_stamped += a in stamped[t] and b in stamped[t]
+            if recorded_from and a[:10] >= recorded_from:
+                n_recorded += 1
+            else:
+                n_stamped += a in stamped[t] and b in stamped[t]
             gap = (int(b[11:13]) * 60 + int(b[14:16])) - (int(a[11:13]) * 60 + int(a[14:16]))
             if 1 < gap < _C83_MIN_GAP:      # gap 1 = one cycle straddling a minute boundary
                 hits.append(f"{a[5:10]} {a[11:]}→{b[11:]} ({gap}m)")
@@ -1334,8 +1368,8 @@ def check83() -> None:
                  f"{t.split('_')[0]}: {len(hits)} off-phase cycle pair(s) in the last {_C83_DAYS} days — "
                  f"a second backend instance ran its own scheduler against the same DB: "
                  + "; ".join(hits[:6]) + (" …" if len(hits) > 6 else ""))
-        examined.append(f"{t.split('_')[0]} {n_pairs} pair(s), {n_stamped} between stamped starts, "
-                        f"{len(hits)} off-phase")
+        examined.append(f"{t.split('_')[0]} {n_pairs} pair(s), {n_recorded} from gate_cycles, "
+                        f"{n_stamped} between stamped row starts, {len(hits)} off-phase")
     flag(83, name, "INFO", "data/apex.db:live_gate_history",
          f"examined over the last {_C83_DAYS} days: " + "; ".join(examined))
 
@@ -1439,11 +1473,13 @@ def check85() -> None:
     when a gate job goes stale, final after the close). The computed definition
     (demo cycles/expected from audit/gate_cycles, as CHECK 80) cannot be
     forgotten but undercounts quiet cycles (no Lock 1 candidates write no row);
-    the stored flag carries the cause but has a writer that can miss. Each
+    the stored flag carries the cause but has a writer that can miss. (The
+    undercount ends at GATE_CYCLES_FROM, 2026-10-04: audit/gate_cycles.py.) Each
     checks the other, for closed sessions since _C85_SINCE:
 
       WARNING  ratio < _C85_PARTIAL with no flag — a missed outage (watch not
-               running, PC off), or the quiet-cycle undercount
+               running, PC off); before GATE_CYCLES_FROM also the quiet-cycle
+               undercount (gate rows only), from it quiet cycles count
       WARNING  a flag on a ratio >= _C85_PARTIAL — the flag is wrong, or the
                outage was short enough to cost under 10% of the session
       WARNING  a flag still provisional on a closed session — the watch's
@@ -1454,7 +1490,7 @@ def check85() -> None:
     db = REPO / "data/apex.db"
     if not require_data_file(85, name, db):
         return
-    from audit.gate_cycles import cycle_starts
+    from audit.gate_cycles import GATE_CYCLES_FROM, cycle_starts
     try:
         sessions = [d for d in _c82_session_dates(_C85_SESSIONS) if d >= _C85_SINCE and d != _c82_open_day()]
     except Exception as e:
@@ -1481,9 +1517,10 @@ def check85() -> None:
         ratio = c / e if e else 0.0
         f = flags.get(d)
         if f is None and ratio < _C85_PARTIAL:
+            quiet = ", or quiet cycles undercounted (before gate_cycles)" if d < GATE_CYCLES_FROM else ""
             flag(85, name, "WARNING", "scripts/cycle_watch.py",
                  f"{d}: demo {c}/{e} cycles ({ratio:.0%}) and no session flag — an outage the cycle watch "
-                 f"did not record (watch not running, PC off), or quiet cycles undercounted; "
+                 f"did not record (watch not running, PC off){quiet}; "
                  f"if real, flag it so the paper record does not read it as a full session")
         elif f is not None and ratio >= _C85_PARTIAL:
             flag(85, name, "WARNING", "data/apex.db:session_flags",

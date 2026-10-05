@@ -283,7 +283,9 @@ def run_live_gate():
     """Manually trigger a live gate evaluation cycle."""
     _require_live()
     from backend.gate import gate_runner_live
-    results = gate_runner_live.run()
+    from backend.gate.cycle import run_recorded
+    # Recorded as trigger='manual': coverage and CHECK 83 count scheduler cycles only.
+    results = run_recorded("run_live_gate", "manual", gate_runner_live.run)
     return {
         "evaluated":     len(results),
         "trades_placed": sum(1 for r in results if r["outcome"] == "TRADE_EXECUTED"),

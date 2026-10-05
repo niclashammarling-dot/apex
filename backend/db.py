@@ -288,6 +288,23 @@ def init_db() -> None:
                 PRIMARY KEY (date, kind)
             );
 
+            -- One row per gate cycle, scheduled or manual (2026-10-04). Gate rows
+            -- only exist for cycles that evaluated or skipped a candidate, so a quiet
+            -- or halted cycle left nothing to count and coverage read low; job_runs
+            -- keeps only the latest start. audit/gate_cycles.py counts trigger =
+            -- 'scheduler' rows from GATE_CYCLES_FROM on. reason is the runner's own
+            -- account of why the cycle ended (backend/gate/cycle.py).
+            CREATE TABLE IF NOT EXISTS gate_cycles (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                job         TEXT NOT NULL,
+                trigger     TEXT NOT NULL,
+                started_at  TEXT NOT NULL,
+                finished_at TEXT,
+                outcome     TEXT,
+                reason      TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_gate_cycles_start ON gate_cycles(started_at);
+
             CREATE TABLE IF NOT EXISTS job_runs (
                 job         TEXT PRIMARY KEY,
                 started_at  TEXT NOT NULL,
@@ -1613,6 +1630,28 @@ def stamp_job_run(job: str, phase: str, outcome: str | None = None) -> None:
         else:
             conn.execute("UPDATE job_runs SET finished_at = ?, outcome = ? WHERE job = ?",
                          (now, outcome, job))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def insert_gate_cycle(job: str, trigger: str, started_at: str) -> int:
+    """Open a gate_cycles row at the cycle's start; returns its id."""
+    conn = get_db()
+    try:
+        cur = conn.execute("INSERT INTO gate_cycles (job, trigger, started_at) VALUES (?, ?, ?)",
+                           (job, trigger, started_at))
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def finish_gate_cycle(cycle_id: int, outcome: str, reason: str | None) -> None:
+    conn = get_db()
+    try:
+        conn.execute("UPDATE gate_cycles SET finished_at = ?, outcome = ?, reason = ? WHERE id = ?",
+                     (datetime.now(timezone.utc).isoformat(), outcome, reason, cycle_id))
         conn.commit()
     finally:
         conn.close()

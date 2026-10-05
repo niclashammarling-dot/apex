@@ -181,7 +181,8 @@ def run_gate_candidates() -> None:
         logger.debug("Market closed — skipping gate evaluation")
         return
     from backend.gate import gate_runner
-    _stamped("run_gate", gate_runner.run)
+    from backend.gate.cycle import run_recorded
+    _stamped("run_gate", lambda: run_recorded("run_gate", "scheduler", gate_runner.run))
 
 
 def check_exit_conditions() -> None:
@@ -223,7 +224,8 @@ def run_live_gate_candidates() -> None:
         logger.debug("Market closed — skipping live gate evaluation")
         return
     from backend.gate import gate_runner_live
-    _stamped("run_live_gate", gate_runner_live.run)
+    from backend.gate.cycle import run_recorded
+    _stamped("run_live_gate", lambda: run_recorded("run_live_gate", "scheduler", gate_runner_live.run))
 
 
 def _snapshot_sectors(signals: list[dict]) -> None:

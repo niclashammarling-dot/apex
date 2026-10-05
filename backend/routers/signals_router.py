@@ -292,7 +292,9 @@ def sectors_backfill_status(job_id: str):
 def run_gate(request: Request):
     """Manually trigger a full gate evaluation cycle."""
     _rate_check("gate/run")
-    results = gate_runner.run()
+    from backend.gate.cycle import run_recorded
+    # Recorded as trigger='manual': coverage and CHECK 83 count scheduler cycles only.
+    results = run_recorded("run_gate", "manual", gate_runner.run)
     return {
         "evaluated":     len(results),
         "trades_queued": sum(1 for r in results if r["outcome"] in ("TRADE_QUEUED", "TRADE_EXECUTED")),
@@ -879,6 +881,8 @@ def get_market_window(days: int = 10):
     expected (session minutes / GATE_INTERVAL, early closes from the calendar),
     and the launcher's own lines: start, early end (uvicorn died or the wrapper
     was signalled), clean close, no-op exits. Today's row is partial by nature.
+    cycle_reasons (from 2026-10-04): scheduler cycles per exit reason per book,
+    and manual /gate/run cycles, which the counts above exclude; None before.
     """
     from datetime import datetime, timedelta
 
@@ -899,6 +903,21 @@ def get_market_window(days: int = 10):
         from audit.gate_cycles import cycle_starts, expected_cycles
         starts = {"demo": cycle_starts(conn, "demo_gate_history", since),
                   "live": cycle_starts(conn, "live_gate_history", since)}
+        # Why each cycle ended (2026-10-04, backend/gate/cycle.py): a quiet cycle and
+        # a halted one both write no gate row; the reason tells them apart.
+        reasons: dict[str, dict] = {}
+        try:
+            for d, job, trig, reason, n in conn.execute(
+                    "SELECT substr(started_at, 1, 10), job, trigger, COALESCE(reason, outcome, 'running'), "
+                    "COUNT(*) FROM gate_cycles WHERE started_at >= ? GROUP BY 1, 2, 3, 4", (since,)).fetchall():
+                book = "live" if job == "run_live_gate" else "demo"
+                r = reasons.setdefault(d, {"demo": {}, "live": {}, "manual": {"demo": 0, "live": 0}})
+                if trig == "manual":
+                    r["manual"][book] += n
+                else:
+                    r[book][reason] = r[book].get(reason, 0) + n
+        except Exception:
+            reasons = {}       # table not created yet (backend not started since 10-04)
         regime = {r[0] for r in conn.execute(
             "SELECT DISTINCT date FROM sector_posterior_history WHERE date >= ?", (since,)).fetchall()}
         pcr = {r[0]: r[1] for r in conn.execute(
@@ -986,6 +1005,7 @@ def get_market_window(days: int = 10):
             "expected": expected_cycles(bounds[0], bounds[1], demo_starts, GATE_INTERVAL),
             "live_cycles": len(live_starts),
             "live_expected": expected_cycles(bounds[0], bounds[1], live_starts, GATE_INTERVAL),
+            "cycle_reasons": reasons.get(d),
             "early_close": bounds[1].hour < 16,
             "launcher": ("ended_early" if ended_early else "closed" if closed
                          else "running" if started else "not_started"),

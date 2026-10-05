@@ -98,5 +98,5 @@ def test_clean_run_reports_its_denominator(tmp_path, monkeypatch):
     unstamped = [("live_gate_history", f"{d}T{m}:05+00:00", None) for m in ONE]
     assert _run83_cycles(tmp_path, monkeypatch, stamped + unstamped) == []
     info = [f[4] for f in core.findings if f[0] == 83 and f[2] == "INFO"]
-    assert info == [f"examined over the last 3 days: live 3 pair(s), 0 between stamped starts, 0 off-phase; "
-                    f"demo 3 pair(s), 3 between stamped starts, 0 off-phase"]
+    assert info == [f"examined over the last 3 days: live 3 pair(s), 0 from gate_cycles, 0 between stamped row starts, "
+                    f"0 off-phase; demo 3 pair(s), 0 from gate_cycles, 3 between stamped row starts, 0 off-phase"]

@@ -29,6 +29,7 @@ from backend.db import (
     set_alert_latch,
 )
 from backend.gate.chain import build_base_context, evaluate_chain
+from backend.gate.cycle import GateCycle, evaluated_reason
 from backend.gate.gate_runner import (
     PRE_ROTATION_FLOOR,
     _chain_to_gate_result,
@@ -199,14 +200,18 @@ def _compute_apex_day_pnl(positions: list[dict]) -> tuple[float, list[str], dict
     return round(realized + unrealized, 2), missing, evidence
 
 
-def run() -> list[dict]:
+def run(cycle: GateCycle | None = None) -> list[dict]:
     """
     Evaluate the live gate for all LIVE_LOCK1 candidates.
     Does nothing (returns []) when LIVE_ENABLED is false.
     Reads thresholds from live_config.json at call time so Promote takes effect immediately.
+    cycle (backend/gate/cycle.py) carries the start every row of this cycle is
+    stamped with, and takes the exit reason.
     """
+    cycle = cycle or GateCycle.unrecorded()
     if not LIVE_ENABLED:
         logger.debug("Live gate: LIVE_ENABLED=false — skipping")
+        cycle.reason = "disabled"
         return []
 
     from backend.brokers import alpaca as broker
@@ -282,6 +287,7 @@ def run() -> list[dict]:
                 f"UNRECONCILED position(s) unresolved: {tickers} — "
                 "resolve via backend.db.resolve_unreconciled() before trading resumes"
             )
+        cycle.reason = "halt_unreconciled"
         return []
 
     from backend.db import get_ticker_thresholds
@@ -294,9 +300,11 @@ def run() -> list[dict]:
     # already means this can't succeed either.
     if acct is None:
         logger.error("Live gate: could not reach Alpaca — skipping cycle")
+        cycle.reason = "broker_unreachable"
         return []
     if acct["trading_blocked"] or acct["account_blocked"]:
         logger.warning("Live gate: Alpaca account is blocked — skipping cycle")
+        cycle.reason = "account_blocked"
         return []
 
     # Track record, recorded 2026-09-25 so two firings aren't read as one:
@@ -353,6 +361,7 @@ def run() -> list[dict]:
             from backend.alerts import alert_data_quality_divergence
             alert_data_quality_divergence(acct["day_pnl"], apex_day_pnl, missing_from_broker,
                                           fill_evidence)
+        cycle.reason = "halt_data_quality"
         return []
 
     # Daily loss cap check — only reached once broker and APEX are confirmed
@@ -365,12 +374,14 @@ def run() -> list[dict]:
         if set_alert_latch(f"loss_cap:{today}"):
             from backend.alerts import alert_daily_loss_cap
             alert_daily_loss_cap(day_loss, cfg["daily_loss_cap"])
+        cycle.reason = "loss_cap"
         return []
 
     candidates = get_lock1_candidates(threshold=cfg["lock1_threshold"],
                                       sector_thresholds=sector_thresholds)
     if not candidates:
         logger.info("Live gate runner: no Lock 1 candidates this cycle")
+        cycle.reason = "no_candidates"
         _persist_multiplier_stats({}, None, [], runner="live")
         return []
 
@@ -389,7 +400,7 @@ def run() -> list[dict]:
     skipped = [c for c in candidates if c["ticker"] in blocked]
     candidates = [c for c in candidates if c["ticker"] not in blocked]
 
-    ts = datetime.now(timezone.utc).isoformat()
+    ts = cycle.started_at
     for c in skipped:
         if c["ticker"] in blocklisted_tickers:
             decision = "SKIPPED_BLOCKLIST"
@@ -399,7 +410,7 @@ def run() -> list[dict]:
             decision = "SKIPPED_COOLOFF"
         insert_live_gate_result({
             "cycle_started_at": ts,
-            "timestamp":             ts,
+            "timestamp":             datetime.now(timezone.utc).isoformat(),
             "ticker":                c["ticker"],
             "sector":                c.get("sector", ""),
             "signal_score":          c["signal_score"],
@@ -436,6 +447,7 @@ def run() -> list[dict]:
 
     if not candidates:
         logger.info("Live gate runner: all candidates skipped (open positions / cooloff)")
+        cycle.reason = "all_skipped"
         _persist_multiplier_stats({}, None, [], runner="live")
         return []
 
@@ -443,6 +455,7 @@ def run() -> list[dict]:
     candidates = [c for c in candidates if c.get("sector", "") not in EXCLUDED_SECTORS]
     if not candidates:
         logger.info("Live gate runner: all candidates in excluded sectors")
+        cycle.reason = "all_excluded"
         _persist_multiplier_stats({}, None, [], runner="live")
         return []
 
@@ -528,6 +541,7 @@ def run() -> list[dict]:
                 logger.error(f"Live gate [{signal['ticker']}]: evaluation raised — {e}")
                 continue
             evaluated.append((signal, result))
+    cycle.reason = evaluated_reason(len(candidates), len(evaluated))
 
     results = []
     # Execute trades serially to prevent race conditions on position limits

@@ -159,13 +159,18 @@ def test_both_gate_jobs_are_stamped(monkeypatch):
     """The two scheduled jobs the watch reads go through _stamped under their watch names."""
     from backend import scheduler
     from backend.gate import gate_runner, gate_runner_live
+    from backend.gate import cycle
     monkeypatch.setattr(scheduler, "is_market_open", lambda: True)
-    calls = []
-    monkeypatch.setattr(scheduler, "_stamped", lambda job, fn: calls.append((job, fn)))
+    calls, recorded = [], []
+    monkeypatch.setattr(scheduler, "_stamped", lambda job, fn: (calls.append(job), fn()))
+    monkeypatch.setattr(cycle, "run_recorded", lambda *a: recorded.append(a))
     scheduler.run_gate_candidates()
     scheduler.run_live_gate_candidates()
-    assert calls == [("run_gate", gate_runner.run), ("run_live_gate", gate_runner_live.run)]
-    assert set(cw.JOBS) == {job for job, _ in calls}
+    assert calls == ["run_gate", "run_live_gate"]
+    # ... and each runs one recorded scheduler cycle (gate_cycles, 2026-10-04)
+    assert recorded == [("run_gate", "scheduler", gate_runner.run),
+                        ("run_live_gate", "scheduler", gate_runner_live.run)]
+    assert set(cw.JOBS) == set(calls)
 
 
 # ── the surface: /api/ops/window reads the watch's own log ──────────────────────

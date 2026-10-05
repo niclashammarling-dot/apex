@@ -24,6 +24,7 @@ from backend.db import (
     update_signal_gate,
 )
 from backend.gate.chain import ChainResult, build_base_context, evaluate_chain
+from backend.gate.cycle import GateCycle, evaluated_reason
 
 # Max parallel workers — bounded to avoid hammering rate limits
 _MAX_WORKERS = 5
@@ -34,12 +35,14 @@ _MAX_WORKERS = 5
 PRE_ROTATION_FLOOR = 0.85
 
 
-def run() -> list[dict]:
+def run(cycle: GateCycle | None = None) -> list[dict]:
     """
     Evaluate the gate for all current Lock-1 candidates concurrently.
     Reads thresholds from demo_config.json at call time so UI changes take effect immediately.
-    Returns list of full gate result dicts.
+    Returns list of full gate result dicts. cycle (backend/gate/cycle.py) carries
+    the start every row of this cycle is stamped with, and takes the exit reason.
     """
+    cycle = cycle or GateCycle.unrecorded()
     from backend.db import get_ticker_thresholds
     from backend.demo_config import get_demo_config
     cfg = get_demo_config()
@@ -50,6 +53,7 @@ def run() -> list[dict]:
 
     if not candidates:
         logger.info("Gate runner: no Lock 1 candidates this cycle")
+        cycle.reason = "no_candidates"
         _persist_multiplier_stats({}, None, [])
         return []
 
@@ -64,7 +68,7 @@ def run() -> list[dict]:
     skipped = [c for c in candidates if c["ticker"] in blocked]
     candidates = [c for c in candidates if c["ticker"] not in blocked]
 
-    ts = datetime.now(timezone.utc).isoformat()
+    ts = cycle.started_at
     for c in skipped:
         decision = "SKIPPED_OPEN" if c["ticker"] in open_tickers else "SKIPPED_COOLOFF"
         update_signal_gate(c["id"], {
@@ -73,7 +77,7 @@ def run() -> list[dict]:
         })
         insert_demo_gate_result({
             "cycle_started_at": ts,
-            "timestamp": ts, "ticker": c["ticker"], "sector": c.get("sector", ""),
+            "timestamp": datetime.now(timezone.utc).isoformat(), "ticker": c["ticker"], "sector": c.get("sector", ""),
             "signal_score": c["signal_score"],
             "lock1_pass": 1, "lock2_pass": 0, "lock_leading_pass": 0,
             "lock_leading_checks": None, "lock3_pass": 0,
@@ -96,6 +100,7 @@ def run() -> list[dict]:
 
     if not candidates:
         logger.info("Gate runner: all candidates skipped (open positions / cooloff)")
+        cycle.reason = "all_skipped"
         _persist_multiplier_stats({}, None, [])
         return []
 
@@ -103,6 +108,7 @@ def run() -> list[dict]:
     candidates = [c for c in candidates if c.get("sector", "") not in EXCLUDED_SECTORS]
     if not candidates:
         logger.info("Gate runner: all candidates in excluded sectors")
+        cycle.reason = "all_excluded"
         _persist_multiplier_stats({}, None, [])
         return []
 
@@ -174,6 +180,7 @@ def run() -> list[dict]:
                 logger.exception(f"Gate runner [{signal['ticker']}]: evaluation raised — {e}")
                 continue
             evaluated.append((signal, result))
+    cycle.reason = evaluated_reason(len(candidates), len(evaluated))
 
     evaluated.sort(key=lambda x: (0 if x[0].get("pre_rotation") else 1, x[0].get("signal_score", 0)), reverse=True)
     max_positions        = cfg["max_positions"]

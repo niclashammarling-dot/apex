@@ -128,12 +128,21 @@ def _c80_db(path, base, post, hist):
     conn.close()
 
 
-def _run80(tmp_path, monkeypatch, base, post, hist):
+def _sessions_until(last):
+    """CHECK 80 lists every closed calendar session through today (2026-10-04);
+    the fixtures pin the list so the sessions after their rows don't read 0/19."""
+    from audit import checks_gate as cg
+    real = cg._c80_closed_sessions
+    return lambda since: [d for d in real(since) if d <= last]
+
+
+def _run80(tmp_path, monkeypatch, base, post, hist, last="2026-09-18"):
     from audit import checks_gate as cg
     from audit import _audit_core as core
     repo = tmp_path / "repo"
     (repo / "data").mkdir(parents=True)
     _c80_db(repo / "data/apex.db", base, post, hist)
+    monkeypatch.setattr(cg, "_c80_closed_sessions", _sessions_until(last))
     monkeypatch.setattr(cg, "REPO", repo)
     monkeypatch.setattr(core, "REPO", repo)
     monkeypatch.setattr(core, "findings", [])
@@ -203,9 +212,27 @@ def test_check80_warns_when_three_sessions_are_under_half_covered(tmp_path, monk
             conn.execute("INSERT INTO demo_gate_history (timestamp, ticker, lock_leading_checks) VALUES (?, ?, ?)",
                          (f"{d}T{hm}:00", "OPN", json.dumps({"put_call_ratio": {"pass": True, "pc_ratio": 0.7, "threshold_mode": "per_ticker_p25"}})))
     conn.commit(); conn.close()
+    monkeypatch.setattr(cg, "_c80_closed_sessions", _sessions_until("2026-09-23"))
     monkeypatch.setattr(cg, "REPO", repo); monkeypatch.setattr(core, "REPO", repo)
     monkeypatch.setattr(core, "findings", []); monkeypatch.setattr(core, "triggered", set())
     monkeypatch.setattr(cg, "flag", core.flag)
     cg.check80()
     out = [(f[2], f[4]) for f in core.findings if f[0] == 80]
     assert any(sev == "WARNING" and "coverage" in t and "scheduled" in t for sev, t in out)
+
+
+def test_check80_counts_a_session_with_no_rows_as_zero(tmp_path, monkeypatch):
+    """2026-10-04: a session with no demo rows was dropped from the list, so a dead
+    or fully quiet day raised the trailing mean instead of lowering it."""
+    out = _run80(tmp_path, monkeypatch, [("OPN", True)], [("OPN", True, "per_ticker_p25")], HIST,
+                 last="2026-09-22")
+    line = next(t for _, t in out if "Session coverage since build" in t)
+    assert "09-18 1/19, 09-21 0/19, 09-22 0/19" in line, line
+
+
+def test_check80_closed_sessions_leave_out_today_while_its_window_is_open(monkeypatch):
+    from audit import checks_gate as cg
+    monkeypatch.setattr(cg, "_c82_open_day", lambda: "2026-09-18")
+    days = cg._c80_closed_sessions("2026-09-16")
+    assert days[:2] == ["2026-09-16", "2026-09-17"] and "2026-09-18" not in days
+    assert "2026-09-19" not in days                     # Saturday

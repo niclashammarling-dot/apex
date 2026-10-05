@@ -15,21 +15,49 @@ started, so a full day holds 19 or 20 cycles depending on phase: live runs
 :13/:33/:53 (09:33–15:53 ET, 20 cycles), demo :01/:21/:41 (09:41–15:41, 19).
 The phase is read from the session's first observed start; with no starts,
 the floor estimate is used. Stdlib only: the audit runs without backend imports.
+
+Source by date (2026-10-04). Gate rows exist only for cycles that evaluated or
+skipped a candidate: a quiet or halted cycle wrote none, so every reader
+undercounted quiet days. From GATE_CYCLES_FROM the gate_cycles table (one row
+per cycle, written by backend/gate/cycle.py) is the only source, trigger =
+'scheduler' only — a manual /gate/run is not a scheduled slot and is not a
+second scheduler. Before it, gate rows, with the undercount. A fixed date, not
+"any day with table rows": the go-live day would mix sources, and a dead day
+with one manual run would fall back to its rows and read 1/N. A DB with no
+gate_cycles table (never started on the new code) reads gate rows throughout.
 """
 from datetime import datetime, timezone
 
 CYCLE_KEY = "COALESCE(cycle_started_at, timestamp)"
+# First full session on the recording code: committed before the 10-05 14:20 CEST
+# window launch. If the serving commit that day predates it, move this forward.
+GATE_CYCLES_FROM = "2026-10-05"
+GATE_JOB = {"demo_gate_history": "run_gate", "live_gate_history": "run_live_gate"}
+
+
+def has_cycle_table(conn) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'gate_cycles'").fetchone() is not None
 
 
 def cycle_starts(conn, table: str, since: str) -> dict[str, list[str]]:
     """{UTC date: sorted distinct cycle start minutes 'YYYY-MM-DDTHH:MM'} for table."""
     out: dict[str, list[str]] = {}
+    recorded = has_cycle_table(conn)
     cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
     key = CYCLE_KEY if "cycle_started_at" in cols else "timestamp"   # a table older than the column
-    for (m,) in conn.execute(
-        f"SELECT DISTINCT substr({key}, 1, 16) m FROM {table} WHERE timestamp >= ? ORDER BY m",
-        (since,),
-    ).fetchall():
+    rows_q = f"SELECT DISTINCT substr({key}, 1, 16) m FROM {table} WHERE timestamp >= ?"
+    args: tuple = (since,)
+    if recorded:
+        rows_q += " AND timestamp < ?"
+        args += (GATE_CYCLES_FROM,)
+    minutes = [m for (m,) in conn.execute(rows_q, args).fetchall()]
+    if recorded:
+        minutes += [m for (m,) in conn.execute(
+            "SELECT DISTINCT substr(started_at, 1, 16) FROM gate_cycles "
+            "WHERE job = ? AND trigger = 'scheduler' AND started_at >= ?",
+            (GATE_JOB[table], max(since, GATE_CYCLES_FROM))).fetchall()]
+    for m in sorted(set(minutes)):
         out.setdefault(m[:10], []).append(m)
     return out
 
