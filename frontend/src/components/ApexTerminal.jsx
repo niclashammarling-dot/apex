@@ -145,10 +145,27 @@ function KV({ k, v }) {
 
 const DIAL_ORDER = ["TECH","HLTH","ENER","INDU","CDIS","COMM","MATR","REIT","SEMI","DEF","HOME","TRAN"];
 
-function regimeStaleness(dateStr) {
+// Stale = older than the newest regime that should exist (2026-10-05). eod_regime
+// runs at 08:30 ET and writes the previous session, so on a Monday Friday's date is
+// current; the old rule (> 1 calendar day) said STALE every Monday and after every
+// holiday. Weekdays stand in for sessions: the day after an NYSE holiday can still
+// read STALE, and a trading-decision gate must not key on this label.
+function _prevWeekday(d) {
+  const x = new Date(d);
+  do { x.setUTCDate(x.getUTCDate() - 1); } while (x.getUTCDay() === 0 || x.getUTCDay() === 6);
+  return x;
+}
+
+function regimeStaleness(dateStr, now = new Date()) {
   if (!dateStr) return null;
-  const days = Math.floor((Date.now() - new Date(`${dateStr}T00:00:00Z`).getTime()) / 86400000);
-  if (days <= 1) return null;
+  const et = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric",
+    month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(now);
+  const v = k => et.find(p => p.type === k).value;
+  let day = new Date(`${v("year")}-${v("month")}-${v("day")}T00:00:00Z`);
+  const ranToday = day.getUTCDay() !== 0 && day.getUTCDay() !== 6 && `${v("hour")}${v("minute")}` >= "0830";
+  if (!ranToday) day = _prevWeekday(day);          // newest 08:30 run so far
+  const expected = _prevWeekday(day).toISOString().slice(0, 10);   // the session that run wrote
+  if (dateStr >= expected) return null;
   return `STALE · last updated ${dateStr}`;
 }
 
@@ -788,7 +805,7 @@ function JobCountdown({ jobId, label }) {
 
 function Header({ mode, setMode, onSettings, onPromote, marketOpen }) {
   const now = new Date();
-  const timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const timeStr = now.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
   return (
     <header className="t-header">
       <div className="t-row" style={{ gap: 18 }}>

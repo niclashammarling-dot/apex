@@ -426,7 +426,7 @@ function AtlasHeader({ D, mode, setMode, onSettings, onPromote, marketOpen }) {
           <span className="a-dot a-dot-live" style={{ opacity: marketOpen ? 1 : 0.3 }} />
           {marketOpen ? "Market open" : "Market closed"}
           {" · "}
-          {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false })} ET
+          {new Date().toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false })} ET
           <PollCountdown />
         </div>
       </div>

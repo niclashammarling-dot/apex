@@ -309,13 +309,22 @@ function adaptWallet(wallet, equityPoints) {
   };
 }
 
+// The Alpaca paper account was reset on 2026-07-07 (portfolio/history starts at
+// $10,000 that day). Rows before it belong to the old account: excluded from every
+// statistic (Niclas 2026-09-24), so realized and win rate count from the reset.
+// Before 2026-10-05 the panel showed win rate x100 twice ("6100%") and realized
+// from account.total_pnl, a field /api/live/account never returns ($0.00).
+const LIVE_ACCOUNT_RESET = "2026-07-07";
+
 function adaptLiveWallet(account, livePositions, settings, equityPoints, liveTrades) {
   const starting = settings?.live?.starting_balance ?? 25000;
   if (!account) {
     return { balance: 0, starting, cash: 0, invested: 0, realized: 0, unrealized: 0, winRate: 0, trades: 0, avgWin: 0, avgLoss: 0, drawdown: 0, sharpe: 0 };
   }
   const unrealized = (livePositions || []).reduce((s, p) => s + (p.unrealized_pnl ?? 0), 0);
-  const closed = (liveTrades || []).filter(t => t.outcome === "WIN" || t.outcome === "LOSS");
+  const sinceReset = (liveTrades || []).filter(t => (t.timestamp ?? "") >= LIVE_ACCOUNT_RESET);
+  const realized = sinceReset.filter(t => t.exited_at && t.pnl != null).reduce((s, t) => s + t.pnl, 0);
+  const closed = sinceReset.filter(t => t.outcome === "WIN" || t.outcome === "LOSS");
   const wins   = closed.filter(t => t.outcome === "WIN");
   const losses = closed.filter(t => t.outcome === "LOSS");
   const grossWins   = wins.reduce((s, t) => s + (t.pnl ?? 0), 0);
@@ -325,9 +334,9 @@ function adaptLiveWallet(account, livePositions, settings, equityPoints, liveTra
     starting,
     cash:       account.cash ?? 0,
     invested:   (account.equity ?? 0) - (account.cash ?? 0),
-    realized:   account.total_pnl ?? 0,
+    realized:   +realized.toFixed(2),
     unrealized,
-    winRate:    closed.length ? Math.round(wins.length / closed.length * 100) : 0,
+    winRate:    closed.length ? wins.length / closed.length : 0,   // fraction, like the demo wallet
     trades:     closed.length,
     avgWin:     wins.length   ? +(grossWins   / wins.length).toFixed(2)   : 0,
     avgLoss:    losses.length ? +(grossLosses / losses.length).toFixed(2) : 0,
