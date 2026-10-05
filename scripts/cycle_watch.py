@@ -39,6 +39,7 @@ Review by 2026-10-31 (Niclas, 10-03): false alarms vs catches, threshold.
     venv/bin/python scripts/cycle_watch.py --test-alert   # one labelled mail through the real
                                                            # path; exit 1 if nothing delivered
 """
+import json
 import os
 import socket
 import sqlite3
@@ -113,11 +114,16 @@ def process_state(port: int = PORT) -> str:
             return f"port {port} free — no backend running"
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=5) as r:
-            body = r.read(500).decode(errors="replace")
-        owner = '"scheduler_owner":true' in body.replace(" ", "")
-        return f"/health answers (scheduler_owner={'true' if owner else 'false'})"
+            body = r.read()
     except Exception as e:
         return f"port {port} bound but /health not answering ({type(e).__name__}) — hung"
+    # Whole body, parsed (2026-10-05): a 500-byte read cut off scheduler_owner
+    # once the job list grew, and every line said false while /health said true.
+    try:
+        owner = json.loads(body).get("scheduler_owner") is True
+    except (ValueError, AttributeError):
+        return f"/health answers but its body is not JSON ({len(body)} bytes)"
+    return f"/health answers (scheduler_owner={'true' if owner else 'false'})"
 
 
 def session_cycles(db: Path, day: str, bounds: tuple[datetime, datetime]) -> tuple[int, int, int, int]:

@@ -140,7 +140,10 @@ ready_deadline=$(( $(date +%s) + READY_TIMEOUT ))
 ready=0
 while (( $(date +%s) < ready_deadline )); do
     if ! kill -0 "$PID" 2>/dev/null; then break; fi   # the watch loop below logs the exit
-    if curl -s -m 5 "http://127.0.0.1:$PORT/health" | grep -Eq '"scheduler_owner": ?true'; then
+    # Parsed, not grepped (2026-10-05): cycle_watch's 500-byte read went false
+    # silently as the body grew; a text match breaks the same way on a format change.
+    if curl -s -m 5 "http://127.0.0.1:$PORT/health" \
+        | "$PY" -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("scheduler_owner") is True else 1)' 2>/dev/null; then
         ready=1; break
     fi
     sleep 5 9>&- & wait $!
