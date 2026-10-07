@@ -161,3 +161,59 @@ def test_weekly_report_plain_part_carries_label_and_outcomes(tmp_path, monkeypat
     assert sec.index("OFF-SHAPE") < sec.index("#1:")
     osec = plain[plain.index("AUTORESEARCH OPTIMIZER"):]
     assert osec.index("OFF-SHAPE") < osec.index("best score")
+
+
+# ── one result is shown once (2026-10-07) ────────────────────────────────────
+# The 10-05 sweep's top 3 were one outcome (9acf142fc075) with VIX off/30/35;
+# the mail printed VIX, the Friday report didn't, and both showed it three
+# times. Both now render through live_shape.collapse_by_outcome.
+
+def _ranked(sigs_and_vix):
+    return [{"lock1_threshold": 0.55, "take_profit_pct": 0.06, "stop_loss_pct": 0.04, "time_stop_days": 20,
+             "vix_threshold": v, "use_leading_rs": True, "max_positions": 6, "sharpe": 0.46 - i / 100,
+             "total_return_pct": 0.009, "win_rate": 0.365, "total_trades": 63, "spy_return_pct": None,
+             "outcome": sig}
+            for i, (sig, v) in enumerate(sigs_and_vix)]
+
+
+def test_collapse_keeps_rank_order_and_names_the_varied_axis():
+    from backend.backtest.weekend_sweep import GRID
+    rows = _ranked([("a", None), ("a", 30), ("b", None), ("a", 35), ("c", None), ("d", None)])
+    out = ls.collapse_by_outcome(rows, tuple(GRID))
+    assert [e["row"]["outcome"] for e in out] == ["a", "b", "c"]
+    assert out[0]["combos"] == 3 and out[0]["varied"] == {"vix_threshold": [None, 30, 35]}
+    assert ls.describe_varied(out[0]) == "same trades for 3 combos: vix_threshold off/30/35"
+    assert ls.describe_varied(out[1]) == ""
+
+
+def test_rows_without_a_signature_are_not_merged():
+    rows = _ranked([(None, None), (None, 30)])
+    assert len(ls.collapse_by_outcome(rows, ("vix_threshold",))) == 2
+
+
+def test_sweep_mail_shows_one_outcome_once(monkeypatch):
+    import backend.alerts as alerts
+    import backend.demo_config as dc
+    from backend.backtest import weekend_sweep as ws
+    sent = []
+    monkeypatch.setattr(alerts, "_cfg", lambda: {"slack_url": None, "email_to": "x", "smtp_user": "u", "smtp_pass": "p"})
+    monkeypatch.setattr(alerts, "_send_email", lambda cfg, subj, body: sent.append(body))
+    monkeypatch.setattr(dc, "get_demo_config", lambda: {"lock1_threshold": 0.6, "take_profit_pct": 0.06,
+                                                        "stop_loss_pct": 0.07, "max_hold_days": 30})
+    ws._notify_sweep(_ranked([("a", None), ("a", 30), ("a", 35)]), "2026-07-04", "2026-10-02",
+                     {"valid_combos": 3240, "distinct_outcomes": 413, "inert_axes": ["vix_threshold"]})
+    body = sent[0]
+    assert body.count("  #") == 1 and "#2" not in body
+    assert "same trades for 3 combos: vix_threshold off/30/35" in body
+
+
+def test_weekly_report_sweep_section_matches_the_mail(tmp_path, monkeypatch):
+    import backend.weekly_report as wr
+    p = tmp_path / "sweep_results.json"
+    p.write_text(json.dumps({"generated_at": "2026-10-05T15:09:21", "valid_combos": 3240,
+                             "top_configs": _ranked([("a", None), ("a", 30), ("a", 35), ("b", None)])}))
+    monkeypatch.setattr(wr, "_SWEEP_PATH", p)
+    state, detail, top = wr._sweep_best()
+    assert state == wr._SWEEP_OK
+    assert [e["combos"] for e in top] == [3, 1]
+    assert "the saved top 4 hold only 2 distinct outcome(s)" in detail

@@ -17,6 +17,8 @@ from pathlib import Path
 
 from loguru import logger
 
+from backend.backtest.live_shape import describe_varied
+
 _SENT_MARKER = Path(__file__).parent.parent / "data" / "weekly_report_sent.txt"
 
 
@@ -35,14 +37,19 @@ def was_sent_this_week() -> bool:
         return False
     return _SENT_MARKER.read_text().strip() == _this_week_label()
 
-_COMMENTARY_SYSTEM = """You are the analytics engine for APEX, an automated paper-trading signal system.
+# Below this many trades or candidates the commentary may describe a count but
+# not call it a finding. Set by hand (Niclas, 2026-10-07) as a floor until the
+# noise-floor machinery can size findings; revisit here, not in the prompt text.
+COMMENTARY_MIN_N = 10
+
+_COMMENTARY_SYSTEM = f"""You are the analytics engine for APEX, an automated paper-trading signal system.
 Each Friday you receive a week's performance data and write a concise analyst commentary included in the operator report email.
 
 Rules:
 - 3–5 sentences maximum
 - Synthesise — do not restate numbers verbatim (they appear in the tables below)
 - Lead with the most notable finding, positive or negative
-- Every count in the data carries its n. Fewer than 10 trades or candidates is a description, not a finding: say what happened, do not infer a trend, edge or risk from it
+- Every count in the data carries its n. Fewer than {COMMENTARY_MIN_N} trades or candidates is a description, not a finding: say what happened, do not infer a trend, edge or risk from it
 - Gate funnel: each lock has the number that reached it and the number it filtered. Name the lock that filtered the most, with its counts. Do not call a filter rate high or low without a reference — none is supplied
 - Thresholds: pass rates are this week's rows against a threshold computed over the sector's full history (window_share = this week's fraction of it). Do not attribute a pass rate to a market move, a selloff or the regime floor, and do not suggest recalibration — what calibration did this week is in `calibration`
 - Concentration: only from open_positions_by_sector, never from thresholds or scores
@@ -452,17 +459,25 @@ def _shape_text(path: Path, kind: str) -> str:
 
 
 def _sweep_best() -> tuple[str, str, list[dict] | None]:
-    """Returns (state, detail, top_configs). top_configs is only set when state == ok."""
+    """Returns (state, detail, entries): the top 3 distinct outcomes from the saved
+    top_configs, collapsed by the same helper as the sweep mail. Set only when
+    state == ok."""
     if not _SWEEP_PATH.exists():
         return _SWEEP_ABSENT, "no data/sweep_results.json — weekly_research has not written one", None
     try:
         with open(_SWEEP_PATH) as f:
             data = json.load(f)
-        top = data.get("top_configs", [])[:3]
+        from backend.backtest.live_shape import collapse_by_outcome
+        from backend.backtest.weekend_sweep import GRID
+        saved = data.get("top_configs", [])
         generated = str(data.get("generated_at", "?"))[:16]
-        if not top:
+        if not saved:
             return _SWEEP_UNREADABLE, f"file parsed but top_configs is empty (generated {generated})", None
-        return _SWEEP_OK, f"generated {generated}", top
+        top = collapse_by_outcome(saved, tuple(GRID))
+        detail = f"generated {generated}"
+        if len(top) < 3:
+            detail += f"; the saved top {len(saved)} hold only {len(top)} distinct outcome(s)"
+        return _SWEEP_OK, detail, top
     except Exception as e:
         return _SWEEP_UNREADABLE, f"data/sweep_results.json exists but could not be read: {e}", None
 
@@ -519,6 +534,14 @@ def _walkforward_last() -> str:
 
 
 # ── Format helpers ────────────────────────────────────────────────────────────
+
+def _sweep_config(r: dict) -> str:
+    """Every grid axis, as the sweep mail prints it."""
+    return (f"L1={r.get('lock1_threshold')} TP={r.get('take_profit_pct', 0)*100:.0f}% "
+            f"SL={r.get('stop_loss_pct', 0)*100:.0f}% hold={r.get('time_stop_days')}d "
+            f"pos={r.get('max_positions')} vix={r.get('vix_threshold') or 'off'} "
+            f"rs={'on' if r.get('use_leading_rs') else 'off'}")
+
 
 def _pct(v: float | None) -> str:
     return f"{v*100:.1f}%" if v is not None else "—"
@@ -634,7 +657,7 @@ def _gpt4o_commentary(
                 "max_positions":      cfg.get("max_positions"),
                 "vix_threshold":      cfg.get("vix_threshold"),
             },
-            "sweep_best": sweep_top[0] if sweep_top else None,
+            "sweep_best": sweep_top[0]["row"] if sweep_top else None,
         }
 
         client = OpenAI(api_key=OPENAI_API_KEY)
@@ -903,19 +926,18 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
         sweep_rows_html = "".join(
             _row(
                 _td(f"#{i+1}"),
-                _td(str(r.get("lock1_threshold", "—"))),
-                _td(f"{r.get('take_profit_pct', 0)*100:.0f}% / {r.get('stop_loss_pct', 0)*100:.0f}%"),
-                _td(str(r.get("time_stop_days", "—"))),
-                _td(f"{r.get('sharpe', 0):.2f}"),
-                _td(_pct(r.get("total_return_pct")), color="#22c55e" if r.get("total_return_pct", 0) >= 0 else "#ef4444"),
-                _td(_pct(r.get("win_rate"))),
+                _td(f"{_sweep_config(e['row'])}"
+                    + (f"<br/><span style='color:#9ca3af;font-size:11px;'>{describe_varied(e)}</span>" if e["combos"] > 1 else "")),
+                _td(f"{e['row'].get('sharpe', 0):.2f}"),
+                _td(_pct(e["row"].get("total_return_pct")), color="#22c55e" if e["row"].get("total_return_pct", 0) >= 0 else "#ef4444"),
+                _td(f"{_pct(e['row'].get('win_rate'))} (n={e['row'].get('total_trades', '?')})"),
             )
-            for i, r in enumerate(sweep_top)
+            for i, e in enumerate(sweep_top)
         )
         sweep_html = _shape_html(_SWEEP_PATH, "sweep") + f"""
         <table style='border-collapse:collapse;width:100%;font-size:13px;color:#e5e7eb;'>
           <thead><tr>
-            {th('#')}{th('L1 thresh')}{th('TP / SL')}{th('Hold days')}{th('Sharpe')}{th('Return')}{th('Win rate')}
+            {th('#')}{th('Config')}{th('Sharpe')}{th('Return')}{th('Win rate')}
           </tr></thead>
           <tbody>{sweep_rows_html}</tbody>
         </table>
@@ -1057,17 +1079,17 @@ LOCK 2 QUANT THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
     elif sweep_state == _SWEEP_UNREADABLE:
         plain += f"\nBEST BACKTEST CONFIGS: UNREADABLE — {sweep_detail}\n"
     if sweep_top:
-        plain += "\nBEST BACKTEST CONFIGS (last 90d)\n"
+        plain += "\nBEST BACKTEST CONFIGS — top 3 distinct outcomes (last 90d)\n"
         plain += _shape_text(_SWEEP_PATH, "sweep")
-        for i, r in enumerate(sweep_top):
+        for i, e in enumerate(sweep_top):
+            r = e["row"]
             plain += (
-                f"  #{i+1}: L1={r.get('lock1_threshold')} "
-                f"TP={r.get('take_profit_pct',0)*100:.0f}% "
-                f"SL={r.get('stop_loss_pct',0)*100:.0f}% "
-                f"hold={r.get('time_stop_days')}d "
+                f"  #{i+1}: {_sweep_config(r)} "
                 f"Sharpe={r.get('sharpe',0):.2f} "
-                f"return={_pct(r.get('total_return_pct'))}\n"
+                f"return={_pct(r.get('total_return_pct'))} n={r.get('total_trades', '?')}\n"
             )
+            if e["combos"] > 1:
+                plain += f"      {describe_varied(e)}\n"
 
     if opt_state == _SWEEP_OK:
         nf = opt["noise_floor"]

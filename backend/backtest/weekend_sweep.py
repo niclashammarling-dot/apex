@@ -13,7 +13,13 @@ from __future__ import annotations
 import itertools
 import json
 from backend.json_io import write_json_atomic
-from backend.backtest.live_shape import inert_axes, outcome_signature, shape_label
+from backend.backtest.live_shape import (
+    collapse_by_outcome,
+    describe_varied,
+    inert_axes,
+    outcome_signature,
+    shape_label,
+)
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -146,11 +152,11 @@ def run_sweep() -> None:
         f"return={results[0]['total_return_pct']*100:.1f}%"
     )
 
-    _notify_sweep(results[:3], start_date, end_date, payload)
+    _notify_sweep(results, start_date, end_date, payload)
 
 
-def _notify_sweep(top: list[dict], start_date: str, end_date: str, payload: dict) -> None:
-    """Send a brief Slack/email alert with the top 3 sweep configs."""
+def _notify_sweep(ranked: list[dict], start_date: str, end_date: str, payload: dict) -> None:
+    """Send a brief Slack/email alert with the top 3 distinct sweep outcomes."""
     from backend.alerts import _cfg, _send_email, _send_slack
     from backend.demo_config import get_demo_config
 
@@ -170,9 +176,10 @@ def _notify_sweep(top: list[dict], start_date: str, end_date: str, payload: dict
         f"SL={current['stop_loss_pct']*100:.0f}% "
         f"hold={current['max_hold_days']}d",
         "",
-        "Top 3 configs (by Sharpe):",
+        "Top 3 distinct outcomes (by Sharpe):",
     ]
-    for i, r in enumerate(top, 1):
+    for i, e in enumerate(collapse_by_outcome(ranked, tuple(GRID)), 1):
+        r = e["row"]
         alpha = ""
         if r["spy_return_pct"] is not None:
             alpha = f"  alpha={( r['total_return_pct'] - r['spy_return_pct'])*100:+.1f}%"
@@ -186,6 +193,8 @@ def _notify_sweep(top: list[dict], start_date: str, end_date: str, payload: dict
             f"  WR={r['win_rate']*100:.0f}% (n={r['total_trades']})"
             f"{alpha}"
         )
+        if e["combos"] > 1:
+            lines.append(f"      {describe_varied(e)}")
     lines.append("")
     lines.append("Full results at data/sweep_results.json — weekly report includes these.")
 

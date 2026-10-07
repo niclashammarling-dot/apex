@@ -97,3 +97,40 @@ def inert_axes(rows: list[dict], axes: tuple[str, ...], sig_key: str = "outcome"
         if groups and all(len({r[sig_key] for r in g}) == 1 for g in groups):
             inert.append(axis)
     return inert
+
+
+def collapse_by_outcome(rows: list[dict], axes: tuple[str, ...], limit: int = 3,
+                        sig_key: str = "outcome") -> list[dict]:
+    """Ranked rows → one entry per distinct outcome, in rank order, up to `limit`.
+
+    Each entry is {"row": best-ranked row of that outcome, "combos": how many
+    rows produced it, "varied": {axis: values} for the axes that differed among
+    them}. The one renderer for the sweep mail and the Friday report (2026-10-07):
+    the 09-29 fix printed every axis in the mail only, and the 10-05 report still
+    showed one result three times (VIX off/30/35, outcome 9acf142fc075). Rows
+    without a signature (files before 09-29) are each their own outcome.
+    """
+    groups: dict[str, list[dict]] = {}
+    for i, r in enumerate(rows):
+        groups.setdefault(r.get(sig_key) or f"_row{i}", []).append(r)
+    out = []
+    for g in groups.values():  # insertion order = rank of each outcome's best row
+        varied = {}
+        for a in axes:
+            vals = {repr(r.get(a)): r.get(a) for r in g}
+            if len(vals) > 1:
+                varied[a] = sorted(vals.values(), key=lambda v: (v is not None, v))
+        out.append({"row": g[0], "combos": len(g), "varied": varied})
+        if len(out) == limit:
+            break
+    return out
+
+
+def describe_varied(entry: dict) -> str:
+    """'' for a single combo; else e.g. 'same trades for 6 combos: vix_threshold off/30/35, use_leading_rs off/on'."""
+    if entry["combos"] < 2:
+        return ""
+    def fmt(v):
+        return "off" if v is None or v is False else "on" if v is True else str(v)
+    axes = ", ".join(f"{a} {'/'.join(fmt(v) for v in vals)}" for a, vals in entry["varied"].items())
+    return f"same trades for {entry['combos']} combos: {axes}"
