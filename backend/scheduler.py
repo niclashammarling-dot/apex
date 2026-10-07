@@ -645,6 +645,10 @@ def run_sentiment_prefetch() -> None:
 
 
 def prune_old_signals() -> None:
+    _stamped("prune_signals", _prune_old_signals)
+
+
+def _prune_old_signals() -> None:
     deleted = prune_signals(keep_per_ticker=10)
     if deleted:
         logger.info(f"Signal pruning: removed {deleted} stale rows")
@@ -880,6 +884,39 @@ def _check_missed_weekly_report() -> None:
         send_weekly_report()
 
 
+def _check_missed_prune() -> None:
+    """
+    Catch-up for prune_signals (02:00 ET daily). Found 2026-10-07: since the
+    host moved to the market window (process up ~08:20–16:40 ET, 09-18) the
+    02:00 slot never fired — last "Signal pruning" log line 2026-09-16 — and
+    un-gated signals rows grew ~2,000 per session (26,725 older than 3 days),
+    which is what turned the quadratic /api/sectors and /watchlist queries into
+    multi-minute freezes. Runs at startup when job_runs has no successful prune
+    in the last PRUNE_MAX_AGE_H hours. Only un-gated rows beyond the newest 10
+    per ticker are deleted (prune_signals), so a run is idempotent.
+    """
+    from backend.db import get_job_runs
+    row = next((r for r in get_job_runs() if r["job"] == "prune_signals"), None)
+    if row and row["outcome"] == "ok" and row["finished_at"]:
+        age_h = (datetime.now(NY) - datetime.fromisoformat(row["finished_at"])).total_seconds() / 3600
+        if age_h < PRUNE_MAX_AGE_H:
+            return
+    logger.warning(f"prune_signals catch-up: last successful prune {row['finished_at'] if row else 'never recorded'} — running now")
+    prune_old_signals()
+
+
+PRUNE_MAX_AGE_H = 20
+
+# Jobs whose cron slot falls outside the host's window (09:30–16:40 ET on
+# weekdays; scripts/market_window.sh) and so need a startup catch-up to run at
+# all. tests/test_schedule_window.py fails if a cron job fires outside the
+# window and is not listed here with a catch-up in STARTUP_CATCHUPS (2026-10-07).
+CATCHUP_FOR = {
+    "eod_regime":    "_check_missed_eod_regime",   # 08:30 ET, before the open
+    "prune_signals": "_check_missed_prune",        # 02:00 ET daily
+}
+
+
 # Run in this order after scheduler.start(). eod_regime first: the gate's first
 # cycle trades on whatever it writes.
 STARTUP_CATCHUPS = (
@@ -890,6 +927,7 @@ STARTUP_CATCHUPS = (
     "_check_missed_live_exits",
     "_check_missed_pcr_collect",
     "_check_missed_audit_publish",
+    "_check_missed_prune",
 )
 
 

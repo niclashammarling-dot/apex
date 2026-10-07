@@ -506,30 +506,6 @@ def latest_signals(limit: int = 100) -> list[dict]:
         conn.close()
 
 
-def prev_signals_avg_by_sector() -> dict[str, float]:
-    """
-    Returns the average signal score from the second-most-recent poll per sector.
-    Used to compute trend arrows (rising/falling/flat).
-    """
-    conn = get_db()
-    try:
-        # Get the two most recent distinct timestamps per sector, then avg the older one
-        rows = conn.execute("""
-            SELECT sector, AVG(signal_score) AS avg_score
-            FROM signals
-            WHERE timestamp IN (
-                SELECT DISTINCT timestamp FROM signals s2
-                WHERE s2.sector = signals.sector
-                ORDER BY timestamp DESC
-                LIMIT 2 OFFSET 1
-            )
-            GROUP BY sector
-        """).fetchall()
-        return {r["sector"]: round(r["avg_score"], 4) for r in rows}
-    finally:
-        conn.close()
-
-
 def prev_signals_by_ticker() -> dict[str, float]:
     """
     Returns the signal score from the second-most-recent poll per ticker.
@@ -537,15 +513,18 @@ def prev_signals_by_ticker() -> dict[str, float]:
     """
     conn = get_db()
     try:
+        # One pass with window functions, not a correlated subquery per row: the
+        # old shape cost 48.6 s on 48,880 signals rows (2026-10-07, DB copy) and
+        # grew with the square of the table. Same semantics: the second-most-
+        # recent distinct poll (DENSE_RANK), one row per ticker, latest id on a
+        # tie (the 09-26 tie-break rule).
         rows = conn.execute("""
-            SELECT ticker, signal_score
-            FROM signals s1
-            WHERE timestamp = (
-                SELECT DISTINCT timestamp FROM signals s2
-                WHERE s2.ticker = s1.ticker
-                ORDER BY timestamp DESC
-                LIMIT 1 OFFSET 1
-            )
+            SELECT ticker, signal_score FROM (
+                SELECT ticker, signal_score,
+                       DENSE_RANK() OVER (PARTITION BY ticker ORDER BY timestamp DESC) AS poll,
+                       ROW_NUMBER() OVER (PARTITION BY ticker, timestamp ORDER BY id DESC) AS dup
+                FROM signals
+            ) WHERE poll = 2 AND dup = 1
         """).fetchall()
         return {r["ticker"]: round(r["signal_score"], 4) for r in rows}
     finally:
@@ -1635,6 +1614,15 @@ def stamp_job_run(job: str, phase: str, outcome: str | None = None) -> None:
         conn.close()
 
 
+def get_job_runs() -> list[dict]:
+    """Every job_runs row (one per job: its last start, finish and outcome)."""
+    conn = get_db()
+    try:
+        return [dict(r) for r in conn.execute("SELECT * FROM job_runs ORDER BY job").fetchall()]
+    finally:
+        conn.close()
+
+
 def insert_gate_cycle(job: str, trigger: str, started_at: str) -> int:
     """Open a gate_cycles row at the cycle's start; returns its id."""
     conn = get_db()
@@ -2190,16 +2178,17 @@ def get_prev_ticker_prices() -> dict[str, float]:
     """
     conn = get_db()
     try:
+        # Window function, not a correlated ORDER BY ... OFFSET 1 per row: the old
+        # shape took 43-46 s on 48,785 priced rows (2026-10-07, DB copy) and froze
+        # /api/sectors; this takes ~0.1 s with an identical result. Same
+        # semantics: the second-most-recent priced row per ticker, with id DESC
+        # deciding ties so a duplicate timestamp has one defined answer.
         rows = conn.execute("""
-            SELECT ticker, price
-            FROM signals s1
-            WHERE price IS NOT NULL
-              AND timestamp = (
-                  SELECT timestamp FROM signals s2
-                  WHERE s2.ticker = s1.ticker AND s2.price IS NOT NULL
-                  ORDER BY timestamp DESC
-                  LIMIT 1 OFFSET 1
-              )
+            SELECT ticker, price FROM (
+                SELECT ticker, price,
+                       ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY timestamp DESC, id DESC) AS rn
+                FROM signals WHERE price IS NOT NULL
+            ) WHERE rn = 2
         """).fetchall()
         return {r["ticker"]: r["price"] for r in rows}
     finally:

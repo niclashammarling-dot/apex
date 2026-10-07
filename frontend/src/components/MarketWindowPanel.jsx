@@ -37,10 +37,33 @@ function CycleReasons({ r }) {
   );
 }
 
+// Stamped scheduler jobs from /api/ops/jobs (CHECK 86): last finish, outcome,
+// age. prune_signals ran nowhere for three weeks (09-16 → 10-07) and nothing
+// showed it; a stale job is red here.
+function JobRuns({ jobs }) {
+  if (!jobs || !jobs.length) return null;
+  return (
+    <div className="t-meta" style={{ marginBottom: 10 }}>
+      JOBS{" "}
+      {jobs.map(j => (
+        <span key={j.job} style={{ marginRight: 10, color: j.stale ? "var(--t-red)" : undefined }}
+              title={`started ${j.started_at}\nfinished ${j.finished_at || "—"}\noutcome ${j.outcome || "—"}`
+                     + (j.max_age_h ? `\nstale after ${j.max_age_h} h` : "")}>
+          {j.job} {j.outcome === "ok" ? `${j.age_h} h ago` : (j.outcome || "running")}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export default function MarketWindowPanel() {
   const [data, setData] = useState(null);
+  const [jobs, setJobs] = useState(null);
   useEffect(() => {
-    const load = () => fetch("/api/ops/window?days=10").then(r => r.json()).then(setData).catch(() => {});
+    const load = () => {
+      fetch("/api/ops/window?days=10").then(r => r.json()).then(setData).catch(() => {});
+      fetch("/api/ops/jobs").then(r => r.json()).then(d => setJobs(d.jobs)).catch(() => {});
+    };
     load();
     const iv = setInterval(load, 60_000);
     return () => clearInterval(iv);
@@ -59,6 +82,7 @@ export default function MarketWindowPanel() {
         {" · "}EARLY ENDS {early}
         {" · "}CYCLE {data.gate_interval_min}M
       </div>
+      <JobRuns jobs={jobs} />
       <table className="t-tbl">
         <thead><tr><th>Session</th><th>Cycles</th><th></th><th>Launcher</th><th>EOD</th><th>Watch</th><th>Commit</th><th>Drift</th><th>Last event</th></tr></thead>
         <tbody>

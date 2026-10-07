@@ -1532,6 +1532,62 @@ def check85() -> None:
                  f"(computed now: demo {c}/{e})")
 
 
+# ── CHECK 86 — prune_signals has run ─────────────────────────────────────────
+
+def check86() -> None:
+    """
+    CHECK 86 — prune_signals ran this session or the one before.
+
+    Found 2026-10-07: prune_signals was a 02:00 ET cron in a process that runs
+    only in the market window, so it last ran 2026-09-16 and un-gated signals
+    rows grew ~2,000 per session until /api/sectors froze for minutes. A job
+    that stops firing raises nothing; this reads its job_runs stamp (written by
+    the cron slot or the startup catch-up _check_missed_prune). Event check:
+    today counts from 09:30 ET, since the catch-up runs at the session's launch
+    (10-03 rule: a check must be able to see the day it runs on).
+
+      WARNING  no job_runs row for prune_signals — never run since the stamp
+               was added (or the stamp failed)
+      WARNING  last outcome not ok — the prune raised
+      WARNING  last finish before the previous NYSE session — a whole session
+               launched without it (catch-up not wired, or raised)
+    SKIPPED without apex.db. tests/test_schedule_window.py is the static half:
+    no cron job may sit outside the window without a catch-up.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    name = "prune_signals has run"
+    db = REPO / "data/apex.db"
+    if not require_data_file(86, name, db):
+        return
+    try:
+        sessions = _c82_session_dates(2)
+    except Exception as e:
+        flag(86, name, "WARNING", "audit/checks_gate.py:_c82_session_dates", f"calendar unavailable: {e}")
+        return
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM job_runs WHERE job = 'prune_signals'").fetchone()
+        conn.close()
+    except Exception as e:
+        flag(86, name, "WARNING", "data/apex.db:job_runs", f"could not query: {e}")
+        return
+    if row is None:
+        flag(86, name, "WARNING", "backend/scheduler.py:prune_old_signals",
+             "no job_runs row for prune_signals — the prune has not run since its stamp was added")
+        return
+    if row["outcome"] != "ok":
+        flag(86, name, "WARNING", "backend/scheduler.py:prune_old_signals",
+             f"last prune started {row['started_at']} ended {row['outcome'] or 'without finishing'}")
+        return
+    done = datetime.fromisoformat(row["finished_at"]).astimezone(ZoneInfo("America/New_York")).date().isoformat()
+    if sessions and done < sessions[0]:
+        flag(86, name, "WARNING", "backend/scheduler.py:_check_missed_prune",
+             f"last successful prune {done} (ET), before session {sessions[0]} — a session launched "
+             f"without it; signals grows ~2,000 un-gated rows per session until it runs")
+
+
 def run() -> None:
     check24()
     check25()
@@ -1551,3 +1607,4 @@ def run() -> None:
     check83()
     check84()
     check85()
+    check86()

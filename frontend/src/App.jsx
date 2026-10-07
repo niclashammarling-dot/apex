@@ -154,6 +154,17 @@ async function fetchWithRetry(url, maxAttempts = 3) {
   }
 }
 
+// One request per URL at a time for the 30 s pollers (2026-10-07). /api/sectors
+// took 43–46 s on the 10-07 table, so every poll started another before the
+// last returned and the requests stacked (Claude in Chrome, 10-05: one tab froze
+// for minutes). A poll whose previous request is still pending is skipped.
+const _inFlight = new Set();
+function pollOnce(url) {
+  if (_inFlight.has(url)) return Promise.reject(new Error(`skipped: ${url} still pending`));
+  _inFlight.add(url);
+  return fetchWithRetry(url).finally(() => _inFlight.delete(url));
+}
+
 // ── Sector meta — exact strings from config.py ────────────────────────────────
 
 const SECTOR_META = {
@@ -758,24 +769,24 @@ export default function App() {
 
   // ── Fetch ───────────────────────────────────────────────────────────────────
   function fetchDemoData() {
-    fetchWithRetry("/api/sectors").then(d => setSectors(d || [])).catch(() => {});
-    fetchWithRetry("/api/wallet").then(d => setWallet(d || null)).catch(() => {});
-    fetchWithRetry("/api/gate/history").then(d => setGateHist(d || { rows: [], funnel: null })).catch(() => {});
-    fetchWithRetry("/api/wallet/equity").then(d => setEquity(d || [])).catch(() => {});
-    fetchWithRetry("/api/sectors/regime-bayes").then(d => setRegimeData(d || null)).catch(() => {});
-    fetchWithRetry("/api/drift/alerts").then(d => setDriftAlerts(d?.alerts || [])).catch(() => {});
-    fetchWithRetry("/api/demo/trades").then(d => setDemoTrades(Array.isArray(d) ? d : d?.trades || [])).catch(() => {});
+    pollOnce("/api/sectors").then(d => setSectors(d || [])).catch(() => {});
+    pollOnce("/api/wallet").then(d => setWallet(d || null)).catch(() => {});
+    pollOnce("/api/gate/history").then(d => setGateHist(d || { rows: [], funnel: null })).catch(() => {});
+    pollOnce("/api/wallet/equity").then(d => setEquity(d || [])).catch(() => {});
+    pollOnce("/api/sectors/regime-bayes").then(d => setRegimeData(d || null)).catch(() => {});
+    pollOnce("/api/drift/alerts").then(d => setDriftAlerts(d?.alerts || [])).catch(() => {});
+    pollOnce("/api/demo/trades").then(d => setDemoTrades(Array.isArray(d) ? d : d?.trades || [])).catch(() => {});
   }
 
   function fetchLiveData() {
-    fetchWithRetry("/api/live/status").then(d => setLiveStatus(d)).catch(() => setLiveStatus({ enabled: false, connected: false }));
-    fetchWithRetry("/api/live/account").then(d => setLiveAccount(d)).catch(() => {});
-    fetchWithRetry("/api/live/positions").then(d => setLivePositions(d || [])).catch(() => {});
-    fetchWithRetry("/api/live/orders").then(d => setLiveOrders(d || [])).catch(() => {});
-    fetchWithRetry("/api/live/trades").then(d => setLiveTrades(d || [])).catch(() => {});
-    fetchWithRetry("/api/live/gate/history").then(d => setLiveGateHist(d || { rows: [], funnel: null })).catch(() => {});
-    fetchWithRetry("/api/live/equity").then(d => setLiveEquity(d || [])).catch(() => {});
-    fetchWithRetry("/api/live/compare").then(d => setCompareData(d || null)).catch(() => {});
+    pollOnce("/api/live/status").then(d => setLiveStatus(d)).catch(() => setLiveStatus({ enabled: false, connected: false }));
+    pollOnce("/api/live/account").then(d => setLiveAccount(d)).catch(() => {});
+    pollOnce("/api/live/positions").then(d => setLivePositions(d || [])).catch(() => {});
+    pollOnce("/api/live/orders").then(d => setLiveOrders(d || [])).catch(() => {});
+    pollOnce("/api/live/trades").then(d => setLiveTrades(d || [])).catch(() => {});
+    pollOnce("/api/live/gate/history").then(d => setLiveGateHist(d || { rows: [], funnel: null })).catch(() => {});
+    pollOnce("/api/live/equity").then(d => setLiveEquity(d || [])).catch(() => {});
+    pollOnce("/api/live/compare").then(d => setCompareData(d || null)).catch(() => {});
   }
 
   function fetchSettings() {

@@ -1035,6 +1035,31 @@ def get_market_window(days: int = 10):
             "watcher_alert_enabled": watcher_alert_enabled}
 
 
+@router.get("/ops/jobs")
+def get_job_runs_status():
+    """
+    Last start/finish/outcome per stamped scheduler job (job_runs), with the
+    age of the last finish. The dashboard surface for CHECK 86: prune_signals
+    stopped firing for three weeks (09-16 → 10-07) because its 02:00 ET slot
+    sat outside the market window, and nothing showed it. `stale` marks a job
+    whose last successful finish is older than its max_age_h.
+    """
+    from datetime import datetime, timezone
+
+    from backend.db import get_job_runs
+    max_age_h = {"prune_signals": 30}   # daily, run at each session's launch
+    now = datetime.now(timezone.utc)
+    out = []
+    for r in get_job_runs():
+        age_h = None
+        if r["finished_at"]:
+            age_h = round((now - datetime.fromisoformat(r["finished_at"])).total_seconds() / 3600, 1)
+        limit = max_age_h.get(r["job"])
+        stale = limit is not None and (r["outcome"] != "ok" or age_h is None or age_h > limit)
+        out.append({**r, "age_h": age_h, "max_age_h": limit, "stale": stale})
+    return {"jobs": out}
+
+
 @router.get("/ops/rejections")
 def get_live_rejections(days: int = 10):
     """
