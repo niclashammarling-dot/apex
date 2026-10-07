@@ -917,7 +917,19 @@ def check80() -> None:
                trailing three sessions average under 50% coverage — the ETA is
                then a projection from a rate the schedule is not delivering.
                Today joins after 16:40 ET (_c82_open_day), so the 16:33 ET
-               run reads the sessions before it.
+               run reads the sessions before it. Deferring the open day is a
+               ruled trade-off (Niclas, 2026-10-07), not the 10-03 run-day
+               defect: coverage is a completion count, and CHECK 85 defers the
+               same way, so no coverage check reads a session until the next
+               day's audit. Same-day failures stay covered by event readers:
+               CHECK 82 (launcher interruptions) and the cycle watch (a missed
+               slot leaves job_runs stale). What neither sees is a cycle that
+               runs but whose gate_cycles write fails; by design that only logs
+               a warning and trading continues (backend/gate/cycle.py), so the
+               gap is a reporting defect, not a trading one, and the next
+               day's read is proportionate. A pro-rated read of today would add
+               complexity and false-alarm risk to catch something that costs
+               nothing until then.
     SKIPPED without apex.db.
     """
     import json

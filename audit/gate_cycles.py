@@ -29,8 +29,14 @@ gate_cycles table (never started on the new code) reads gate rows throughout.
 from datetime import datetime, timezone
 
 CYCLE_KEY = "COALESCE(cycle_started_at, timestamp)"
-# First full session on the recording code: committed before the 10-05 14:20 CEST
-# window launch. If the serving commit that day predates it, move this forward.
+# First full session on the recording code. The 10-05 14:20 CEST launch served it
+# uncommitted (/health: 3a76bc5, dirty) and it was committed as served that day
+# (d470b80), so 10-05 is its first full session.
+# Ruled 2026-10-07 (Niclas), after three sessions in production: keep this
+# design — one start-time stamp per cycle plus a fixed cutover date — over one
+# source per day. Evidence: a scheduler row for every slot on 10-05 and 10-06
+# (demo 19/19, live 20/20; first rows 15:40:58 / 15:33:28 CEST as predicted)
+# and no row left unfinished. A redesign would have no observed problem behind it.
 GATE_CYCLES_FROM = "2026-10-05"
 GATE_JOB = {"demo_gate_history": "run_gate", "live_gate_history": "run_live_gate"}
 
