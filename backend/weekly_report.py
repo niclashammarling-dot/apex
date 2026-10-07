@@ -42,8 +42,10 @@ Rules:
 - 3–5 sentences maximum
 - Synthesise — do not restate numbers verbatim (they appear in the tables below)
 - Lead with the most notable finding, positive or negative
-- Flag anything actionable: high L3 filter rate, threshold upward drift (scores expanded above expected range), config/sweep divergence, significant drawdown, sector concentration risk
-- If broad_market_compressed is true: low/zero L1 pass rate and no trades entered are the regime floor working correctly during a market selloff — do NOT flag this as a filtering concern, do NOT suggest recalibration. Threshold drift with low_flagged sectors is compression, not miscalibration. Only threshold.high_flagged sectors warrant recalibration comment
+- Every count in the data carries its n. Fewer than 10 trades or candidates is a description, not a finding: say what happened, do not infer a trend, edge or risk from it
+- Gate funnel: each lock has the number that reached it and the number it filtered. Name the lock that filtered the most, with its counts. Do not call a filter rate high or low without a reference — none is supplied
+- Thresholds: pass rates are this week's rows against a threshold computed over the sector's full history (window_share = this week's fraction of it). Do not attribute a pass rate to a market move, a selloff or the regime floor, and do not suggest recalibration — what calibration did this week is in `calibration`
+- Concentration: only from open_positions_by_sector, never from thresholds or scores
 - If live trading had 0 trades this week, skip it entirely
 - Tone: direct, data-driven, no filler phrases like "Overall" or "In summary"
 """
@@ -189,47 +191,107 @@ def _live_stats(since: str, until: str) -> dict:
         conn.close()
 
 
-def _gate_funnel(since: str, until: str) -> dict:
-    """Demo gate pass rates for the week."""
+# The funnel reads gate_decision only. The lock1/2/3_pass columns changed meaning
+# when the lock chain came in (gate_runner._chain_to_gate_result: lock1_pass =
+# Quant, lock2_pass = Sentiment, lock3_pass = Claude), and the old query built on
+# them counted open/cooloff skips as "L1 pass" and gated eligibility on
+# lock1_pass=1, which has never occurred (report for 10-02: L1 83% shown, 41%
+# true; eligibility 0 shown, 180 true). Locks 1–4 run in sequence (gate/chain.py
+# exit_lock 1–4), so each has a true "reached" count. After Leading the order is
+# not fixed — on the deferred-L5 path overflow is checked before Claude
+# (gate_runner.py, TRADE_QUEUED_PENDING_L5) — so those outcomes are split, not
+# chained.
+_FUNNEL_SKIPS = ("SKIPPED_OPEN", "SKIPPED_COOLOFF", "SKIPPED_BLOCKLIST")
+_FUNNEL_LOCKS = (
+    ("Lock 1 Eligibility", ("FILTERED_ELIGIBILITY",)),
+    ("Lock 2 Quant",       ("FILTERED_L1",)),
+    ("Lock 3 Sentiment",   ("FILTERED_L2",)),
+    ("Lock 4 Leading",     ("FILTERED_LEADING", "FILTERED_ETF_PENALTY")),
+)
+_FUNNEL_AFTER_LEADING = (
+    ("Lock 5 Claude filtered",  ("FILTERED_L3",)),
+    ("Overflow filtered",       ("FILTERED_OVERFLOW_QUANT",)),
+    ("Not filled (rejected/failed)", ("TRADE_REJECTED", "TRADE_FAILED")),
+    ("Entered",                 ("TRADE_EXECUTED",)),
+)
+_FUNNEL_TABLES = {"demo": "signals", "live": "live_gate_history"}
+
+
+def _funnel(book: str, since: str, until: str) -> dict:
+    """Gate funnel for one book ('demo' | 'live') over [since, until)."""
     from backend.db import get_db
+    table = _FUNNEL_TABLES[book]
     conn = get_db()
     try:
-        row = conn.execute("""
-            SELECT
-                COUNT(*) AS evaluated,
-                SUM(lock1_pass) AS l1_pass,
-                SUM(CASE WHEN gate_decision='SKIPPED_OPEN'    THEN 1 ELSE 0 END) AS skipped_open,
-                SUM(CASE WHEN gate_decision='SKIPPED_COOLOFF' THEN 1 ELSE 0 END) AS skipped_cooloff,
-                SUM(CASE WHEN gate_decision='FILTERED_ELIGIBILITY'  AND lock1_pass=1 THEN 1 ELSE 0 END) AS filtered_eligibility,
-                SUM(CASE WHEN gate_decision='FILTERED_L2'     THEN 1 ELSE 0 END) AS l2_fail,
-                SUM(CASE WHEN lock2_pass=1 AND lock3_pass=0 THEN 1 ELSE 0 END) AS l3_fail,
-                SUM(CASE WHEN lock3_pass=1 THEN 1 ELSE 0 END) AS traded
-            FROM signals
+        rows = conn.execute(f"""
+            SELECT gate_decision, COUNT(*) AS cnt FROM {table}
             WHERE timestamp >= ? AND timestamp < ? AND gate_decision IS NOT NULL
-        """, (since, until)).fetchone()
-        return dict(row) if row else {}
+            GROUP BY gate_decision
+        """, (since, until)).fetchall()
     finally:
         conn.close()
+    counts = {r["gate_decision"]: r["cnt"] for r in rows}
+    known = set(_FUNNEL_SKIPS)
+    for _, decs in _FUNNEL_LOCKS + _FUNNEL_AFTER_LEADING:
+        known.update(decs)
+
+    skipped = {d: counts.get(d, 0) for d in _FUNNEL_SKIPS}
+    total = sum(counts.values())
+    reached_gate = total - sum(skipped.values())
+    locks = []
+    n = reached_gate
+    for label, decs in _FUNNEL_LOCKS:
+        failed = sum(counts.get(d, 0) for d in decs)
+        locks.append({"stage": label, "reached": n, "failed": failed, "passed": n - failed})
+        n -= failed
+    after = [{"outcome": label, "n": sum(counts.get(d, 0) for d in decs)}
+             for label, decs in _FUNNEL_AFTER_LEADING]
+    # Anything the stages above don't name is shown, never dropped: a new
+    # decision string must not vanish from the totals.
+    other = {d: c for d, c in counts.items() if d not in known}
+    return {
+        "total":          total,
+        "skipped":        skipped,
+        "reached_gate":   reached_gate,
+        "locks":          locks,
+        "passed_leading": n,
+        "after_leading":  after,
+        "entered":        counts.get("TRADE_EXECUTED", 0),
+        "other":          other,
+        "balanced":       n == sum(a["n"] for a in after) + sum(other.values()),
+    }
 
 
-def _live_gate_funnel(since: str, until: str) -> dict:
+def _sector_pnl(since: str, until: str) -> dict:
+    """Closed trades per sector for the week, and open positions per sector now.
+
+    Same populations as _demo_stats/_live_stats (live excludes
+    exit_confidence='unverified'), so the sector rows sum to the totals above.
+    """
     from backend.db import get_db
     conn = get_db()
     try:
-        row = conn.execute("""
-            SELECT
-                COUNT(*) AS evaluated,
-                SUM(lock1_pass) AS l1_pass,
-                SUM(CASE WHEN gate_decision='SKIPPED_OPEN'    THEN 1 ELSE 0 END) AS skipped_open,
-                SUM(CASE WHEN gate_decision='SKIPPED_COOLOFF' THEN 1 ELSE 0 END) AS skipped_cooloff,
-                SUM(CASE WHEN gate_decision='FILTERED_ELIGIBILITY'  AND lock1_pass=1 THEN 1 ELSE 0 END) AS filtered_eligibility,
-                SUM(CASE WHEN gate_decision='FILTERED_L2'     THEN 1 ELSE 0 END) AS l2_fail,
-                SUM(CASE WHEN lock2_pass=1 AND lock3_pass=0 THEN 1 ELSE 0 END) AS l3_fail,
-                SUM(CASE WHEN lock3_pass=1 THEN 1 ELSE 0 END) AS traded
-            FROM live_gate_history
-            WHERE timestamp >= ? AND timestamp < ? AND gate_decision IS NOT NULL
-        """, (since, until)).fetchone()
-        return dict(row) if row else {}
+        def closed(table: str, extra: str) -> list[dict]:
+            return [dict(r) for r in conn.execute(f"""
+                SELECT sector, COUNT(*) AS n,
+                       SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END) AS wins,
+                       ROUND(COALESCE(SUM(pnl), 0), 2) AS pnl
+                FROM {table}
+                WHERE exited_at >= ? AND exited_at < ? AND outcome IN ('WIN','LOSS','EXPIRED') {extra}
+                GROUP BY sector ORDER BY pnl DESC
+            """, (since, until)).fetchall()]
+
+        def open_now(table: str) -> dict[str, int]:
+            return {r["sector"]: r["n"] for r in conn.execute(
+                f"SELECT sector, COUNT(*) AS n FROM {table} WHERE outcome = 'OPEN' GROUP BY sector"
+            ).fetchall()}
+
+        return {
+            "demo":      closed("trades", ""),
+            "live":      closed("live_trades", "AND exit_confidence != 'unverified'"),
+            "demo_open": open_now("trades"),
+            "live_open": open_now("live_trades"),
+        }
     finally:
         conn.close()
 
@@ -253,14 +315,16 @@ def _top_sector(since: str, until: str) -> tuple[str, float] | None:
 
 def _threshold_status(since: str, until: str) -> dict:
     """
-    Per-sector Lock 1 threshold status.
+    Per-sector Lock 2 (Quant) threshold status — measured facts only.
 
-    For each calibrated sector, computes this week's actual pass rate
-    (% of ticker_history scores >= calibrated threshold). The calibrator
-    targets p80, so expected pass rate is ~20%. Significant deviation
-    suggests the distribution has shifted and recalibration is warranted:
-      - pass rate >> 20%: scores expanded upward — threshold too loose
-      - pass rate << 20%: scores compressed downward — threshold too tight
+    For each calibrated sector, computes this week's pass rate (% of
+    ticker_history scores >= calibrated threshold). The calibrator sets p80
+    over the sector's full history, so the all-time rate is 20%. A week is
+    0.2–1.5% of that window, so a week outside the 8–35% band says nothing
+    about the threshold's cause or about the regime floor; the report states
+    the band, n and the window share, not a cause (2026-10-03 read: the old
+    "selloff"/"drifted up" labels fired on sectors that moved the other way).
+    `flag` still drives send_weekly_report's calibration trigger, unchanged.
     """
     from backend.db import get_db, get_ticker_thresholds
     from backend.demo_config import get_demo_config
@@ -270,20 +334,30 @@ def _threshold_status(since: str, until: str) -> dict:
     calibrated = get_ticker_thresholds()
     all_sectors = sorted(get_sectors().keys())
 
+    from backend.config import EXCLUDED_SECTORS, SECTOR_THRESHOLD_FLOORS
+
     # Pull this week's ticker_history scores
     conn = get_db()
     try:
         rows = conn.execute("""
-            SELECT sector, signal_score FROM ticker_history
+            SELECT sector, ticker, signal_score FROM ticker_history
             WHERE day >= DATE(?) AND day < DATE(?)
         """, (since[:10], until[:10])).fetchall()
+        # The calibrator reads each sector's full ticker_history
+        # (ticker_threshold_calibration.calibrate), so this is the window a
+        # threshold is computed from.
+        window_rows = {r["sector"]: r["n"] for r in conn.execute(
+            "SELECT sector, COUNT(*) AS n FROM ticker_history GROUP BY sector"
+        ).fetchall()}
     finally:
         conn.close()
 
     from collections import defaultdict
     week_scores: dict[str, list[float]] = defaultdict(list)
+    week_tickers: dict[str, set] = defaultdict(set)
     for r in rows:
         week_scores[r["sector"]].append(r["signal_score"])
+        week_tickers[r["sector"]].add(r["ticker"])
 
     sectors_out = []
     for sector in all_sectors:
@@ -303,13 +377,20 @@ def _threshold_status(since: str, until: str) -> dict:
             else:
                 flag = "ok"
 
+        floor = SECTOR_THRESHOLD_FLOORS.get(sector)
         sectors_out.append({
-            "sector":     sector,
-            "threshold":  thresh,
-            "pass_rate":  pass_rate,
-            "n":          n,
-            "flag":       flag,
-            "fallback":   thresh is None,
+            "sector":      sector,
+            "threshold":   thresh,
+            "floor":       floor,
+            # What Lock 2 applies: lock2_quant._sector_threshold
+            "effective":   max(thresh, floor) if thresh is not None and floor is not None else thresh,
+            "pass_rate":   pass_rate,
+            "n":           n,
+            "tickers":     len(week_tickers.get(sector, ())),
+            "window_rows": window_rows.get(sector, 0),
+            "flag":        flag,
+            "fallback":    thresh is None,
+            "excluded":    sector in EXCLUDED_SECTORS,
         })
 
     return {
@@ -453,10 +534,6 @@ def _funnel_rate(numer: int | None, denom: int | None) -> str:
     return f"{(numer or 0) / denom * 100:.0f}%"
 
 
-def _funnel_count(n: int | None) -> str:
-    return "—" if n is None else str(n)
-
-
 def _td(content: str, bold: bool = False, color: str = "") -> str:
     style = "padding:6px 12px;border-bottom:1px solid #374151;"
     if bold:
@@ -475,10 +552,11 @@ def _row(*cells) -> str:
 def _gpt4o_commentary(
     demo: dict, live: dict,
     dfunnel: dict, lfunnel: dict,
-    top_sector: tuple | None,
+    sector_pnl: dict,
     thresh_status: dict,
     sweep_top: list | None,
     recal_changes: dict | None,
+    partials: list[str],
 ) -> str | None:
     """
     Call GPT-4o with the week's stats and return a short analyst commentary string.
@@ -499,18 +577,19 @@ def _gpt4o_commentary(
         live_wr = live["wins"] / live["closed_total"] if live["closed_total"] else None
         demo_return = (demo["balance"] - demo["starting"]) / demo["starting"]
 
-        de = dfunnel.get("evaluated") or 0
-        l1p = dfunnel.get("l1_pass") or 0
-        l2f = dfunnel.get("l2_fail") or 0
-        l3f = dfunnel.get("l3_fail") or 0
-
-        sectors_data = thresh_status.get("sectors", [])
-        high_flagged = [s["sector"] for s in sectors_data if s.get("flag") == "high"]
-        low_flagged  = [s["sector"] for s in sectors_data if s.get("flag") == "low"]
-        # ≥5 sectors simultaneously low = broad market compression, not threshold drift
-        broad_compressed = len(low_flagged) >= 5
+        def funnel_payload(f: dict) -> dict:
+            return {
+                "candidates":        f["total"],
+                "skipped":           f["skipped"],
+                "reached_gate":      f["reached_gate"],
+                "locks":             f["locks"],
+                "passed_leading":    f["passed_leading"],
+                "after_leading":     {a["outcome"]: a["n"] for a in f["after_leading"]},
+                "other_decisions":   f["other"],
+            }
 
         payload = {
+            "partial_sessions": partials,
             "demo": {
                 "closed_trades":  demo["closed_total"],
                 "wins":           demo["wins"],
@@ -524,28 +603,31 @@ def _gpt4o_commentary(
                 "open_positions": demo["open_positions"],
             },
             "live": {
-                "closed_trades": live["closed_total"],
-                "wins":          live["wins"],
-                "losses":        live["losses"],
-                "win_rate":      round(live_wr, 3) if live_wr is not None else None,
-                "realized_pnl":  live["realized_pnl"],
-                "regime_exits":  live["regime_exits"],
-                "regime_pnl":    live["regime_pnl"],
+                "closed_trades":  live["closed_total"],
+                "wins":           live["wins"],
+                "losses":         live["losses"],
+                "win_rate":       round(live_wr, 3) if live_wr is not None else None,
+                "realized_pnl":   live["realized_pnl"],
+                "regime_exits":   live["regime_exits"],
+                "regime_pnl":     live["regime_pnl"],
+                "open_positions": live["open_positions"],
             },
-            "gate_funnel_demo": {
-                "evaluated":      de,
-                "l1_pass_rate":   round(l1p / de, 3) if de else None,
-                "l2_filter_rate": round(l2f / l1p, 3) if l1p else None,
-                "l3_filter_rate": round(l3f / max(l1p - l2f, 1), 3) if l1p else None,
-                "trades_entered": dfunnel.get("traded", 0),
-            },
-            "top_sector":    {"name": top_sector[0], "avg_score": top_sector[1]} if top_sector else None,
-            "broad_market_compressed": broad_compressed,
-            "threshold_drift": {
-                "high_flagged":  high_flagged,
-                "low_flagged":   low_flagged,
-                "recalibrated":  list(recal_changes.keys()) if recal_changes else [],
-            },
+            "gate_funnel": {"demo": funnel_payload(dfunnel), "live": funnel_payload(lfunnel)},
+            "closed_by_sector": {"demo": sector_pnl["demo"], "live": sector_pnl["live"]},
+            "open_positions_by_sector": {"demo": sector_pnl["demo_open"], "live": sector_pnl["live_open"]},
+            "thresholds": [
+                {
+                    "sector":       t["sector"],
+                    "effective":    t["effective"],
+                    "pass_rate":    t["pass_rate"],
+                    "n_rows":       t["n"],
+                    "n_tickers":    t["tickers"],
+                    "window_share": round(t["n"] / t["window_rows"], 4) if t["window_rows"] else None,
+                }
+                for t in thresh_status.get("sectors", [])
+                if not t["excluded"] and not t["fallback"]
+            ],
+            "calibration": _calibration_fact(thresh_status, recal_changes),
             "current_config": {
                 "lock1_threshold":    cfg.get("lock1_threshold"),
                 "take_profit_pct":    cfg.get("take_profit_pct"),
@@ -573,6 +655,18 @@ def _gpt4o_commentary(
         return None
 
 
+def _calibration_fact(thresh_status: dict, recal_changes: dict | None) -> str:
+    """One factual line on what calibration did this week — no cause, no advice."""
+    above = [s["sector"] for s in thresh_status["sectors"] if s["flag"] == "high"]
+    if recal_changes is None:
+        return "Calibration not triggered (no sector above 35% this week)."
+    if not recal_changes:
+        return (f"Calibration ran (triggered by {len(above)} sector(s) above 35%: {', '.join(above)}); "
+                f"no threshold moved by 0.005 or more.")
+    moved = ", ".join(f"{s} {a} → {b}" for s, (a, b) in recal_changes.items())
+    return f"Calibration ran (triggered by {len(above)} sector(s) above 35%); moved: {moved}."
+
+
 # ── HTML builder ──────────────────────────────────────────────────────────────
 
 def _partial_sessions(since: str, until: str) -> list[str]:
@@ -589,6 +683,33 @@ def _partial_sessions(since: str, until: str) -> list[str]:
     return out
 
 
+def _plain_funnel(book: str, f: dict) -> str:
+    out = (f"GATE FUNNEL ({book})\n  Candidates {f['total']} | skipped open {f['skipped']['SKIPPED_OPEN']}, "
+           f"cooloff {f['skipped']['SKIPPED_COOLOFF']}")
+    if f["skipped"]["SKIPPED_BLOCKLIST"]:
+        out += f", blocklist {f['skipped']['SKIPPED_BLOCKLIST']}"
+    out += f" | reached the gate {f['reached_gate']}\n"
+    for st in f["locks"]:
+        out += f"  {st['stage']:20s} {st['failed']} of {st['reached']} filtered\n"
+    out += f"  Passed Leading {f['passed_leading']}: " + ", ".join(f"{a['outcome']} {a['n']}" for a in f["after_leading"]) + "\n"
+    if f["other"]:
+        out += "  Other decisions: " + ", ".join(f"{k} {v}" for k, v in f["other"].items()) + "\n"
+    if not f["balanced"]:
+        out += "  WARNING: counts after Leading do not sum to Passed Leading\n"
+    return out
+
+
+def _plain_sectors(sp: dict) -> str:
+    out = ""
+    for book in ("demo", "live"):
+        rows = sp[book]
+        out += f"  {book.capitalize()}: " + (", ".join(f"{r['sector']} {r['wins']}/{r['n']} ${r['pnl']:+,.2f}" for r in rows) or "none") + "\n"
+    out += "  Open now (demo / live): " + (", ".join(
+        f"{sec} {sp['demo_open'].get(sec, 0)}/{sp['live_open'].get(sec, 0)}"
+        for sec in sorted(set(sp["demo_open"]) | set(sp["live_open"]))) or "none") + "\n"
+    return out
+
+
 def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) -> tuple[str, str, str]:
     """Return (subject, html_body, plain_body)."""
     since  = _week_start_iso()
@@ -599,8 +720,9 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
 
     demo  = _demo_stats(since, until)
     live  = _live_stats(since, until)
-    dfunnel = _gate_funnel(since, until)
-    lfunnel = _live_gate_funnel(since, until)
+    dfunnel = _funnel("demo", since, until)
+    lfunnel = _funnel("live", since, until)
+    sector_pnl = _sector_pnl(since, until)
     top_sector = _top_sector(since, until)
     thresh_status = _threshold_status(since, until)
     sweep_state, sweep_detail, sweep_top = _sweep_best()
@@ -612,7 +734,7 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
 
     commentary = _gpt4o_commentary(
         demo, live, dfunnel, lfunnel,
-        top_sector, thresh_status, sweep_top, recal_changes,
+        sector_pnl, thresh_status, sweep_top, recal_changes, partials,
     )
 
     subject = f"[APEX] Weekly Report — {week_label}"
@@ -658,26 +780,65 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
       </tbody>
     </table>"""
 
-    # Gate funnel table
-    de = dfunnel.get("evaluated", 0) or 0
-    le = lfunnel.get("evaluated", 0) or 0
+    # Gate funnel table — every rate shown with the count it is a rate of
+    def _lock_cell(st: dict) -> str:
+        if not st["reached"]:
+            return _td("0 reached", color="#6b7280")
+        return _td(f"{st['failed']} of {st['reached']} filtered ({_funnel_rate(st['passed'], st['reached'])} pass)")
+
+    funnel_rows = [
+        _row(_td('Candidates'), _td(str(dfunnel['total'])), _td(str(lfunnel['total']))),
+        _row(_td('Skipped — open position'), _td(str(dfunnel['skipped']['SKIPPED_OPEN'])), _td(str(lfunnel['skipped']['SKIPPED_OPEN']))),
+        _row(_td('Skipped — cooloff'), _td(str(dfunnel['skipped']['SKIPPED_COOLOFF'])), _td(str(lfunnel['skipped']['SKIPPED_COOLOFF']))),
+    ]
+    if dfunnel['skipped']['SKIPPED_BLOCKLIST'] or lfunnel['skipped']['SKIPPED_BLOCKLIST']:
+        funnel_rows.append(_row(_td('Skipped — live blocklist'), _td(str(dfunnel['skipped']['SKIPPED_BLOCKLIST'])), _td(str(lfunnel['skipped']['SKIPPED_BLOCKLIST']))))
+    funnel_rows.append(_row(_td('Reached the gate', bold=True), _td(str(dfunnel['reached_gate']), bold=True), _td(str(lfunnel['reached_gate']), bold=True)))
+    for dst, lst in zip(dfunnel['locks'], lfunnel['locks']):
+        funnel_rows.append(_row(_td(dst['stage']), _lock_cell(dst), _lock_cell(lst)))
+    funnel_rows.append(_row(_td('Passed Leading', bold=True), _td(str(dfunnel['passed_leading']), bold=True), _td(str(lfunnel['passed_leading']), bold=True)))
+    for da, la in zip(dfunnel['after_leading'], lfunnel['after_leading']):
+        funnel_rows.append(_row(_td(f"&nbsp;&nbsp;{da['outcome']}", bold=da['outcome'] == 'Entered'),
+                                _td(str(da['n']), bold=da['outcome'] == 'Entered'),
+                                _td(str(la['n']), bold=la['outcome'] == 'Entered')))
+    for book, f in (("Demo", dfunnel), ("Live", lfunnel)):
+        if f['other']:
+            funnel_rows.append(_row(_td(f"{book}: other decisions", color='#f59e0b'),
+                                    _td(', '.join(f"{k} {v}" for k, v in f['other'].items()), color='#f59e0b'), _td('')))
+        if not f['balanced']:
+            funnel_rows.append(_row(_td(f"{book}: counts after Leading do not sum to Passed Leading", color='#ef4444'), _td(''), _td('')))
 
     funnel_table = f"""
+    <p style='color:#6b7280;font-size:12px;margin:0 0 6px 0;'>
+      Locks 1–4 run in order. After Leading, Claude and the overflow check run in either order, so those outcomes are listed side by side.
+    </p>
     <table style='border-collapse:collapse;width:100%;font-size:13px;color:#e5e7eb;'>
       <thead><tr>
         {th('Stage')}{th('Demo')}{th('Live')}
       </tr></thead>
-      <tbody>
-        {_row(_td('Evaluated'), _td(str(de)), _td(str(le)))}
-        {_row(_td('L1 pass rate'), _td(_funnel_rate(dfunnel.get('l1_pass'), de)), _td(_funnel_rate(lfunnel.get('l1_pass'), le)))}
-        {_row(_td('Skipped — open position'), _td(_funnel_count(dfunnel.get('skipped_open'))), _td(_funnel_count(lfunnel.get('skipped_open'))))}
-        {_row(_td('Skipped — cooloff'), _td(_funnel_count(dfunnel.get('skipped_cooloff'))), _td(_funnel_count(lfunnel.get('skipped_cooloff'))))}
-        {_row(_td('Filtered — eligibility'), _td(_funnel_count(dfunnel.get('filtered_eligibility'))), _td(_funnel_count(lfunnel.get('filtered_eligibility'))))}
-        {_row(_td('L2 fail — threshold (of L1 pass)'), _td(_funnel_rate(dfunnel.get('l2_fail'), dfunnel.get('l1_pass'))), _td(_funnel_rate(lfunnel.get('l2_fail'), lfunnel.get('l1_pass'))))}
-        {_row(_td('L3 fail (of L2 pass)'), _td(_funnel_rate(dfunnel.get('l3_fail'), (dfunnel.get('l1_pass') or 0) - (dfunnel.get('l2_fail') or 0))), _td(_funnel_rate(lfunnel.get('l3_fail'), (lfunnel.get('l1_pass') or 0) - (lfunnel.get('l2_fail') or 0))))}
-        {_row(_td('Trades entered', bold=True), _td(str(dfunnel.get('traded', 0)), bold=True), _td(str(lfunnel.get('traded', 0)), bold=True))}
-      </tbody>
+      <tbody>{"".join(funnel_rows)}</tbody>
     </table>"""
+
+    # Closed trades by sector, with n — a description, not a finding at these sizes
+    def _sector_cells(rows: list[dict], sector: str) -> str:
+        r = next((x for x in rows if x["sector"] == sector), None)
+        if not r:
+            return _td("—", color="#6b7280")
+        return _td(f"{r['wins']}/{r['n']} won, ${r['pnl']:+,.2f}", color=_pnl_color(r["pnl"]))
+
+    sp_sectors = sorted({r["sector"] for r in sector_pnl["demo"] + sector_pnl["live"]}
+                        | set(sector_pnl["demo_open"]) | set(sector_pnl["live_open"]))
+    if sp_sectors:
+        sector_pnl_html = f"""
+    <table style='border-collapse:collapse;width:100%;font-size:13px;color:#e5e7eb;'>
+      <thead><tr>{th('Sector')}{th('Demo closed')}{th('Live closed')}{th('Open now (demo / live)')}</tr></thead>
+      <tbody>{"".join(_row(_td(sec), _sector_cells(sector_pnl['demo'], sec), _sector_cells(sector_pnl['live'], sec),
+                           _td(f"{sector_pnl['demo_open'].get(sec, 0)} / {sector_pnl['live_open'].get(sec, 0)}"))
+                      for sec in sp_sectors)}</tbody>
+    </table>
+    <p style='color:#6b7280;font-size:11px;margin-top:4px;'>Per-sector counts this small describe the week; they are not evidence of an edge.</p>"""
+    else:
+        sector_pnl_html = "<p style='color:#6b7280;font-size:13px;'>No closed trades and no open positions.</p>"
 
     # Top sector
     sector_html = ""
@@ -689,94 +850,50 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
     else:
         sector_html = "<p style='color:#6b7280;font-size:13px;'>No snapshot data for this week.</p>"
 
-    # Threshold status
+    # Threshold status — measured facts: effective threshold, n, window share.
+    # No cause labels: the 10-03 read found "selloff" on sectors that rose and
+    # "recalibrate" on a step that changed nothing in four weeks.
     flat = thresh_status["flat"]
     sectors_info = thresh_status["sectors"]
     n_cal = sum(1 for s in sectors_info if not s["fallback"])
+    calibration_line = _calibration_fact(thresh_status, recal_changes)
 
-    high_flagged = [s["sector"] for s in sectors_info if s["flag"] == "high"]
-    low_flagged  = [s["sector"] for s in sectors_info if s["flag"] == "low"]
+    def _band(s: dict) -> str:
+        return {"high": "above 35%", "low": "below 8%", "ok": "8–35%"}.get(s["flag"], "")
 
-    FLAG_COLOR  = {"high": "#f59e0b", "low": "#6366f1", "ok": "#22c55e", None: "#6b7280"}
-    FLAG_LABEL  = {
-        "high": "recalibrate — scores drifted up",
-        "low":  "compressed — market selloff",
-        "ok":   "ok",
-        None:   "no data",
-    }
+    def _thresh_text(s: dict) -> str:
+        if s["threshold"] is None:
+            return "—"
+        if s["effective"] != s["threshold"]:
+            return f"{s['effective']} (floor; calibrated {s['threshold']})"
+        return str(s["threshold"])
 
-    def _pass_rate_cell(s: dict) -> str:
+    def _week_text(s: dict) -> str:
+        if s["excluded"]:
+            return "excluded at Lock 1 Eligibility"
         if s["fallback"]:
-            return _td(f"fallback ({flat})", color="#6b7280")
+            return f"uncalibrated — flat {flat}"
         if s["pass_rate"] is None:
-            return _td("< 5 scores", color="#6b7280")
-        color = FLAG_COLOR[s["flag"]]
-        pct = f"{s['pass_rate']*100:.0f}% of {s['n']}"
-        return _td(pct, color=color)
-
-    def _flag_cell(s: dict) -> str:
-        label = FLAG_LABEL[s["flag"]] if not s["fallback"] else "fallback"
-        color = FLAG_COLOR[s["flag"]] if not s["fallback"] else "#6b7280"
-        return _td(label, color=color)
+            return f"{s['n']} rows (&lt; 5)"
+        share = f"{s['n'] / s['window_rows'] * 100:.1f}%" if s["window_rows"] else "—"
+        return (f"{s['pass_rate']*100:.0f}% of {s['n']} rows, {s['tickers']} tickers "
+                f"({_band(s)}; {share} of {s['window_rows']:,} history rows)")
 
     thresh_rows_html = "".join(
-        _row(_td(s["sector"]), _td(str(s["threshold"]) if s["threshold"] else "—"), _pass_rate_cell(s), _flag_cell(s))
+        _row(_td(s["sector"]), _td(_thresh_text(s)),
+             _td(_week_text(s), color="#6b7280" if (s["excluded"] or s["fallback"] or s["pass_rate"] is None) else ""))
         for s in sectors_info
     )
 
-    notes = []
-    if high_flagged:
-        if recal_changes is not None and recal_changes:
-            # Calibration ran and produced meaningful threshold changes
-            change_parts = ", ".join(
-                f"{s}: {recal_changes[s][0]} → {recal_changes[s][1]}"
-                for s in high_flagged if s in recal_changes
-            )
-            unchanged = [s for s in high_flagged if s not in recal_changes]
-            detail = change_parts
-            if unchanged:
-                detail += f"; unchanged (insufficient data): {', '.join(unchanged)}"
-            notes.append(
-                f"<p style='color:#f59e0b;font-size:13px;font-weight:600;margin:0 0 4px 0;'>"
-                f"⚠ {len(high_flagged)} sector(s) recalibrated (upward drift): {detail}"
-                f"</p>"
-            )
-        elif recal_changes is not None and not recal_changes:
-            # Calibration ran but all changes were below minimum meaningful delta
-            notes.append(
-                f"<p style='color:#f59e0b;font-size:13px;margin:0 0 4px 0;'>"
-                f"⚠ {len(high_flagged)} sector(s) upward drift detected — recalibration ran, no meaningful threshold change (&lt;0.5%): {', '.join(high_flagged)}"
-                f"</p>"
-            )
-        else:
-            # recal_changes is None — shouldn't happen for high_flagged, safety fallback
-            notes.append(
-                f"<p style='color:#f59e0b;font-size:13px;font-weight:600;margin:0 0 4px 0;'>"
-                f"⚠ {len(high_flagged)} sector(s) showing upward score drift: {', '.join(high_flagged)}"
-                f"</p>"
-            )
-    if low_flagged:
-        notes.append(
-            f"<p style='color:#6366f1;font-size:13px;margin:0 0 4px 0;'>"
-            f"ℹ {len(low_flagged)} sector(s) compressed (broad market selloff) — regime floor working correctly, no recalibration: {', '.join(low_flagged)}"
-            f"</p>"
-        )
-    if not high_flagged and not low_flagged:
-        notes.append(
-            "<p style='color:#22c55e;font-size:13px;margin:0 0 4px 0;'>"
-            "All sectors within expected range — no recalibration needed."
-            "</p>"
-        )
-    recal_note = "".join(notes)
-
     thresh_html = f"""
-    {recal_note}
+    <p style='color:#e5e7eb;font-size:13px;margin:0 0 4px 0;'>{calibration_line}</p>
     <p style='color:#6b7280;font-size:12px;margin:0 0 6px 0;'>
-      Expected pass rate ~20%. Amber = distribution shifted this week vs historical calibration.
-      Flat fallback: {flat}.
+      Threshold = p80 of the sector's full score history, raised to a floor where one is set (what Lock 2 applies).
+      Pass rate = this week's scores at or above the calibrated threshold; the all-time rate is 20% by construction.
+      A week is a small share of the history, so a week outside 8–35% is a description, not a cause.
     </p>
     <table style='border-collapse:collapse;width:100%;font-size:13px;color:#e5e7eb;'>
-      <thead><tr>{th('Sector')}{th('Threshold')}{th('This week pass rate')}{th('Signal')}</tr></thead>
+      <thead><tr>{th('Sector')}{th('Threshold')}{th('This week')}</tr></thead>
       <tbody>{thresh_rows_html}</tbody>
     </table>"""
 
@@ -882,16 +999,19 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
     <div style='{section_style}'>Performance</div>
     {perf_table}
 
+    <div style='{section_style}'>Closed Trades by Sector</div>
+    {sector_pnl_html}
+
     <div style='{section_style}'>Gate Funnel</div>
     {funnel_table}
 
     <div style='{section_style}'>Top Sector This Week</div>
     {sector_html}
 
-    <div style='{section_style}'>Lock 1 Thresholds</div>
+    <div style='{section_style}'>Lock 2 Quant Thresholds</div>
     {thresh_html}
 
-    <div style='{section_style}'>Weekend Backtest Sweep — Best Configs</div>
+    <div style='{section_style}'>Monday Backtest Sweep — Best Configs</div>
     {sweep_html}
 
     <div style='{section_style}'>Autoresearch Optimizer</div>
@@ -919,44 +1039,18 @@ PERFORMANCE
   Demo: {demo['closed_total']} closed ({demo['wins']}W/{demo['losses']}L) | Regime exits: {demo['regime_exits']} ({plain_pnl(demo['regime_pnl'])}) | Win rate: {_pct(demo_wr)} | Realized P&L: {plain_pnl(demo['realized_pnl'])} | Unrealized: {plain_pnl(demo['unrealized_pnl'])} | Total equity: ${demo['balance']:,.2f} ({_pct(demo_return)})
   Live: {live['closed_total']} closed ({live['wins']}W/{live['losses']}L) | Regime exits: {live['regime_exits']} ({plain_pnl(live['regime_pnl'])}) | Win rate: {_pct(live_wr)} | P&L: {plain_pnl(live['realized_pnl'])}
 
-GATE FUNNEL (Demo)
-  Evaluated: {de} | L1 pass: {_funnel_rate(dfunnel.get('l1_pass'), de)} | Traded: {dfunnel.get('traded', 0)}
-
-GATE FUNNEL (Live)
-  Evaluated: {le} | L1 pass: {_funnel_rate(lfunnel.get('l1_pass'), le)} | Traded: {lfunnel.get('traded', 0)}
-
+{_plain_funnel("Demo", dfunnel)}
+{_plain_funnel("Live", lfunnel)}
+CLOSED TRADES BY SECTOR (n per sector; a description, not evidence of an edge)
+{_plain_sectors(sector_pnl)}
 TOP SECTOR
   {f"{top_sector[0]} ({top_sector[1]:.3f})" if top_sector else "—"}
 
-LOCK 1 THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
+LOCK 2 QUANT THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
+  {calibration_line}
 """
-    if high_flagged:
-        if recal_changes is not None and recal_changes:
-            change_parts = ", ".join(
-                f"{s}: {recal_changes[s][0]}→{recal_changes[s][1]}"
-                for s in high_flagged if s in recal_changes
-            )
-            unchanged = [s for s in high_flagged if s not in recal_changes]
-            detail = change_parts
-            if unchanged:
-                detail += f" | unchanged (insufficient data): {', '.join(unchanged)}"
-            plain += f"  ⚠ Recalibrated (upward drift): {detail}\n"
-        elif recal_changes is not None and not recal_changes:
-            plain += f"  ⚠ {len(high_flagged)} sector(s) upward drift — recalibration ran, no meaningful change (<0.5%): {', '.join(high_flagged)}\n"
-        else:
-            plain += f"  ⚠ {len(high_flagged)} sector(s) upward drift: {', '.join(high_flagged)}\n"
-    if low_flagged:
-        plain += f"  ℹ {len(low_flagged)} sector(s) compressed (market selloff — regime floor correct, no recalibration): {', '.join(low_flagged)}\n"
-    if not high_flagged and not low_flagged:
-        plain += "  All sectors within range — no recalibration needed.\n"
     for s in sectors_info:
-        if s["fallback"]:
-            plain += f"  {s['sector']:20s}  fallback ({flat})\n"
-        elif s["pass_rate"] is None:
-            plain += f"  {s['sector']:20s}  {s['threshold']}  no data\n"
-        else:
-            flag_str = {"high": " ← recalibrate (scores up)", "low": " ← compressed (market selloff)", "ok": ""}.get(s["flag"], "")
-            plain += f"  {s['sector']:20s}  {s['threshold']}  pass={s['pass_rate']*100:.0f}% (n={s['n']}){flag_str}\n"
+        plain += f"  {s['sector']:20s}  {_thresh_text(s):34s}  {_week_text(s).replace('&lt;', '<')}\n"
 
     if sweep_state == _SWEEP_ABSENT:
         plain += f"\nBEST BACKTEST CONFIGS: none — {sweep_detail}\n"
