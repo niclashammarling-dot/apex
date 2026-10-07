@@ -12,6 +12,7 @@ rowcount tells the caller whether it actually booked.
 import threading
 import time
 from contextlib import ExitStack, nullcontext
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -41,7 +42,10 @@ def _clean_live_trades():
 
 def _open_trade(ticker="LOCK", entry_price=100.0, qty=4.0, order_id="ord-lock-1"):
     return insert_live_trade({
-        "timestamp":       "2026-09-30T14:00:00+00:00",
+        # Relative to now, never a fixed date: a fixed 2026-09-30 aged past
+        # max_hold_days (~11-04) and sent the time-stop's close_position to the
+        # real broker (2026-10-05 frozen-date sweep).
+        "timestamp":       (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(),
         "ticker":          ticker,
         "sector":          "Industrials",
         "alpaca_order_id": order_id,

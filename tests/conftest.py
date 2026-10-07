@@ -106,3 +106,36 @@ def _never_send_real_alerts():
     with patch("backend.alerts._send_slack", return_value=False), \
          patch("backend.alerts._send_email", return_value=False):
         yield
+
+
+class BrokerReachedInTest(BaseException):
+    """BaseException, not Exception: brokers/alpaca.py wraps calls in
+    `except Exception` and returns a default, which would swallow the guard and
+    let the test pass on the fallback path."""
+
+
+@pytest.fixture(autouse=True)
+def _never_reach_the_broker():
+    """
+    Same shape as the alert guard, one resource over: no test may construct an
+    Alpaca client. Found 2026-10-05 (frozen-date sweep): the DB was redirected
+    but nothing blocked the broker, and test_live_exit_lock's FRZ test, once its
+    fixed-date trade aged past max_hold_days, sent real close_position /
+    cancel_open_orders calls with the paper keys from .env ("symbol not found:
+    FRZ"). A ticker the paper book holds would have been closed at market.
+
+    Patched at alpaca.common.rest.RESTClient.__init__, the base of both
+    TradingClient and StockHistoricalDataClient, so it holds for every import
+    alias and every construction site. Tests that replace the client classes
+    with mocks never reach it. A reach also fails the test at teardown, in case
+    something catches BaseException.
+    """
+    reached = []
+
+    def _refuse(self, *args, **kwargs):
+        reached.append(type(self).__name__)
+        raise BrokerReachedInTest(f"test constructed a real Alpaca {type(self).__name__}; patch the broker call")
+
+    with patch("alpaca.common.rest.RESTClient.__init__", _refuse):
+        yield
+    assert not reached, f"test constructed a real Alpaca client: {reached}"
