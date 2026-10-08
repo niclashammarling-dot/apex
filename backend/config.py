@@ -49,14 +49,13 @@ SECTOR_THRESHOLD_FLOORS: dict[str, float] = {
 # EXCLUDED_SECTORS: this is a live-broker-integrity quarantine, not a signal-
 # quality one, and is meant to be temporary/reversible pending an external
 # answer, not a calibration finding.
-LIVE_TICKER_BLOCKLIST: dict[str, str] = {
-    "HON": "Three account/positions snapshot omissions (2026-08-04/06, 08-07, "
-           "08-10/11) with root cause still unconfirmed by Alpaca (ticket "
-           "#333617); position manually closed 2026-08-12. Corroboration gate "
-           "added 2026-08-11 has never fired against a real live occurrence. "
-           "Remove once Alpaca substantively explains the defect — see "
-           "project_apex_hon_unreconciled (Claude memory).",
-}
+#
+# HON removed 2026-10-08 (Niclas: "Case settled"). It was quarantined after three
+# account/positions snapshot omissions (2026-08-04/06, 08-07, 08-10/11); Alpaca's
+# 2026-08-14 answer to ticket #333617 explains them as a known paper-only sync bug
+# between fills and the position snapshot ("filled orders remain on record … does
+# not affect live trading accounts"). The 08-11 corroboration gate stays in place.
+LIVE_TICKER_BLOCKLIST: dict[str, str] = {}
 
 # --- Polling intervals (minutes) ---
 POLL_INTERVAL_SECTORS = 15
