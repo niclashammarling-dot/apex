@@ -5,6 +5,7 @@ for real: freeze (no fabricated exit) → alert → gate refusal → audit CRITI
 Also covers the mirror direction (broker holds an untracked position) and
 the resolve_unreconciled() sign-off path.
 """
+import os
 from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
@@ -396,9 +397,10 @@ def _has_alpaca_credentials() -> bool:
     return bool(ALPACA_API_KEY and ALPACA_SECRET_KEY)
 
 
+@pytest.mark.real_broker
 @pytest.mark.skipif(
-    not _has_alpaca_credentials(),
-    reason="requires real paper-account Alpaca credentials",
+    not (_has_alpaca_credentials() and os.environ.get("APEX_REAL_BROKER_TESTS") == "1"),
+    reason="reads the real paper account: opt in with APEX_REAL_BROKER_TESTS=1 (credentials alone are on every host run via .env)",
 )
 class TestGetActivitiesLivePagination:
     """
@@ -413,10 +415,11 @@ class TestGetActivitiesLivePagination:
     symbol->ticker field mapping, together, against Alpaca's real response
     shape, not a hand-built mock of it.
 
-    Skipped everywhere except a session with real ALPACA_API_KEY/
-    ALPACA_SECRET_KEY set — never runs in CI or the default local suite,
-    same gating pattern as the rest of this file's mocked-broker tests
-    use to stay hermetic by default.
+    Skipped unless APEX_REAL_BROKER_TESTS=1 and real credentials are set
+    (2026-10-08). The old gate was credentials alone, and .env supplies them on
+    the host, so this ran in every local suite there while this docstring said
+    it never did. Marked real_broker: only under the opt-in is it exempt from
+    the conftest broker guard.
     """
 
     def test_pagination_and_field_mapping_against_real_endpoint(self):

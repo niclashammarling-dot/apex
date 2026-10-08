@@ -18,6 +18,15 @@ import pytest
 
 def pytest_configure(config):
     """Redirect DB to a temp file before any test modules are imported."""
+    # Marker for the opt-in real-endpoint test (2026-10-08). Registered here, in the one
+    # pytest_configure: a second definition of this hook further down silently replaced
+    # this one, the DB/data redirect never ran, and the 10-08 merge-window test runs wrote
+    # to and deleted from production data/apex.db (restored from the 07:28 snapshot).
+    config.addinivalue_line(
+        "markers",
+        "real_broker: reads the real paper-account Alpaca endpoint; runs only with "
+        "APEX_REAL_BROKER_TESTS=1 and is then exempt from the broker guard",
+    )
     tmp = tempfile.mkdtemp(prefix="apex_test_")
     # Before any backend import: backend.main attaches its file sink at module
     # load, to logs/ unless APEX_LOG_DIR says otherwise (2026-09-26).
@@ -108,14 +117,46 @@ def _never_send_real_alerts():
         yield
 
 
+def pytest_sessionstart(session):
+    """Refuse the whole run, before collection, unless pytest_configure's redirect
+    actually happened (2026-10-08). A second pytest_configure definition added further
+    down this file silently replaced the first, the redirect never ran, and the
+    merge-window test runs wrote to and deleted from production data/apex.db (restored
+    from the 07:28 snapshot). Collection itself writes (test modules call init_db() at
+    import), so a fixture is too late: this hook runs after configure, before collection."""
+    import backend.db as db_module
+    import backend.gate.gate_runner as gate_runner_module
+    import backend.regime.regime_bayes as regime_module
+    repo_data = (Path(__file__).resolve().parent.parent / "data").resolve()
+    paths = {
+        "backend.db.DB_PATH": db_module.DB_PATH,
+        "regime RESULT_CACHE_PATH": regime_module.RESULT_CACHE_PATH,
+        "regime SIGNAL_TRACE_PATH": regime_module.SIGNAL_TRACE_PATH,
+        "gate_runner _MULTIPLIER_STATS_PATH": gate_runner_module._MULTIPLIER_STATS_PATH,
+    }
+    leaking = {k: str(v) for k, v in paths.items() if Path(v).resolve().parent == repo_data}
+    if leaking:
+        pytest.exit(f"test isolation broken — production paths not redirected: {leaking}", returncode=3)
+
+
 class BrokerReachedInTest(BaseException):
     """BaseException, not Exception: brokers/alpaca.py wraps calls in
     `except Exception` and returns a default, which would swallow the guard and
     let the test pass on the fallback path."""
 
 
+def _real_broker_opted_in(request) -> bool:
+    """A real_broker test runs only on explicit opt-in (2026-10-08). Credentials
+    alone were the old gate, and .env supplies them on the host, so the pagination
+    test ran against the real paper account in every local suite since 09-10 while
+    its docstring said it never did; the 10-08 merge-window suite found it when the
+    guard refused it."""
+    return (request.node.get_closest_marker("real_broker") is not None
+            and os.environ.get("APEX_REAL_BROKER_TESTS") == "1")
+
+
 @pytest.fixture(autouse=True)
-def _never_reach_the_broker():
+def _never_reach_the_broker(request):
     """
     Same shape as the alert guard, one resource over: no test may construct an
     Alpaca client. Found 2026-10-05 (frozen-date sweep): the DB was redirected
@@ -130,6 +171,9 @@ def _never_reach_the_broker():
     with mocks never reach it. A reach also fails the test at teardown, in case
     something catches BaseException.
     """
+    if _real_broker_opted_in(request):
+        yield
+        return
     reached = []
 
     def _refuse(self, *args, **kwargs):
