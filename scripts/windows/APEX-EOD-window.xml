@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.3" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>APEX cycle watch (2026-10-03): every 15 min, 15:15-22:30 Stockholm on weekdays, scripts/cycle_watch.py reads job_runs and mails once per side per day when the demo or live gate job has not started for 45 min inside NYSE market hours (the script gates on the calendar and the ET clock; outside it, it exits without writing). Separate task on purpose: a check inside the backend dies with it, and the market-window task relaunches only a dead instance, not a hung one. No RestartOnFailure (it never fires on a non-zero exit, measured 10-03); the next 15-min repeat is the retry. Review by 2026-10-31. Recovery: delete this task.</Description>
-    <URI>\APEX cycle watch</URI>
+    <Description>APEX EOD window (apex-moc 2026-09-16 scheduler-not-a-service decision). Launches backend without --reload for eod_regime 16:15 ET + collect_pcr 16:30 ET; the script gates on the ET clock (16:05-16:45) so only one of the two triggers runs per day across DST-mismatch weeks. Recovery: delete this task, fall back to manual launch.</Description>
+    <URI>\APEX EOD window</URI>
   </RegistrationInfo>
   <Principals>
     <Principal id="Author">
@@ -13,10 +13,10 @@
   <Settings>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <ExecutionTimeLimit>PT5M</ExecutionTimeLimit>
+    <ExecutionTimeLimit>PT2H</ExecutionTimeLimit>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
     <StartWhenAvailable>true</StartWhenAvailable>
-    <WakeToRun>false</WakeToRun>
+    <WakeToRun>true</WakeToRun>
     <IdleSettings>
       <Duration>PT10M</Duration>
       <WaitTimeout>PT1H</WaitTimeout>
@@ -27,14 +27,9 @@
   </Settings>
   <Triggers>
     <CalendarTrigger>
-      <Repetition>
-        <Interval>PT15M</Interval>
-        <Duration>PT7H15M</Duration>
-        <StopAtDurationEnd>false</StopAtDurationEnd>
-      </Repetition>
-      <StartBoundary>2026-10-05T15:15:00+02:00</StartBoundary>
-      <Enabled>true</Enabled>
+      <StartBoundary>2026-09-16T22:10:00+02:00</StartBoundary>
       <ScheduleByWeek>
+        <WeeksInterval>1</WeeksInterval>
         <DaysOfWeek>
           <Monday />
           <Tuesday />
@@ -42,14 +37,26 @@
           <Thursday />
           <Friday />
         </DaysOfWeek>
+      </ScheduleByWeek>
+    </CalendarTrigger>
+    <CalendarTrigger>
+      <StartBoundary>2026-09-16T21:10:00+02:00</StartBoundary>
+      <ScheduleByWeek>
         <WeeksInterval>1</WeeksInterval>
+        <DaysOfWeek>
+          <Monday />
+          <Tuesday />
+          <Wednesday />
+          <Thursday />
+          <Friday />
+        </DaysOfWeek>
       </ScheduleByWeek>
     </CalendarTrigger>
   </Triggers>
   <Actions Context="Author">
     <Exec>
       <Command>C:\Windows\System32\wscript.exe</Command>
-      <Arguments>C:\Users\Nix\apex-launch\run_hidden.vbs wsl.exe -d Ubuntu -u promenix -- /home/promenix/apex/venv/bin/python /home/promenix/apex/scripts/cycle_watch.py</Arguments>
+      <Arguments>C:\Users\Nix\apex-launch\run_hidden.vbs wsl.exe -d Ubuntu -u promenix -- /home/promenix/apex/scripts/eod_window.sh</Arguments>
     </Exec>
   </Actions>
 </Task>

@@ -67,8 +67,8 @@
   </Triggers>
   <Actions Context="Author">
     <Exec>
-      <Command>wsl.exe</Command>
-      <Arguments>-d Ubuntu -u promenix -- /home/promenix/apex/scripts/market_window.sh</Arguments>
+      <Command>C:\Windows\System32\wscript.exe</Command>
+      <Arguments>C:\Users\Nix\apex-launch\run_hidden.vbs wsl.exe -d Ubuntu -u promenix -- /home/promenix/apex/scripts/market_window.sh</Arguments>
     </Exec>
   </Actions>
 </Task>

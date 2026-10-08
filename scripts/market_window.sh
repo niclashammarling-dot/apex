@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # APEX market window — launched by Windows Task Scheduler (task "APEX market window")
-# via wsl.exe at 15:20 and 14:20 Stockholm on weekdays (scripts/windows/APEX-market-window.xml).
+# via wsl.exe at 15:20 and 14:20 Stockholm on weekdays (scripts/windows/APEX-market-window.xml),
+# wrapped since 2026-10-08 in scripts/windows/run_hidden.vbs (copy in C:\Users\Nix\apex-launch\):
+# no console window, so nothing steals focus or can be closed by hand; the exit code passes through.
 # Serves the demo gate for the whole NYSE session and the two EOD jobs after it.
 #
 # Why (apex-moc, decided 2026-09-17): CHECK 80's treatment rows are live gate
