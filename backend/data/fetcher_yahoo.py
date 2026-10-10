@@ -119,10 +119,6 @@ def _score_ticker(
         else:
             atr_pct = 0.0
 
-        # 90-day price range for Lock 3 context
-        high_60d = float(df["Close"].max())
-        low_60d  = float(df["Close"].min())
-
         evk = ev_kelly.compute(spy_regime, rolling_win_rate, atr_pct=atr_pct)
         score = aggregator.compute(
             mom["momentum_score"],
@@ -174,25 +170,19 @@ def _score_ticker(
             "momentum_score":    mom["momentum_score"],
             # volume
             "volume":            vol["volume"],
-            "avg_vol_30d":       vol["avg_vol_30d"],
             "volume_ratio":      vol["volume_ratio"],
             "volume_score":      vol["volume_score"],
             # ev/kelly
             "ev":                evk["ev"],
             "kelly_size":        kelly_scaled,
-            "effective_sl":      evk["effective_sl"],
             "atr_pct":           evk["atr_pct"],
             # trend (MACD + MA50)
             "trend_score":       trd["trend_score"],
-            "macd_hist":         trd["macd_hist"],
             "ma50":              trd["ma50"],
             # relative strength vs SPY
             "rs_score":          rs["rs_score"],
             "ticker_return_20d": rs["ticker_return_20d"],
             "excess_return":     rs["excess_return"],
-            # price range
-            "high_60d":          round(high_60d, 4),
-            "low_60d":           round(low_60d, 4),
             # aggregate
             "signal_score":      score,
         }

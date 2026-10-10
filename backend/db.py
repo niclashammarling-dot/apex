@@ -331,6 +331,11 @@ def init_db() -> None:
         _add_column_if_missing(conn, "trades",  "price_exit",  "REAL")
         _add_column_if_missing(conn, "trades",  "exited_at",   "TEXT")
         _add_column_if_missing(conn, "trades",  "exit_reason", "TEXT")
+        # high_60d, low_60d, effective_sl, macd_hist (and avg_vol_30d in the base schema)
+        # stopped being written 2026-10-10: no reader since the 03-27 Lock 3 context strip
+        # (ded5edf) or ever; range position was tested and dropped 05-13; all recomputable
+        # from OHLCV (Niclas: "Stop the 6, store info"). Columns and history are kept.
+        # trades.wallet_balance_after left the schema 04-01 (cc2aa23), never written since.
         _add_column_if_missing(conn, "signals", "high_60d",         "REAL")
         _add_column_if_missing(conn, "signals", "low_60d",          "REAL")
         _add_column_if_missing(conn, "signals", "atr_pct",          "REAL")
@@ -485,15 +490,15 @@ def insert_signal(row: dict) -> int:
     try:
         cur = conn.execute("""
             INSERT INTO signals
-              (timestamp, ticker, sector, price, ma20, rsi, volume, avg_vol_30d,
+              (timestamp, ticker, sector, price, ma20, rsi, volume,
                volume_ratio, signal_score, momentum_score, volume_score, ev, kelly_size,
-               high_60d, low_60d, atr_pct, effective_sl,
-               trend_score, macd_hist, ma50, rs_score, bar_date)
+               atr_pct,
+               trend_score, ma50, rs_score, bar_date)
             VALUES
-              (:timestamp, :ticker, :sector, :price, :ma20, :rsi, :volume, :avg_vol_30d,
+              (:timestamp, :ticker, :sector, :price, :ma20, :rsi, :volume,
                :volume_ratio, :signal_score, :momentum_score, :volume_score, :ev, :kelly_size,
-               :high_60d, :low_60d, :atr_pct, :effective_sl,
-               :trend_score, :macd_hist, :ma50, :rs_score, :bar_date)
+               :atr_pct,
+               :trend_score, :ma50, :rs_score, :bar_date)
         """, {**row, "bar_date": row.get("bar_date")})
         conn.commit()
         return cur.lastrowid
