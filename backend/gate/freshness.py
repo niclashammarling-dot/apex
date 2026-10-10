@@ -71,6 +71,24 @@ def stale_reason(signal_ts: str | None, bar_date: str | None,
     return None
 
 
+IN_SESSION        = "in_session"
+SAME_DAY_PRE_OPEN = "same_day_pre_open"
+EARLIER_DAY       = "earlier_day"
+
+
+def signal_class(signal_ts: str | None, entry_ts: str) -> str:
+    """Which input an entry was decided on (live_trades.signal_class): in_session,
+    same_day_pre_open or earlier_day. Read by the live stats, which separate
+    in-session entries from the rest."""
+    if not signal_ts:
+        return "no_signal"
+    if not written_before_open(signal_ts, entry_ts):
+        return IN_SESSION
+    same_day = (datetime.fromisoformat(signal_ts).astimezone(NY).date()
+                == datetime.fromisoformat(entry_ts).astimezone(NY).date())
+    return SAME_DAY_PRE_OPEN if same_day else EARLIER_DAY
+
+
 def written_before_open(signal_ts: str, entry_ts: str) -> bool:
     """Write-time half only, for rows that carry no bar_date (history before
     2026-10-10): was the signal written before the open of the session the

@@ -809,10 +809,13 @@ def _sector_cap_check(sector: str, notional: float, exposure: dict[str, float],
 def _record_live_trade(signal: dict, notional: float, order_id: str, cfg: dict) -> None:
     try:
         from datetime import datetime, timezone
+        from backend.gate.freshness import signal_class
         price = signal["price"]
         qty   = int(notional / price)   # floor matches place_bracket_order integer fill
+        now   = datetime.now(timezone.utc).isoformat()
         insert_live_trade({
-            "timestamp":       datetime.now(timezone.utc).isoformat(),
+            "timestamp":       now,
+            "signal_class":    signal_class(signal.get("timestamp"), now),
             "ticker":          signal["ticker"],
             "sector":          signal.get("sector", ""),
             "alpaca_order_id": order_id,

@@ -1579,15 +1579,63 @@ def insert_live_trade(row: dict) -> int:
         cur = conn.execute("""
             INSERT INTO live_trades
               (timestamp, ticker, sector, alpaca_order_id,
-               entry_price, qty, notional, tp_price, sl_price)
+               entry_price, qty, notional, tp_price, sl_price, signal_class)
             VALUES
               (:timestamp, :ticker, :sector, :alpaca_order_id,
-               :entry_price, :qty, :notional, :tp_price, :sl_price)
-        """, row)
+               :entry_price, :qty, :notional, :tp_price, :sl_price, :signal_class)
+        """, {**row, "signal_class": row.get("signal_class")})
         conn.commit()
         return cur.lastrowid
     finally:
         conn.close()
+
+
+def live_trade_stats(since: str | None = None) -> dict:
+    """
+    Closed live-trade statistics, overall and per signal_class (2026-10-10), the
+    one implementation the dashboard renders. since defaults to live_config
+    live_account_since (the 2026-07-07 paper reset; rows before it belong to the
+    old account and are excluded from every statistic, Niclas 2026-09-24).
+    exit_confidence 'unverified' rows are excluded (the 08-18 RECONCILIATION
+    batch), as in get_live_equity_curve and the weekly report.
+
+    by_class separates entries decided on in-session signals from the rest
+    (Finding 1: 25 of 55 live entries since 07-07 were not): a win rate over all
+    rows mixes three decision inputs, so the in-session figure is the one that
+    describes the strategy as it now trades.
+    """
+    if since is None:
+        from backend.live_config import get_live_config
+        since = get_live_config().get("live_account_since") or "0000"
+    conn = get_db()
+    try:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT outcome, pnl, signal_class FROM live_trades "
+            "WHERE timestamp >= ? AND outcome IN ('WIN', 'LOSS', 'EXPIRED') "
+            "AND COALESCE(exit_confidence, 'confirmed') != 'unverified'", (since,)).fetchall()]
+    finally:
+        conn.close()
+
+    def summarise(rs: list[dict]) -> dict:
+        wins   = [r for r in rs if r["outcome"] == "WIN"]
+        losses = [r for r in rs if r["outcome"] != "WIN"]
+        gw = sum(r["pnl"] or 0 for r in wins)
+        gl = abs(sum(r["pnl"] or 0 for r in losses))
+        return {
+            "trades":        len(rs),
+            "wins":          len(wins),
+            "win_rate":      round(len(wins) / len(rs), 4) if rs else None,
+            "realized":      round(sum(r["pnl"] or 0 for r in rs), 2),
+            "avg_win":       round(gw / len(wins), 2) if wins else None,
+            "avg_loss":      round(gl / len(losses), 2) if losses else None,
+            "profit_factor": round(gw / gl, 2) if gl else None,
+        }
+
+    classes: dict[str, list[dict]] = {}
+    for r in rows:
+        classes.setdefault(r["signal_class"] or "unclassified", []).append(r)
+    return {"since": since, "overall": summarise(rows),
+            "by_class": {k: summarise(v) for k, v in sorted(classes.items())}}
 
 
 def close_live_trade(trade_id: int, exit_price: float, pnl: float,

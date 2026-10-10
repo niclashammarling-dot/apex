@@ -320,37 +320,33 @@ function adaptWallet(wallet, equityPoints) {
   };
 }
 
-// The Alpaca paper account was reset on 2026-07-07 (portfolio/history starts at
-// $10,000 that day). Rows before it belong to the old account: excluded from every
-// statistic (Niclas 2026-09-24), so realized and win rate count from the reset.
-// Before 2026-10-05 the panel showed win rate x100 twice ("6100%") and realized
-// from account.total_pnl, a field /api/live/account never returns ($0.00).
-const LIVE_ACCOUNT_RESET = "2026-07-07";
-
-function adaptLiveWallet(account, livePositions, settings, equityPoints, liveTrades) {
+// Realized, win rate and trade stats come from the backend (/api/live/stats,
+// db.live_trade_stats): since the 2026-07-07 paper reset (live_config
+// live_account_since; older rows belong to the old account, Niclas 2026-09-24),
+// unverified rows excluded, and split by signal_class so the in-session figure is
+// shown beside the all-input one (Finding 1, 2026-10-10). Computed here from raw
+// rows until 2026-10-10, with its own copy of the reset date and filters.
+function adaptLiveWallet(account, livePositions, settings, equityPoints, liveStats) {
   const starting = settings?.live?.starting_balance ?? 25000;
   if (!account) {
     return { balance: 0, starting, cash: 0, invested: 0, realized: 0, unrealized: 0, winRate: 0, trades: 0, avgWin: 0, avgLoss: 0, drawdown: 0, sharpe: 0 };
   }
   const unrealized = (livePositions || []).reduce((s, p) => s + (p.unrealized_pnl ?? 0), 0);
-  const sinceReset = (liveTrades || []).filter(t => (t.timestamp ?? "") >= LIVE_ACCOUNT_RESET);
-  const realized = sinceReset.filter(t => t.exited_at && t.pnl != null).reduce((s, t) => s + t.pnl, 0);
-  const closed = sinceReset.filter(t => t.outcome === "WIN" || t.outcome === "LOSS");
-  const wins   = closed.filter(t => t.outcome === "WIN");
-  const losses = closed.filter(t => t.outcome === "LOSS");
-  const grossWins   = wins.reduce((s, t) => s + (t.pnl ?? 0), 0);
-  const grossLosses = losses.reduce((s, t) => s + Math.abs(t.pnl ?? 0), 0);
+  const o  = liveStats?.overall || {};
+  const is = liveStats?.by_class?.in_session || null;
   return {
     balance:    account.equity ?? 0,
     starting,
     cash:       account.cash ?? 0,
     invested:   (account.equity ?? 0) - (account.cash ?? 0),
-    realized:   +realized.toFixed(2),
+    realized:   o.realized ?? 0,
     unrealized,
-    winRate:    closed.length ? wins.length / closed.length : 0,   // fraction, like the demo wallet
-    trades:     closed.length,
-    avgWin:     wins.length   ? +(grossWins   / wins.length).toFixed(2)   : 0,
-    avgLoss:    losses.length ? +(grossLosses / losses.length).toFixed(2) : 0,
+    winRate:    o.win_rate ?? 0,   // fraction, like the demo wallet
+    trades:     o.trades ?? 0,
+    avgWin:     o.avg_win ?? 0,
+    avgLoss:    o.avg_loss ?? 0,
+    inSession:  is,                // { trades, wins, win_rate, profit_factor, ... } or null
+    statsSince: liveStats?.since ?? null,
     drawdown:   _maxDD(equityPoints),
     sharpe:     0,
   };
@@ -753,6 +749,7 @@ export default function App() {
   const [livePositions, setLivePositions] = useState([]);
   const [liveOrders,    setLiveOrders]    = useState([]);
   const [liveTrades,    setLiveTrades]    = useState([]);
+  const [liveStats,     setLiveStats]     = useState(null);
   const [liveGateHist,  setLiveGateHist]  = useState({ rows: [], funnel: null });
   const [liveEquity,    setLiveEquity]    = useState([]);
   const [compareData,   setCompareData]   = useState(null);
@@ -784,6 +781,7 @@ export default function App() {
     pollOnce("/api/live/positions").then(d => setLivePositions(d || [])).catch(() => {});
     pollOnce("/api/live/orders").then(d => setLiveOrders(d || [])).catch(() => {});
     pollOnce("/api/live/trades").then(d => setLiveTrades(d || [])).catch(() => {});
+    pollOnce("/api/live/stats").then(d => setLiveStats(d || null)).catch(() => {});
     pollOnce("/api/live/gate/history").then(d => setLiveGateHist(d || { rows: [], funnel: null })).catch(() => {});
     pollOnce("/api/live/equity").then(d => setLiveEquity(d || [])).catch(() => {});
     pollOnce("/api/live/compare").then(d => setCompareData(d || null)).catch(() => {});
@@ -827,7 +825,7 @@ export default function App() {
       positions:     adaptPositions(wallet?.open_positions ?? []),
       livePositions: adaptPositions(livePositions),
       wallet:        adaptWallet(wallet, eq),
-      liveWallet:    adaptLiveWallet(liveAccount, livePositions, settings, liveEq, liveTrades),
+      liveWallet:    adaptLiveWallet(liveAccount, livePositions, settings, liveEq, liveStats),
       alerts:        adaptAlerts(driftAlerts),
       demoTrades,
       liveTrades,
@@ -835,7 +833,7 @@ export default function App() {
       auditReports,
       liveOrders,
     };
-  }, [sectors, wallet, gateHist, liveGateHist, equity, regimeData, driftAlerts, liveEquity, liveAccount, livePositions, settings, demoTrades, liveTrades, auditReports, liveOrders]);
+  }, [sectors, wallet, gateHist, liveGateHist, equity, regimeData, driftAlerts, liveEquity, liveAccount, livePositions, settings, demoTrades, liveTrades, auditReports, liveOrders, liveStats]);
 
   // ── Tweaks helpers ──────────────────────────────────────────────────────────
   const unwrap = v => (v && typeof v === "object" && "value" in v) ? v.value : v;

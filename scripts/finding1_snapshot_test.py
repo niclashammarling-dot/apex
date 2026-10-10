@@ -15,15 +15,11 @@ Usage: venv/bin/python scripts/finding1_snapshot_test.py <path-to-db-copy> [--si
 """
 import sqlite3
 import sys
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from backend.gate.freshness import written_before_open  # noqa: E402
-
-NY = ZoneInfo("America/New_York")
+from backend.gate.freshness import signal_class
 
 
 def classify(conn: sqlite3.Connection, since: str) -> list[dict]:
@@ -35,11 +31,8 @@ def classify(conn: sqlite3.Connection, since: str) -> list[dict]:
         if sig is None:
             out.append({**dict(t), "signal_ts": None, "class": "no_signal", "refused": True})
             continue
-        refused = written_before_open(sig["timestamp"], t["timestamp"])
-        same_day = (datetime.fromisoformat(sig["timestamp"]).astimezone(NY).date()
-                    == datetime.fromisoformat(t["timestamp"]).astimezone(NY).date())
-        cls = "in_session" if not refused else ("same_day_pre_open" if same_day else "earlier_day")
-        out.append({**dict(t), "signal_ts": sig["timestamp"], "class": cls, "refused": refused})
+        cls = signal_class(sig["timestamp"], t["timestamp"])
+        out.append({**dict(t), "signal_ts": sig["timestamp"], "class": cls, "refused": cls != "in_session"})
     return out
 
 

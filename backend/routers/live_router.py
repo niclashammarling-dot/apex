@@ -101,6 +101,14 @@ def live_equity(period: str = "1M"):
         raise HTTPException(status_code=502, detail=f"Alpaca error: {e}")
 
 
+@router.get("/stats")
+def live_stats():
+    """Closed live-trade stats since the account reset, overall and per
+    signal_class — what the wallet panel renders (db.live_trade_stats)."""
+    from backend.db import live_trade_stats
+    return live_trade_stats()
+
+
 @router.get("/trades")
 def live_trades():
     from backend.db import get_all_live_trades

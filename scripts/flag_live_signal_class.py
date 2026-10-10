@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from finding1_snapshot_test import classify  # noqa: E402
+from finding1_snapshot_test import classify
 
 
 def main(argv: list[str]) -> int:
