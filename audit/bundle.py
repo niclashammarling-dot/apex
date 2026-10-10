@@ -66,6 +66,14 @@ EXCEPTIONS: dict[str, tuple[str, str]] = {
     **{f"parity:column:signals.{c}": (
         "writes stopped 2026-10-10, history kept (Niclas: \"Stop the 6, store info\")", "2027-04-10")
        for c in ("high_60d", "low_60d", "avg_vol_30d", "macd_hist", "effective_sl")},
+    # Manual operator tools: no code calls them, a person does (a6ddc08 removed one as
+    # "referenced nowhere" on 2026-10-10 and it was restored the same day).
+    "parity:function:backend/db.py:update_live_trade_order_id": (
+        "manual recovery kit with reopen_unreconciled() + place_oco_exit() (HON 2026-08-10)", "2027-04-10"),
+    "parity:function:backend/brokers/alpaca.py:place_oco_exit": (
+        "manual recovery kit: re-arms broker-side protection on a still-held position (HON 2026-08-10)", "2027-04-10"),
+    "parity:function:backend/ticker_threshold_calibration.py:print_calibration_report": (
+        "manual inspection of per-sector score distributions and thresholds", "2027-04-10"),
     "parity:column:trades.wallet_balance_after": (
         "left the schema 2026-04-01 (cc2aa23), never written; column survives in old DBs", "2027-04-10"),
 }

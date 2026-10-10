@@ -1537,6 +1537,31 @@ def live_trade_stats(since: str | None = None) -> dict:
             "by_class": {k: summarise(v) for k, v in sorted(classes.items())}}
 
 
+
+def update_live_trade_order_id(trade_id: int, alpaca_order_id: str) -> None:
+    """
+    Repoint the bracket-leg order a trade's exit checks and profit-lock
+    ratchet look at (_find_filled_sell_leg, _maybe_ratchet_bracket_sl both key
+    off live_trades.alpaca_order_id). Needed after re-arming protection with a
+    standalone order that isn't the original entry order — e.g.
+    reopen_unreconciled() + place_oco_exit() — otherwise both keep reading a
+    stale, terminal parent order and the ratchet silently no-ops (warns, never
+    errors) forever.
+    """
+    # Manual recovery kit (restored 2026-10-10, removed the same day in a6ddc08 as
+    # "referenced nowhere"): run by hand with reopen_unreconciled() and
+    # brokers.alpaca.place_oco_exit() when a position is still held after an
+    # UNRECONCILED freeze (HON, 2026-08-10). No code calls it; an operator does.
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE live_trades SET alpaca_order_id = ? WHERE id = ?",
+            (alpaca_order_id, trade_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
 def close_live_trade(trade_id: int, exit_price: float, pnl: float,
                      outcome: str, exit_reason: str, exited_at: str) -> int:
     """

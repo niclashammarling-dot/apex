@@ -21,6 +21,7 @@ at startup (cached, recalibrated on demand).
 """
 from __future__ import annotations
 
+import statistics
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -180,3 +181,32 @@ def _outcome_thresholds(min_rows: int) -> dict[str, float]:
 
     return thresholds
 
+
+# Manual inspection tool (restored 2026-10-10): per-sector score distributions and
+# thresholds, run by hand; nothing calls it in code.
+def print_calibration_report() -> None:
+    """Print full calibration stats for inspection."""
+    from backend.db import get_db
+    conn = get_db()
+
+    print("\n=== Per-sector signal score distributions ===\n")
+    print(f"  {'Sector':20s}  {'N':>6}  {'p50':>6}  {'p75':>6}  {'p80':>6}  {'p85':>6}  {'p90':>6}  {'mean':>6}")
+    print("  " + "-" * 75)
+
+    rows = conn.execute(
+        "SELECT sector, signal_score FROM ticker_history ORDER BY sector, signal_score"
+    ).fetchall()
+    conn.close()
+
+    by_sector: dict[str, list[float]] = defaultdict(list)
+    for r in rows:
+        by_sector[r["sector"]].append(r["signal_score"])
+
+    for sector in sorted(by_sector):
+        s = sorted(by_sector[sector])
+        n = len(s)
+        if n < 10:
+            continue
+        def p(pct): return round(s[int(n * pct / 100)], 4)
+        mean = round(statistics.mean(s), 4)
+        print(f"  {sector:20s}  {n:6d}  {p(50):6.4f}  {p(75):6.4f}  {p(80):6.4f}  {p(85):6.4f}  {p(90):6.4f}  {mean:6.4f}")
