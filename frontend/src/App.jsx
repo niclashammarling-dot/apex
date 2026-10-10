@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo, Component } from "react";
 import RotationForecast  from "./components/RotationForecast.jsx";
 import SectorRotation    from "./components/SectorRotation.jsx";
 import ApexTerminal      from "./components/ApexTerminal.jsx";
-import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect, TweakColor } from "./components/TweaksPanel.jsx";
 
 // ── Modal / overlay CSS only ──────────────────────────────────────────────────
 const CSS = `
@@ -716,14 +715,16 @@ function PromoteModal({ config, onConfirm, onCancel }) {
   );
 }
 
-// ── Tweaks defaults ───────────────────────────────────────────────────────────
-
-const TWEAK_DEFAULTS = {
-  density:         "comfortable",
-  themeTerminal:   "dark",
-  paletteTerminal: { value: "mint",  swatch: "#7ce0a1" },
-  fontTerminal:    "mono",
-  layout:          "regime-hero",
+// ── Terminal display ──────────────────────────────────────────────────────────
+// Fixed since 2026-10-10 (Niclas: "drop the tweak knobs, I'm happy either way design as
+// is"): the Tweaks panel and its localStorage-backed knobs are gone; these were its
+// defaults.
+const TERMINAL_DISPLAY = {
+  density: "comfortable",
+  theme:   "dark",
+  palette: "mint",
+  font:    "mono",
+  layout:  "regime-hero",
 };
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -755,8 +756,6 @@ export default function App() {
   const [showPromote,   setShowPromote]   = useState(false);
   const [auditReports,   setAuditReports]   = useState([]);
 
-  // ── Tweaks ──────────────────────────────────────────────────────────────────
-  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
 
   // ── Fetch ───────────────────────────────────────────────────────────────────
   function fetchDemoData() {
@@ -828,17 +827,7 @@ export default function App() {
     };
   }, [sectors, wallet, gateHist, liveGateHist, equity, regimeData, driftAlerts, liveEquity, liveAccount, livePositions, settings, demoTrades, liveTrades, auditReports, liveOrders, liveStats]);
 
-  // ── Tweaks helpers ──────────────────────────────────────────────────────────
-  const unwrap = v => (v && typeof v === "object" && "value" in v) ? v.value : v;
   const marketOpen = isMarketOpen();
-
-  const tTerminal = {
-    density: t.density,
-    theme:   t.themeTerminal,
-    palette: unwrap(t.paletteTerminal),
-    font:    t.fontTerminal,
-    layout:  t.layout,
-  };
 
   const supplementalPanels = (
     <div className="supp-grid">
@@ -856,7 +845,7 @@ export default function App() {
           only reader, the CI nightly audit's LLM check, two days later). */}
       <ErrorBoundary label="Terminal">
         <ApexTerminal
-          tweaks={tTerminal}
+          tweaks={TERMINAL_DISPLAY}
           data={adaptedData}
           marketOpen={marketOpen}
           onSettings={() => setShowSettings(true)}
@@ -865,44 +854,6 @@ export default function App() {
         />
       </ErrorBoundary>
 
-      {/* ── Tweaks panel ────────────────────────────────────────────────── */}
-      {/* TODO(bundle 2026-10-10): move the Tweaks knobs into Settings — TweaksPanel is a leftover of the removed Atlas toggle — scope: add a Display tab to SettingsModal (layout, density, theme, accent, type), delete TweaksPanel.jsx and its CSS, or drop knobs nobody uses (profit principle); ~1-2 h */}
-      <TweaksPanel
-        title="Tweaks"
-        onSettings={() => setShowSettings(true)}
-        onPromote={liveStatus?.enabled ? () => setShowPromote(true) : null}
-      >
-        <TweakSection title="Layout">
-          <TweakSelect label="Hero panel" value={t.layout}
-            onChange={v => setTweak("layout", v)}
-            options={[
-              {value:"equity-hero",  label:"Equity curve"},
-              {value:"regime-hero",  label:"Sector regime"},
-              {value:"funnel-hero",  label:"Gate funnel"},
-            ]} />
-          <TweakRadio label="Density" value={t.density}
-            onChange={v => setTweak("density", v)}
-            options={[{value:"comfortable",label:"Comfortable"},{value:"compact",label:"Compact"}]} />
-        </TweakSection>
-
-        <TweakSection title="Terminal">
-          <TweakRadio label="Theme" value={t.themeTerminal}
-            onChange={v => setTweak("themeTerminal", v)}
-            options={[{value:"dark",label:"Dark"},{value:"light",label:"Light"}]} />
-          <TweakColor label="Accent" value={t.paletteTerminal}
-            onChange={v => setTweak("paletteTerminal", v)}
-            options={[
-              {value:"neon",  swatch:"#faff69"},
-              {value:"cyan",  swatch:"#6ce4ff"},
-              {value:"ember", swatch:"#ff8a3d"},
-              {value:"mint",  swatch:"#7ce0a1"},
-            ]} />
-          <TweakRadio label="Type" value={t.fontTerminal}
-            onChange={v => setTweak("fontTerminal", v)}
-            options={[{value:"mono",label:"Mono+Sans"},{value:"sans",label:"All sans"}]} />
-        </TweakSection>
-
-      </TweaksPanel>
 
       {/* ── Modals ──────────────────────────────────────────────────────── */}
       {showSettings && (
