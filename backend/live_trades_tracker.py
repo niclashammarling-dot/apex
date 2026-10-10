@@ -215,9 +215,11 @@ def _log_vol_slope(trade: dict) -> None:
     if hold_days < 3:
         return
     ticker = trade["ticker"]
+    from contextlib import closing
+
     from backend.db import get_db
     try:
-        with get_db() as conn:
+        with closing(get_db()) as conn:   # sqlite3's own context manager never closes (CHECK 45)
             cur = conn.cursor()
             cur.execute("""
                 SELECT DATE(timestamp), AVG(volume_score)

@@ -1,6 +1,7 @@
 import re
 import threading
 import uuid
+from contextlib import closing
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -802,7 +803,7 @@ def get_market_window(days: int = 10):
         while _nyse_session_bounds(nxt.isoformat()) is None:
             nxt += timedelta(days=1)
         return now >= datetime.combine(nxt, datetime.min.time(), tzinfo=NY).replace(hour=8, minute=30)
-    with get_db() as conn:
+    with closing(get_db()) as conn:   # sqlite3's own context manager never closes (CHECK 45)
         # One cycle = one cycle_started_at, both books (audit/gate_cycles.py, 2026-10-01).
         from audit.gate_cycles import cycle_starts, expected_cycles
         starts = {"demo": cycle_starts(conn, "demo_gate_history", since),
@@ -1080,7 +1081,7 @@ def get_live_rejections(days: int = 10):
     _STHLM = ZoneInfo("Europe/Stockholm")
 
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    with get_db() as conn:
+    with closing(get_db()) as conn:   # sqlite3's own context manager never closes (CHECK 45)
         rows = conn.execute(
             "SELECT timestamp, ticker, sector, gate_decision, outcome_reason, cap_check "
             "FROM live_gate_history WHERE timestamp >= ? "

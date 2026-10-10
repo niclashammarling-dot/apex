@@ -29,7 +29,6 @@ from backend.config import (
 )
 from backend.db import (
     close_trade,
-    get_db,
     get_open_trades,
     get_portfolio_summary,
     get_sector_score,

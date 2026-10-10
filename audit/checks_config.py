@@ -23,11 +23,15 @@ def check4():
 
     demo_keys = set(json.loads(demo.read_text()).keys())
     live_keys = set(json.loads(live.read_text()).keys())
+    # One exception list (2026-10-10): backend/maintenance.py _LIVE_ONLY_KEYS names the keys
+    # that legitimately exist on live only, each with a reason; this check used to have none,
+    # so `live_account_since` (the 07-07 reset date, listed there) was a standing WARNING.
+    from backend.maintenance import _LIVE_ONLY_KEYS
 
     for k in demo_keys - live_keys:
         flag(4, "Config parity", "WARNING", "data/live_config.json:—",
              f"key '{k}' in demo but missing from live")
-    for k in live_keys - demo_keys:
+    for k in live_keys - demo_keys - _LIVE_ONLY_KEYS:
         flag(4, "Config parity", "WARNING", "data/demo_config.json:—",
              f"key '{k}' in live but missing from demo")
 

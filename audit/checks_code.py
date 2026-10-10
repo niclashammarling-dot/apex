@@ -699,6 +699,23 @@ def check62():
              "session reuse can inject MultiIndex structure into single-ticker downloads")
 
 
+# Files reviewed for CHECK 74 and found safe (2026-10-10, weekend bundle): file →
+# (reason, expiry YYYY-MM-DD, sha256 prefix of the file as reviewed). A file edited
+# since, or past its expiry, is flagged again — a review covers the text it read.
+_C74_REVIEWED: dict[str, tuple[str, str, str]] = {
+    "tests/test_live_exit_lock.py": (
+        "the dated literals are exit timestamps passed to close_live_trade, never compared to now; "
+        "the entry is relative to now since d02f8ab", "2027-04-10", "0fb622e9be951bc3"),
+    "tests/test_live_reconciliation.py": (
+        "reviewed 2026-09-10: young-entry tests use _recent_timestamp(); the fixed dates are fill dates "
+        "that must postdate _open_trade's fixed entry, and time-stop tests want an old entry", "2027-04-10",
+        "4c546a2e7b41e226"),
+    "tests/test_time_stop_fresh_reread.py": (
+        "a time-stop test with an old fixed entry (2026-08-04): it only moves further past max_hold_days, "
+        "never back into another branch", "2027-04-10", "cc6944083c4ccdb9"),
+}
+
+
 def check74():
     """
     Static scan for the decaying-comparison test shape (2026-09-10, design
@@ -832,6 +849,18 @@ def check74():
         if clock_mock.search(text):
             continue  # clock is patched somewhere in this file — not exposed
         rel = str(path.relative_to(REPO))
+        rev = _C74_REVIEWED.get(rel)
+        if rev:
+            import hashlib
+            from datetime import date
+            reason, expires, digest = rev
+            now_digest = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+            if now_digest == digest and date.today().isoformat() <= expires:
+                continue
+            why = "edited since its review" if now_digest != digest else f"review expired {expires}"
+            flag(74, "Decaying date-comparison test shape", "WARNING", rel,
+                 f"reviewed file {why} — re-review ({reason})")
+            continue
         flag(74, "Decaying date-comparison test shape", "WARNING", rel,
              f"hardcoded absolute date(s) alongside a call into decaying "
              f"wall-clock function(s) {', '.join(referenced)} — verify this "
