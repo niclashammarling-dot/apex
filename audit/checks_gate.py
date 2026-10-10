@@ -235,7 +235,7 @@ def check28():
     if "SECTOR_THRESHOLD_FLOORS" not in l2_text:
         flag(28, "EXCLUDED_SECTORS gate wiring", "CRITICAL",
              "backend/gate/lock2_quant.py",
-             "SECTOR_THRESHOLD_FLOORS not imported — ConsumerDisc floor at 0.75 not enforced")
+             "SECTOR_THRESHOLD_FLOORS not imported — sector floors not enforced")
     elif "max(base, floor)" not in l2_text:
         flag(28, "EXCLUDED_SECTORS gate wiring", "CRITICAL",
              "backend/gate/lock2_quant.py",
