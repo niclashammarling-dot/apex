@@ -1749,6 +1749,8 @@ def check88() -> None:
       WARNING  no bundle for the last bundle day whose 16:40 ET has passed
                (from _C88_FIRST_DUE), or audit/state/bundle.json missing after it
       WARNING  a parity scan in the bundle failed its known-present control
+      WARNING  bundle items without a proposed scope (Niclas 2026-10-10: otherwise "we will have
+               to remember how from context several days ago")
       INFO     generated_at and item counts — the population behind a clean week
     """
     import json
@@ -1780,6 +1782,11 @@ def check88() -> None:
     for it in b.get("items", []):
         if it.get("key", "").startswith("parity:scan_broken:"):
             flag(88, name, "WARNING", "audit/bundle.py", it["text"])
+    no_scope = [it for it in b.get("items", []) if not it.get("scope")]
+    if no_scope:
+        flag(88, name, "WARNING", "audit/bundle_scopes.py",
+             f"{len(no_scope)} bundle item(s) without a proposed scope — write them before the bundle day "
+             f"(first: {no_scope[0].get('key')})")
     c = b.get("counts", {})
     flag(88, name, "INFO", "audit/state/bundle.json",
          f"built {gen.isoformat(timespec='minutes')} — " + ", ".join(f"{k} {v}" for k, v in c.items())

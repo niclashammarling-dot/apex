@@ -45,6 +45,7 @@ export default function WeekendBundlePanel() {
           </span>
         ))}
         <span style={{ marginLeft: 12 }}>EXCEPTED {data.excepted.length}</span>
+        {data.counts.no_scope ? <span style={{ marginLeft: 12, color: "var(--t-red)" }}>NO SCOPE {data.counts.no_scope}</span> : null}
       </div>
       {rows.length === 0 ? <div className="t-meta">nothing in this section</div> : (
         <table className="t-tbl">
@@ -55,7 +56,11 @@ export default function WeekendBundlePanel() {
                 <td>{ageDays(i.first_seen)}d</td>
                 <td><span className={"t-pill " + (SEV[i.severity] || "t-pill-paper")}>{i.severity}</span></td>
                 <td>{i.where}</td>
-                <td>{i.text}</td>
+                <td>{i.text}
+                  <div className="t-meta" style={{ marginTop: 4, color: i.scope ? undefined : "var(--t-red)" }}>
+                    {i.scope ? `Scope: ${i.scope}` : "NO PROPOSED SCOPE — write one before the bundle day"}
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>

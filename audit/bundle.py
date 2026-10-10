@@ -32,6 +32,12 @@ Each item has a stable key and keeps its first_seen date across bundles, so the
 list shows how long a fault has waited. EXCEPTIONS holds parity items kept on
 purpose, each with a reason and an expiry; an expired exception is listed again.
 
+Every item carries a proposed scope — how to handle it (Niclas 2026-10-10: "there
+should also be a proposed scope on how to handle the item. If not we will have to
+remember how from context several days ago"). Scopes come from audit/bundle_scopes.py
+(per CHECK, per item key, per parity kind), the TODO marker's "— scope:" segment, or
+the config default. An item without one is flagged NO PROPOSED SCOPE.
+
 CLI (read-only unless --write): python -m audit.bundle [--write]
 publish_state calls build(write=True) on the week's last NYSE session (is_bundle_day) and mails render_text().
 """
@@ -104,7 +110,7 @@ def findings_items() -> list[dict]:
 # ── todos ─────────────────────────────────────────────────────────────────────
 
 _MARKER   = re.compile(r"(?:#|//|/\*|\{/\*)\s*(TODO|FIXME|HACK)\b(.*)")
-_BUNDLED  = re.compile(r"\(bundle (\d{4}-\d{2}-\d{2})\):\s*(.+?)\s+—\s+(.+?)\s*(?:\*/\}?)?$")
+_BUNDLED  = re.compile(r"\(bundle (\d{4}-\d{2}-\d{2})\):\s*(.+?)\s+—\s+(.+?)(?:\s+—\s+scope:\s*(.+?))?\s*(?:\*/\}?)?$")
 
 
 def _blame_date(path: Path, line: int) -> str | None:
@@ -124,14 +130,14 @@ def todo_items() -> list[dict]:
             kind, rest = m.group(1), m.group(2).strip()
             b = _BUNDLED.match(rest)
             if b:
-                date, what, why = b.groups()
+                date, what, why, scope = b.groups()
                 out.append(_item(f"todo:{_rel(p)}:{what[:60]}", "todos", "WARNING", f"{_rel(p)}:{i}",
-                                 f"{kind}: {what} — {why}", written=date, structured=True))
+                                 f"{kind}: {what} — {why}", written=date, structured=True, scope=scope))
             else:
                 text = rest.lstrip(":").strip().rstrip("*/} ").strip()
                 out.append(_item(f"todo:{_rel(p)}:{text[:60]}", "todos", "WARNING", f"{_rel(p)}:{i}",
-                                 f"{kind}: {text} (unstructured — add date and why: "
-                                 f"TODO(bundle YYYY-MM-DD): what — why)",
+                                 f"{kind}: {text} (unstructured — add date, why and scope: "
+                                 f"TODO(bundle YYYY-MM-DD): what — why — scope: how)",
                                  written=_blame_date(p, i), structured=False))
     return out
 
@@ -311,6 +317,22 @@ def config_items(prev: dict | None, snap: dict) -> list[dict]:
     return out
 
 
+# ── scopes ────────────────────────────────────────────────────────────────────
+
+def _scope_for(it: dict) -> str | None:
+    from audit import bundle_scopes as sc
+    if it["key"] in sc.BY_KEY:
+        return sc.BY_KEY[it["key"]]
+    if it["section"] == "findings":
+        m = re.match(r"finding:(\d+):", it["key"])
+        return sc.BY_CHECK.get(int(m.group(1))) if m else None
+    if it["section"] == "parity":
+        return sc.BY_KIND.get(it["key"].split(":")[1])
+    if it["section"] == "config":
+        return sc.CONFIG_SCOPE
+    return None
+
+
 # ── build ─────────────────────────────────────────────────────────────────────
 
 def build(write: bool = False, now: datetime | None = None, db: Path | None = None) -> dict:
@@ -331,6 +353,7 @@ def build(write: bool = False, now: datetime | None = None, db: Path | None = No
         if exc:
             it["text"] += f" (exception expired {exc[1]}: {exc[0]})"
         it["first_seen"] = first_seen.get(it["key"], it.get("written") or today)
+        it["scope"] = it.get("scope") or _scope_for(it)
         kept.append(it)
 
     try:
@@ -340,8 +363,9 @@ def build(write: bool = False, now: datetime | None = None, db: Path | None = No
         commit = None
     bundle = {"generated_at": now.isoformat(), "host_commit": commit, "items": kept,
               "excepted": excepted, "config": snap,
-              "counts": {s: sum(1 for i in kept if i["section"] == s)
-                         for s in ("findings", "todos", "parity", "config")}}
+              "counts": {**{s: sum(1 for i in kept if i["section"] == s)
+                            for s in ("findings", "todos", "parity", "config")},
+                         "no_scope": sum(1 for i in kept if not i["scope"])}}
     if write:
         STATE.mkdir(parents=True, exist_ok=True)
         BUNDLE.write_text(json.dumps(bundle, indent=1))
@@ -359,6 +383,9 @@ def render_text(b: dict) -> str:
         lines.append(f"{title} — {len(rows)}")
         for i in sorted(rows, key=lambda x: (x["first_seen"], x["key"])):
             lines.append(f"  [{i['severity']}] since {i['first_seen']}  {i['where']}  {i['text'][:220]}")
+            lines.append(f"      scope: {i['scope']}" if i["scope"] else
+                         "      NO PROPOSED SCOPE — write one before the bundle day "
+                         "(audit/bundle_scopes.py, or the TODO's '— scope:' segment)")
         lines.append("")
     if b["excepted"]:
         lines.append(f"EXCEPTIONS KEPT ON PURPOSE — {len(b['excepted'])} (each with reason and expiry)")

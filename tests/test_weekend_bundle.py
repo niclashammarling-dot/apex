@@ -37,6 +37,21 @@ class TestTodoMarkers:
         assert not any(w.startswith("audit/c.py") for w in items)
 
 
+class TestScopes:
+    def test_todo_scope_segment_is_parsed(self, tmp_path, monkeypatch):
+        root = _tree(tmp_path, {"backend/a.py":
+            "# TODO(bundle 2026-10-10): drop x — no reader — scope: delete the writer in db.py, suite\n"})
+        monkeypatch.setattr(bundle, "REPO", root)
+        t = bundle.todo_items()[0]
+        assert t["scope"] == "delete the writer in db.py, suite"
+
+    def test_finding_gets_its_check_scope_and_unknown_check_is_flagged(self):
+        known = bundle._item("finding:39:WARNING:x", "findings", "WARNING", "x", "ADI")
+        unknown = bundle._item("finding:9999:WARNING:x", "findings", "WARNING", "x", "?")
+        assert "ADI" in bundle._scope_for(known)
+        assert bundle._scope_for(unknown) is None
+
+
 class TestBuild:
     @pytest.fixture
     def env(self, tmp_path, monkeypatch):
@@ -147,6 +162,11 @@ class TestCheck88:
         now = datetime.now(timezone.utc).isoformat()
         f = run88({"generated_at": now, "items": [], "counts": {"findings": 3}, "excepted": []})
         assert [s for s, _ in f] == ["INFO"] and "findings 3" in f[0][1]
+
+    def test_missing_scope_warns(self, run88):
+        now = datetime.now(timezone.utc).isoformat()
+        f = run88({"generated_at": now, "counts": {}, "items": [{"key": "finding:1:WARNING:x", "scope": None}]})
+        assert any(s == "WARNING" and "without a proposed scope" in m for s, m in f)
 
     def test_broken_scan_warns(self, run88):
         now = datetime.now(timezone.utc).isoformat()

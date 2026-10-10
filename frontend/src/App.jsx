@@ -866,7 +866,7 @@ export default function App() {
       </ErrorBoundary>
 
       {/* ── Tweaks panel ────────────────────────────────────────────────── */}
-      {/* TODO: remove TweaksPanel entirely — remaining knobs (layout, density, theme) should move into Settings modal (inventory 2026-10-10) */}
+      {/* TODO(bundle 2026-10-10): move the Tweaks knobs into Settings — TweaksPanel is a leftover of the removed Atlas toggle — scope: add a Display tab to SettingsModal (layout, density, theme, accent, type), delete TweaksPanel.jsx and its CSS, or drop knobs nobody uses (profit principle); ~1-2 h */}
       <TweaksPanel
         title="Tweaks"
         onSettings={() => setShowSettings(true)}
