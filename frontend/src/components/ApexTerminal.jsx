@@ -6,6 +6,7 @@ import NightLog      from "./NightLog.jsx";
 import MarketWindowPanel from "./MarketWindowPanel.jsx";
 import LiveRejectionsPanel from "./LiveRejectionsPanel.jsx";
 import SignalFreshnessPanel from "./SignalFreshnessPanel.jsx";
+import WeekendBundlePanel from "./WeekendBundlePanel.jsx";
 import RegimeBayes   from "./RegimeBayes.jsx";
 import Watchlist     from "./Watchlist.jsx";
 import DemoTradeLog  from "./DemoTradeLog.jsx";
@@ -702,6 +703,15 @@ function TestView({ D }) {
   return (
     <div className="t-grid" style={{ gridTemplateColumns: "1fr 520px" }}>
       <div className="t-col-main">
+        <div className="t-card">
+          <div className="t-card-head">
+            <div className="t-card-title">WEEKEND BUNDLE</div>
+            <div className="t-meta">DECIDE AT MAINTENANCE · CHECK 88</div>
+          </div>
+          <div className="t-card-body">
+            <WeekendBundlePanel />
+          </div>
+        </div>
         <div className="t-card">
           <div className="t-card-head">
             <div className="t-card-title">MARKET WINDOW</div>

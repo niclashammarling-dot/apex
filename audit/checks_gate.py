@@ -1732,6 +1732,60 @@ def check87() -> None:
              f"{d} bar_date observed, not enforced (review 2026-10-17): " + "; ".join(observed))
 
 
+# ── CHECK 88 — weekend bundle built ──────────────────────────────────────────
+
+_C88_FIRST_DUE = "2026-10-16"   # first bundle day after the builder shipped (2026-10-10)
+
+
+def check88() -> None:
+    """
+    CHECK 88 — the weekend bundle was built for the last completed bundle day.
+
+    Found 2026-10-10: WARNING findings and TODO markers had no reader since the CI
+    audit stopped (06-27). The Friday bundle (audit/bundle.py, built in
+    publish_state on the week's last NYSE session) is now that reader; a week
+    without one is the same silence, so its absence is read here.
+
+      WARNING  no bundle for the last bundle day whose 16:40 ET has passed
+               (from _C88_FIRST_DUE), or audit/state/bundle.json missing after it
+      WARNING  a parity scan in the bundle failed its known-present control
+      INFO     generated_at and item counts — the population behind a clean week
+    """
+    import json
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    import pandas_market_calendars as mcal
+    name = "weekend bundle built"
+    ny = ZoneInfo("America/New_York")
+    now = datetime.now(ny)
+    sched = mcal.get_calendar("NYSE").schedule(start_date=now.date() - timedelta(days=14), end_date=now.date())
+    days = list(sched.index.date)
+    bundle_days = [d for i, d in enumerate(days)
+                   if (i + 1 < len(days) and days[i + 1].isocalendar()[:2] != d.isocalendar()[:2])
+                   or (i + 1 == len(days) and d.weekday() == 4)]
+    due = [d for d in bundle_days if d.isoformat() >= _C88_FIRST_DUE
+           and datetime.combine(d, datetime.min.time(), ny).replace(hour=16, minute=40) <= now]
+    f = REPO / "audit/state/bundle.json"
+    if not f.exists():
+        if due:
+            flag(88, name, "WARNING", "audit/state/bundle.json",
+                 f"no bundle file; the bundle for {due[-1]} was due — publish_state.publish_bundle did not run")
+        return
+    b = json.loads(f.read_text())
+    gen = datetime.fromisoformat(b["generated_at"]).astimezone(ny)
+    if due and gen.date() < due[-1]:
+        flag(88, name, "WARNING", "audit/state/bundle.json",
+             f"last bundle built {gen.date()}, the one for {due[-1]} is missing — the week's faults have no reader")
+    for it in b.get("items", []):
+        if it.get("key", "").startswith("parity:scan_broken:"):
+            flag(88, name, "WARNING", "audit/bundle.py", it["text"])
+    c = b.get("counts", {})
+    flag(88, name, "INFO", "audit/state/bundle.json",
+         f"built {gen.isoformat(timespec='minutes')} — " + ", ".join(f"{k} {v}" for k, v in c.items())
+         + f"; {len(b.get('excepted', []))} excepted")
+
+
 def run() -> None:
     check24()
     check25()
@@ -1753,3 +1807,4 @@ def run() -> None:
     check85()
     check86()
     check87()
+    check88()

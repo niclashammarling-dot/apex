@@ -1039,6 +1039,27 @@ def get_signal_freshness(days: int = 10):
             "sessions": [{"date": d, **v} for d, v in sorted(out.items(), reverse=True)]}
 
 
+@router.get("/ops/bundle")
+def get_weekend_bundle():
+    """
+    The weekend bundle (audit/bundle.py; built in the week's last publish and
+    mailed): every non-INFO finding, TODO marker, signal with no reader and
+    config change since the last bundle, each with its first-seen date. The
+    Saturday reading surface; decisions are made from it, nothing is removed
+    automatically. present=False until the first bundle is built.
+    """
+    import json
+    from datetime import datetime, timezone
+    f = _AUDIT_DIR / "state" / "bundle.json"
+    if not f.exists():
+        return {"present": False, "as_of": datetime.now(timezone.utc).isoformat()}
+    b = json.loads(f.read_text())
+    return {"present": True, "as_of": datetime.now(timezone.utc).isoformat(),
+            "generated_at": b["generated_at"], "host_commit": b.get("host_commit"),
+            "counts": b.get("counts", {}), "items": b.get("items", []),
+            "excepted": b.get("excepted", [])}
+
+
 @router.get("/ops/rejections")
 def get_live_rejections(days: int = 10):
     """

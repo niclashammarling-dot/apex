@@ -246,12 +246,36 @@ def check_watcher_ran() -> None:
         print(f"(watcher-gap dispatch failed: {e})", file=sys.stderr)
 
 
+def publish_bundle(now: datetime | None = None) -> None:
+    """The week's last NYSE session only, Friday unless it is a holiday (2026-10-10): build the weekend bundle and mail it. Saturday
+    maintenance reads it with the server down (audit/bundle.py). A build or mail
+    failure is printed and never masks the publish result; CHECK 88 reads the
+    bundle's age, so a Friday without one surfaces on the next audit."""
+    sys.path.insert(0, str(REPO))
+    from audit import bundle
+    if not bundle.is_bundle_day(now):
+        print("Weekend bundle: not the week's last NYSE session, not built")
+        return
+    b = bundle.build(write=True, now=now)
+    c = b["counts"]
+    print(f"Weekend bundle: {sum(c.values())} item(s) — " + ", ".join(f"{k} {v}" for k, v in c.items()))
+    try:
+        from backend.alerts import _dispatch
+        _dispatch(f"[APEX] Weekend bundle — {sum(c.values())} item(s) to decide", bundle.render_text(b))
+    except Exception as e:  # alerting must never mask the publish result
+        print(f"(weekend bundle dispatch failed: {e})", file=sys.stderr)
+
+
 def main() -> int:
     run_checks()
     stamp_alert_channel()
     commit = push_state()
     print(f"Published {STATE_FILE.relative_to(REPO)} → origin/{BRANCH} @ {commit[:8]}")
     route_criticals()
+    try:
+        publish_bundle()
+    except Exception as e:  # the bundle must never mask the publish result
+        print(f"(weekend bundle failed: {e!r})", file=sys.stderr)
     try:
         check_watcher_ran()
     except Exception as e:  # the counter-watch must never mask the publish result
