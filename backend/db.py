@@ -401,6 +401,11 @@ def init_db() -> None:
             _add_column_if_missing(conn, _t, "signal_ts", "TEXT")
             _add_column_if_missing(conn, _t, "bar_date",  "TEXT")
         _add_column_if_missing(conn, "gate_cycles", "stale_excluded", "INTEGER")
+        # Which input each live entry was decided on (Finding 1): in_session,
+        # same_day_pre_open or earlier_day. Written once for history by
+        # scripts/flag_live_signal_class.py; entries after the bound are in_session by
+        # construction (CHECK 87 reads that). NULL = not classified.
+        _add_column_if_missing(conn, "live_trades", "signal_class", "TEXT")
 
         # Migrate old gate_decision values to canonical FILTERED_* form
         conn.executescript("""
