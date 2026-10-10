@@ -314,13 +314,22 @@ def check35():
 
 def check39():
     """
-    An open live position where peak_price is NULL or equal to entry_price after
-    more than 2 trading days means the software trailing stop is silently disabled:
-    peak tracking is not running (scheduler issue) or the price feed is failing.
-    Either cause leaves the position with no trailing-stop protection.
+    An open live position whose peak_price lags the prices seen since entry means
+    the software trailing stop is not tracking: peak updates stopped (scheduler,
+    tracker) or the price feed is failing. Either leaves the profit-lock ratchet
+    working from a stale peak.
 
-    Threshold: > 2 trading days open with peak_price IS NULL OR peak_price = entry_price.
-    Severity: WARNING (does not prevent entries, but live protection is degraded).
+    Corrected 2026-10-10: until then the check flagged any position open > 2
+    trading days with peak_price NULL or = entry_price as "trailing stop silently
+    disabled". live_trades_tracker raises peak only when the current price
+    exceeds it (live_trades_tracker.py:327), so peak = entry is correct for a
+    position that has only fallen — ADI (entry 421.59, polls since 400.52–408.06)
+    was flagged for that. The check now tests the defect itself:
+      WARNING  max(signals.price since entry) > peak × (1 + 0.5%) — the tracker
+               missed a higher price (tolerance covers tracker vs poll quotes)
+      WARNING  no signals.price since entry after > 2 trading days — the feed
+               peak tracking reads is not running for that ticker
+    Opens apex.db read-only.
     """
     def _business_days_between(start: date, end: date) -> int:
         """Count Mon–Fri days in (start, end] exclusive of start."""
@@ -331,45 +340,51 @@ def check39():
             cur += timedelta(days=1)
         return n
 
+    name = "Live peak_price integrity"
+    tolerance = 0.005
     db = REPO / "data/apex.db"
-    if not require_data_file(39, "Live peak_price integrity", db):
+    if not require_data_file(39, name, db):
         return
 
     try:
-        conn = sqlite3.connect(db)
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
         rows = conn.execute("""
-            SELECT id, ticker, timestamp, entry_price, peak_price
-            FROM live_trades
-            WHERE outcome = 'OPEN'
-              AND (peak_price IS NULL OR peak_price = entry_price)
+            SELECT t.id, t.ticker, t.timestamp, t.entry_price, t.peak_price,
+                   (SELECT MAX(s.price) FROM signals s
+                     WHERE s.ticker = t.ticker AND s.timestamp > t.timestamp) AS max_since,
+                   (SELECT COUNT(*) FROM signals s
+                     WHERE s.ticker = t.ticker AND s.timestamp > t.timestamp) AS n_since
+            FROM live_trades t
+            WHERE t.outcome = 'OPEN'
         """).fetchall()
         conn.close()
     except Exception as e:
-        flag(39, "Live peak_price integrity", "WARNING",
-             "data/apex.db:live_trades",
-             f"could not query live_trades: {e}")
+        flag(39, name, "WARNING", "data/apex.db:live_trades", f"could not query live_trades: {e}")
         return
 
-    stale = []
+    lagging, unfed = [], []
     for r in rows:
+        peak = r["peak_price"] or r["entry_price"]
+        if r["n_since"]:
+            if peak and r["max_since"] > peak * (1 + tolerance):
+                lagging.append(f"{r['ticker']} (peak {peak:.2f}, max seen {r['max_since']:.2f})")
+            continue
         try:
-            entry_date   = datetime.fromisoformat(r["timestamp"]).date()
-            trading_days = _business_days_between(entry_date, date.today())
+            age = _business_days_between(datetime.fromisoformat(r["timestamp"]).date(), date.today())
         except Exception:
-            trading_days = 0
-        if trading_days > 2:
-            stale.append((r["ticker"], trading_days, r["peak_price"]))
+            age = 0
+        if age > 2:
+            unfed.append(f"{r['ticker']} (age {age}d)")
 
-    if stale:
-        detail = "; ".join(
-            f"{ticker} (age {days}d, peak={'NULL' if peak is None else 'entry'})"
-            for ticker, days, peak in stale
-        )
-        flag(39, "Live peak_price integrity", "WARNING",
-             "data/apex.db:live_trades",
-             f"{len(stale)} open position(s) with stale peak_price after >2 trading days — "
-             f"trailing stop silently disabled: {detail}")
+    if lagging:
+        flag(39, name, "WARNING", "data/apex.db:live_trades",
+             f"{len(lagging)} open position(s) whose peak_price lags prices seen since entry — the trailing "
+             f"stop is ratcheting from a stale peak: {'; '.join(lagging)}")
+    if unfed:
+        flag(39, name, "WARNING", "data/apex.db:signals",
+             f"{len(unfed)} open position(s) with no price since entry after >2 trading days — peak tracking "
+             f"has no feed: {'; '.join(unfed)}")
 
 
 # ── CHECK 44 — Regime-conditioned aggregator weight validation ────────────────

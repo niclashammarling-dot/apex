@@ -19,12 +19,11 @@ BY_CHECK: dict[int, str] = {
     4: ("Config parity flags `live_account_since` as live-only. backend/maintenance.py already lists it in "
         "_LIVE_ONLY_KEYS with a reason; audit/checks_config.py CHECK 4 has no exception list, so the two disagree. "
         "Scope: make CHECK 4 read maintenance._LIVE_ONLY_KEYS (one exception list), suite. ~15 min."),
-    39: ("Verified 2026-10-10 for ADI: peak_price = entry is CORRECT when the price never rose above entry "
-         "(ADI entry 421.59, max poll since 408.06 / min 400.52) — the tracker only raises peak when current > peak "
-         "(live_trades_tracker.py:327). CHECK 39's premise (peak = entry after 2 days ⇒ trailing stop disabled) is a "
-         "false positive for a position that has only fallen. Scope: CHECK 39 flags only when max(signals.price since "
-         "entry) > peak_price; positive control = the 10-10 ADI rows (must be clean) plus a synthetic row that rose. "
-         "Separately for Monday: ADI is ~4-5% down, stop 6% (~396)."),
+    39: ("Open position whose peak_price lags prices seen since entry (tracker missed a higher price), or "
+         "no price since entry (no feed). Scope: read live_trades_tracker's peak update for the ticker "
+         "(check_live_exits → update_live_trade_peak_price) and the exit-check job's runs; if the tracker missed "
+         "it, set peak from the max price since entry (snapshot first) and fix the path; if no feed, check the "
+         "ticker's polls (universe, data gaps). Premise corrected 2026-10-10 (ADI false positive)."),
     45: ("Static analysis. `with get_db() as conn` never closes the connection: replace with "
          "`conn = get_db(); try: … finally: conn.close()` at each named line; remove the unused import. One commit, "
          "suite. ~20 min."),
