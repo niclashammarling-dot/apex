@@ -106,8 +106,7 @@ def evaluate(
         return _fail_closed("no_api_key")
 
     try:
-        raw, usage = _call_anthropic(payload, _SONNET_MODEL)
-        _record_token_usage(ticker, usage)
+        raw, _usage = _call_anthropic(payload, _SONNET_MODEL)
         return _parse_to_result(raw, effective_min, ticker, _SONNET_MODEL)
     except Exception as e:
         logger.error(f"Lock 5 [{ticker}]: Sonnet failed ({e}) — failing closed")
@@ -183,21 +182,9 @@ def _build_context_payload(
     return payload
 
 
-# ── Token usage logging ───────────────────────────────────────────────────────
-
-_SONNET_INPUT_PRICE_PER_TOK  = 3.0  / 1_000_000   # $3/MTok
-_SONNET_OUTPUT_PRICE_PER_TOK = 15.0 / 1_000_000   # $15/MTok
-
-
-def _record_token_usage(ticker: str | None, usage: object) -> None:
-    try:
-        from backend.db import insert_l5_token_usage
-        inp  = getattr(usage, "input_tokens",  0) or 0
-        out  = getattr(usage, "output_tokens", 0) or 0
-        cost = inp * _SONNET_INPUT_PRICE_PER_TOK + out * _SONNET_OUTPUT_PRICE_PER_TOK
-        insert_l5_token_usage(ticker, inp, out, cost)
-    except Exception as e:
-        logger.warning(f"Lock 5 [{ticker}]: token usage logging failed ({e}) — call not affected")
+# Token usage logging removed 2026-10-10: l5_token_usage had no reader after CHECK 52
+# (credit runway) was retired on 2026-09-18 — $2.41 over 223 calls, history kept in the
+# table. Lock 5 credit exhaustion is caught as an event by CHECK 81 (persisted cause).
 
 
 # ── Provider calls ────────────────────────────────────────────────────────────

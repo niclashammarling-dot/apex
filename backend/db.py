@@ -25,6 +25,23 @@ BASE_DIR = Path(__file__).parent.parent
 DB_PATH  = BASE_DIR / "data" / "apex.db"
 
 
+# Trades annotated as not a valid outcome sample (trade_annotations, 2026-09-16:
+# "Filter on this tag in any outcome analysis"). Nothing read the table until
+# 2026-10-10, so demo AMD (trades.id 61, entered on the contaminated posterior,
+# closed WIN +$6.51) counted in every win rate. Applied to outcome statistics
+# (counts, win rate, PF, averages, sector rows); money totals (balance, equity)
+# keep every trade — the book did make or lose that money.
+OUTCOME_EXCLUDED_TAGS = ("superseded_posterior",)
+
+
+def not_annotated(table: str, alias: str = "") -> str:
+    """SQL predicate: the row is not an annotated non-sample. table is 'trades' or 'live_trades'."""
+    col = f"{alias}.id" if alias else "id"
+    tags = ", ".join(f"'{t}'" for t in OUTCOME_EXCLUDED_TAGS)
+    return (f"{col} NOT IN (SELECT trade_id FROM trade_annotations "
+            f"WHERE trade_table = '{table}' AND tag IN ({tags}))")
+
+
 def get_db() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH), timeout=30)
@@ -312,6 +329,8 @@ def init_db() -> None:
                 outcome     TEXT
             );
 
+            -- l5_token_usage: no writer since 2026-10-10 (no reader after CHECK 52's retirement);
+            -- history kept.
             CREATE TABLE IF NOT EXISTS l5_token_usage (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp     TEXT    NOT NULL,
@@ -464,14 +483,14 @@ def get_rolling_win_rate() -> float | None:
     ROLLING_WIN_WINDOW = 50
     conn = get_db()
     try:
-        row = conn.execute("""
+        row = conn.execute(f"""
             SELECT
                 COUNT(*)                                          AS total,
                 SUM(CASE WHEN outcome = 'WIN' THEN 1 ELSE 0 END) AS wins
             FROM (
                 SELECT outcome
                 FROM trades
-                WHERE outcome IN ('WIN', 'LOSS')
+                WHERE outcome IN ('WIN', 'LOSS') AND {not_annotated("trades")}
                 ORDER BY exited_at DESC
                 LIMIT ?
             )
@@ -1511,7 +1530,8 @@ def live_trade_stats(since: str | None = None) -> dict:
         rows = [dict(r) for r in conn.execute(
             "SELECT outcome, pnl, signal_class FROM live_trades "
             "WHERE timestamp >= ? AND outcome IN ('WIN', 'LOSS', 'EXPIRED') "
-            "AND COALESCE(exit_confidence, 'confirmed') != 'unverified'", (since,)).fetchall()]
+            "AND COALESCE(exit_confidence, 'confirmed') != 'unverified' AND "
+            + not_annotated("live_trades"), (since,)).fetchall()]
     finally:
         conn.close()
 
@@ -2462,24 +2482,6 @@ def get_drift_alerts(severity: str | None = None,
 
 
 # ── Lock 5 token usage ────────────────────────────────────────────────────────
-
-def insert_l5_token_usage(ticker: str | None, input_tokens: int,
-                           output_tokens: int, cost_usd: float) -> None:
-    from datetime import datetime, timezone
-    conn = get_db()
-    try:
-        conn.execute(
-            """
-            INSERT INTO l5_token_usage (timestamp, ticker, input_tokens, output_tokens, cost_usd)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (datetime.now(timezone.utc).isoformat(), ticker,
-             input_tokens, output_tokens, round(cost_usd, 6)),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
 
 def acknowledge_drift_alert(alert_id: int) -> None:
     conn = get_db()

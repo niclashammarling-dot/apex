@@ -74,6 +74,15 @@ EXCEPTIONS: dict[str, tuple[str, str]] = {
         "manual recovery kit: re-arms broker-side protection on a still-held position (HON 2026-08-10)", "2027-04-10"),
     "parity:function:backend/ticker_threshold_calibration.py:print_calibration_report": (
         "manual inspection of per-sector score distributions and thresholds", "2027-04-10"),
+    **{f"parity:column:l5_token_usage.{c}": (
+        "writes stopped 2026-10-10 (no reader since CHECK 52 retired 09-18), history kept", "2027-04-10")
+       for c in ("input_tokens", "output_tokens", "cost_usd")},
+    "parity:column:session_flags.first_seen_at": (
+        "provenance of a partial-session flag (when it was first seen); read when debugging CHECK 85", "2027-04-10"),
+    "parity:column:session_flags.finalized_at": (
+        "provenance of a partial-session flag (when it became final); read when debugging CHECK 85", "2027-04-10"),
+    "parity:column:news.published_at": (
+        "article publish time, provenance for sentiment inputs; cheap", "2027-04-10"),
     "parity:column:trades.wallet_balance_after": (
         "left the schema 2026-04-01 (cc2aa23), never written; column survives in old DBs", "2027-04-10"),
 }
@@ -174,8 +183,13 @@ def _db_read_tokens(db_text: str) -> set[str]:
     except SyntaxError:
         return words
     for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str) and re.search(r"\bSELECT\b", node.value, re.I):
-            sql = re.sub(r"(?is)\bSET\b.*?(?=\bWHERE\b|$)", " ", node.value)   # drop UPDATE SET targets
+        text = None
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            text = node.value
+        elif isinstance(node, ast.JoinedStr):   # f-string: its literal parts read as one SQL text
+            text = " ".join(v.value for v in node.values if isinstance(v, ast.Constant) and isinstance(v.value, str))
+        if text and re.search(r"\bSELECT\b", text, re.I):
+            sql = re.sub(r"(?is)\bSET\b.*?(?=\bWHERE\b|$)", " ", text)   # drop UPDATE SET targets
             words |= set(re.findall(r"[A-Za-z_]\w*", sql))
         elif isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str):
             words.add(node.slice.value)
@@ -205,7 +219,7 @@ def parity_items(db: Path | None = None) -> list[dict]:
         tables = [r[0] for r in c.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
         for t in tables:
-            if not _refs(texts, t, (db_py,)):
+            if not _refs(texts, t, (db_py,)) and t not in db_reads:
                 out.append(_item(f"parity:table:{t}", "parity", "WARNING", f"data/apex.db:{t}",
                                  f"table {t}: no reference outside backend/db.py"))
             for col in [r[1] for r in c.execute(f"PRAGMA table_info({t})")]:

@@ -99,10 +99,12 @@ def _fetch_prices(tickers: list[str]) -> dict[str, float]:
 
 def _demo_stats(since: str, until: str) -> dict:
     from backend.config import STARTING_BALANCE
-    from backend.db import get_db
+    from backend.db import get_db, not_annotated
     conn = get_db()
     try:
-        closed = conn.execute("""
+        # Outcome statistics exclude annotated non-samples (db.not_annotated, 2026-10-10);
+        # the all-closed total below keeps every trade for the book's equity.
+        closed = conn.execute(f"""
             SELECT
                 COUNT(*) AS total,
                 SUM(CASE WHEN outcome='WIN'  THEN 1 ELSE 0 END) AS wins,
@@ -112,6 +114,7 @@ def _demo_stats(since: str, until: str) -> dict:
                 COALESCE(SUM(CASE WHEN exit_reason='REGIME' THEN pnl ELSE 0 END), 0) AS regime_pnl
             FROM trades
             WHERE exited_at >= ? AND exited_at < ? AND outcome IN ('WIN','LOSS','EXPIRED')
+              AND {not_annotated("trades")}
         """, (since, until)).fetchone()
 
         open_rows = conn.execute("""
@@ -275,10 +278,11 @@ def _sector_pnl(since: str, until: str) -> dict:
     Same populations as _demo_stats/_live_stats (live excludes
     exit_confidence='unverified'), so the sector rows sum to the totals above.
     """
-    from backend.db import get_db
+    from backend.db import get_db, not_annotated
     conn = get_db()
     try:
         def closed(table: str, extra: str) -> list[dict]:
+            extra += f" AND {not_annotated(table)}"   # outcome rows: annotated non-samples out
             return [dict(r) for r in conn.execute(f"""
                 SELECT sector, COUNT(*) AS n,
                        SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END) AS wins,

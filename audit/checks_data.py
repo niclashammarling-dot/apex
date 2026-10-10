@@ -987,7 +987,10 @@ def check77():
                  f"Cumulative {len(missing)}/{len(sessions)} since {first}.")
         elif missing:
             level = "above" if share > 0.10 else "within"
-            flag(77, name, "WARNING", "data/apex.db:sector_posterior_history",
+            # INFO since 2026-10-10: a standing level re-lists the same unrepairable
+            # history every night, and every non-INFO finding is a weekend-bundle item
+            # to decide. The event (trailing 3) stays CRITICAL; the level stays visible.
+            flag(77, name, "INFO", "data/apex.db:sector_posterior_history",
                  f"{len(missing)} of {len(sessions)} NYSE sessions since {first} have no posterior row "
                  f"({share:.0%}, {level} the 10% line); none in the trailing 3. Most recent gaps: "
                  f"{', '.join(missing[-8:])}. Standing level, not an event — the July–August holes "
@@ -1073,7 +1076,9 @@ def check78():
              f"Cumulative {len(missing)}/{len(sessions)} since {first}.")
     elif missing:
         level = "above" if share > 0.10 else "within"
-        flag(78, name, "WARNING", "data/apex.db:lock4_pcr_history",
+        # INFO since 2026-10-10, as CHECK 77: the history cannot be backfilled (OI is a
+        # snapshot); only a new gap is a decision.
+        flag(78, name, "INFO", "data/apex.db:lock4_pcr_history",
              f"{len(missing)} of {len(sessions)} NYSE sessions since {first} have no PCR rows "
              f"({share:.0%}, {level} the 10% line); none in the trailing 3. Most recent gaps: "
              f"{', '.join(missing[-8:])}. Standing level — the per-ticker P25 calibration "
