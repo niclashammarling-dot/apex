@@ -14,9 +14,7 @@ not both — delta-based rather than absolute-count, since these DB-level
 functions aggregate the whole table and this test module's own fixture
 runs multiple times against the same test-session DB.
 """
-from unittest.mock import patch
 
-import pytest
 
 from backend.db import (
     close_live_trade,
@@ -92,15 +90,12 @@ class TestExitConfidenceFiltering:
         after = [p for p in after_pts if p["ts"] != "Start" and not p.get("mtm")][-1]["balance"]
         assert round(after - before, 2) == 6.0
 
-    def test_live_compare_excludes_unverified(self):
-        from backend.routers.live_router import compare_performance
-
-        fake_account = {"equity": "10000", "day_pnl": 0.0, "day_pnl_pct": 0.0}
-        with patch("backend.routers.live_router.LIVE_ENABLED", True), \
-             patch("backend.brokers.alpaca.get_account", return_value=fake_account):
-            before = compare_performance()["live"]["realized_pnl"]
-            _insert_confirmed_and_unverified("D")
-            after = compare_performance()["live"]["realized_pnl"]
+    def test_live_stats_exclude_unverified(self):
+        """db.live_trade_stats replaced /live/compare (2026-10-10): same filter."""
+        from backend.db import live_trade_stats
+        before = live_trade_stats(since="0000")["overall"]["realized"]
+        _insert_confirmed_and_unverified("D")
+        after = live_trade_stats(since="0000")["overall"]["realized"]
         assert round(after - before, 2) == 6.0
 
     def test_weekly_report_excludes_unverified(self):

@@ -48,10 +48,3 @@ def fetch_headlines(ticker: str, max_items: int = 5) -> list[dict]:
         logger.error(f"RSS fetch failed for {ticker}: {e}")
         return []
 
-
-def fetch_headlines_multi(tickers: list[str]) -> list[dict]:
-    """Fetch headlines for a list of tickers."""
-    all_headlines = []
-    for ticker in tickers:
-        all_headlines.extend(fetch_headlines(ticker))
-    return all_headlines

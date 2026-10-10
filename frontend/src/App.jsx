@@ -747,7 +747,6 @@ export default function App() {
   const [liveStats,     setLiveStats]     = useState(null);
   const [liveGateHist,  setLiveGateHist]  = useState({ rows: [], funnel: null });
   const [liveEquity,    setLiveEquity]    = useState([]);
-  const [compareData,   setCompareData]   = useState(null);
 
   // ── UI state ────────────────────────────────────────────────────────────────
   const [settings,      setSettings]      = useState(null);
@@ -779,7 +778,6 @@ export default function App() {
     pollOnce("/api/live/stats").then(d => setLiveStats(d || null)).catch(() => {});
     pollOnce("/api/live/gate/history").then(d => setLiveGateHist(d || { rows: [], funnel: null })).catch(() => {});
     pollOnce("/api/live/equity").then(d => setLiveEquity(d || [])).catch(() => {});
-    pollOnce("/api/live/compare").then(d => setCompareData(d || null)).catch(() => {});
   }
 
   function fetchSettings() {

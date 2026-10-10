@@ -293,34 +293,6 @@ def test_check85_drops_the_quiet_cycle_clause_from_the_cutover(tmp_path, monkeyp
 
 # ── the surfaces: manual endpoints record, ops/window reports reasons ──────────
 
-def test_manual_demo_gate_run_is_recorded_as_manual(monkeypatch):
-    import backend.routers.signals_router as sr
-    from backend import db
-    from backend.gate import gate_runner
-    db.init_db()
-    seen = []
-
-    def fake_run(cycle):
-        seen.append(cycle)
-        cycle.reason = "no_candidates"
-        return []
-    monkeypatch.setattr(gate_runner, "run", fake_run)
-    monkeypatch.setattr(sr, "_rate_check", lambda *a: None)
-    assert sr.run_gate(None)["evaluated"] == 0
-    assert seen[0].trigger == "manual" and _row("run_gate")[0] == "manual"
-
-
-def test_manual_live_gate_run_is_recorded_as_manual(monkeypatch):
-    import backend.routers.live_router as lr
-    from backend import db
-    from backend.gate import gate_runner_live
-    db.init_db()
-    monkeypatch.setattr(gate_runner_live, "run", lambda cycle: [])
-    monkeypatch.setattr(lr, "_require_live", lambda: None)
-    lr.run_live_gate()
-    assert _row("run_live_gate")[0] == "manual"
-
-
 def test_ops_window_reports_cycle_reasons(tmp_path, monkeypatch):
     import backend.routers.signals_router as sr
     from backend.db import get_db

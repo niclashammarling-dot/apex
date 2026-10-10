@@ -196,30 +196,6 @@ def _score_ticker(
 #  Public API                                                                   #
 # --------------------------------------------------------------------------- #
 
-def fetch_sector(sector_name: str) -> list[dict]:
-    """Fetch and score all tickers in a sector."""
-    cfg              = get_sectors()[sector_name]
-    tickers          = cfg["tickers"]
-    spy              = _spy_data()
-    rolling_win_rate = get_rolling_win_rate()
-    etf_mult         = _etf_regime(cfg["etf"])
-    poll_ts          = datetime.now(timezone.utc).isoformat()
-    regime_state     = load_regime_state()
-
-    results = []
-    for symbol in tickers:
-        row = _score_ticker(
-            symbol, sector_name,
-            spy["regime"], spy["return_20d"],
-            rolling_win_rate, etf_mult,
-            poll_ts=poll_ts,
-            regime_state=regime_state,
-        )
-        if row:
-            results.append(row)
-    return results
-
-
 def fetch_all_sectors() -> list[dict]:
     """Fetch every configured sector. Called by the scheduler."""
     # Shared inputs and timestamp generated once — all tickers in this cycle

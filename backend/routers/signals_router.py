@@ -1,11 +1,9 @@
 import re
 import threading
-import time
 import uuid
-from collections import defaultdict
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator
 
 from backend.db import (
@@ -15,9 +13,7 @@ from backend.db import (
     get_yesterday_sector_avg_scores,
     get_yesterday_ticker_scores,
     latest_signals,
-    signals_for_sector,
 )
-from backend.gate import gate_runner
 from backend.ticker_config import add_ticker, remove_ticker
 from backend.config import EXCLUDED_SECTORS
 from backend.ticker_config import get_sectors as _get_sectors
@@ -43,39 +39,7 @@ def _validate_ticker(ticker: str) -> str:
     return t
 
 
-# ── Simple in-memory rate limiter ─────────────────────────────────────────────
-# Protects expensive LLM-backed endpoints (gate/run, gate/test) from abuse.
-
-_rate_store: dict[str, list[float]] = defaultdict(list)
-_RATE_LIMIT   = 10   # max calls
-_RATE_WINDOW  = 60   # per N seconds
-
-
-def _rate_check(key: str) -> None:
-    now   = time.time()
-    calls = _rate_store[key]
-    calls[:] = [t for t in calls if now - t < _RATE_WINDOW]
-    if len(calls) >= _RATE_LIMIT:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Rate limit exceeded: max {_RATE_LIMIT} requests per {_RATE_WINDOW}s for '{key}'",
-        )
-    calls.append(now)
-
-
 # ── Endpoints ─────────────────────────────────────────────────────────────────
-
-@router.get("/signals/latest")
-def get_latest_signals():
-    return latest_signals()
-
-
-@router.get("/signals/sector/{sector_name}")
-def get_sector_signals(sector_name: str):
-    if sector_name not in _get_sectors():
-        raise HTTPException(status_code=404, detail=f"Unknown sector: {sector_name}")
-    return signals_for_sector(sector_name)
-
 
 @router.get("/sectors")
 def sectors_summary():
@@ -197,13 +161,6 @@ class BackfillRequest(BaseModel):
     end_date:   str
 
 
-@router.get("/sectors/regime")
-def sectors_regime():
-    """Current sector regime analysis — trend durations, rotation signals, risk-on/off."""
-    from backend.sector_regime import compute_sector_regime
-    return compute_sector_regime()
-
-
 @router.get("/sectors/rotation-forecast")
 def sectors_rotation_forecast():
     """Sector rotation transition probabilities and current forecast."""
@@ -286,59 +243,6 @@ def sectors_backfill_status(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return {"job_id": job_id, **job}
-
-
-@router.post("/gate/run")
-def run_gate(request: Request):
-    """Manually trigger a full gate evaluation cycle."""
-    _rate_check("gate/run")
-    from backend.gate.cycle import run_recorded
-    # Recorded as trigger='manual': coverage and CHECK 83 count scheduler cycles only.
-    results = run_recorded("run_gate", "manual", gate_runner.run)
-    return {
-        "evaluated":     len(results),
-        "trades_queued": sum(1 for r in results if r["outcome"] in ("TRADE_QUEUED", "TRADE_EXECUTED")),
-        "results":       results,
-    }
-
-
-@router.post("/gate/test")
-def test_gate(ticker: str, request: Request):
-    """
-    Force a single ticker through the full Lock 2 + Lock 3 pipeline,
-    bypassing the Lock 1 threshold. Used to verify API keys and LLM
-    responses are working without waiting for a real signal.
-    """
-    _rate_check("gate/test")
-    ticker = _validate_ticker(ticker)
-
-    from backend.db import get_wallet_context, latest_signals
-    from backend.gate.lock3_sentiment import evaluate as eval_sentiment
-    from backend.gate.lock5_claude import evaluate as eval_claude
-
-    signals = [s for s in latest_signals(limit=200) if s["ticker"] == ticker]
-    if not signals:
-        raise HTTPException(status_code=404, detail=f"No signal found for {ticker}. Run a sector poll first.")
-
-    signal     = signals[0]
-    wallet_ctx = get_wallet_context()
-
-    # Lock 3 (Sentiment) — Lock 1 Eligibility and Lock 2 Quant bypassed for testing
-    l3_result = eval_sentiment(signal["ticker"])
-
-    l5_result = None
-    if l3_result.passed:
-        context = gate_runner._build_base_context(signal, wallet_ctx, {})
-        l5_result = eval_claude(signal["ticker"], signal["sector"],
-                                {3: l3_result}, context)
-
-    return {
-        "ticker":  signal["ticker"],
-        "sector":  signal["sector"],
-        "lock2":   l3_result.to_dict(),
-        "lock3":   l5_result.to_dict() if l5_result else None,
-        "note":    "Lock 1 (Eligibility) and Lock 2 (Quant) bypassed for API testing",
-    }
 
 
 @router.get("/wallet")

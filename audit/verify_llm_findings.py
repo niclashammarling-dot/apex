@@ -139,11 +139,6 @@ def is_llm_row(check_col: str) -> bool:
     return any(check.startswith(p) for p in LLM_CHECK_PREFIXES)
 
 
-def is_mechanical_row(check_col: str) -> bool:
-    check = check_col.strip()
-    return any(check.startswith(p) for p in MECHANICAL_PREFIXES)
-
-
 # ── Main pass ─────────────────────────────────────────────────────────────────
 
 def verify_report(report: Path) -> tuple[int, int, int]:

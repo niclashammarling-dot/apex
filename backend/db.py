@@ -588,20 +588,6 @@ def get_ticker_daily_scores(days: int = 180) -> list[dict]:
         conn.close()
 
 
-def signals_for_sector(sector: str) -> list[dict]:
-    conn = get_db()
-    try:
-        rows = conn.execute("""
-            SELECT * FROM signals
-            WHERE sector = ?
-            ORDER BY timestamp DESC
-            LIMIT 40
-        """, (sector,)).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-
 def get_lock1_candidates(threshold: float | None = None,
                          sector_thresholds: dict | None = None,
                          stale_out: list | None = None,
@@ -803,27 +789,6 @@ def set_live_trade_profit_lock_activated(trade_id: int) -> None:
     conn = get_db()
     try:
         conn.execute("UPDATE live_trades SET profit_lock_activated = 1 WHERE id = ?", (trade_id,))
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def update_live_trade_order_id(trade_id: int, alpaca_order_id: str) -> None:
-    """
-    Repoint the bracket-leg order a trade's exit checks and profit-lock
-    ratchet look at (_find_filled_sell_leg, _maybe_ratchet_bracket_sl both key
-    off live_trades.alpaca_order_id). Needed after re-arming protection with a
-    standalone order that isn't the original entry order — e.g.
-    reopen_unreconciled() + place_oco_exit() — otherwise both keep reading a
-    stale, terminal parent order and the ratchet silently no-ops (warns, never
-    errors) forever.
-    """
-    conn = get_db()
-    try:
-        conn.execute(
-            "UPDATE live_trades SET alpaca_order_id = ? WHERE id = ?",
-            (alpaca_order_id, trade_id),
-        )
         conn.commit()
     finally:
         conn.close()
@@ -1068,24 +1033,6 @@ def get_all_trades() -> list[dict]:
         conn.close()
 
 
-def get_gate_history(limit: int = 30) -> list[dict]:
-    conn = get_db()
-    try:
-        rows = conn.execute("""
-            SELECT ticker, sector, timestamp, signal_score,
-                   gate_decision, lock1_pass, lock2_pass, lock_leading_pass,
-                   lock_leading_checks, lock3_pass, lock3_reasoning,
-                   l2_summary, macro_reason
-            FROM signals
-            WHERE gate_decision IS NOT NULL
-            ORDER BY timestamp DESC
-            LIMIT ?
-        """, (limit,)).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-
 def insert_demo_gate_result(row: dict) -> None:
     conn = get_db()
     try:
@@ -1165,59 +1112,6 @@ def get_demo_gate_funnel_counts(since: str | None = None) -> dict:
             {where}
         """, params).fetchone()
         return dict(row) if row else {}
-    finally:
-        conn.close()
-
-
-def get_gate_funnel_counts(since: str | None = None) -> dict:
-    """
-    Full funnel counts including pre-gate skips.
-    since: ISO timestamp cutoff (optional).
-    """
-    conn = get_db()
-    try:
-        where = "WHERE gate_decision IS NOT NULL"
-        params: tuple = ()
-        if since:
-            where += " AND timestamp >= ?"
-            params = (since,)
-
-        rows = conn.execute(f"""
-            SELECT gate_decision, COUNT(*) AS cnt
-            FROM signals
-            {where}
-            GROUP BY gate_decision
-        """, params).fetchall()
-
-        counts = {r["gate_decision"]: r["cnt"] for r in rows}
-        skipped_open    = counts.get("SKIPPED_OPEN", 0)
-        skipped_cooloff = counts.get("SKIPPED_COOLOFF", 0)
-        l1_fail         = counts.get("FILTERED_L1", 0)
-        eligibility_fail = counts.get("FILTERED_ELIGIBILITY", 0)
-        l2_fail         = counts.get("FILTERED_L2", 0)
-        leading_fail    = counts.get("FILTERED_LEADING", 0)
-        l3_fail         = counts.get("FILTERED_L3", 0)
-        overflow_fail   = counts.get("FILTERED_OVERFLOW_QUANT", 0)
-        executed        = counts.get("TRADE_EXECUTED", 0)
-        rejected        = counts.get("TRADE_REJECTED", 0)
-
-        total_candidates = sum(counts.values())
-        evaluated = total_candidates - skipped_open - skipped_cooloff
-
-        return {
-            "total_candidates": total_candidates,
-            "skipped_open":     skipped_open,
-            "skipped_cooloff":  skipped_cooloff,
-            "evaluated":        evaluated,
-            "l1_fail":          l1_fail,
-            "eligibility_fail":  eligibility_fail,
-            "l2_fail":          l2_fail,
-            "leading_fail":     leading_fail,
-            "l3_fail":          l3_fail,
-            "overflow_fail":    overflow_fail,
-            "executed":         executed,
-            "rejected":         rejected,
-        }
     finally:
         conn.close()
 
@@ -2562,37 +2456,6 @@ def insert_l5_token_usage(ticker: str | None, input_tokens: int,
         conn.close()
 
 
-def get_l5_spend_summary() -> dict:
-    """
-    Returns L5 token spend aggregated over 7-day and 30-day windows.
-    Each window includes: total_cost_usd, call_count, daily_rate_usd.
-    """
-    conn = get_db()
-    try:
-        rows = conn.execute("""
-            SELECT
-                SUM(CASE WHEN timestamp >= DATE('now', '-7 days')  THEN cost_usd ELSE 0 END) AS cost_7d,
-                SUM(CASE WHEN timestamp >= DATE('now', '-30 days') THEN cost_usd ELSE 0 END) AS cost_30d,
-                SUM(CASE WHEN timestamp >= DATE('now', '-7 days')  THEN 1 ELSE 0 END)        AS calls_7d,
-                SUM(CASE WHEN timestamp >= DATE('now', '-30 days') THEN 1 ELSE 0 END)        AS calls_30d
-            FROM l5_token_usage
-        """).fetchone()
-        cost_7d  = rows["cost_7d"]  or 0.0
-        cost_30d = rows["cost_30d"] or 0.0
-        calls_7d  = rows["calls_7d"]  or 0
-        calls_30d = rows["calls_30d"] or 0
-        return {
-            "cost_7d":        round(cost_7d, 4),
-            "cost_30d":       round(cost_30d, 4),
-            "calls_7d":       calls_7d,
-            "calls_30d":      calls_30d,
-            "daily_rate_7d":  round(cost_7d  / 7,  4),
-            "daily_rate_30d": round(cost_30d / 30, 4),
-        }
-    finally:
-        conn.close()
-
-
 def acknowledge_drift_alert(alert_id: int) -> None:
     conn = get_db()
     try:
@@ -2693,11 +2556,6 @@ def get_sector_posteriors_asof(date_str: str, days_back: int) -> dict[str, float
         return {r["sector"]: r["posterior"] for r in rows}
     finally:
         conn.close()
-
-
-def get_previous_sector_posteriors(date_str: str) -> dict[str, float]:
-    """Load each sector's posterior from the most recent date strictly before date_str."""
-    return get_sector_posteriors_asof(date_str, days_back=1)
 
 
 def count_sector_posterior_history(date_str: str) -> int:

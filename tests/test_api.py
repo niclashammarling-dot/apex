@@ -4,8 +4,6 @@ Run: cd ~/apex && .venv/bin/python tests/test_api.py
 """
 import sys
 import time
-from collections import defaultdict
-from unittest.mock import patch
 
 results = []
 
@@ -103,55 +101,6 @@ try:
     check("valid override request accepted", True)
 except ValidationError as e:
     check("valid override request accepted", False, str(e))
-
-
-# ── TEST 3: Rate limiter ───────────────────────────────────────────────────────
-print("\nTEST 3: Rate limiter")
-
-from fastapi import HTTPException
-
-# Import rate limiter internals
-from backend.routers.signals_router import _rate_store, _rate_check, _RATE_LIMIT, _RATE_WINDOW
-
-# Clear any state from previous test runs
-_rate_store.clear()
-
-# Should allow _RATE_LIMIT calls within the window
-allowed = 0
-for _ in range(_RATE_LIMIT):
-    try:
-        _rate_check("__test__")
-        allowed += 1
-    except HTTPException:
-        break
-
-check(f"allows {_RATE_LIMIT} calls within window", allowed == _RATE_LIMIT,
-      f"allowed={allowed}")
-
-# The next call should be rejected
-try:
-    _rate_check("__test__")
-    check(f"({_RATE_LIMIT+1}th) call rejected", False, "should have raised 429")
-except HTTPException as e:
-    check(f"({_RATE_LIMIT+1}th) call rejected", e.status_code == 429,
-          f"status={e.status_code}")
-
-# Different key is independent
-try:
-    _rate_check("__test_other__")
-    check("different key is independent",   True)
-except HTTPException:
-    check("different key is independent",   False)
-
-# After window expires, calls are allowed again
-_rate_store["__test_expire__"] = [time.time() - _RATE_WINDOW - 1]  # artificially expired
-try:
-    _rate_check("__test_expire__")
-    check("expired entries don't count",    True)
-except HTTPException:
-    check("expired entries don't count",    False)
-
-_rate_store.clear()
 
 
 # ── TEST 4: Lock 2 circuit breaker ────────────────────────────────────────────

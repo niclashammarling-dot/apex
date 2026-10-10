@@ -629,12 +629,6 @@ def run_weekly_research() -> None:
     logger.info("Weekly research: done")
 
 
-def precache_monday_data() -> None:
-    """Pre-fetch all sector signals Sunday evening so Monday's first poll is instant."""
-    logger.info("Sunday pre-cache: fetching all sectors…")
-    poll_all_sectors(force=True)
-
-
 def run_sentiment_prefetch() -> None:
     """Pre-fetch Reddit and RSS sentiment for all watchlist tickers at market open."""
     from backend.sentiment.sentiment_prefetch import run as prefetch_run

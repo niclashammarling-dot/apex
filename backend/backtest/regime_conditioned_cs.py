@@ -474,13 +474,6 @@ def _signal_weighted_pf(records: list[dict]) -> float | None:
     return round(gp / gl, 3) if gl > 0 else None
 
 
-def _signal_band(score: float) -> tuple[float, float] | None:
-    for lo, hi in SIGNAL_SCORE_BANDS:
-        if lo <= score < hi:
-            return (lo, hi)
-    return None
-
-
 def _count_episodes(records: list[dict], gap_days: int = 5) -> int:
     """
     Count distinct regime episodes among a set of trade records.

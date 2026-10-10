@@ -80,16 +80,24 @@ def check25():
     """
     Verify that every gate_decision string emitted by _OUTCOMES in gate_runner.py
     is handled by all consumers:
-      - getLockStates in GateFeed.jsx and LiveGateFeed.jsx
-      - OUTCOME_LABELS/decisionBadge in GateFeed.jsx and LiveGateFeed.jsx
+      - the rendered gate feed and lock states in ApexTerminal.jsx
+      - the funnel and gate-row adapters in App.jsx
       - funnel SQL and dict lookups in db.py
+
+    Retargeted 2026-10-10: until then sub-check A read GateFeed.jsx and
+    LiveGateFeed.jsx (imported nowhere since the Terminal design) and sub-check B
+    read SectorGrid.jsx and SectorRegime.jsx (deleted 2026-05-21, a51200a), and a
+    missing file was skipped silently — half the check verified nothing for five
+    months. A consumer file that does not exist is now a WARNING.
 
     Prevented by: FILTERED_ELIGIBILITY introduced in _OUTCOMES but all consumers
     still checked for old FILTERED_MACRO string.
     """
     runner         = REPO / "backend/gate/gate_runner.py"
-    gate_feed      = REPO / "frontend/src/components/GateFeed.jsx"
-    live_gate_feed = REPO / "frontend/src/components/LiveGateFeed.jsx"
+    decision_consumers = [
+        REPO / "frontend/src/components/ApexTerminal.jsx",
+        REPO / "frontend/src/App.jsx",
+    ]
     db_file        = REPO / "backend/db.py"
 
     if not runner.exists():
@@ -103,8 +111,13 @@ def check25():
              "_OUTCOMES dict not found or no FILTERED_* strings — pattern changed")
         return
 
+    for path in decision_consumers:
+        if not path.exists():
+            flag(25, "gate_decision string parity", "WARNING", str(path.relative_to(REPO)),
+                 "consumer file missing — the check reads nothing for it; retarget CHECK 25")
     for outcome in outcomes:
-        for label, path in [("GateFeed.jsx", gate_feed), ("LiveGateFeed.jsx", live_gate_feed)]:
+        for path in decision_consumers:
+            label = path.name
             if not path.exists():
                 continue
             if outcome not in path.read_text():
@@ -127,11 +140,14 @@ def check25():
     ticker_signals = set(re.findall(r'(?<!vel_)signal\s*=\s*"([a-z]+)"', regime_text))
 
     signal_consumers = [
-        REPO / "frontend/src/components/SectorGrid.jsx",
-        REPO / "frontend/src/components/SectorRegime.jsx",
+        REPO / "frontend/src/components/ApexTerminal.jsx",
         REPO / "frontend/src/components/Watchlist.jsx",
         REPO / "frontend/src/components/RotationForecast.jsx",
     ]
+    for comp_path in signal_consumers:
+        if not comp_path.exists():
+            flag(25, "gate_decision string parity", "WARNING", str(comp_path.relative_to(REPO)),
+                 "signal consumer file missing — the check reads nothing for it; retarget CHECK 25")
     for sig in sorted(ticker_signals):
         for comp_path in signal_consumers:
             if not comp_path.exists():

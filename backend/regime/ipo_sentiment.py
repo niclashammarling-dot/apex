@@ -693,11 +693,3 @@ class IpoSentiment:
 
 
 # ── Scheduler entry point ─────────────────────────────────────────────────────
-
-def run_daily(sectors_cfg: dict) -> IpoSentimentResult:
-    """
-    Entry point for daily scheduler — call at end of trading day.
-    Returns result for immediate use and caches for next morning's regime update.
-    """
-    ipo = IpoSentiment(sectors_cfg)
-    return ipo.compute()
