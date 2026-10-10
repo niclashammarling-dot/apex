@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo, Component } from "react";
 import RotationForecast  from "./components/RotationForecast.jsx";
 import SectorRotation    from "./components/SectorRotation.jsx";
 import ApexTerminal      from "./components/ApexTerminal.jsx";
-import ApexAtlas         from "./components/ApexAtlas.jsx";
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect, TweakColor } from "./components/TweaksPanel.jsx";
 
 // ── Modal / overlay CSS only ──────────────────────────────────────────────────
@@ -720,14 +719,10 @@ function PromoteModal({ config, onConfirm, onCancel }) {
 // ── Tweaks defaults ───────────────────────────────────────────────────────────
 
 const TWEAK_DEFAULTS = {
-  direction:       "terminal",
   density:         "comfortable",
   themeTerminal:   "dark",
-  themeAtlas:      "dark",
   paletteTerminal: { value: "mint",  swatch: "#7ce0a1" },
-  paletteAtlas:    { value: "ember", swatch: "#c8451f" },
   fontTerminal:    "mono",
-  fontAtlas:       "serif",
   layout:          "regime-hero",
 };
 
@@ -846,13 +841,6 @@ export default function App() {
     font:    t.fontTerminal,
     layout:  t.layout,
   };
-  const tAtlas = {
-    density: t.density,
-    theme:   t.themeAtlas,
-    palette: unwrap(t.paletteAtlas),
-    font:    t.fontAtlas,
-    layout:  t.layout,
-  };
 
   const supplementalPanels = (
     <div className="supp-grid">
@@ -866,44 +854,26 @@ export default function App() {
       <style>{CSS}</style>
 
       {/* ── Main dashboard ──────────────────────────────────────────────── */}
-      {/* TODO: remove Atlas entirely — Terminal is the only design going forward */}
-      {t.direction === "terminal" ? (
-        <ErrorBoundary label="Terminal">
-          <ApexTerminal
-            tweaks={tTerminal}
-            data={adaptedData}
-            marketOpen={marketOpen}
-            onSettings={() => setShowSettings(true)}
-            onPromote={liveStatus?.enabled ? () => setShowPromote(true) : null}
-            supplemental={supplementalPanels}
-          />
-        </ErrorBoundary>
-      ) : (
-        <ErrorBoundary label="Atlas">
-          <ApexAtlas
-            tweaks={tAtlas}
-            data={adaptedData}
-            marketOpen={marketOpen}
-            onSettings={() => setShowSettings(true)}
-            onPromote={liveStatus?.enabled ? () => setShowPromote(true) : null}
-            supplemental={supplementalPanels}
-          />
-        </ErrorBoundary>
-      )}
+      {/* Terminal is the only design (Atlas removed 2026-10-10; ruled 06-25 in a TODO that lost its
+          only reader, the CI nightly audit's LLM check, two days later). */}
+      <ErrorBoundary label="Terminal">
+        <ApexTerminal
+          tweaks={tTerminal}
+          data={adaptedData}
+          marketOpen={marketOpen}
+          onSettings={() => setShowSettings(true)}
+          onPromote={liveStatus?.enabled ? () => setShowPromote(true) : null}
+          supplemental={supplementalPanels}
+        />
+      </ErrorBoundary>
 
       {/* ── Tweaks panel ────────────────────────────────────────────────── */}
-      {/* TODO: remove TweaksPanel entirely — direction/Atlas toggle is dead, remaining knobs (layout, density, theme) should move into Settings modal */}
+      {/* TODO: remove TweaksPanel entirely — remaining knobs (layout, density, theme) should move into Settings modal (inventory 2026-10-10) */}
       <TweaksPanel
         title="Tweaks"
         onSettings={() => setShowSettings(true)}
         onPromote={liveStatus?.enabled ? () => setShowPromote(true) : null}
       >
-        <TweakSection title="Direction">
-          <TweakRadio label="Design" value={t.direction}
-            onChange={v => setTweak("direction", v)}
-            options={[{value:"terminal",label:"Terminal"},{value:"atlas",label:"Atlas"}]} />
-        </TweakSection>
-
         <TweakSection title="Layout">
           <TweakSelect label="Hero panel" value={t.layout}
             onChange={v => setTweak("layout", v)}
@@ -917,7 +887,7 @@ export default function App() {
             options={[{value:"comfortable",label:"Comfortable"},{value:"compact",label:"Compact"}]} />
         </TweakSection>
 
-        <TweakSection title="A · Terminal">
+        <TweakSection title="Terminal">
           <TweakRadio label="Theme" value={t.themeTerminal}
             onChange={v => setTweak("themeTerminal", v)}
             options={[{value:"dark",label:"Dark"},{value:"light",label:"Light"}]} />
@@ -934,22 +904,6 @@ export default function App() {
             options={[{value:"mono",label:"Mono+Sans"},{value:"sans",label:"All sans"}]} />
         </TweakSection>
 
-        <TweakSection title="B · Atlas">
-          <TweakRadio label="Theme" value={t.themeAtlas}
-            onChange={v => setTweak("themeAtlas", v)}
-            options={[{value:"light",label:"Paper"},{value:"dark",label:"Ink"}]} />
-          <TweakColor label="Accent" value={t.paletteAtlas}
-            onChange={v => setTweak("paletteAtlas", v)}
-            options={[
-              {value:"ink",    swatch:"#b8470f"},
-              {value:"oxide",  swatch:"#1d6a55"},
-              {value:"cobalt", swatch:"#244aa3"},
-              {value:"ember",  swatch:"#c8451f"},
-            ]} />
-          <TweakRadio label="Type" value={t.fontAtlas}
-            onChange={v => setTweak("fontAtlas", v)}
-            options={[{value:"serif",label:"Serif+Mono"},{value:"sans",label:"All sans"}]} />
-        </TweakSection>
       </TweaksPanel>
 
       {/* ── Modals ──────────────────────────────────────────────────────── */}
