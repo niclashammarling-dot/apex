@@ -391,6 +391,16 @@ def init_db() -> None:
         # as two schedulers. NULL on rows written before this column.
         _add_column_if_missing(conn, "live_gate_history", "cycle_started_at", "TEXT")
         _add_column_if_missing(conn, "demo_gate_history", "cycle_started_at", "TEXT")
+        # Finding 1 (2026-10-10): the newest daily bar's own date, written by the fetcher, so
+        # the gate can require this session's bar rather than infer it from write time. Gate
+        # rows carry the signal they decided on (write time and bar date) so CHECK 87 can
+        # read signal age at gate time. gate_cycles counts candidates refused as stale.
+        # NULL on rows written before these columns.
+        _add_column_if_missing(conn, "signals", "bar_date", "TEXT")
+        for _t in ("live_gate_history", "demo_gate_history"):
+            _add_column_if_missing(conn, _t, "signal_ts", "TEXT")
+            _add_column_if_missing(conn, _t, "bar_date",  "TEXT")
+        _add_column_if_missing(conn, "gate_cycles", "stale_excluded", "INTEGER")
 
         # Migrate old gate_decision values to canonical FILTERED_* form
         conn.executescript("""
@@ -473,13 +483,13 @@ def insert_signal(row: dict) -> int:
               (timestamp, ticker, sector, price, ma20, rsi, volume, avg_vol_30d,
                volume_ratio, signal_score, momentum_score, volume_score, ev, kelly_size,
                high_60d, low_60d, atr_pct, effective_sl,
-               trend_score, macd_hist, ma50, rs_score)
+               trend_score, macd_hist, ma50, rs_score, bar_date)
             VALUES
               (:timestamp, :ticker, :sector, :price, :ma20, :rsi, :volume, :avg_vol_30d,
                :volume_ratio, :signal_score, :momentum_score, :volume_score, :ev, :kelly_size,
                :high_60d, :low_60d, :atr_pct, :effective_sl,
-               :trend_score, :macd_hist, :ma50, :rs_score)
-        """, row)
+               :trend_score, :macd_hist, :ma50, :rs_score, :bar_date)
+        """, {**row, "bar_date": row.get("bar_date")})
         conn.commit()
         return cur.lastrowid
     finally:
@@ -583,24 +593,33 @@ def signals_for_sector(sector: str) -> list[dict]:
 
 
 def get_lock1_candidates(threshold: float | None = None,
-                         sector_thresholds: dict | None = None) -> list[dict]:
+                         sector_thresholds: dict | None = None,
+                         stale_out: list | None = None,
+                         now: datetime | None = None) -> list[dict]:
     """
-    Latest signal per ticker filtered by threshold.
+    Latest signal per ticker filtered by threshold, then bounded to this session.
     If sector_thresholds provided, each ticker is filtered against its sector's
     calibrated threshold (falling back to `threshold` for uncalibrated sectors).
 
-    NOTE — two-source threshold divergence: this pre-filter uses only the
-    ticker_thresholds DB table (no SECTOR_THRESHOLD_FLOORS). lock2_quant.
-    _sector_threshold() applies SECTOR_THRESHOLD_FLOORS as a floor on top of
-    the DB value. For calibrated sectors the difference is immaterial (DB value
-    ≥ floor by construction). For uncalibrated expansion sectors, `threshold`
-    (the live config fallback, currently 0.65) acts as the pre-filter, which
-    is likely above their eventual calibrated threshold — making this pre-filter
-    over-conservative until calibration runs. Tickers blocked here never reach
-    gate evaluation and produce no gate_history row, so CHECK 38 funnel counts
-    understate true candidate suppression during the calibration lag window.
+    Session bound (Finding 1, 2026-10-10; backend/gate/freshness.py): a ticker
+    whose latest signal was written before today's open is refused (bar_date
+    is observed, enforced only under ENFORCE_BAR_DATE), and so is a ticker outside the current
+    universe (data/tickers.json via get_sectors()), which freshness alone would
+    not catch. A refusal is never silent: each is appended to stale_out as
+    {ticker, sector, signal_score, timestamp, bar_date, reason} when the caller
+    passes a list, and the runner records the count on its gate_cycles row.
+    Refusals are counted only among tickers that clear the threshold, so the
+    count means "would have been a candidate". On a non-session day (or with the
+    calendar unavailable) nothing is fresh: [] with reason no_session.
+
+    NOTE: this pre-filter uses only the ticker_thresholds DB table, not
+    SECTOR_THRESHOLD_FLOORS (empty since 2026-10-10). Lock 2 applies floors on
+    top. Tickers blocked here never reach gate evaluation and produce no
+    gate_history row.
     """
     from backend.config import LOCK1_THRESHOLD
+    from backend.gate.freshness import NO_SESSION, NOT_IN_UNIVERSE, session_for, stale_reason
+    from backend.ticker_config import get_sectors
     fallback = threshold if threshold is not None else LOCK1_THRESHOLD
     conn = get_db()
     try:
@@ -619,11 +638,42 @@ def get_lock1_candidates(threshold: float | None = None,
         conn.close()
 
     if sector_thresholds:
-        return [
+        candidates = [
             c for c in candidates
             if c["signal_score"] >= sector_thresholds.get(c.get("sector", ""), fallback)
         ]
-    return [c for c in candidates if c["signal_score"] >= fallback]
+    else:
+        candidates = [c for c in candidates if c["signal_score"] >= fallback]
+
+    def refuse(c: dict, reason: str) -> None:
+        if stale_out is not None:
+            stale_out.append({"ticker": c["ticker"], "sector": c.get("sector"),
+                              "signal_score": c["signal_score"], "timestamp": c.get("timestamp"),
+                              "bar_date": c.get("bar_date"), "reason": reason})
+
+    try:
+        session = session_for(now)
+    except Exception as e:
+        logger.warning(f"get_lock1_candidates: NYSE calendar unavailable ({e}) — no candidate is fresh")
+        session = None
+    if session is None:
+        for c in candidates:
+            refuse(c, NO_SESSION)
+        return []
+    session_date, open_utc = session
+    universe = {t for cfg in get_sectors().values() for t in cfg.get("tickers", [])}
+
+    fresh = []
+    for c in candidates:
+        if c["ticker"] not in universe:
+            refuse(c, NOT_IN_UNIVERSE)
+            continue
+        reason = stale_reason(c.get("timestamp"), c.get("bar_date"), session_date, open_utc)
+        if reason:
+            refuse(c, reason)
+            continue
+        fresh.append(c)
+    return fresh
 
 
 def update_signal_gate(signal_id: int, result: dict) -> None:
@@ -1035,13 +1085,15 @@ def insert_demo_gate_result(row: dict) -> None:
                  lock1_pass, lock2_pass, lock_leading_pass, lock_leading_checks,
                  lock3_pass, gate_decision, lock3_reasoning, l2_summary,
                  lock3_sentiment_score, lock3_conviction, macro_reason, ticker_signal,
-                 earnings_near, days_to_earnings, overflow_slot, cycle_started_at)
+                 earnings_near, days_to_earnings, overflow_slot, cycle_started_at,
+                 signal_ts, bar_date)
             VALUES
                 (:timestamp, :ticker, :sector, :signal_score,
                  :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
                  :lock3_pass, :gate_decision, :lock3_reasoning, :l2_summary,
                  :lock3_sentiment_score, :lock3_conviction, :macro_reason, :ticker_signal,
-                 :earnings_near, :days_to_earnings, :overflow_slot, :cycle_started_at)
+                 :earnings_near, :days_to_earnings, :overflow_slot, :cycle_started_at,
+                 :signal_ts, :bar_date)
         """
         _assert_insert_fields("insert_demo_gate_result", _SQL, row)
         conn.execute(_SQL, {**row,
@@ -1051,7 +1103,9 @@ def insert_demo_gate_result(row: dict) -> None:
               "earnings_near":         row.get("earnings_near"),
               "days_to_earnings":      row.get("days_to_earnings"),
               "overflow_slot":         1 if row.get("overflow_slot") else 0,
-              "cycle_started_at":      row.get("cycle_started_at")})
+              "cycle_started_at":      row.get("cycle_started_at"),
+              "signal_ts":             row.get("signal_ts"),
+              "bar_date":              row.get("bar_date")})
         conn.commit()
     finally:
         conn.close()
@@ -1327,14 +1381,14 @@ def insert_live_gate_result(row: dict) -> int:
                lock3_pass, gate_decision, lock3_reasoning, alpaca_order_id,
                l2_summary, lock3_sentiment_score, lock3_conviction, macro_reason,
                ticker_signal, earnings_near, days_to_earnings, overflow_slot,
-               outcome_reason, cap_check, cycle_started_at)
+               outcome_reason, cap_check, cycle_started_at, signal_ts, bar_date)
             VALUES
               (:timestamp, :ticker, :sector, :signal_score,
                :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
                :lock3_pass, :gate_decision, :lock3_reasoning, :alpaca_order_id,
                :l2_summary, :lock3_sentiment_score, :lock3_conviction, :macro_reason,
                :ticker_signal, :earnings_near, :days_to_earnings, :overflow_slot,
-               :outcome_reason, :cap_check, :cycle_started_at)
+               :outcome_reason, :cap_check, :cycle_started_at, :signal_ts, :bar_date)
         """
         _assert_insert_fields("insert_live_gate_result", _SQL, row)
         cur = conn.execute(_SQL, {**row,
@@ -1350,7 +1404,9 @@ def insert_live_gate_result(row: dict) -> int:
               "overflow_slot":          1 if row.get("overflow_slot") else 0,
               "outcome_reason":         row.get("outcome_reason"),
               "cap_check":              json.dumps(row["cap_check"]) if row.get("cap_check") else None,
-              "cycle_started_at":       row.get("cycle_started_at")})
+              "cycle_started_at":       row.get("cycle_started_at"),
+              "signal_ts":              row.get("signal_ts"),
+              "bar_date":               row.get("bar_date")})
         conn.commit()
         return cur.lastrowid
     finally:
@@ -1635,11 +1691,13 @@ def insert_gate_cycle(job: str, trigger: str, started_at: str) -> int:
         conn.close()
 
 
-def finish_gate_cycle(cycle_id: int, outcome: str, reason: str | None) -> None:
+def finish_gate_cycle(cycle_id: int, outcome: str, reason: str | None,
+                      stale_excluded: int | None = None) -> None:
     conn = get_db()
     try:
-        conn.execute("UPDATE gate_cycles SET finished_at = ?, outcome = ?, reason = ? WHERE id = ?",
-                     (datetime.now(timezone.utc).isoformat(), outcome, reason, cycle_id))
+        conn.execute("UPDATE gate_cycles SET finished_at = ?, outcome = ?, reason = ?, stale_excluded = ? "
+                     "WHERE id = ?",
+                     (datetime.now(timezone.utc).isoformat(), outcome, reason, stale_excluded, cycle_id))
         conn.commit()
     finally:
         conn.close()

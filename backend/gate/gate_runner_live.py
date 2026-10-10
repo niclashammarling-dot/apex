@@ -29,7 +29,7 @@ from backend.db import (
     set_alert_latch,
 )
 from backend.gate.chain import build_base_context, evaluate_chain
-from backend.gate.cycle import GateCycle, evaluated_reason
+from backend.gate.cycle import GateCycle, evaluated_reason, record_stale
 from backend.gate.gate_runner import (
     PRE_ROTATION_FLOOR,
     _chain_to_gate_result,
@@ -377,11 +377,15 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
         cycle.reason = "loss_cap"
         return []
 
+    stale: list[dict] = []
     candidates = get_lock1_candidates(threshold=cfg["lock1_threshold"],
-                                      sector_thresholds=sector_thresholds)
+                                      sector_thresholds=sector_thresholds,
+                                      stale_out=stale)
+    record_stale(cycle, stale, "Live gate runner")
+    n_stale_main = len(stale)
     if not candidates:
         logger.info("Live gate runner: no Lock 1 candidates this cycle")
-        cycle.reason = "no_candidates"
+        cycle.reason = "no_fresh_candidates" if stale else "no_candidates"
         _persist_multiplier_stats({}, None, [], runner="live")
         return []
 
@@ -432,6 +436,8 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
             "overflow_slot":         False,
             "outcome_reason":        None,
             "cap_check":             None,
+            "signal_ts":             c.get("timestamp"),
+            "bar_date":              c.get("bar_date"),
         })
 
     if skipped:
@@ -509,7 +515,9 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
         pr_candidates = get_lock1_candidates(
             threshold=cfg["lock1_threshold"] * PRE_ROTATION_FLOOR,
             sector_thresholds=pr_sector_thresholds,
+            stale_out=stale,
         )
+        record_stale(cycle, stale, "Live gate runner", start=n_stale_main)
         existing = {c["ticker"] for c in candidates}
         for c in pr_candidates:
             if (c.get("sector") in watching_sectors
@@ -726,6 +734,8 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
             "overflow_slot":          result.get("overflow_slot", False),
             "outcome_reason":         result.get("outcome_reason"),
             "cap_check":              result.get("cap_check"),
+            "signal_ts":              signal.get("timestamp"),
+            "bar_date":               signal.get("bar_date"),
         })
 
         _log_summary(ticker, result)

@@ -5,6 +5,7 @@ import TradeLog      from "./TradeLog.jsx";
 import NightLog      from "./NightLog.jsx";
 import MarketWindowPanel from "./MarketWindowPanel.jsx";
 import LiveRejectionsPanel from "./LiveRejectionsPanel.jsx";
+import SignalFreshnessPanel from "./SignalFreshnessPanel.jsx";
 import RegimeBayes   from "./RegimeBayes.jsx";
 import Watchlist     from "./Watchlist.jsx";
 import DemoTradeLog  from "./DemoTradeLog.jsx";
@@ -715,6 +716,15 @@ function TestView({ D }) {
           </div>
           <div className="t-card-body">
             <LiveRejectionsPanel />
+          </div>
+        </div>
+        <div className="t-card">
+          <div className="t-card-head">
+            <div className="t-card-title">SIGNAL FRESHNESS</div>
+            <div className="t-meta">SESSION BOUND · CHECK 87</div>
+          </div>
+          <div className="t-card-body">
+            <SignalFreshnessPanel />
           </div>
         </div>
         <div className="t-card">

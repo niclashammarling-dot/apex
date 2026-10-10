@@ -1060,6 +1060,81 @@ def get_job_runs_status():
     return {"jobs": out}
 
 
+@router.get("/ops/freshness")
+def get_signal_freshness(days: int = 10):
+    """
+    Session bound on gate candidates, per NYSE session (Finding 1, 2026-10-10;
+    CHECK 87). Per session: scheduler gate cycles, cycles that refused tickers as
+    stale and how many ticker-cycles, cycles where every would-be candidate was
+    stale (no_fresh_candidates), gate rows checked per book, and rows whose signal
+    was written before the open (should be 0; nonzero means the bound was
+    bypassed). Observed half, not enforced (review 2026-10-17): in-session rows
+    whose newest bar is not the session's, per book and per sector, with how many
+    were entered. Rows from before 2026-10-10 carry no signal_ts (unrecorded).
+    as_of is when this was computed; the panel shows it.
+    """
+    from collections import defaultdict
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+
+    from backend.gate.freshness import bar_date_mismatch, stale_reason
+    from backend.scheduler import _nyse_session_bounds
+
+    ny = ZoneInfo("America/New_York")
+    now = datetime.now(timezone.utc)
+    since = (now - timedelta(days=days)).isoformat()
+    day = lambda ts: datetime.fromisoformat(ts).astimezone(ny).date().isoformat()
+    out: dict[str, dict] = defaultdict(lambda: {
+        "cycles": 0, "stale_cycles": 0, "stale_ticker_cycles": 0, "no_fresh": 0,
+        "live": {"checked": 0, "unrecorded": 0, "violations": 0, "bar_mismatch": 0,
+                 "bar_mismatch_entered": 0, "no_bar_date": 0, "by_sector": {}},
+        "demo": {"checked": 0, "unrecorded": 0, "violations": 0, "bar_mismatch": 0,
+                 "bar_mismatch_entered": 0, "no_bar_date": 0, "by_sector": {}}})
+    conn = get_db()
+    try:
+        for r in conn.execute("SELECT started_at, reason, stale_excluded FROM gate_cycles "
+                              "WHERE started_at >= ? AND trigger = 'scheduler'", (since,)).fetchall():
+            d = out[day(r["started_at"])]
+            d["cycles"] += 1
+            if r["stale_excluded"]:
+                d["stale_cycles"] += 1
+                d["stale_ticker_cycles"] += r["stale_excluded"]
+            if r["reason"] == "no_fresh_candidates":
+                d["no_fresh"] += 1
+        rows = {book: conn.execute(f"SELECT cycle_started_at, sector, gate_decision, signal_ts, bar_date "
+                                   f"FROM {table} "
+                                   "WHERE cycle_started_at >= ?", (since,)).fetchall()
+                for book, table in (("live", "live_gate_history"), ("demo", "demo_gate_history"))}
+    finally:
+        conn.close()
+    opens: dict[str, datetime | None] = {}
+    for book, rs in rows.items():
+        for r in rs:
+            dd = day(r["cycle_started_at"])
+            b = out[dd][book]
+            if r["signal_ts"] is None:
+                b["unrecorded"] += 1
+                continue
+            if dd not in opens:
+                bounds = _nyse_session_bounds(dd)
+                opens[dd] = bounds[0].astimezone(timezone.utc) if bounds else None
+            b["checked"] += 1
+            if opens[dd] is None or stale_reason(r["signal_ts"], r["bar_date"], dd, opens[dd]):
+                b["violations"] += 1
+                continue
+            if r["bar_date"] is None:
+                b["no_bar_date"] += 1
+            elif bar_date_mismatch(r["bar_date"], dd):
+                entered = r["gate_decision"] == "TRADE_EXECUTED"
+                b["bar_mismatch"] += 1
+                b["bar_mismatch_entered"] += entered
+                sec = b["by_sector"].setdefault(r["sector"] or "?", {"rows": 0, "entered": 0})
+                sec["rows"] += 1
+                sec["entered"] += entered
+    return {"as_of": now.isoformat(),
+            "sessions": [{"date": d, **v} for d, v in sorted(out.items(), reverse=True)]}
+
+
 @router.get("/ops/rejections")
 def get_live_rejections(days: int = 10):
     """

@@ -24,7 +24,7 @@ from backend.db import (
     update_signal_gate,
 )
 from backend.gate.chain import ChainResult, build_base_context, evaluate_chain
-from backend.gate.cycle import GateCycle, evaluated_reason
+from backend.gate.cycle import GateCycle, evaluated_reason, record_stale
 
 # Max parallel workers — bounded to avoid hammering rate limits
 _MAX_WORKERS = 5
@@ -48,12 +48,16 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     cfg = get_demo_config()
 
     sector_thresholds = get_ticker_thresholds()
+    stale: list[dict] = []
     candidates = get_lock1_candidates(threshold=cfg["lock1_threshold"],
-                                      sector_thresholds=sector_thresholds)
+                                      sector_thresholds=sector_thresholds,
+                                      stale_out=stale)
+    record_stale(cycle, stale, "Gate runner")
+    n_stale_main = len(stale)
 
     if not candidates:
         logger.info("Gate runner: no Lock 1 candidates this cycle")
-        cycle.reason = "no_candidates"
+        cycle.reason = "no_fresh_candidates" if stale else "no_candidates"
         _persist_multiplier_stats({}, None, [])
         return []
 
@@ -86,6 +90,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
             "ticker_signal": None, "earnings_near": None, "days_to_earnings": None,
             "lock3_sentiment_score": None, "lock3_conviction": None,
             "overflow_slot": False,
+            "signal_ts": c.get("timestamp"), "bar_date": c.get("bar_date"),
         })
 
     if skipped:
@@ -146,7 +151,9 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
         pr_candidates = get_lock1_candidates(
             threshold=cfg["lock1_threshold"] * PRE_ROTATION_FLOOR,
             sector_thresholds=pr_sector_thresholds,
+            stale_out=stale,
         )
+        record_stale(cycle, stale, "Gate runner", start=n_stale_main)
         existing = {c["ticker"] for c in candidates}
         for c in pr_candidates:
             if (c.get("sector") in watching_sectors
@@ -291,6 +298,8 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
             "earnings_near":          result.get("earnings_near"),
             "days_to_earnings":       result.get("days_to_earnings"),
             "overflow_slot":          result.get("overflow_slot", False),
+            "signal_ts":              signal.get("timestamp"),
+            "bar_date":               signal.get("bar_date"),
         })
         _log_summary(ticker, result)
 

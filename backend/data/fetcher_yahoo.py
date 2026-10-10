@@ -156,8 +156,15 @@ def _score_ticker(
         )
 
         _history_fail_count.pop(symbol, None)
+        # The newest daily bar's own date, in exchange time (Finding 1, 2026-10-10):
+        # the gate requires this session's bar. In session yfinance's last row is the
+        # forming bar for today; before the open it is the prior session's.
+        last_bar = df.index[-1]
+        if getattr(last_bar, "tzinfo", None) is not None:
+            last_bar = last_bar.tz_convert("America/New_York")
         return {
             "timestamp":         poll_ts or datetime.now(timezone.utc).isoformat(),
+            "bar_date":          last_bar.date().isoformat(),
             "ticker":            symbol,
             "sector":            sector,
             # momentum

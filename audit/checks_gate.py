@@ -1600,6 +1600,122 @@ def check86() -> None:
              f"without it; signals grows ~2,000 un-gated rows per session until it runs")
 
 
+# ── CHECK 87 — signal age at gate time ───────────────────────────────────────
+
+def check87() -> None:
+    """
+    CHECK 87 — every gate row was decided on a signal from its own session.
+
+    Found 2026-10-07 (Finding 1): 25 of 55 live entries since 07-07 were decided
+    on a signal not written in that session (15 same-day pre-open, 10 earlier
+    day); no CHECK read signal age at gate time. Since 2026-10-10 the candidate
+    query is session-bounded (backend/gate/freshness.py) and every gate row
+    carries the signal it decided on (signal_ts, bar_date). This reads them back
+    with the same definition, so a bound that is bypassed, reverted or never
+    reached by a new caller shows up as rows, not as silence.
+
+    Event check on the latest session (today from 09:30 ET):
+      CRITICAL  rows whose signal was written before the session's open — the
+                enforced bound was bypassed; names book, count, first tickers
+      WARNING   latest-session rows with no signal_ts while earlier rows carry
+                one — a writer stopped recording it (absence is not freshness)
+      INFO      coverage: rows checked per book, and cycles/tickers refused as
+                stale (gate_cycles.stale_excluded) — the population behind a
+                clean result
+      INFO      observed half (not enforced, review 2026-10-17): rows whose
+                bar_date is not the session's, per book and sector, and how
+                many were entered; rows with no bar_date counted apart
+    Rows from before the columns existed (signal_ts NULL everywhere) are not
+    evaluated. SKIPPED without apex.db.
+    """
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    import pandas_market_calendars as mcal
+
+    from backend.gate.freshness import bar_date_mismatch, stale_reason
+    name = "signal age at gate time"
+    db = REPO / "data/apex.db"
+    if not require_data_file(87, name, db):
+        return
+    try:
+        sessions = _c82_session_dates(1)
+    except Exception as e:
+        flag(87, name, "WARNING", "audit/checks_gate.py:_c82_session_dates", f"calendar unavailable: {e}")
+        return
+    if not sessions:
+        return
+    d = sessions[-1]
+    sched = mcal.get_calendar("NYSE").schedule(start_date=d, end_date=d)
+    open_utc = sched.iloc[0]["market_open"].tz_convert(timezone.utc).to_pydatetime()
+    ny = ZoneInfo("America/New_York")
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        books = {}
+        for book, table in (("live", "live_gate_history"), ("demo", "demo_gate_history")):
+            cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+            if "signal_ts" not in cols:
+                books[book] = None
+                continue
+            rows = conn.execute(
+                f"SELECT ticker, sector, gate_decision, cycle_started_at, signal_ts, bar_date FROM {table} "
+                f"WHERE cycle_started_at >= ?", (open_utc.isoformat(),)).fetchall()
+            ever = conn.execute(f"SELECT 1 FROM {table} WHERE signal_ts IS NOT NULL LIMIT 1").fetchone()
+            books[book] = (rows, ever is not None)
+        cyc = conn.execute(
+            "SELECT COUNT(*) AS n, SUM(CASE WHEN stale_excluded > 0 THEN 1 ELSE 0 END) AS c, "
+            "COALESCE(SUM(stale_excluded), 0) AS t FROM gate_cycles WHERE started_at >= ? "
+            "AND trigger = 'scheduler'", (open_utc.isoformat(),)).fetchone() \
+            if "stale_excluded" in {r[1] for r in conn.execute("PRAGMA table_info(gate_cycles)")} else None
+        conn.close()
+    except Exception as e:
+        flag(87, name, "WARNING", "data/apex.db:live_gate_history", f"could not query: {e}")
+        return
+
+    coverage, observed = [], []
+    for book, data in books.items():
+        if data is None:
+            coverage.append(f"{book}: signal_ts column missing")
+            continue
+        rows, ever = data
+        rows = [r for r in rows
+                if datetime.fromisoformat(r["cycle_started_at"]).astimezone(ny).date().isoformat() == d]
+        unrecorded = [r for r in rows if r["signal_ts"] is None]
+        bad = [r for r in rows if r["signal_ts"] is not None
+               and stale_reason(r["signal_ts"], r["bar_date"], d, open_utc)]
+        if bad:
+            entered = sum(1 for r in bad if r["gate_decision"] == "TRADE_EXECUTED")
+            flag(87, name, "CRITICAL", f"data/apex.db:{book}_gate_history",
+                 f"{d}: {len(bad)} {book} gate row(s) decided on a signal outside the session bound "
+                 f"({entered} entered): {', '.join(sorted({r['ticker'] for r in bad})[:8])} — "
+                 f"get_lock1_candidates' bound was bypassed (backend/gate/freshness.py)")
+        if unrecorded and ever:
+            flag(87, name, "WARNING", f"data/apex.db:{book}_gate_history",
+                 f"{d}: {len(unrecorded)} {book} gate row(s) carry no signal_ts — a gate row writer "
+                 f"stopped recording the signal it decided on; their age cannot be read")
+        coverage.append(f"{book}: {len(rows) - len(unrecorded)} rows checked"
+                        + (f", {len(unrecorded)} unrecorded" if unrecorded else ""))
+        recorded = [r for r in rows if r["signal_ts"] is not None and r not in bad]
+        no_bar = [r for r in recorded if r["bar_date"] is None]
+        mism = [r for r in recorded if r["bar_date"] is not None and bar_date_mismatch(r["bar_date"], d)]
+        by_sector: dict[str, list[int]] = {}
+        for r in mism:
+            v = by_sector.setdefault(r["sector"] or "?", [0, 0])
+            v[0] += 1
+            v[1] += r["gate_decision"] == "TRADE_EXECUTED"
+        observed.append(f"{book}: {len(mism)} of {len(recorded)} in-session rows on a non-session bar"
+                        + (" (" + ", ".join(f"{k} {n}/{e} entered" for k, (n, e) in sorted(by_sector.items())) + ")"
+                           if by_sector else "")
+                        + (f", {len(no_bar)} without bar_date" if no_bar else ""))
+    if cyc is not None:
+        coverage.append(f"cycles {cyc['n']}, {cyc['c'] or 0} with stale refusals ({cyc['t']} ticker-cycles)")
+    flag(87, name, "INFO", "data/apex.db:gate_cycles", f"{d}: " + "; ".join(coverage))
+    if observed:
+        flag(87, name, "INFO", "backend/gate/freshness.py:ENFORCE_BAR_DATE",
+             f"{d} bar_date observed, not enforced (review 2026-10-17): " + "; ".join(observed))
+
+
 def run() -> None:
     check24()
     check25()
@@ -1620,3 +1736,4 @@ def run() -> None:
     check84()
     check85()
     check86()
+    check87()

@@ -13,10 +13,14 @@ every gate row the cycle writes (one clock for both sources, so a cycle cannot
 count twice), and the runner sets .reason at each exit. run()'s return value
 is unchanged — the manual endpoints and tests consume it.
 
-Reasons: no_candidates, all_skipped, all_excluded, evaluated,
+Reasons: no_candidates, no_fresh_candidates, all_skipped, all_excluded, evaluated,
 evaluated_some_raised, all_raised; live adds disabled, halt_unreconciled,
 broker_unreachable, account_blocked, halt_data_quality, loss_cap.
 A runner that exits without setting one records None.
+
+stale_excluded (Finding 1, 2026-10-10): distinct tickers refused by the session
+bound this cycle (get_lock1_candidates stale_out), main and pre-rotation
+candidates together. no_fresh_candidates = every would-be candidate was refused.
 """
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -31,6 +35,7 @@ class GateCycle:
     trigger: str
     started_at: str
     reason: str | None = None
+    stale_excluded: int | None = None
 
     @classmethod
     def unrecorded(cls) -> "GateCycle":
@@ -63,7 +68,7 @@ def run_recorded(job: str, trigger: str, run: Callable[..., list]) -> list:
         if cycle_id is None:
             return
         try:
-            finish_gate_cycle(cycle_id, outcome, cycle.reason)
+            finish_gate_cycle(cycle_id, outcome, cycle.reason, cycle.stale_excluded)
         except Exception as e:
             logger.warning(f"gate_cycles finish failed for {job}: {e!r}")
 
@@ -74,3 +79,18 @@ def run_recorded(job: str, trigger: str, run: Callable[..., list]) -> list:
         raise
     _finish("ok")
     return results
+
+
+def record_stale(cycle: GateCycle, stale: list[dict], runner: str, start: int = 0) -> None:
+    """Count the cycle's refused tickers and log stale[start:] with their reasons.
+    A refusal for staleness logs its own label, never silence (Finding 1)."""
+    cycle.stale_excluded = len({s["ticker"] for s in stale})
+    new = stale[start:]
+    if not new:
+        return
+    by_reason: dict[str, set[str]] = {}
+    for s in new:
+        by_reason.setdefault(s["reason"], set()).add(s["ticker"])
+    detail = "; ".join(f"{r}: {', '.join(sorted(t))}" for r, t in sorted(by_reason.items()))
+    logger.info(f"{runner}: skipped-for-staleness {len({s['ticker'] for s in new})} "
+                f"candidate(s) — {detail}")
