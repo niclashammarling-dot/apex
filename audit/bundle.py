@@ -394,6 +394,7 @@ def build(write: bool = False, now: datetime | None = None, db: Path | None = No
     return bundle
 
 
+# TODO(bundle 2026-10-13): the bundle shows what waits, not how fast items leave — Niclas 2026-10-13: "We have always been good at producing signals and finding information, but action has been slow … worth keeping an eye on" (entry fills: found 09-23, built 10-13) — scope: in build(), diff keys against the previous bundle.json: closed since last bundle, new, carried, and the oldest first_seen with its age in days; render one THROUGHPUT line at the top of the mail and the card; test with two synthetic bundles; first real read on the 10-16 → 10-23 pair
 def render_text(b: dict) -> str:
     lines = [f"APEX weekend bundle — built {b['generated_at'][:16]} UTC @ {b.get('host_commit')}",
              "Decide each item at weekend maintenance: fix, wire a reader, or keep with a reason and a date.",
