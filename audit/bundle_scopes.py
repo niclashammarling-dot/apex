@@ -47,6 +47,10 @@ BY_CHECK: dict[int, str] = {
          "so read this one first."),
     74: ("Tests with hardcoded absolute dates calling check_live_exits (wall-clock). Scope: make fixture dates "
          "relative to now (the d02f8ab FRZ pattern) and assert the branch the test means; suite. ~30 min."),
+    89: ("Live entries without a captured fill (P&L booked on the quote). Scope: read each id's parent order "
+         "(get_order_by_id); filled → scripts/backfill_entry_fills.py --apply --ids <ids> after a DB backup; "
+         "partial or cancelled → decide the row (qty mismatch is a reconciliation item). If new entries keep "
+         "missing, find the entry path that bypasses check_live_exits. ~20 min."),
     76: ("Backtest engines diverge (slow vs fast: 43/43 trades, 42 common; first differing NOW 2026-05-29 "
          "END_OF_BACKTEST). Scope: engine parity is ruled first in order (engine → AMZN re-test → floor test → Kelly "
          "test); diff the two engines on that entry, fix, then close PRODUCTION_GAP.md rows and the OFF-SHAPE "

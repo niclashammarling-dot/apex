@@ -6,6 +6,7 @@ import NightLog      from "./NightLog.jsx";
 import MarketWindowPanel from "./MarketWindowPanel.jsx";
 import LiveRejectionsPanel from "./LiveRejectionsPanel.jsx";
 import SignalFreshnessPanel from "./SignalFreshnessPanel.jsx";
+import EntryFillsPanel from "./EntryFillsPanel.jsx";
 import WeekendBundlePanel from "./WeekendBundlePanel.jsx";
 import RegimeBayes   from "./RegimeBayes.jsx";
 import Watchlist     from "./Watchlist.jsx";
@@ -737,6 +738,15 @@ function TestView({ D }) {
           </div>
           <div className="t-card-body">
             <SignalFreshnessPanel />
+          </div>
+        </div>
+        <div className="t-card">
+          <div className="t-card-head">
+            <div className="t-card-title">ENTRY FILLS</div>
+            <div className="t-meta">FILL VS QUOTE · CHECK 89</div>
+          </div>
+          <div className="t-card-body">
+            <EntryFillsPanel />
           </div>
         </div>
         <div className="t-card">

@@ -430,6 +430,15 @@ def init_db() -> None:
         # scripts/flag_live_signal_class.py; entries after the bound are in_session by
         # construction (CHECK 87 reads that). NULL = not classified.
         _add_column_if_missing(conn, "live_trades", "signal_class", "TEXT")
+        # Entry is the fill, not the quote (2026-10-13; traced 10-12: 56/56 since-reset
+        # rows held signal["price"], |slip| mean 0.39%, max 2.80% UNH 07-17). signal_price
+        # keeps the quote the decision was made on: the bracket TP/SL and the profit-lock
+        # trigger stay anchored to it until the separate re-anchor ruling. entry_price
+        # becomes the parent order's filled_avg_price once the tracker sees the fill;
+        # entry_filled_at NULL = not yet captured (CHECK 89 reads that).
+        _add_column_if_missing(conn, "live_trades", "signal_price", "REAL")
+        _add_column_if_missing(conn, "live_trades", "entry_filled_at", "TEXT")
+        conn.execute("UPDATE live_trades SET signal_price = entry_price WHERE signal_price IS NULL")
 
         # Migrate old gate_decision values to canonical FILTERED_* form
         conn.executescript("""
@@ -1497,13 +1506,48 @@ def insert_live_trade(row: dict) -> int:
         cur = conn.execute("""
             INSERT INTO live_trades
               (timestamp, ticker, sector, alpaca_order_id,
-               entry_price, qty, notional, tp_price, sl_price, signal_class)
+               entry_price, signal_price, qty, notional, tp_price, sl_price, signal_class)
             VALUES
               (:timestamp, :ticker, :sector, :alpaca_order_id,
-               :entry_price, :qty, :notional, :tp_price, :sl_price, :signal_class)
-        """, {**row, "signal_class": row.get("signal_class")})
+               :entry_price, :signal_price, :qty, :notional, :tp_price, :sl_price, :signal_class)
+        """, {**row, "signal_class": row.get("signal_class"),
+              "signal_price": row.get("signal_price", row["entry_price"])})
         conn.commit()
         return cur.lastrowid
+    finally:
+        conn.close()
+
+
+# live_trades ids that cannot carry an entry fill, each with its reason (CHECK 89 and
+# /api/ops/entry-fills list them as excepted, never as missing).
+ENTRY_FILL_EXCEPTED: dict[int, str] = {
+    43: "HON 2026-08-04: recorded order id has no fills (orphan id; case dropped 2026-10-12, Niclas)",
+}
+
+
+def record_entry_fill(trade_id: int, fill_price: float, filled_at: str) -> int:
+    """
+    Set entry_price to the entry order's fill (once: only while entry_filled_at is
+    NULL). A row already closed has its pnl and WIN/LOSS recomputed from the fill, so
+    a capture that lands after the exit (regime exit in another job, backfill) leaves
+    the row consistent. Returns the rowcount (0 = already captured or no such row).
+    """
+    conn = get_db()
+    try:
+        cur = conn.execute("""
+            UPDATE live_trades
+            SET entry_price = ?, entry_filled_at = ?
+            WHERE id = ? AND entry_filled_at IS NULL
+        """, (fill_price, filled_at, trade_id))
+        if cur.rowcount:
+            conn.execute("""
+                UPDATE live_trades
+                SET pnl = ROUND((exit_price - entry_price) * qty, 2),
+                    outcome = CASE WHEN ROUND((exit_price - entry_price) * qty, 2) > 0 THEN 'WIN' ELSE 'LOSS' END
+                WHERE id = ? AND exit_price IS NOT NULL AND outcome IN ('WIN', 'LOSS')
+            """, (trade_id,))
+        conn.commit()
+        return cur.rowcount
     finally:
         conn.close()
 

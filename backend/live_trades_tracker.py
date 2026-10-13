@@ -25,6 +25,7 @@ from backend.db import (
     get_open_live_trades,
     get_sector_score,
     mark_live_trade_unreconciled,
+    record_entry_fill,
     set_alert_latch,
     set_live_trade_profit_lock_activated,
     update_live_trade_peak_price,
@@ -100,6 +101,34 @@ def _ticker_consecutive_down_days(ticker: str, n: int) -> bool:
 
 
 
+def _exit_anchor(trade: dict) -> float:
+    """The price the exit rules measure from: the signal quote the bracket TP/SL were
+    set from. Moves to the fill only with the TP/SL re-anchor ruling (2026-10-13:
+    bookkeeping moved to the fill, exit behaviour unchanged)."""
+    return trade.get("signal_price") or trade["entry_price"]
+
+
+def _capture_entry_fill(trade: dict, order: dict | None) -> None:
+    """
+    Replace the recorded entry (the signal quote) with the entry order's fill the
+    first time the parent order reads filled. Updates the trade dict in place so this
+    cycle's P&L uses the fill. A partial or unfilled parent is left for a later cycle;
+    one that never fills shows in CHECK 89 (entry_filled_at still NULL).
+    """
+    if trade.get("entry_filled_at") or not order:
+        return
+    fill = order.get("filled_avg_price")
+    if order.get("status") != "filled" or not fill:
+        return
+    filled_at = order.get("filled_at") or datetime.now(timezone.utc).isoformat()
+    if record_entry_fill(trade["id"], float(fill), filled_at):
+        quote = trade.get("signal_price") or trade["entry_price"]
+        logger.info(f"Entry fill [{trade['ticker']}]: ${float(fill):.2f} "
+                    f"(signal ${quote:.2f}, slip {float(fill) / quote - 1:+.2%})")
+    trade["entry_price"]     = float(fill)
+    trade["entry_filled_at"] = filled_at
+
+
 def _maybe_ratchet_bracket_sl(trade: dict, peak: float, cfg: dict, broker) -> None:
     """
     When peak gain >= profit_lock_trigger_pct, trail the bracket SL up to
@@ -121,8 +150,8 @@ def _maybe_ratchet_bracket_sl(trade: dict, peak: float, cfg: dict, broker) -> No
         return
 
     # Gate 2 — territory check (no network call before this passes)
-    entry_price = trade["entry_price"]
-    if (peak - entry_price) / entry_price < trigger_pct:
+    anchor = _exit_anchor(trade)
+    if (peak - anchor) / anchor < trigger_pct:
         return
 
     # Gate 4 — fetch bracket legs, find the open STOP leg
@@ -160,7 +189,7 @@ def _maybe_ratchet_bracket_sl(trade: dict, peak: float, cfg: dict, broker) -> No
         if filled is not None:
             logger.info(
                 f"Profit-lock ratchet [{ticker}] trade_id={trade_id}: no open STOP leg — "
-                f"{_leg_reason(filled, entry_price)} leg filled at "
+                f"{_leg_reason(filled, anchor)} leg filled at "
                 f"${filled['filled_avg_price']:.2f}; exit booking pending"
             )
             return
@@ -323,6 +352,9 @@ def check_live_exits() -> list[dict]:
             logger.warning(f"Live exit check [{ticker}]: could not fetch order {order_id} — {e}")
             order = None
 
+        _capture_entry_fill(trade, order)
+        entry_price = trade["entry_price"]
+
         # ── Peak price tracking ─────────────────────────────────────────────
         current = _current_price(ticker)
         if current is not None:
@@ -349,7 +381,7 @@ def check_live_exits() -> list[dict]:
         if filled_leg:
             exit_price  = filled_leg["filled_avg_price"]
             pnl         = round((exit_price - entry_price) * trade["qty"], 2)
-            exit_reason = _leg_reason(filled_leg, entry_price)
+            exit_reason = _leg_reason(filled_leg, _exit_anchor(trade))
             outcome     = "WIN" if pnl > 0 else "LOSS"
             exited_at   = filled_leg["filled_at"] or datetime.now(timezone.utc).isoformat()
 
@@ -688,6 +720,12 @@ def check_live_regime_exits() -> list[dict]:
         sector = trade["sector"]
 
         price_now = _current_price(ticker)
+        # The entry fill, if the exit-check cycle has not captured it yet, so this
+        # exit's P&L is booked against the fill.
+        try:
+            _capture_entry_fill(trade, broker.get_order_by_id(trade["alpaca_order_id"]))
+        except Exception as e:
+            logger.warning(f"Live regime exit [{ticker}]: entry fill not read — {e}")
         try:
             result_close = broker.close_position(ticker)
             exit_price   = float(result_close.get("filled_avg_price") or price_now or trade["entry_price"])
@@ -889,6 +927,7 @@ def _find_exit_from_orders(ticker: str, broker, entry_timestamp: str) -> tuple[f
     return f["price"], f["reason"], f["exited_at"], f["evidence"]
 
 
+# TODO(bundle 2026-10-13): an exit spanning two sell orders books one order's fill — TER 2026-09-23 recorded $395.94 (first partial) vs $393.62 two-fill average; 2 trades, $4.84 since the reset (trace 2026-10-12) — scope: when activities show more than one sell order for the ticker between entry and exit and their qty sums to the row's, book the quantity-weighted average; test the TER shape; then correct the two historical exits from activities (an --exits mode in scripts/backfill_entry_fills.py, backup + dry run on a copy first)
 def find_exit_fill(ticker: str, broker, entry_timestamp: str) -> dict:
     """
     Search recent Alpaca orders, then /account/activities, for the most

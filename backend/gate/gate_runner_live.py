@@ -819,7 +819,8 @@ def _record_live_trade(signal: dict, notional: float, order_id: str, cfg: dict) 
             "ticker":          signal["ticker"],
             "sector":          signal.get("sector", ""),
             "alpaca_order_id": order_id,
-            "entry_price":     price,
+            "entry_price":     price,   # the quote; the tracker replaces it with the fill
+            "signal_price":    price,
             "qty":             qty,
             "notional":        round(notional, 2),
             "tp_price":        round(price * (1 + cfg["take_profit_pct"]), 2),

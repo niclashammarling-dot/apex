@@ -250,6 +250,7 @@ def place_bracket_order(
     the nearest whole share. Prices rounded to 2dp (sufficient for US equities).
     """
     qty = int(notional / current_price)  # floor to whole shares — bracket orders require integer qty
+    # TODO(bundle 2026-10-13): a five-lock BUY is lost when the slot's notional is below one share — LLY 2026-10-12 21:34 CEST, $844.99 vs $1181.11, logged as ERROR "Live trade failed" — scope: find why the notional was $845 (last slot, cash, Bayesian size) in gate_runner_live sizing; decide refuse-before-Lock-5 as a labelled reason (no Claude call spent, not an ERROR) or round up to one share within the sector cap; count occurrences since 07-07 first (grep "Computed qty=0" in logs) to size it
     if qty <= 0:
         raise ValueError(f"Computed qty={qty} for {ticker} @ ${current_price:.2f} notional=${notional:.2f}")
 
@@ -338,6 +339,7 @@ def get_order_by_id(order_id: str) -> dict:
             "status":           _enum_value(order.status),
             "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
             "filled_qty":       float(order.filled_qty)       if order.filled_qty       else None,
+            "filled_at":        order.filled_at.isoformat()   if order.filled_at        else None,
             "legs":             legs,
         }
     except Exception as e:

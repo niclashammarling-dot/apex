@@ -1085,6 +1085,81 @@ def check78():
              f"reads a {1 - share:.0%}-present sample.")
 
 
+# ── CHECK 89 — live entry recorded at the fill ───────────────────────────────
+
+C89_CAPTURE_GRACE_MIN = 30   # a market bracket fills in seconds; the tracker polls every few minutes
+
+
+# TODO(bundle 2026-10-13): CHECK 89 reads the DB only, so recorded realized vs broker fills and the fees are not compared — a capture can be right per row while the book still drifts (multi-order exits, fees) — scope: a host job after the close writes data/fill_reconcile.json (since-reset realized from /account/activities FILL, FIFO, vs recorded closed pnl; FEE activity total), CHECK 89 reads it (WARNING when the gap exceeds fees + $1, file missing = WARNING), live stats show fees as an account-level line; the 10-12 trace method is the reference (raw/notes/2026-10/2026-10-12-apex-recorded-entry-is-signal-price-not-fill.md)
+def check89(now: datetime | None = None) -> None:
+    """
+    CHECK 89 — every live entry since the paper reset carries its fill, not the quote.
+
+    Traced 2026-10-12: entry_price was signal["price"] on 56/56 since-reset rows
+    (|slip| mean 0.39%, max 2.80% UNH 07-17), recorded realized $17.94 above the
+    broker's fills. Since 2026-10-13 the tracker replaces entry_price with the parent
+    order's filled_avg_price and stamps entry_filled_at; signal_price keeps the quote.
+    This reads that back, so a capture that stops (a changed order shape, a new entry
+    path that bypasses the tracker, an order that never fully filled) shows as rows.
+
+      WARNING  rows older than C89_CAPTURE_GRACE_MIN with entry_filled_at NULL —
+               their P&L is booked on the quote; names tickers and ids
+      WARNING  signal_price/entry_filled_at columns missing (migration not run)
+      INFO     coverage (captured / population) and slip: mean |slip|, the largest,
+               count over 1% — the input to the TP/SL re-anchor ruling
+    Population: live_trades with an order id, timestamp >= live_account_since
+    (data/live_config.json), any outcome. SKIPPED without apex.db.
+    """
+    from backend.db import ENTRY_FILL_EXCEPTED as C89_EXCEPTED
+    name = "live entry recorded at the fill"
+    db = REPO / "data/apex.db"
+    if not require_data_file(89, name, db):
+        return
+    now = now or datetime.now(timezone.utc)
+    try:
+        since = json.loads((REPO / "data/live_config.json").read_text()).get("live_account_since") or "0000"
+    except Exception as e:
+        flag(89, name, "WARNING", "data/live_config.json", f"live_account_since unreadable ({e}) — population unbounded")
+        since = "0000"
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(live_trades)")}
+        if not {"signal_price", "entry_filled_at"} <= cols:
+            conn.close()
+            flag(89, name, "WARNING", "backend/db.py:init_db",
+                 "live_trades has no signal_price/entry_filled_at — the 2026-10-13 migration has not run")
+            return
+        rows = conn.execute(
+            "SELECT id, ticker, timestamp, entry_price, signal_price, entry_filled_at, outcome "
+            "FROM live_trades WHERE alpaca_order_id IS NOT NULL AND timestamp >= ? ORDER BY timestamp",
+            (since,)).fetchall()
+        conn.close()
+    except Exception as e:
+        flag(89, name, "WARNING", "data/apex.db:live_trades", f"could not query: {e}")
+        return
+
+    cutoff = now - timedelta(minutes=C89_CAPTURE_GRACE_MIN)
+    excepted = [r for r in rows if r["id"] in C89_EXCEPTED and r["entry_filled_at"] is None]
+    missing = [r for r in rows if r["entry_filled_at"] is None and r["id"] not in C89_EXCEPTED
+               and datetime.fromisoformat(r["timestamp"]) < cutoff]
+    if missing:
+        flag(89, name, "WARNING", "data/apex.db:live_trades",
+             f"{len(missing)} live entr{'y' if len(missing) == 1 else 'ies'} since {since} without a captured fill "
+             f"(P&L on the quote): " + ", ".join(f"{r['ticker']} id={r['id']} {r['timestamp'][:10]} {r['outcome']}"
+                                                  for r in missing[:8]))
+    filled = [r for r in rows if r["entry_filled_at"] is not None and r["signal_price"]]
+    if filled:
+        slips = [(r["entry_price"] / r["signal_price"] - 1, r) for r in filled]
+        big = max(slips, key=lambda x: abs(x[0]))
+        flag(89, name, "INFO", "data/apex.db:live_trades",
+             f"{len(filled)}/{len(rows)} entries at the fill; |slip| mean "
+             f"{sum(abs(x) for x, _ in slips) / len(slips):.2%}, largest {big[0]:+.2%} "
+             f"({big[1]['ticker']} {big[1]['timestamp'][:10]}), {sum(1 for x, _ in slips if abs(x) > 0.01)} over 1%"
+             + (f"; excepted: " + "; ".join(f"id={r['id']} {C89_EXCEPTED[r['id']]}" for r in excepted)
+                if excepted else ""))
+
+
 def run() -> None:
     check14()
     check15()
@@ -1101,3 +1176,4 @@ def run() -> None:
     check75()
     check77()
     check78()
+    check89()

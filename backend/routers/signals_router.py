@@ -965,6 +965,44 @@ def get_job_runs_status():
     return {"jobs": out}
 
 
+@router.get("/ops/entry-fills")
+def get_entry_fills(limit: int = 15):
+    """
+    Live entries at the fill vs the quote (2026-10-13; CHECK 89). Since the paper
+    reset (live_account_since): entries with an order id, how many carry their fill
+    (entry_filled_at), how many do not yet (P&L on the quote), mean absolute slip of
+    fill vs signal_price, the largest, the count over 1%, and the newest `limit` rows.
+    as_of is when this was computed; the panel shows it.
+    """
+    from datetime import datetime, timezone
+
+    from backend.db import ENTRY_FILL_EXCEPTED
+    from backend.live_config import get_live_config
+    since = get_live_config().get("live_account_since") or "0000"
+    with closing(get_db()) as conn:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT id, ticker, timestamp, outcome, signal_price, entry_price, entry_filled_at, pnl "
+            "FROM live_trades WHERE alpaca_order_id IS NOT NULL AND timestamp >= ? ORDER BY timestamp DESC",
+            (since,)).fetchall()]
+    for r in rows:
+        r["slip"] = (r["entry_price"] / r["signal_price"] - 1
+                     if r["entry_filled_at"] and r["signal_price"] else None)
+    slips = [r for r in rows if r["slip"] is not None]
+    big = max(slips, key=lambda r: abs(r["slip"]), default=None)
+    return {
+        "as_of":      datetime.now(timezone.utc).isoformat(),
+        "since":      since,
+        "entries":    len(rows),
+        "at_fill":    len(slips),
+        "on_quote":   sum(1 for r in rows if not r["entry_filled_at"] and r["id"] not in ENTRY_FILL_EXCEPTED),
+        "excepted":   {str(i): why for i, why in ENTRY_FILL_EXCEPTED.items() if any(r["id"] == i for r in rows)},
+        "mean_abs_slip": sum(abs(r["slip"]) for r in slips) / len(slips) if slips else None,
+        "largest":    {k: big[k] for k in ("ticker", "timestamp", "slip")} if big else None,
+        "over_1pct":  sum(1 for r in slips if abs(r["slip"]) > 0.01),
+        "rows":       rows[:limit],
+    }
+
+
 @router.get("/ops/freshness")
 def get_signal_freshness(days: int = 10):
     """

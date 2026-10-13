@@ -79,6 +79,7 @@ class TestOrderStatusExtraction:
             status = OrderStatus.CANCELED
             filled_avg_price = None
             filled_qty = 0
+            filled_at = None   # alpaca-py Order always carries it (Optional[datetime])
             legs = []
 
         with patch("backend.brokers.alpaca._client") as client_mock:

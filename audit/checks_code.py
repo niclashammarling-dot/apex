@@ -708,8 +708,12 @@ _C74_REVIEWED: dict[str, tuple[str, str, str]] = {
         "the entry is relative to now since d02f8ab", "2027-04-10", "0fb622e9be951bc3"),
     "tests/test_live_reconciliation.py": (
         "reviewed 2026-09-10: young-entry tests use _recent_timestamp(); the fixed dates are fill dates "
-        "that must postdate _open_trade's fixed entry, and time-stop tests want an old entry", "2027-04-10",
-        "4c546a2e7b41e226"),
+        "that must postdate _open_trade's fixed entry, and time-stop tests want an old entry; re-reviewed "
+        "2026-10-13 after adding filled_at = None to a fake order (no date change)", "2027-04-10",
+        "e5729e574de61fdf"),
+    "tests/test_entry_fill.py": (
+        "reviewed 2026-10-13: exit-check entries are an hour before now (_open_trade default); the fixed "
+        "dates are fill timestamps and CHECK 89 entries read with a fixed now", "2027-04-13", "fd384bc28f8724ab"),
     "tests/test_time_stop_fresh_reread.py": (
         "a time-stop test with an old fixed entry (2026-08-04): it only moves further past max_hold_days, "
         "never back into another branch", "2027-04-10", "cc6944083c4ccdb9"),
