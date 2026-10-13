@@ -126,8 +126,11 @@ def _liveness_due() -> bool:
     return (datetime.now(timezone.utc) - last).days >= CI_REALERT_DAYS
 
 
-def route_criticals() -> None:
-    """Dispatch this run's CRITICAL findings through the host's own channel.
+CRIT_ROUTED = REPO / "audit" / "state" / "critical_routed.json"
+
+
+def route_criticals(now: datetime | None = None) -> None:
+    """Dispatch this run's new CRITICAL findings, each with the action that goes with it.
 
     Until 2026-09-16 the only findings→email path was audit/alert_criticals.py
     inside the CI workflow, disabled since 08-10; a CRITICAL in latest.json went
@@ -135,25 +138,57 @@ def route_criticals() -> None:
     read on a kept schedule). CHECKs 77/78/79 were converted from level to event
     severities in the same commit so that what arrives here is news, not the
     same cumulative count nightly. SUPPRESSED and WARNING are not routed.
+
+    2026-10-13 (Niclas: "alarm with no combination of action is just noise"): CHECK
+    76 mailed the identical CRITICAL on 10-08, 10-09 and 10-12, and Niclas could not
+    tell whether it had been addressed. A finding is now mailed once, the first run
+    it appears (keyed on check, location and text, so a changed count or date is
+    new), and the mail carries its proposed scope and says it waits in the weekend
+    bundle. Unchanged repeats are not re-mailed; they stay in the bundle with their
+    first_seen date. A finding that clears and comes back is mailed again.
     """
     import json
+    from audit import bundle_scopes
+    now = now or datetime.now(timezone.utc)
     payload = json.loads(STATE_FILE.read_text())
     crits = [f for f in payload.get("findings", []) if len(f) >= 5 and f[2] == "CRITICAL"]
-    if not crits:
-        print("CRITICAL routing: none")
+    try:
+        routed = json.loads(CRIT_ROUTED.read_text())
+    except (FileNotFoundError, ValueError):
+        routed = {}
+    keyed = {f"{f[0]}|{f[3]}|{f[4]}": f for f in crits}
+    new = {k: f for k, f in keyed.items() if k not in routed}
+    held = {k: routed[k] for k in keyed if k in routed}
+    CRIT_ROUTED.write_text(json.dumps(held, indent=1))   # cleared findings drop out
+    if held:
+        print(f"CRITICAL routing: {len(held)} unchanged since first mail "
+              f"({', '.join(f'CHECK {keyed[k][0]} since {v[:10]}' for k, v in held.items())}) — "
+              f"not re-mailed, in the weekend bundle")
+    if not new:
+        if not crits:
+            print("CRITICAL routing: none")
         return
-    lines = [f"CHECK {f[0]} — {f[1]}\n  {f[3]}\n  {f[4]}" for f in crits]
-    body = (f"{len(crits)} CRITICAL finding(s) in the host audit run "
+
+    def block(f) -> str:
+        scope = bundle_scopes.BY_CHECK.get(int(f[0]))
+        return (f"CHECK {f[0]} — {f[1]}\n  {f[3]}\n  {f[4]}\n  ACTION: "
+                + (scope if scope else "NO PROPOSED SCOPE — write one in audit/bundle_scopes.py before the bundle day"))
+    nums = ", ".join(str(f[0]) for f in new.values())
+    body = (f"{len(new)} new CRITICAL finding(s) in the host audit run "
             f"{payload.get('generated_at', '?')} (commit {str(payload.get('host_commit', '?'))[:8]}):\n\n"
-            + "\n\n".join(lines)
+            + "\n\n".join(block(f) for f in new.values())
+            + "\n\nEach waits in the weekend bundle (built on the week's last NYSE session) with its first-seen "
+              "date; it is not mailed again while it stays unchanged."
             + "\n\nFull state: git show origin/audit-state:latest.json")
-    print(f"CRITICAL routing: {len(crits)} finding(s) — CHECKs {', '.join(str(f[0]) for f in crits)}")
+    print(f"CRITICAL routing: {len(new)} new finding(s) — CHECKs {nums}")
     try:
         sys.path.insert(0, str(REPO))
         from backend.alerts import _dispatch
-        _dispatch(f"[APEX] Audit CRITICAL x{len(crits)}: CHECKs {', '.join(str(f[0]) for f in crits)}", body)
+        _dispatch(f"[APEX] Audit CRITICAL (new) x{len(new)}: CHECKs {nums}", body)
     except Exception as e:  # routing must never mask the publish result
-        print(f"(CRITICAL dispatch failed: {e})", file=sys.stderr)
+        print(f"(CRITICAL dispatch failed: {e} — not recorded as mailed, retried next run)", file=sys.stderr)
+        return
+    CRIT_ROUTED.write_text(json.dumps({**held, **{k: now.isoformat() for k in new}}, indent=1))
 
 
 WATCH_BRANCH = "heartbeat-watch"

@@ -7,6 +7,7 @@ import json
 import subprocess
 from datetime import datetime
 
+import pytest
 from loguru import logger
 
 import audit.publish_state as ps
@@ -103,3 +104,53 @@ def test_stderr_keeps_the_subprocess_log_level(monkeypatch):
     stderr = [(lvl, msg.split("(stderr): ", 1)[1]) for lvl, msg in seen if "(stderr)" in msg]
     assert [lvl for lvl, m in stderr if "Email alert sent" in m] == ["INFO"]
     assert [lvl for lvl, m in stderr if m.startswith("HEARTBEAT WATCHER GAP")] == ["WARNING"]
+
+
+class TestRouteCriticalsEvent:
+    """2026-10-13: a CRITICAL is mailed once, with its scope; unchanged repeats are not."""
+
+    @pytest.fixture
+    def route(self, tmp_path, monkeypatch):
+        import json as _json
+        import audit.publish_state as ps
+        monkeypatch.setattr(ps, "STATE_FILE", tmp_path / "latest.json")
+        monkeypatch.setattr(ps, "CRIT_ROUTED", tmp_path / "critical_routed.json")
+        sent = []
+        monkeypatch.setattr("backend.alerts._dispatch", lambda subj, body: sent.append((subj, body)))
+
+        def run(findings):
+            (tmp_path / "latest.json").write_text(_json.dumps(
+                {"generated_at": "2026-10-13T20:34:00+00:00", "host_commit": "abc", "findings": findings}))
+            sent.clear()
+            ps.route_criticals()
+            return list(sent)
+        return run
+
+    C76 = [76, "backtest engine parity", "CRITICAL", "backend/backtest/engine_fast.py:9", "engines diverge"]
+
+    def test_first_run_mails_with_scope(self, route):
+        sent = route([self.C76])
+        assert len(sent) == 1 and "CHECK 76" in sent[0][1] and "ACTION: Backtest engines diverge" in sent[0][1]
+
+    def test_unchanged_repeat_is_not_remailed(self, route):
+        route([self.C76])
+        assert route([self.C76]) == []
+
+    def test_changed_text_is_new(self, route):
+        route([self.C76])
+        assert len(route([[*self.C76[:4], "engines diverge on 2 entries"]])) == 1
+
+    def test_cleared_then_back_is_mailed_again(self, route):
+        route([self.C76])
+        route([])
+        assert len(route([self.C76])) == 1
+
+    def test_failed_dispatch_is_retried(self, route, monkeypatch):
+        def boom(subj, body):
+            raise RuntimeError("smtp down")
+        monkeypatch.setattr("backend.alerts._dispatch", boom)
+        route([self.C76])
+        monkeypatch.setattr("backend.alerts._dispatch", lambda s, b: None)
+        import audit.publish_state as ps
+        import json as _json
+        assert _json.loads(ps.CRIT_ROUTED.read_text()) == {}

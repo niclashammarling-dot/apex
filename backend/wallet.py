@@ -163,6 +163,7 @@ def check_exits() -> list[dict]:
         current     = current_prices.get(ticker)
 
         if current is None:
+            # TODO(bundle 2026-10-13): demo exit checks skipped 9 ticker-cycles on 2026-10-12 (21:16 and 21:21 CEST, yfinance "possibly delisted; no price data" for AAPL/LLY/TT/PWR/AVGO/V), 0 on 10-06..10-09 — a skipped cycle cannot fire a stop — scope: decide a fallback quote (Alpaca latest trade, as the live tracker can) or a rate consumer (count skips per session into the audit; WARNING when a ticker misses N consecutive cycles); check whether live _current_price has the same silent-skip shape
             logger.warning(f"Exit check [{ticker}]: could not fetch price — skipping")
             continue
 
