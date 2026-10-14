@@ -1,0 +1,15 @@
+{
+  "_doc": "Parameter provenance registry (2026-10-14). Schema, kinds and tiers: audit/parameters.py. Checked by tests/test_parameter_registry.py. 'value' is the value this provenance was written for; a different applied value fails as stale.",
+  "parameters": {
+    "backend/regime/regime_bayes.py::_REGIME_BULL_EXIT": {
+      "value": 0.7,
+      "kind": "chosen",
+      "tier": "money",
+      "source": "Flip table on the 69-date repaired sector_posterior_history series: stateless 16 -> 8 bull/neutral flips at 0.70; read off the table as the knee, 'a choice, not a fit' (comment at regime_bayes.py:925).",
+      "engine": "none (replay of the production posterior series, no backtest engine)",
+      "commit": "9a0a6af",
+      "date": "2026-09-17",
+      "review": "2026-10-31"
+    }
+  }
+}
