@@ -5,6 +5,7 @@ Covers the Mon–Fri window just ending:
   - GPT-4o analyst commentary (synthesised from all data below)
   - Demo P&L, win rate, gate funnel
   - Live P&L, win rate, gate funnel
+  - Each of those against the prior REFERENCE_WEEKS weeks, recomputed from the DB
   - Top sector by avg signal score
   - Threshold drift (demo_config vs calibrated)
   - Best backtest sweep config (if sweep results exist)
@@ -50,7 +51,8 @@ Rules:
 - Synthesise — do not restate numbers verbatim (they appear in the tables below)
 - Lead with the most notable finding, positive or negative
 - Every count in the data carries its n. Fewer than {COMMENTARY_MIN_N} trades or candidates is a description, not a finding: say what happened, do not infer a trend, edge or risk from it
-- Gate funnel: each lock has the number that reached it and the number it filtered. Name the lock that filtered the most, with its counts. Do not call a filter rate high or low without a reference — none is supplied
+- Gate funnel: each lock has the number that reached it and the number it filtered. Name the lock that filtered the most, with its counts
+- `reference` holds the prior weeks recomputed from the DB: pooled lock and win rates with their n, and the median and range of weekly counts and P&L. Call a number high or low only against its reference, and only when this week's n and the reference n are both at least {COMMENTARY_MIN_N}. Config changed inside the reference window, so a difference describes the system as it ran, not a cause
 - Thresholds: pass rates are this week's rows against a threshold computed over the sector's full history (window_share = this week's fraction of it). Do not attribute a pass rate to a market move, a selloff or the regime floor, and do not suggest recalibration — what calibration did this week is in `calibration`
 - Concentration: only from open_positions_by_sector, never from thresholds or scores
 - If live trading had 0 trades this week, skip it entirely
@@ -97,14 +99,27 @@ def _fetch_prices(tickers: list[str]) -> dict[str, float]:
         return {}
 
 
-def _demo_stats(since: str, until: str) -> dict:
-    from backend.config import STARTING_BALANCE
+BOOKS = ("demo", "live")
+
+# One closed-trade population per book, read by the totals, the sector rows and
+# the references, so they always sum to each other. Live excludes the
+# RECONCILIATION-tagged batch (exit_confidence='unverified', 2026-08-18; same
+# filter as get_live_equity_curve() and /live/compare). Both exclude annotated
+# non-samples (db.not_annotated, 2026-10-10); live had no annotations when it
+# joined that filter here (2026-10-15).
+_CLOSED_TABLES = {
+    "demo": ("trades", ""),
+    "live": ("live_trades", "AND exit_confidence != 'unverified'"),
+}
+
+
+def _closed_summary(book: str, since: str, until: str) -> dict:
+    """Closed-trade outcome counts and P&L for one book over [since, until)."""
     from backend.db import get_db, not_annotated
+    table, extra = _CLOSED_TABLES[book]
     conn = get_db()
     try:
-        # Outcome statistics exclude annotated non-samples (db.not_annotated, 2026-10-10);
-        # the all-closed total below keeps every trade for the book's equity.
-        closed = conn.execute(f"""
+        r = conn.execute(f"""
             SELECT
                 COUNT(*) AS total,
                 SUM(CASE WHEN outcome='WIN'  THEN 1 ELSE 0 END) AS wins,
@@ -112,11 +127,29 @@ def _demo_stats(since: str, until: str) -> dict:
                 COALESCE(SUM(pnl), 0) AS realized_pnl,
                 SUM(CASE WHEN exit_reason='REGIME' THEN 1 ELSE 0 END) AS regime_exits,
                 COALESCE(SUM(CASE WHEN exit_reason='REGIME' THEN pnl ELSE 0 END), 0) AS regime_pnl
-            FROM trades
+            FROM {table}
             WHERE exited_at >= ? AND exited_at < ? AND outcome IN ('WIN','LOSS','EXPIRED')
-              AND {not_annotated("trades")}
+              {extra} AND {not_annotated(table)}
         """, (since, until)).fetchone()
+    finally:
+        conn.close()
+    return {
+        "closed_total": r["total"]  or 0,
+        "wins":         r["wins"]   or 0,
+        "losses":       r["losses"] or 0,
+        "realized_pnl": round(r["realized_pnl"] or 0, 2),
+        "regime_exits": r["regime_exits"] or 0,
+        "regime_pnl":   round(r["regime_pnl"] or 0, 2),
+    }
 
+
+def _demo_stats(since: str, until: str) -> dict:
+    from backend.config import STARTING_BALANCE
+    from backend.db import get_db
+    closed = _closed_summary("demo", since, until)
+    conn = get_db()
+    try:
+        # The all-closed total below keeps every trade (annotated ones too) for the book's equity.
         open_rows = conn.execute("""
             SELECT ticker, shares, amount FROM trades WHERE outcome = 'OPEN'
         """).fetchall()
@@ -147,12 +180,7 @@ def _demo_stats(since: str, until: str) -> dict:
         total_equity = STARTING_BALANCE + realized_all + unrealized_pnl
 
         return {
-            "closed_total":     closed["total"]  or 0,
-            "wins":             closed["wins"]   or 0,
-            "losses":           closed["losses"] or 0,
-            "realized_pnl":     round(closed["realized_pnl"] or 0, 2),
-            "regime_exits":     closed["regime_exits"] or 0,
-            "regime_pnl":       round(closed["regime_pnl"] or 0, 2),
+            **closed,
             "open_positions":   len(open_rows),
             "open_cost":        round(open_cost, 2),
             "open_market_value": round(open_market_value, 2),
@@ -166,37 +194,13 @@ def _demo_stats(since: str, until: str) -> dict:
 
 def _live_stats(since: str, until: str) -> dict:
     from backend.db import get_db
+    closed = _closed_summary("live", since, until)
     conn = get_db()
     try:
-        # exit_confidence != 'unverified' excludes the RECONCILIATION-tagged
-        # batch (2026-08-18) — same filter as get_live_equity_curve() and
-        # /live/compare; without it this report silently disagreed with both.
-        closed = conn.execute("""
-            SELECT
-                COUNT(*) AS total,
-                SUM(CASE WHEN outcome='WIN'  THEN 1 ELSE 0 END) AS wins,
-                SUM(CASE WHEN outcome IN ('LOSS','EXPIRED') THEN 1 ELSE 0 END) AS losses,
-                COALESCE(SUM(pnl), 0) AS realized_pnl,
-                SUM(CASE WHEN exit_reason='REGIME' THEN 1 ELSE 0 END) AS regime_exits,
-                COALESCE(SUM(CASE WHEN exit_reason='REGIME' THEN pnl ELSE 0 END), 0) AS regime_pnl
-            FROM live_trades
-            WHERE exited_at >= ? AND exited_at < ? AND outcome IN ('WIN','LOSS','EXPIRED')
-              AND exit_confidence != 'unverified'
-        """, (since, until)).fetchone()
-
         open_row = conn.execute("""
             SELECT COUNT(*) AS cnt FROM live_trades WHERE outcome = 'OPEN'
         """).fetchone()
-
-        return {
-            "closed_total":   closed["total"]  or 0,
-            "wins":           closed["wins"]   or 0,
-            "losses":         closed["losses"] or 0,
-            "realized_pnl":   round(closed["realized_pnl"] or 0, 2),
-            "regime_exits":   closed["regime_exits"] or 0,
-            "regime_pnl":     round(closed["regime_pnl"] or 0, 2),
-            "open_positions": open_row["cnt"],
-        }
+        return {**closed, "open_positions": open_row["cnt"]}
     finally:
         conn.close()
 
@@ -275,14 +279,15 @@ def _funnel(book: str, since: str, until: str) -> dict:
 def _sector_pnl(since: str, until: str) -> dict:
     """Closed trades per sector for the week, and open positions per sector now.
 
-    Same populations as _demo_stats/_live_stats (live excludes
-    exit_confidence='unverified'), so the sector rows sum to the totals above.
+    Same populations as _demo_stats/_live_stats (_CLOSED_TABLES), so the
+    sector rows sum to the totals above.
     """
     from backend.db import get_db, not_annotated
     conn = get_db()
     try:
-        def closed(table: str, extra: str) -> list[dict]:
-            extra += f" AND {not_annotated(table)}"   # outcome rows: annotated non-samples out
+        def closed(book: str) -> list[dict]:
+            table, extra = _CLOSED_TABLES[book]
+            extra += f" AND {not_annotated(table)}"
             return [dict(r) for r in conn.execute(f"""
                 SELECT sector, COUNT(*) AS n,
                        SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END) AS wins,
@@ -298,13 +303,80 @@ def _sector_pnl(since: str, until: str) -> dict:
             ).fetchall()}
 
         return {
-            "demo":      closed("trades", ""),
-            "live":      closed("live_trades", "AND exit_confidence != 'unverified'"),
+            "demo":      closed("demo"),
+            "live":      closed("live"),
             "demo_open": open_now("trades"),
             "live_open": open_now("live_trades"),
         }
     finally:
         conn.close()
+
+
+# ── References: prior weeks, derived not stored ───────────────────────────────
+#
+# Niclas 2026-10-03: "even if nothing is changed in production every week, we
+# still need to use the numbers and learn from them". A number without a
+# reference can't be read, so every count the report shows is recomputed for
+# the prior weeks from the same tables and the same functions. Nothing is
+# stored: the DB already holds every week (raw note 2026-10-03, order (b)).
+
+# 8 = hand-set (Niclas session 2026-10-15): about 50 demo entries pooled at the
+# 10-02 week's 6 entered, short enough to stay near the current config.
+# Revisit at the 2026-10-29 mechanism review.
+REFERENCE_WEEKS = 8
+# First Monday after the first FILTERED_ELIGIBILITY row (signals 2026-04-19
+# 22:00 UTC, live_gate_history 2026-04-20; measured 2026-10-15). Before it the
+# lock-chain decision strings did not exist, and a funnel would read as "other".
+REFERENCE_START = "2026-04-20T00:00:00+00:00"
+
+
+def _reference(since: str) -> dict:
+    """The REFERENCE_WEEKS full weeks before `since` (none before REFERENCE_START),
+    newest first, with the same counts as this week's report."""
+    start = datetime.fromisoformat(since)
+    floor = datetime.fromisoformat(REFERENCE_START)
+    weeks = []
+    for k in range(1, REFERENCE_WEEKS + 1):
+        s = start - timedelta(weeks=k)
+        if s < floor:
+            break
+        si, ui = s.isoformat(), (s + timedelta(weeks=1)).isoformat()
+        weeks.append({
+            "since":   si,
+            "partial": len(_partial_sessions(si, ui)),
+            "closed":  {b: _closed_summary(b, si, ui) for b in BOOKS},
+            "funnel":  {b: _funnel(b, si, ui) for b in BOOKS},
+        })
+    sectors = _sector_pnl(weeks[-1]["since"], since) if weeks else {"demo": [], "live": []}
+    return {"weeks": weeks, "sectors": {b: sectors[b] for b in BOOKS}}
+
+
+def _spread(xs: list[float]) -> dict | None:
+    if not xs:
+        return None
+    from statistics import median
+    return {"median": median(xs), "min": min(xs), "max": max(xs)}
+
+
+def _ref_book(ref: dict, book: str) -> dict:
+    """Pooled rates (with their n) and the spread of weekly counts for one book."""
+    ws = ref["weeks"]
+    closed = [w["closed"][book] for w in ws]
+    funnels = [w["funnel"][book] for w in ws]
+    stages = [f["locks"] for f in funnels]
+    return {
+        "weeks":    len(ws),
+        "partial":  sum(1 for w in ws if w["partial"]),
+        "n":        sum(c["closed_total"] for c in closed),
+        "wins":     sum(c["wins"] for c in closed),
+        "closed":   _spread([c["closed_total"] for c in closed]),
+        "pnl":      _spread([c["realized_pnl"] for c in closed]),
+        "entered":  _spread([f["entered"] for f in funnels]),
+        "locks":    [{"stage":   locks[0]["stage"],
+                      "reached": sum(l["reached"] for l in locks),
+                      "failed":  sum(l["failed"] for l in locks)}
+                     for locks in zip(*stages)] if stages else [],
+    }
 
 
 def _top_sector(since: str, until: str) -> tuple[str, float] | None:
@@ -584,6 +656,7 @@ def _gpt4o_commentary(
     sweep_top: list | None,
     recal_changes: dict | None,
     partials: list[str],
+    ref: dict | None = None,
 ) -> str | None:
     """
     Call GPT-4o with the week's stats and return a short analyst commentary string.
@@ -640,6 +713,10 @@ def _gpt4o_commentary(
                 "open_positions": live["open_positions"],
             },
             "gate_funnel": {"demo": funnel_payload(dfunnel), "live": funnel_payload(lfunnel)},
+            "reference": {
+                **{b: _ref_book(ref, b) for b in BOOKS},
+                "closed_by_sector": ref["sectors"],
+            } if ref else None,
             "closed_by_sector": {"demo": sector_pnl["demo"], "live": sector_pnl["live"]},
             "open_positions_by_sector": {"demo": sector_pnl["demo_open"], "live": sector_pnl["live_open"]},
             "thresholds": [
@@ -726,14 +803,63 @@ def _plain_funnel(book: str, f: dict) -> str:
     return out
 
 
-def _plain_sectors(sp: dict) -> str:
+def _plain_sectors(sp: dict, ref: dict | None = None) -> str:
     out = ""
-    for book in ("demo", "live"):
+    for book in BOOKS:
         rows = sp[book]
         out += f"  {book.capitalize()}: " + (", ".join(f"{r['sector']} {r['wins']}/{r['n']} ${r['pnl']:+,.2f}" for r in rows) or "none") + "\n"
+        if ref is not None:
+            out += f"    prior {len(ref['weeks'])} wk: " + (", ".join(
+                f"{r['sector']} {r['wins']}/{r['n']} ${r['pnl']:+,.0f}" for r in ref["sectors"][book]) or "none") + "\n"
     out += "  Open now (demo / live): " + (", ".join(
         f"{sec} {sp['demo_open'].get(sec, 0)}/{sp['live_open'].get(sec, 0)}"
         for sec in sorted(set(sp["demo_open"]) | set(sp["live_open"]))) or "none") + "\n"
+    return out
+
+
+def _spread_text(sp: dict | None, money: bool = False) -> str:
+    """Median (min to max) of weekly values."""
+    if sp is None:
+        return "—"
+    fmt = (lambda v: f"${v:+,.2f}") if money else (lambda v: f"{v:g}")
+    return f"{fmt(sp['median'])} ({fmt(sp['min'])} to {fmt(sp['max'])})"
+
+
+def _ratio_text(k: int, n: int) -> str:
+    return f"{k}/{n} ({k / n * 100:.0f}%)" if n else "0/0"
+
+
+def _reference_rows(demo: dict, live: dict, dfunnel: dict, lfunnel: dict,
+                    rdemo: dict, rlive: dict) -> list[tuple[str, str, str, str, str]]:
+    """(measure, demo this week, demo prior weeks, live this week, live prior weeks)."""
+    rows = [
+        ("Closed trades", str(demo["closed_total"]), _spread_text(rdemo["closed"]),
+         str(live["closed_total"]), _spread_text(rlive["closed"])),
+        ("Won / closed", _ratio_text(demo["wins"], demo["closed_total"]), _ratio_text(rdemo["wins"], rdemo["n"]),
+         _ratio_text(live["wins"], live["closed_total"]), _ratio_text(rlive["wins"], rlive["n"])),
+        ("Realized P&L", f"${demo['realized_pnl']:+,.2f}", _spread_text(rdemo["pnl"], money=True),
+         f"${live['realized_pnl']:+,.2f}", _spread_text(rlive["pnl"], money=True)),
+        ("Entered", str(dfunnel["entered"]), _spread_text(rdemo["entered"]),
+         str(lfunnel["entered"]), _spread_text(rlive["entered"])),
+    ]
+    for i, (dst, lst) in enumerate(zip(dfunnel["locks"], lfunnel["locks"])):
+        rd = rdemo["locks"][i] if rdemo["locks"] else {"failed": 0, "reached": 0}
+        rl = rlive["locks"][i] if rlive["locks"] else {"failed": 0, "reached": 0}
+        rows.append((f"{dst['stage']} filtered", _ratio_text(dst["failed"], dst["reached"]),
+                     _ratio_text(rd["failed"], rd["reached"]),
+                     _ratio_text(lst["failed"], lst["reached"]), _ratio_text(rl["failed"], rl["reached"])))
+    return rows
+
+
+def _reference_note(ref: dict, rdemo: dict, since: str) -> str:
+    if not ref["weeks"]:
+        return f"No reference weeks: none start on or after {REFERENCE_START[:10]}."
+    out = (f"Prior {rdemo['weeks']} full weeks ({ref['weeks'][-1]['since'][:10]} up to {since[:10]}), recomputed "
+           f"from the DB. Rates are pooled over those weeks with their n; counts and P&L show the weekly median "
+           f"(min to max). Config changed inside this window, so a difference describes the system as it ran, "
+           f"not a cause.")
+    if rdemo["partial"]:
+        out += f" {rdemo['partial']} of these weeks had a flagged partial session (flags exist from 2026-10-03)."
     return out
 
 
@@ -750,6 +876,8 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
     dfunnel = _funnel("demo", since, until)
     lfunnel = _funnel("live", since, until)
     sector_pnl = _sector_pnl(since, until)
+    ref = _reference(since)
+    rdemo, rlive = _ref_book(ref, "demo"), _ref_book(ref, "live")
     top_sector = _top_sector(since, until)
     thresh_status = _threshold_status(since, until)
     sweep_state, sweep_detail, sweep_top = _sweep_best()
@@ -761,7 +889,7 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
 
     commentary = _gpt4o_commentary(
         demo, live, dfunnel, lfunnel,
-        sector_pnl, thresh_status, sweep_top, recal_changes, partials,
+        sector_pnl, thresh_status, sweep_top, recal_changes, partials, ref,
     )
 
     subject = f"[APEX] Weekly Report — {week_label}"
@@ -846,6 +974,18 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
       <tbody>{"".join(funnel_rows)}</tbody>
     </table>"""
 
+    ref_rows = _reference_rows(demo, live, dfunnel, lfunnel, rdemo, rlive)
+    ref_note = _reference_note(ref, rdemo, since)
+    ref_html = f"""
+    <p style='color:#6b7280;font-size:12px;margin:0 0 6px 0;'>{ref_note}</p>"""
+    if ref["weeks"]:
+        ref_html += f"""
+    <table style='border-collapse:collapse;width:100%;font-size:13px;color:#e5e7eb;'>
+      <thead><tr>{th('')}{th('Demo week')}{th('Demo prior')}{th('Live week')}{th('Live prior')}</tr></thead>
+      <tbody>{"".join(_row(_td(m), _td(dw), _td(dp, color='#9ca3af'), _td(lw), _td(lp, color='#9ca3af'))
+                      for m, dw, dp, lw, lp in ref_rows)}</tbody>
+    </table>"""
+
     # Closed trades by sector, with n — a description, not a finding at these sizes
     def _sector_cells(rows: list[dict], sector: str) -> str:
         r = next((x for x in rows if x["sector"] == sector), None)
@@ -853,14 +993,19 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
             return _td("—", color="#6b7280")
         return _td(f"{r['wins']}/{r['n']} won, ${r['pnl']:+,.2f}", color=_pnl_color(r["pnl"]))
 
+    def _prior_text(rows: list[dict], sector: str) -> str:
+        r = next((x for x in rows if x["sector"] == sector), None)
+        return f"{r['wins']}/{r['n']} ${r['pnl']:+,.0f}" if r else "—"
+
     sp_sectors = sorted({r["sector"] for r in sector_pnl["demo"] + sector_pnl["live"]}
                         | set(sector_pnl["demo_open"]) | set(sector_pnl["live_open"]))
     if sp_sectors:
         sector_pnl_html = f"""
     <table style='border-collapse:collapse;width:100%;font-size:13px;color:#e5e7eb;'>
-      <thead><tr>{th('Sector')}{th('Demo closed')}{th('Live closed')}{th('Open now (demo / live)')}</tr></thead>
+      <thead><tr>{th('Sector')}{th('Demo closed')}{th('Live closed')}{th('Open now (demo / live)')}{th(f"Prior {len(ref['weeks'])} wk (demo / live)")}</tr></thead>
       <tbody>{"".join(_row(_td(sec), _sector_cells(sector_pnl['demo'], sec), _sector_cells(sector_pnl['live'], sec),
-                           _td(f"{sector_pnl['demo_open'].get(sec, 0)} / {sector_pnl['live_open'].get(sec, 0)}"))
+                           _td(f"{sector_pnl['demo_open'].get(sec, 0)} / {sector_pnl['live_open'].get(sec, 0)}"),
+                           _td(f"{_prior_text(ref['sectors']['demo'], sec)} / {_prior_text(ref['sectors']['live'], sec)}", color='#9ca3af'))
                       for sec in sp_sectors)}</tbody>
     </table>
     <p style='color:#6b7280;font-size:11px;margin-top:4px;'>Per-sector counts this small describe the week; they are not evidence of an edge.</p>"""
@@ -1025,6 +1170,9 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
     <div style='{section_style}'>Performance</div>
     {perf_table}
 
+    <div style='{section_style}'>This Week Against the Prior Weeks</div>
+    {ref_html}
+
     <div style='{section_style}'>Closed Trades by Sector</div>
     {sector_pnl_html}
 
@@ -1067,8 +1215,16 @@ PERFORMANCE
 
 {_plain_funnel("Demo", dfunnel)}
 {_plain_funnel("Live", lfunnel)}
+THIS WEEK AGAINST THE PRIOR WEEKS
+  {ref_note}
+"""
+    if ref["weeks"]:
+        plain += f"  {'':28s}{'Demo week':>14s}  {'Demo prior':<30s}{'Live week':>14s}  Live prior\n"
+        for m, dw, dp, lw, lp in ref_rows:
+            plain += f"  {m:28s}{dw:>14s}  {dp:<30s}{lw:>14s}  {lp}\n"
+    plain += f"""
 CLOSED TRADES BY SECTOR (n per sector; a description, not evidence of an edge)
-{_plain_sectors(sector_pnl)}
+{_plain_sectors(sector_pnl, ref)}
 TOP SECTOR
   {f"{top_sector[0]} ({top_sector[1]:.3f})" if top_sector else "—"}
 
