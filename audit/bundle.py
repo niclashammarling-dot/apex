@@ -28,9 +28,10 @@ Sections:
             the previous bundle (a decision record is not the applied value:
             329025a's message said 0.70, the code held 0.75 for 4.5 months)
   weekly    the weekly report's named reader (2026-10-15): one item per week
-            from WEEKLY_READ_START whose read is not filed in
-            audit/weekly_reads/<ISO week>.md, with the fixed questions as its
-            scope; plus a WARNING when this week's report was not sent
+            from WEEKLY_READ_START whose read is not filed in the vault
+            (raw/notes/YYYY-MM/YYYY-MM-DD-apex-weekly-read-<ISO week>.md), with
+            the fixed questions as its scope; a WARNING when this week's report
+            was not sent, or when the vault is not reachable
 
 Each item has a stable key and keeps its first_seen date across bundles, so the
 list shows how long a fault has waited. EXCEPTIONS holds parity items kept on
@@ -352,7 +353,9 @@ def config_items(prev: dict | None, snap: dict) -> list[dict]:
 # first_seen shows how long it has waited.
 
 WEEKLY_SENT       = REPO / "data" / "weekly_report_sent.txt"   # backend/weekly_report._mark_sent
-WEEKLY_READS      = REPO / "audit" / "weekly_reads"
+# Reads are learnings, so they live in the vault only, never mirrored here (Niclas
+# 2026-10-15: "weekly reads should absolutely be in the vault"). The host bundle reads it.
+VAULT             = Path("/mnt/c/Users/Nix/Niclas-KB")
 WEEKLY_READ_START = "2026-W42"   # first week with a filed read due (mechanism shipped 2026-10-15)
 WEEKLY_QUESTIONS  = (
     "Which numbers sit outside their prior-week reference with n >= 10 on both sides?",
@@ -381,13 +384,20 @@ def weekly_items(now: datetime) -> list[dict]:
     y, w = WEEKLY_READ_START.split("-W")
     d = date.fromisocalendar(int(y), int(w), 1)
     questions = " ".join(f"({i}) {q}" for i, q in enumerate(WEEKLY_QUESTIONS, 1))
+    notes = VAULT / "raw" / "notes"
+    if not notes.is_dir():
+        # Unreadable is not "not filed": one item for the cause, not one per week.
+        return out + [_item("weekly:vault-missing", "weekly", "WARNING", str(notes),
+                            "vault not reachable from the host — weekly reads cannot be checked",
+                            scope="mount/pull the vault at this path, or fix VAULT in audit/bundle.py")]
     while _iso_week(d) <= current:
         week = _iso_week(d)
-        path = WEEKLY_READS / f"{week}.md"
-        if not path.exists():
+        if not list(notes.glob(f"*/*-apex-weekly-read-{week}.md")):
             out.append(_item(f"weekly:read:{week}", "weekly", "TODO" if week == current else "WARNING",
-                             _rel(path), f"weekly report {week}: read not filed",
-                             scope=f"read the report, answer in {_rel(path)}: {questions}"))
+                             f"vault raw/notes/YYYY-MM/YYYY-MM-DD-apex-weekly-read-{week}.md",
+                             f"weekly report {week}: read not filed",
+                             scope=f"read the report, file the answers in the vault as "
+                                   f"raw/notes/YYYY-MM/YYYY-MM-DD-apex-weekly-read-{week}.md: {questions}"))
         d += timedelta(weeks=1)
     return out
 

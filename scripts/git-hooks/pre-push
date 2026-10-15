@@ -1,0 +1,22 @@
+#!/bin/bash
+# Pre-push: the parameter-registry ratchet (0.7 s) before anything reaches origin.
+# Niclas 2026-10-15, after CI run #139: fcf96e8 added REFERENCE_WEEKS without a
+# registry entry and was pushed with only the weekly-report tests run; CI mailed the
+# red five minutes later. The full suite (~3.5 min) stays in CI.
+# Installed as a symlink: ln -sf ../../scripts/git-hooks/pre-push .git/hooks/pre-push
+# Bypass for an emergency only: git push --no-verify (say so in the commit or session).
+repo=$(git rev-parse --show-toplevel) || exit 1
+py="$repo/.venv/bin/python"
+[ -x "$py" ] || py=$(command -v python3)   # CI has no .venv
+if [ -z "$py" ]; then
+    echo "pre-push: no .venv/bin/python and no python3 — cannot run the registry ratchet; push blocked (--no-verify to bypass)" >&2
+    exit 1
+fi
+cd "$repo" && "$py" -m pytest -q -p no:cacheprovider tests/test_parameter_registry.py >/tmp/apex-pre-push.log 2>&1
+rc=$?
+if [ $rc -ne 0 ]; then
+    grep -E 'AssertionError|new parameter|delete their lines|failed' /tmp/apex-pre-push.log >&2
+    echo "pre-push: parameter registry ratchet failed — push blocked (full log /tmp/apex-pre-push.log)" >&2
+    exit 1
+fi
+exit 0

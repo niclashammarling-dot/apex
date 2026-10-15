@@ -185,9 +185,9 @@ class TestWeeklyRead:
     def env(self, tmp_path, monkeypatch):
         monkeypatch.setattr(bundle, "REPO", tmp_path)
         monkeypatch.setattr(bundle, "WEEKLY_SENT", tmp_path / "data" / "weekly_report_sent.txt")
-        monkeypatch.setattr(bundle, "WEEKLY_READS", tmp_path / "audit" / "weekly_reads")
+        monkeypatch.setattr(bundle, "VAULT", tmp_path / "vault")
         (tmp_path / "data").mkdir()
-        (tmp_path / "audit" / "weekly_reads").mkdir(parents=True)
+        (tmp_path / "vault" / "raw" / "notes" / "2026-10").mkdir(parents=True)
         return tmp_path
 
     def test_unfiled_weeks_are_items_current_one_todo_older_warning(self, env):
@@ -196,13 +196,19 @@ class TestWeeklyRead:
         assert [(i["key"], i["severity"]) for i in items] == [
             ("weekly:read:2026-W42", "WARNING"), ("weekly:read:2026-W43", "TODO")]
         assert all(i["section"] == "weekly" for i in items)
-        assert "audit/weekly_reads/2026-W43.md" in items[1]["scope"]
+        assert "apex-weekly-read-2026-W43.md" in items[1]["scope"]
         assert all(q in items[1]["scope"] for q in bundle.WEEKLY_QUESTIONS)
 
     def test_filed_read_closes_its_week(self, env):
         (env / "data" / "weekly_report_sent.txt").write_text("2026-W43")
-        (env / "audit" / "weekly_reads" / "2026-W42.md").write_text("answers")
+        (env / "vault" / "raw" / "notes" / "2026-10" / "2026-10-17-apex-weekly-read-2026-W42.md").write_text("answers")
         assert [i["key"] for i in bundle.weekly_items(self.FRI_W43)] == ["weekly:read:2026-W43"]
+
+    def test_unreachable_vault_is_one_warning_not_unfiled_weeks(self, env, monkeypatch):
+        (env / "data" / "weekly_report_sent.txt").write_text("2026-W43")
+        monkeypatch.setattr(bundle, "VAULT", env / "nowhere")
+        assert [(i["key"], i["severity"]) for i in bundle.weekly_items(self.FRI_W43)] == [
+            ("weekly:vault-missing", "WARNING")]
 
     def test_unsent_report_is_a_warning(self, env):
         items = bundle.weekly_items(self.FRI_W43)
