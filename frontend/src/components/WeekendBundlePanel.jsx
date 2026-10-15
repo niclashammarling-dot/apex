@@ -2,11 +2,13 @@ import React, { useEffect, useState } from "react";
 
 // The weekend bundle (audit/bundle.py, /api/ops/bundle): every APEX fault that
 // needs a decision — non-INFO findings, TODO markers, signals with no reader,
-// config changes since the last bundle — each with how long it has waited.
+// config changes since the last bundle, the weekly report read — each with how
+// long it has waited.
 // Built in the week's last publish and mailed; read here at weekend maintenance.
 // Nothing is removed automatically (Niclas 2026-10-10). Shows its build time and
 // an explicit offline state, never an empty card.
-const SECTIONS = [["findings", "Findings"], ["todos", "TODO"], ["parity", "No reader"], ["config", "Config changed"]];
+const SECTIONS = [["findings", "Findings"], ["todos", "TODO"], ["parity", "No reader"], ["config", "Config changed"],
+                  ["weekly", "Weekly read"]];
 const SEV = { CRITICAL: "t-sev-high", WARNING: "t-sev-medium" };
 const sthlm = ts => new Date(ts).toLocaleString("sv-SE", { timeZone: "Europe/Stockholm", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 const ageDays = d => Math.max(0, Math.round((Date.now() - new Date(d + "T12:00:00Z").getTime()) / 86400000));
@@ -33,13 +35,16 @@ export default function WeekendBundlePanel() {
   if (!data) return banner || <div className="t-meta">loading…</div>;
   if (!data.present) return <div>{banner}<div className="t-meta">No bundle built yet — the first is due at the end of the week's last session (publish 22:33 CEST).</div></div>;
 
+  // A section the backend adds before this list knows it is shown under its key, never dropped.
+  const known = SECTIONS.map(([k]) => k);
+  const sections = [...SECTIONS, ...Object.keys(data.counts).filter(k => k !== "no_scope" && !known.includes(k)).map(k => [k, k])];
   const rows = data.items.filter(i => i.section === open).sort((a, b) => a.first_seen.localeCompare(b.first_seen));
   return (
     <div>
       {banner}
       <div className="t-meta" style={{ marginBottom: 10 }}>
         BUILT {sthlm(data.generated_at)} @ {data.host_commit}
-        {SECTIONS.map(([k, label]) => (
+        {sections.map(([k, label]) => (
           <span key={k} onClick={() => setOpen(k)} style={{ cursor: "pointer", marginLeft: 12, fontWeight: open === k ? 700 : 400 }}>
             {label.toUpperCase()} {data.counts[k] ?? 0}
           </span>

@@ -63,6 +63,7 @@ class TestBuild:
         monkeypatch.setattr(bundle, "todo_items", lambda: [])
         monkeypatch.setattr(bundle, "parity_items", lambda db=None: [])
         monkeypatch.setattr(bundle, "config_snapshot", lambda: dict(self.snap))
+        monkeypatch.setattr(bundle, "weekly_items", lambda now: [])
         return tmp_path
 
     W1 = datetime(2031, 3, 7, 21, 33, tzinfo=timezone.utc)
@@ -173,3 +174,59 @@ class TestCheck88:
         f = run88({"generated_at": now, "counts": {}, "items": [
             {"key": "parity:scan_broken:routes", "text": "routes scan failed its known-present control"}]})
         assert any(s == "WARNING" and "routes scan" in m for s, m in f)
+
+
+class TestWeeklyRead:
+    """The weekly report's named reader (2026-10-15): a week's read is an item
+    until its answers are filed; an unsent report is a WARNING, never silence."""
+    FRI_W43 = datetime(2026, 10, 23, 20, 34, tzinfo=timezone.utc)
+
+    @pytest.fixture
+    def env(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(bundle, "REPO", tmp_path)
+        monkeypatch.setattr(bundle, "WEEKLY_SENT", tmp_path / "data" / "weekly_report_sent.txt")
+        monkeypatch.setattr(bundle, "WEEKLY_READS", tmp_path / "audit" / "weekly_reads")
+        (tmp_path / "data").mkdir()
+        (tmp_path / "audit" / "weekly_reads").mkdir(parents=True)
+        return tmp_path
+
+    def test_unfiled_weeks_are_items_current_one_todo_older_warning(self, env):
+        (env / "data" / "weekly_report_sent.txt").write_text("2026-W43")
+        items = bundle.weekly_items(self.FRI_W43)
+        assert [(i["key"], i["severity"]) for i in items] == [
+            ("weekly:read:2026-W42", "WARNING"), ("weekly:read:2026-W43", "TODO")]
+        assert all(i["section"] == "weekly" for i in items)
+        assert "audit/weekly_reads/2026-W43.md" in items[1]["scope"]
+        assert all(q in items[1]["scope"] for q in bundle.WEEKLY_QUESTIONS)
+
+    def test_filed_read_closes_its_week(self, env):
+        (env / "data" / "weekly_report_sent.txt").write_text("2026-W43")
+        (env / "audit" / "weekly_reads" / "2026-W42.md").write_text("answers")
+        assert [i["key"] for i in bundle.weekly_items(self.FRI_W43)] == ["weekly:read:2026-W43"]
+
+    def test_unsent_report_is_a_warning(self, env):
+        items = bundle.weekly_items(self.FRI_W43)
+        sent = [i for i in items if i["key"].startswith("weekly:sent:")]
+        assert len(sent) == 1 and sent[0]["severity"] == "WARNING" and "file missing" in sent[0]["text"]
+        (env / "data" / "weekly_report_sent.txt").write_text("2026-W42")
+        assert "marker reads 2026-W42" in [i for i in bundle.weekly_items(self.FRI_W43)
+                                           if i["key"].startswith("weekly:sent:")][0]["text"]
+
+    def test_nothing_due_before_the_start_week(self, env):
+        (env / "data" / "weekly_report_sent.txt").write_text("2026-W41")
+        assert bundle.weekly_items(datetime(2026, 10, 9, 20, 34, tzinfo=timezone.utc)) == []
+
+    def test_build_carries_the_section_and_render_shows_the_questions(self, env, monkeypatch):
+        state = env / "audit" / "state"
+        monkeypatch.setattr(bundle, "STATE", state)
+        monkeypatch.setattr(bundle, "BUNDLE", state / "bundle.json")
+        monkeypatch.setattr(bundle, "findings_items", lambda: [])
+        monkeypatch.setattr(bundle, "todo_items", lambda: [])
+        monkeypatch.setattr(bundle, "parity_items", lambda db=None: [])
+        monkeypatch.setattr(bundle, "config_snapshot", lambda: {})
+        (env / "data" / "weekly_report_sent.txt").write_text("2026-W43")
+        b = bundle.build(now=self.FRI_W43)
+        assert b["counts"]["weekly"] == 2 and b["counts"]["no_scope"] == 0
+        text = bundle.render_text(b)
+        assert "WEEKLY REPORT READ — 2" in text
+        assert bundle.WEEKLY_QUESTIONS[-1] in text

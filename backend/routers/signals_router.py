@@ -1082,8 +1082,9 @@ def get_signal_freshness(days: int = 10):
 def get_weekend_bundle():
     """
     The weekend bundle (audit/bundle.py; built in the week's last publish and
-    mailed): every non-INFO finding, TODO marker, signal with no reader and
-    config change since the last bundle, each with its first-seen date. The
+    mailed): every non-INFO finding, TODO marker, signal with no reader,
+    config change since the last bundle and unfiled weekly report read, each
+    with its first-seen date. The
     Saturday reading surface; decisions are made from it, nothing is removed
     automatically. present=False until the first bundle is built.
     """

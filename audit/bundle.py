@@ -27,6 +27,10 @@ Sections:
   config    values as applied, read from code and config files, diffed against
             the previous bundle (a decision record is not the applied value:
             329025a's message said 0.70, the code held 0.75 for 4.5 months)
+  weekly    the weekly report's named reader (2026-10-15): one item per week
+            from WEEKLY_READ_START whose read is not filed in
+            audit/weekly_reads/<ISO week>.md, with the fixed questions as its
+            scope; plus a WARNING when this week's report was not sent
 
 Each item has a stable key and keeps its first_seen date across bundles, so the
 list shows how long a fault has waited. EXCEPTIONS holds parity items kept on
@@ -339,6 +343,55 @@ def config_items(prev: dict | None, snap: dict) -> list[dict]:
     return out
 
 
+# ── weekly report read ────────────────────────────────────────────────────────
+#
+# Niclas 2026-10-03: "a report that isn't used and learned from is pointless".
+# The report is mailed Friday 16:05 ET (backend/scheduler.py, id weekly_report),
+# before this bundle is built, so Saturday maintenance reads it. A week's read
+# is done when its answers are filed; until then the item stays and its
+# first_seen shows how long it has waited.
+
+WEEKLY_SENT       = REPO / "data" / "weekly_report_sent.txt"   # backend/weekly_report._mark_sent
+WEEKLY_READS      = REPO / "audit" / "weekly_reads"
+WEEKLY_READ_START = "2026-W42"   # first week with a filed read due (mechanism shipped 2026-10-15)
+WEEKLY_QUESTIONS  = (
+    "Which numbers sit outside their prior-week reference with n >= 10 on both sides?",
+    "Does each funnel balance, and does any decision show under 'other'?",
+    "Which sector carried the week's P&L, and how does that compare with its prior-week record?",
+    "Did config change this week (CONFIG section), and does that explain anything in question 1?",
+    "Optimizer: incumbent beaten or not, and is the noise floor valid?",
+    "What do we start, stop, or do more or less of because of this, or 'no action: <why>'?",
+)
+
+
+def _iso_week(d) -> str:
+    y, w, _ = d.isocalendar()
+    return f"{y}-W{w:02d}"
+
+
+def weekly_items(now: datetime) -> list[dict]:
+    from datetime import date, timedelta
+    current = _iso_week(now.astimezone(timezone.utc).date())   # _mark_sent labels weeks in UTC
+    out = []
+    sent = WEEKLY_SENT.read_text().strip() if WEEKLY_SENT.exists() else None
+    if sent != current:
+        out.append(_item(f"weekly:sent:{current}", "weekly", "WARNING", _rel(WEEKLY_SENT),
+                         f"weekly report not sent for {current} (marker reads {sent or 'nothing: file missing'})",
+                         scope="check the scheduler log for 'Weekly report failed'; send it before reading"))
+    y, w = WEEKLY_READ_START.split("-W")
+    d = date.fromisocalendar(int(y), int(w), 1)
+    questions = " ".join(f"({i}) {q}" for i, q in enumerate(WEEKLY_QUESTIONS, 1))
+    while _iso_week(d) <= current:
+        week = _iso_week(d)
+        path = WEEKLY_READS / f"{week}.md"
+        if not path.exists():
+            out.append(_item(f"weekly:read:{week}", "weekly", "TODO" if week == current else "WARNING",
+                             _rel(path), f"weekly report {week}: read not filed",
+                             scope=f"read the report, answer in {_rel(path)}: {questions}"))
+        d += timedelta(weeks=1)
+    return out
+
+
 # ── scopes ────────────────────────────────────────────────────────────────────
 
 def _scope_for(it: dict) -> str | None:
@@ -364,7 +417,8 @@ def build(write: bool = False, now: datetime | None = None, db: Path | None = No
     first_seen = {i["key"]: i["first_seen"] for i in prev.get("items", []) if "first_seen" in i}
 
     snap = config_snapshot()
-    items = findings_items() + todo_items() + parity_items(db) + config_items(prev.get("config"), snap)
+    items = (findings_items() + todo_items() + parity_items(db) + config_items(prev.get("config"), snap)
+             + weekly_items(now))
     excepted = []
     kept = []
     for it in items:
@@ -386,7 +440,7 @@ def build(write: bool = False, now: datetime | None = None, db: Path | None = No
     bundle = {"generated_at": now.isoformat(), "host_commit": commit, "items": kept,
               "excepted": excepted, "config": snap,
               "counts": {**{s: sum(1 for i in kept if i["section"] == s)
-                            for s in ("findings", "todos", "parity", "config")},
+                            for s in ("findings", "todos", "parity", "config", "weekly")},
                          "no_scope": sum(1 for i in kept if not i["scope"])}}
     if write:
         STATE.mkdir(parents=True, exist_ok=True)
@@ -400,7 +454,8 @@ def render_text(b: dict) -> str:
              "Decide each item at weekend maintenance: fix, wire a reader, or keep with a reason and a date.",
              "Nothing here is removed automatically.", ""]
     names = {"findings": "AUDIT FINDINGS (non-INFO)", "todos": "TODO MARKERS",
-             "parity": "SIGNALS WITH NO READER", "config": "CONFIG CHANGED SINCE LAST BUNDLE"}
+             "parity": "SIGNALS WITH NO READER", "config": "CONFIG CHANGED SINCE LAST BUNDLE",
+             "weekly": "WEEKLY REPORT READ"}
     for s, title in names.items():
         rows = [i for i in b["items"] if i["section"] == s]
         lines.append(f"{title} — {len(rows)}")
