@@ -10,6 +10,16 @@
       "commit": "9a0a6af",
       "date": "2026-09-17",
       "review": "2026-10-31"
+    },
+    "backend/weekly_report.py::REFERENCE_WEEKS": {
+      "value": 8,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "Weekly report prior-week reference window, hand-set in the 2026-10-15 session: about 50 demo entries pooled at the week ending 10-02's 6 entered, short enough to stay near the current config. Report-only: no gate, size or exit reads it.",
+      "engine": "none (DB recount, no backtest engine)",
+      "commit": "fcf96e8",
+      "date": "2026-10-15",
+      "review": "2026-10-29"
     }
   }
 }
