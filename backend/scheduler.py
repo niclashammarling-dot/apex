@@ -652,6 +652,13 @@ def _prune_old_signals() -> None:
 
 
 EOD_CATCHUP_MAX_DAYS = 10
+# Retry before the open (2026-10-16, Niclas: "om den misslyckas och inget nytt försök görs
+# samma dag, så handlar vi alltså på gårdagens information"). A failed catch-up re-runs
+# every EOD_RETRY_MINUTES while the retry still lands by EOD_RETRY_UNTIL ET, five minutes
+# before the 09:30 open the gate's first cycle trades at. Relative to the failure, not
+# fixed cron slots: in the EU/US DST-mismatch weeks the launcher starts 09:20 ET.
+EOD_RETRY_MINUTES = 10
+EOD_RETRY_UNTIL   = time(9, 25)
 EOD_REPLAY_LOCK      = Path(__file__).resolve().parent.parent / "data" / ".eod_replay.lock"
 
 
@@ -678,10 +685,33 @@ def _check_missed_eod_regime() -> None:
     read and the runs, so a second caller waits, re-reads, finds the session
     written and returns silently — not refused_exists, not an alert."""
     with _EOD_LOCK:
-        _eod_catchup_unlocked()
+        complete = _eod_catchup_unlocked()
+    if not complete:
+        _schedule_eod_retry()
 
 
-def _eod_catchup_unlocked() -> None:
+def _schedule_eod_retry(now: datetime | None = None) -> datetime | None:
+    """One-off retry of the catch-up EOD_RETRY_MINUTES from now, if it lands by
+    EOD_RETRY_UNTIL ET the same day; else log that the session trades on the previous
+    posterior. The alert already went out once per session from _alert_eod_regime_failed."""
+    now    = now or datetime.now(NY)
+    run_at = now + timedelta(minutes=EOD_RETRY_MINUTES)
+    if run_at.date() != now.date() or run_at.time() > EOD_RETRY_UNTIL:
+        logger.error(
+            f"EOD regime: not written and no retry fits before the open (next would be "
+            f"{run_at:%H:%M} ET, limit {EOD_RETRY_UNTIL:%H:%M} ET) — this session trades on "
+            f"the previous posterior; the next catch-up retries"
+        )
+        return None
+    scheduler.add_job(
+        _check_missed_eod_regime, "date", run_date=run_at,
+        id="eod_regime_retry", replace_existing=True, misfire_grace_time=300,
+    )
+    logger.warning(f"EOD regime: not written — retry at {run_at:%H:%M} ET")
+    return run_at
+
+
+def _eod_catchup_unlocked() -> bool:
     """
     Run the EOD regime update for every session due and not yet written. Called at
     startup and, since 2026-09-22, as the 08:30 ET cron itself — the pre-open run
@@ -692,6 +722,9 @@ def _eod_catchup_unlocked() -> None:
 
     Uses the NYSE calendar, not weekday arithmetic: the weekday version fired on
     2026-09-08 for Labor Day (2026-09-07) and wrote a mid-session row for 09-08.
+
+    Returns True when every due session is written (or a replay holds the lock),
+    False when one is still missing — the caller schedules a retry.
     """
     from backend.db import get_db
 
@@ -701,7 +734,7 @@ def _eod_catchup_unlocked() -> None:
         # deleted range, and ran its own catch-up from a stale in-memory prior in
         # parallel with the replay — two writers racing INSERT OR IGNORE.
         logger.warning(f"EOD regime catch-up: {EOD_REPLAY_LOCK} present — replay in progress, skipping")
-        return
+        return True
 
     now      = datetime.now(NY)
     expected = _last_eod_due(now)
@@ -718,10 +751,10 @@ def _eod_catchup_unlocked() -> None:
         last_date = date.fromisoformat(row[0]) if row and row[0] else None
     except Exception as e:
         logger.warning(f"EOD regime catch-up: DB check failed — {e}")
-        return
+        return False
 
     if last_date and last_date >= expected:
-        return
+        return True
 
     # Fill every NYSE session in (last_date, expected], oldest first — the posterior
     # is sequential, so a two-day outage must be replayed in order, not patched at
@@ -731,8 +764,18 @@ def _eod_catchup_unlocked() -> None:
         f"EOD regime missed for {len(missed)} session(s) {missed[0]}..{missed[-1]} "
         f"(last row: {last_date or 'never'}) — running now"
     )
+    # Stop at the first session not written (2026-10-16). The loop ignored the status:
+    # with D1 failing and D2 succeeding, D2's row moved MAX(date) past D1, and D1 was
+    # never due again — a permanent hole in a sequential posterior.
     for d in missed:
-        run_eod_regime(as_of=d)
+        status = run_eod_regime(as_of=d)
+        if status not in ("ok", "refused_exists"):
+            logger.error(
+                f"EOD regime catch-up stopped at {d} ({status}) — later session(s) wait: "
+                f"writing them first would move MAX(date) past {d} and leave it unwritten"
+            )
+            return False
+    return True
 
 
 def _check_missed_pcr_collect() -> None:

@@ -53,7 +53,7 @@ def test_catchup_runs_each_missed_session_as_of_that_date():
     _seed_history("2026-09-01")
     calls = []
     fake_now = datetime(2026, 9, 8, 10, 45, tzinfo=NY)   # Tue morning after Labor Day
-    with patch.object(sched, "run_eod_regime", side_effect=lambda as_of=None: calls.append(as_of)), \
+    with patch.object(sched, "run_eod_regime", side_effect=lambda as_of=None: calls.append(as_of) or "ok"), \
          patch.object(sched, "datetime") as dt:
         dt.now.return_value = fake_now
         dt.combine = datetime.combine
@@ -65,7 +65,7 @@ def test_catchup_runs_each_missed_session_as_of_that_date():
 def test_catchup_noop_when_history_current():
     _seed_history("2026-09-04")
     calls = []
-    with patch.object(sched, "run_eod_regime", side_effect=lambda as_of=None: calls.append(as_of)), \
+    with patch.object(sched, "run_eod_regime", side_effect=lambda as_of=None: calls.append(as_of) or "ok"), \
          patch.object(sched, "datetime") as dt:
         dt.now.return_value = datetime(2026, 9, 8, 10, 45, tzinfo=NY)
         dt.fromisoformat = datetime.fromisoformat
@@ -222,7 +222,7 @@ def test_catchup_path_is_unaffected_by_the_exists_guard():
     so the guard must not change what it fills."""
     _seed_history("2026-09-01")
     calls = []
-    with patch.object(sched, "run_eod_regime", side_effect=lambda as_of=None: calls.append(as_of)), \
+    with patch.object(sched, "run_eod_regime", side_effect=lambda as_of=None: calls.append(as_of) or "ok"), \
          patch.object(sched, "datetime") as dt:
         dt.now.return_value = datetime(2026, 9, 8, 10, 45, tzinfo=NY)
         dt.combine = datetime.combine
@@ -258,3 +258,59 @@ def test_preview_persists_nothing():
     assert conn.execute("SELECT COUNT(*) FROM sector_posteriors").fetchone()[0] == 0
     conn.close()
     singleton.assert_not_called()   # preview never touches the scheduler singleton
+
+
+# ── a failed session stops the catch-up; a retry is scheduled before the open (2026-10-16) ──
+# The loop ignored run_eod_regime's status: with D1 failing (no_inputs) and D2 succeeding,
+# D2's row moved MAX(date) past D1 and D1 was never due again — a permanent hole in a
+# sequential posterior. And a failure got no retry the same day, so the session traded on
+# the previous posterior (Niclas 2026-10-16).
+
+def _run_catchup(now, statuses):
+    calls = []
+    it = iter(statuses)
+    with patch.object(sched, "run_eod_regime", side_effect=lambda as_of=None: calls.append(as_of) or next(it)), \
+         patch.object(sched.scheduler, "add_job") as add_job, \
+         patch.object(sched, "datetime") as dt:
+        dt.now.return_value = now
+        dt.combine = datetime.combine
+        dt.fromisoformat = datetime.fromisoformat
+        sched._check_missed_eod_regime()
+    return calls, add_job
+
+
+def test_failed_session_stops_the_catchup_so_no_hole_is_written():
+    _seed_history("2026-09-01")
+    calls, _ = _run_catchup(datetime(2026, 9, 8, 8, 30, tzinfo=NY), ["no_inputs", "ok", "ok"])
+    assert calls == [date(2026, 9, 2)], "later sessions must wait for the failed one"
+
+
+def test_failure_before_the_open_schedules_a_retry_ten_minutes_later():
+    _seed_history("2026-09-01")
+    _, add_job = _run_catchup(datetime(2026, 9, 8, 8, 30, tzinfo=NY), ["failed"])
+    add_job.assert_called_once()
+    args, kw = add_job.call_args
+    assert args[0] is sched._check_missed_eod_regime and args[1] == "date"
+    assert kw["run_date"] == datetime(2026, 9, 8, 8, 40, tzinfo=NY)
+    assert kw["id"] == "eod_regime_retry" and kw["replace_existing"] is True
+
+
+def test_no_retry_when_it_would_land_after_the_limit():
+    _seed_history("2026-09-01")
+    _, add_job = _run_catchup(datetime(2026, 9, 8, 9, 20, tzinfo=NY), ["no_inputs"])
+    add_job.assert_not_called()
+
+
+def test_complete_catchup_schedules_no_retry():
+    _seed_history("2026-09-01")
+    calls, add_job = _run_catchup(datetime(2026, 9, 8, 8, 30, tzinfo=NY), ["ok", "ok", "ok"])
+    assert len(calls) == 3
+    add_job.assert_not_called()
+
+
+def test_last_retry_slot_lands_exactly_at_the_limit():
+    with patch.object(sched.scheduler, "add_job") as add_job:
+        assert sched._schedule_eod_retry(datetime(2026, 9, 8, 9, 15, tzinfo=NY)) == \
+            datetime(2026, 9, 8, 9, 25, tzinfo=NY)
+        assert sched._schedule_eod_retry(datetime(2026, 9, 8, 9, 16, tzinfo=NY)) is None
+    assert add_job.call_count == 1
