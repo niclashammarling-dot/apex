@@ -20,6 +20,16 @@
       "commit": "fcf96e8",
       "date": "2026-10-15",
       "review": "2026-10-29"
+    },
+    "backend/scheduler.py::EOD_RETRY_MINUTES": {
+      "value": 10,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "Retry spacing for a failed EOD regime catch-up, hand-set 2026-10-16 (Niclas: retries before the open instead of trading on the previous posterior). With the launch at 08:20 ET and the 09:25 ET limit, 10 min gives the startup run plus up to 6 retries; the input fetch takes about 1.5 min, so retries do not overlap.",
+      "engine": "none (scheduling, no backtest engine)",
+      "commit": "7e810d0",
+      "date": "2026-10-16",
+      "review": "2026-10-30"
     }
   }
 }
