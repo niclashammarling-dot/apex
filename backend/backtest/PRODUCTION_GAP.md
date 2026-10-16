@@ -45,7 +45,7 @@ Signal score is computed upstream in `data/fetcher_yahoo.py:127-136`.
 | 20 | Bayesian sector size scale on `position_size_pct` post-L5 | `gate_runner_live.py:486-497` | **no** | |
 | 21 | Dynamic sector caps (`compute_dynamic_caps`: score_w × duration_w × bayes_w, clamped [MIN_MULT, MAX_MULT]) | `sector_caps.py:51-93`, `gate_runner_live.py:399,526,566` | **no** — flat `MAX_SECTOR_EXPOSURE` (`:257`) | |
 | 22 | Daily loss cap | live cfg | **yes** `DAILY_LOSS_CAP` (`:242`) | |
-| 23 | SL / TP cooldown per ticker | — | **engine-only** (`:199-209`, `sl_cooldown_days=5` default) | 0 hits for cooldown/reentry anywhere in `backend/` outside `backtest/` and L3's circuit breaker; the backtest applies a rule production does not have |
+| 23 | SL / TP re-entry cooloff per ticker | `gate_runner_live.py:397-400` (`get_recently_exited_live_tickers`, `exit_cooloff_hours` 24 after SL, `tp_cooloff_hours` 168 after TP, `data/live_config.json:21-22`; since `7fff25e` 2026-05-29, split `109e7be` 2026-06-03) | **yes, different values** — `sl_cooldown_days=5`, `tp_cooldown_days=0` defaults (`:199-209`); `optimizer.py` and `objective_walkforward.py` pass neither | **Corrected 2026-10-16.** Written 09-16 as "engine-only, 0 hits for cooldown/reentry": the search missed live's term (*cooloff*) and had no positive control. Real divergence: SL 5 d vs 1 d, TP none vs 7 d — sign on profit unknown. Every optimizer and walk-forward run since June, including the 09-16 Sharpe-cap case 1 (`ba1cd49`), ran with the engine values. Fix: the regime port reads both values from live config. |
 | 24 | Exits: TP / SL / time stop / TSL / profit-lock ratchet | `gate_runner_live.py`, `_check_missed_live_exits` | **yes** `_check_exits_fast` (`:706`) | exit-semantics defect fixed 2026-08-17/18 in both |
 | 25 | ATR-based exits | — | **engine-only** option `atr_exits` (`:269`) | 0 hits for an ATR exit/stop in `gate_runner_live.py` or `alpaca.py`; off by default, so inert unless a sweep passes it |
 | 26 | Corroboration gate on exit cancellation, OCO re-protection | `alpaca.py`, `gate_runner_live.py` | n/a | execution layer, no backtest analogue by design |
@@ -76,7 +76,7 @@ nothing here would have flipped a hold to a ship. But the scope caveat
 applies to every conclusion from it: C1's noise floor, C2's fold margins,
 the SPY comparison and the "top-3 collapse is adjacency, tunables bind"
 reading are all statements about a system with rows 2, 5, 7, 9-11, 13-15,
-17-21 absent and row 23 present. The "tunables have low leverage over the
+17-21 absent and row 23 on different values (corrected 2026-10-16). The "tunables have low leverage over the
 trade path" finding in particular was measured with the highest-leverage
 upstream gate (row 5) removed.
 
@@ -111,8 +111,10 @@ is the prerequisite for putting the entry floor through the harness
 (CHECK 71 follow-up); until it lands, the harness returns identical trade
 paths for any floor value, trivially.
 
-Rows 23 and 25 run the other way: the backtest enforces rules production
-does not. Row 23 (5-day SL cooldown) affects every backtest trade count and
-should either be added to production deliberately or removed from the
-engine's defaults — it is a silent divergence in the direction nobody
-checks.
+Row 25 runs the other way: the backtest enforces a rule production does
+not. Row 23 was listed here too until 2026-10-16. Production does have a
+re-entry cooloff, with different values (SL 1 d / TP 7 d against the
+engine's 5 d / none). The 09-16 search for "cooldown/reentry" never ran
+on live's word, "cooloff", and no known-present term was searched as a
+control. An absence claim on this file needs a positive control on the
+identical search.
