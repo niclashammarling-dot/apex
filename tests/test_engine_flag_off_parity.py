@@ -95,7 +95,9 @@ def _summary(res: dict) -> dict:
     return json.loads(json.dumps({**{k: res[k] for k in keep}, "trade_log": res["trade_log"]}))
 
 
-def test_flag_off_reproduces_the_parent_engine():
+def test_flag_off_reproduces_the_parent_engine(monkeypatch):
+    # The parent had no macro blackout (rows 7/10 arrived 2026-10-17); clear it here.
+    monkeypatch.setattr(ef, "macro_status", lambda _d: ("clear", None))
     pre = synthetic_precomputed()
     out = _summary(ef.run(START.isoformat(), END.isoformat(), precomputed=pre, **RUN_KW))
     if os.environ.get("APEX_WRITE_ENGINE_GOLDEN"):

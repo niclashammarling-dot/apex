@@ -38,6 +38,7 @@ from backend.config import (
     WIN_RATE_MIN_TRADES,
 )
 from backend.backtest.exit_rules import Bar, ParityStats, build_ohlc_cache, check_intraday_stop
+from backend.macro_calendar import macro_status
 from backend.signals import aggregator, momentum, relative_strength, trend, volume
 from backend.signals.ev_kelly import compute as ev_kelly_compute
 from backend.sector_caps import caps_from_factors
@@ -110,6 +111,8 @@ def run(
     ratchet_from_high:  bool        = False,
     stop_slip:          tuple[float, float] | None = None,   # None: exit_rules' measured R7 values (EXIT_PARITY.md)
     kelly_factor:       dict[str, float] | None = None,      # {date: k} replaces half-Kelly's 0.50 that day (H-V1, 2026-10-17)
+    macro_hard_block:   bool        = False,   # also block pre-event days (engine.py's flag)
+    macro_pre_event_penalty: float | None = None,   # live 0.05: score × (1 − p) on CPI/NFP eve, re-thresholded
     parity_stats:       ParityStats | None = None,
     regime_layer:       bool        = False,
     random_entries:     dict  | None = None,
@@ -274,6 +277,17 @@ def run(
         )
         if rnd is not None:
             rnd.shuffle(candidates)
+        # Rows 7 / 10 (2026-10-17): Lock 1 B2's macro blackout, as engine.py and live —
+        # FOMC −2 days through the decision day and CPI/NFP release days block entries;
+        # the eve of CPI/NFP takes the pre-event penalty and must clear the threshold again.
+        macro_day = macro_status(today)[0]
+        if macro_day == "hard_block" or (macro_hard_block and macro_day == "pre_event"):
+            candidates = []
+        elif macro_day == "pre_event" and macro_pre_event_penalty is not None and rnd is None:
+            candidates = [{**sig, "signal_score": round(sig["signal_score"] * (1.0 - macro_pre_event_penalty), 4)}
+                          for sig in candidates
+                          if sig["signal_score"] * (1.0 - macro_pre_event_penalty)
+                          >= max(l1, SECTOR_THRESHOLD_FLOORS.get(sig["sector"], 0.0))]
         # Row 21: the day's cap weights applied to this run's base cap.
         day_caps = caps_from_factors(sector_max, day_regime["cap_factors"]) if day_regime else {}
 

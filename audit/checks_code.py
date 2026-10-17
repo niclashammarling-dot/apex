@@ -883,8 +883,8 @@ def check74():
 # Layer 1 — run() parameters present in exactly one engine. Adding a parameter to
 # one engine without the other is a new divergence and must be recorded here
 # and in PRODUCTION_GAP.md before this list is extended.
-CHECK76_ACCEPTED_SLOW_ONLY = {"etf_negative_floor", "etf_negative_penalty",
-                             "macro_hard_block", "macro_pre_event_penalty"}
+CHECK76_ACCEPTED_SLOW_ONLY = {"etf_negative_floor", "etf_negative_penalty"}
+# macro_hard_block / macro_pre_event_penalty left this list 2026-10-17: engine_fast has rows 7/10.
 CHECK76_ACCEPTED_FAST_ONLY = {"precomputed", "regime_layer",   # regime_layer: rows 2/5/20/21, off by default (2026-10-17)
                               "random_entries",                  # RND placebo for the profit read, off by default (2026-10-17)
                               "kelly_factor"}                    # H-V1 VIX sizing experiment, off by default (2026-10-17)
@@ -893,7 +893,6 @@ CHECK76_ACCEPTED_FAST_ONLY = {"precomputed", "regime_layer",   # regime_layer: r
 # (PRODUCTION_GAP.md rows). If a symbol appears, the row is stale, not wrong —
 # update the inventory, then this list.
 CHECK76_ABSENT_FROM_FAST = {
-    "row 7/10 macro calendar":    r"_macro_status|_FOMC_DATES|macro_hard_block",
     "row 11 ETF negative penalty": r"etf_negative_penalty",
     "row 13 watchlist discount":  r"watchlist",
     "row 14 overflow slots":      r"overflow",
@@ -972,15 +971,14 @@ def check76():
         # this layer. The slow engine's downloader is patched to return the
         # fast engine's frame so the comparison is code-only.
         pre = fast_e.precompute(*CHECK76_WINDOW)
-        _orig_dl, _orig_macro = slow_e._download_all, slow_e._macro_status
+        _orig_dl = slow_e._download_all
         slow_e._download_all = lambda *_a, **_k: pre["raw_data"]
-        # Neutralise the documented, unconditional slow-only divergence (row 7):
-        # macro calendar returns "clear" for every day of the parity run.
-        slow_e._macro_status = lambda _d: "clear"
+        # Row 7 is no longer neutralised (2026-10-17): both engines read
+        # backend/macro_calendar.py, so the macro blackout is compared, not removed.
         try:
             rs = slow_e.run(*CHECK76_WINDOW)
         finally:
-            slow_e._download_all, slow_e._macro_status = _orig_dl, _orig_macro
+            slow_e._download_all = _orig_dl
         rf = fast_e.run(*CHECK76_WINDOW, precomputed=pre)
     except Exception as e:
         flag(76, name, "WARNING", "backend/backtest/engine.py", f"parity run failed: {e} — layer 3 did not evaluate")

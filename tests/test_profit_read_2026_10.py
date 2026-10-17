@@ -10,7 +10,7 @@ from tests.test_engine_flag_off_parity import END, RUN_KW, START, synthetic_prec
 LIVE = {"lock1_threshold": 0.65, "take_profit_pct": 0.06, "stop_loss_pct": 0.06,
         "profit_lock_trigger_pct": 0.04, "profit_lock_trail_pct": 0.01, "max_positions": 9,
         "max_hold_days": 25, "vix_threshold": 30, "max_sector_exposure": 0.3,
-        "exit_cooloff_hours": 24, "tp_cooloff_hours": 168}
+        "exit_cooloff_hours": 24, "tp_cooloff_hours": 168, "macro_pre_event_penalty": 0.05}
 
 
 def test_incumbent_is_read_from_live_config():
@@ -19,6 +19,7 @@ def test_incumbent_is_read_from_live_config():
     assert inc["time_stop_days"] == 25 and inc["max_sector_exposure"] == 0.3
     assert (inc["sl_cooldown_days"], inc["tp_cooldown_days"]) == (1, 7)
     assert inc["lock1_threshold"] == 0.65 and inc["max_positions"] == 9
+    assert inc["macro_pre_event_penalty"] == 0.05                        # row 10, from live (10-17)
     assert pr.RUNS["R0"]["sl_cooldown_days"] == 5 and "sl_cooldown_days" not in pr.RUNS["R1"]
 
 
@@ -37,3 +38,9 @@ def test_fold_metrics_slice_the_full_run():
     total = (1 + f["A"]["total_return"]) * (1 + f["B"]["total_return"]) - 1
     assert abs(total - (res["final_balance"] / 10_000 - 1)) < 1e-9          # slices compose to the run
     assert f["A"]["trades"] + f["B"]["trades"] == sum(1 for t in res["trade_log"] if t.get("pnl") is not None)
+
+
+def test_every_result_names_the_rows_it_does_not_model():
+    import inspect
+    src = inspect.getsource(pr.main)
+    assert '"gaps": open_rows(' in src and "describe(" in src

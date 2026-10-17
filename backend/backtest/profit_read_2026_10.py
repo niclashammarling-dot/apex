@@ -43,6 +43,7 @@ def incumbent_from_live() -> dict:
         time_stop_days=c["max_hold_days"], vix_threshold=c["vix_threshold"],
         max_sector_exposure=c["max_sector_exposure"],
         sl_cooldown_days=sl, tp_cooldown_days=tp,
+        macro_pre_event_penalty=c["macro_pre_event_penalty"],   # row 10, Niclas 10-17: "ja"
     )
 
 
@@ -82,9 +83,11 @@ def main(outdir: Path) -> None:
     import yfinance as yf
     from backend.backtest import profit_metrics as pm
     from backend.backtest.engine_fast import precompute, run
+    from backend.backtest.gap_bounds import describe, open_rows
 
     outdir.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
+    print(describe(regime_layer=True), flush=True)            # what the result does not model
     pre = precompute(*WINDOW)
     print(f"precompute done {time.time() - t0:.0f}s, {len(pre['trading_days'])} days", flush=True)
     spy = pre["raw_data"]["SPY"]["Close"].dropna()
@@ -104,6 +107,7 @@ def main(outdir: Path) -> None:
         t1 = time.time()
         res = run(*WINDOW, initial_balance=10_000.0, precomputed=pre, **{**inc, **kw})
         rec = {"run": name, "kwargs": {**inc, **kw},
+               "gaps": open_rows(regime_layer=kw.get("regime_layer", False)),
                "summary": {**pm.summary(res, spy, 0.0), "vs_spy_tbill": pm.summary(res, spy, rf)["vs_spy"]},
                "folds": fold_metrics(res, spy, rf),
                "equity_curve": res["equity_curve"], "trade_log": res["trade_log"]}
