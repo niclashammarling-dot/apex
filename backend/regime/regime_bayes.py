@@ -18,6 +18,29 @@ The allocation output is consumed by:
 Ticker-level thresholds (Lock 1) are sector-specific and handled downstream.
 The regime module only knows about sectors, not individual tickers.
 
+What the posterior is — mechanically (2026-10-17; what it is meant to MEAN is
+undecided, review 2026-10-24):
+  - One probability per sector, updated independently. Nothing normalises across
+    sectors: on the 22 live sessions 09-16..10-15 the 11 posteriors summed to
+    3.27..4.36 per day (median 4.01), median sector-day 0.26, 22 % at the 0.05 floor.
+    It is not P(this sector leads), which would sum to 1.
+  - Prediction step: decayed = 0.90·p + 0.10/n (n = active sectors). That is a
+    two-state Markov step π' = a·π + (1 − b)(1 − π) with a = 0.909, b = 0.991 at
+    n = 11 (tests/test_regime_split.py holds the identity): stationary point 1/n,
+    expected run 11 days favourable vs 110 unfavourable. Nobody chose that
+    asymmetry, and b moves with n (0.990 at 10, 0.992 at 12).
+  - Update step: five LRs multiplied as if independent, of mixed kind — absolute
+    (ticker balance, ETF streak), cross-sectional (ETF rank, IPO share), and
+    leader-relative (RS decline of the current leader, the same for every sector).
+  - Prior and decay are leadership-shaped (1/n, transition priors from leader
+    history — inert, see _get_prior); the LRs mostly measure the sector's own
+    direction. A calibration outcome cannot be chosen until the meaning is ruled.
+
+Pure core and persistence (2026-10-17): step() computes one session from an
+explicit RegimeState and writes nothing; update() is step() + persist and is the
+only path that touches the DB, the result cache and the trace. The backtest
+engine builds RegimeBayes(..., persisted=False) and calls step() only.
+
 Usage:
     from backend.regime.regime_bayes import RegimeBayes, regime_context_for_claude
 
@@ -293,6 +316,22 @@ class RegimeResult:
     regime_prev_state: Optional[str] = None  # bucket this one was derived from (same-date recompute reuses it)
 
 
+@dataclass
+class RegimeState:
+    """Everything step() reads from the previous session: the posteriors (the next
+    session's prior, before decay) and the previous result (leader, hysteresis
+    allocation, market-state bucket)."""
+    posteriors:  dict[str, float]
+    last_result: Optional[RegimeResult] = None
+
+    @classmethod
+    def cold(cls, sectors_cfg: dict) -> "RegimeState":
+        """Live cold start: uniform 1/len(sectors_cfg) over every configured sector
+        (excluded ones included, as _load_posteriors falls back), no previous result."""
+        uniform = 1.0 / max(len(sectors_cfg), 1)
+        return cls(posteriors={s: uniform for s in sectors_cfg}, last_result=None)
+
+
 # ── Main class ────────────────────────────────────────────────────────────────
 
 class RegimeBayes:
@@ -309,15 +348,22 @@ class RegimeBayes:
         sectors_cfg: dict,           # SECTORS config {sector: {tickers, etf, ...}}
         sector_etf_map: dict,        # {sector: etf_ticker}
         transition_priors: dict,     # {outgoing: {candidate: historical_probability}}
+        persisted: bool = True,      # False: no DB/cache read, update() refused — step() only
     ):
         self.sectors_cfg       = sectors_cfg
         self.sector_etf_map    = sector_etf_map
         self.transition_priors = transition_priors
+        self._persisted        = persisted
 
+        if not persisted:
+            cold = RegimeState.cold(sectors_cfg)
+            self._posteriors: dict[str, float] = cold.posteriors
+            self._last_result: Optional[RegimeResult] = None
+            return
         # Load persisted posteriors from DB — conviction never resets between restarts
-        self._posteriors: dict[str, float] = self._load_posteriors()
+        self._posteriors = self._load_posteriors()
         # Reload last result from disk so regime-bayes is available immediately after restart
-        self._last_result: Optional[RegimeResult] = self._load_result()
+        self._last_result = self._load_result()
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -341,12 +387,64 @@ class RegimeBayes:
                     computed by ipo_sentiment.py. Pass uniform {sector: 1/n}
                     if no IPO data available (neutral signal).
         """
+        if not self._persisted:
+            raise RuntimeError("RegimeBayes(persisted=False) is step()-only: update() would write "
+                               "production state (DB, result cache, trace)")
+        today_str = today.isoformat()
+        before    = RegimeState(posteriors=dict(self._posteriors), last_result=self._last_result)
+        result, after, entries = self.step(before, today, raw_data, sector_snapshots, ipo_shares)
+
+        # Persist posteriors and full result — both survive restarts.
+        # self._posteriors takes the new values first, as before the split: the persist
+        # puts them back to `before` on failure (_save_session_posteriors).
+        # Excluded sectors are not updated in this cycle; omit them from DB writes
+        # so stale sub-floor values don't accumulate as misleading rows.
+        self._posteriors = after.posteriors
+        all_sectors = [e.sector for e in entries]
+        active_posteriors = {s: self._posteriors[s] for s in all_sectors if s in self._posteriors}
+        self._save_session_posteriors(today_str, active_posteriors, restore=before.posteriors)
+        # Only after the persist: _last_result is what the gates, Lock 1 and the
+        # trackers read. Assigned before it (until 2026-09-26), a failed persist
+        # left them trading on a session the DB, cache and history never got.
+        self._last_result = result
+        self._save_result(result)
+        self._append_signal_trace(entries)
+
+        logger.info(
+            f"Regime [{today_str}] leader={result.leader} | "
+            f"{len(result.qualifiers)} qualifiers | "
+            + " | ".join(
+                f"{e.sector}={e.allocation:.0%}"
+                for e in result.leaderboard if e.allocation > 0
+            )
+        )
+
+        return result
+
+    def step(
+        self,
+        state: RegimeState,
+        today: date,
+        raw_data: pd.DataFrame,
+        sector_snapshots: dict[str, float],
+        ipo_shares: dict[str, float],
+    ) -> tuple[RegimeResult, RegimeState, list[SectorEntry]]:
+        """
+        One session from an explicit previous state. Pure: reads only its arguments
+        and the sector config, writes nothing (no DB, no files, no self). Returns the
+        result, the state for the next session, and one entry per active sector
+        ranked by adjusted score (the trace rows; the leaderboard truncates them).
+        The update is two named stages, each one place in the code: the prediction
+        step (decay, see the module docstring) and the LR update.
+        """
         today_str    = today.isoformat()
         from backend.config import EXCLUDED_SECTORS
         all_sectors  = [s for s in self.sectors_cfg if s not in EXCLUDED_SECTORS]
+        posteriors   = dict(state.posteriors)
+        last_result  = state.last_result
 
         # Current leader — rank 1 from last result, or highest snapshot on first run
-        current_leader = self._current_leader(sector_snapshots)
+        current_leader = self._current_leader(last_result, sector_snapshots)
 
         # Leader decline stats — used as RS divergence input for all candidates
         leader_rs = self._sector_decline_stats(current_leader, raw_data, today)
@@ -355,7 +453,6 @@ class RegimeBayes:
         rank_lrs = _compute_rank_lrs(raw_data, self.sector_etf_map)
 
         entries: list[SectorEntry] = []
-        posteriors_before = dict(self._posteriors)   # restored if the persist fails
 
         for sector in all_sectors:
             aggregate_score = sector_snapshots.get(sector, 0.0)
@@ -407,13 +504,15 @@ class RegimeBayes:
             lr_ipo    = _clamp_lr(lr_ipo_raw)
             lr_rank   = _clamp_lr(lr_rank_raw)
 
-            # Decay yesterday's posterior toward the base prior before applying today's signals.
-            # Without decay all LRs are ≥ 1.0 in neutral/bullish conditions and posteriors
-            # saturate at 1.0, collapsing the model's discriminatory power.
+            # Prediction step: decay yesterday's posterior toward the base prior before
+            # applying today's signals. Without decay all LRs are ≥ 1.0 in neutral/bullish
+            # conditions and posteriors saturate at 1.0, collapsing the model's
+            # discriminatory power. The HMM reading of this line is in the module docstring.
             base_prior       = 1.0 / max(len(all_sectors), 1)
-            persistent_prior = self._posteriors.get(sector, prior)
+            persistent_prior = posteriors.get(sector, prior)
             decayed_prior    = POSTERIOR_DECAY * persistent_prior + (1.0 - POSTERIOR_DECAY) * base_prior
 
+            # Update step: the five capped LRs, then the clamp.
             trace         = _apply_signals(decayed_prior, lr_ticker, lr_etf, lr_rs, lr_ipo, lr_rank)
             raw_posterior = trace["posterior"]
             posterior     = min(max(raw_posterior, POSTERIOR_CLAMP_FLOOR), POSTERIOR_CLAMP_CEIL)
@@ -425,8 +524,7 @@ class RegimeBayes:
                 )
             trace["posterior"] = posterior  # trace carries the value that was actually stored
 
-            # Stage for DB persist below
-            self._posteriors[sector] = posterior
+            posteriors[sector] = posterior
 
             adjusted = round(aggregate_score * posterior, 4)
 
@@ -468,16 +566,16 @@ class RegimeBayes:
         # near-zero weight rather than a hard cliff when they re-approach the boundary.
         # After a gap, treat prior state as unknown=out so stale cached allocations
         # can't perpetuate eligibility for sectors that may have naturally exited.
-        last_date   = date.fromisoformat(self._last_result.date) if self._last_result else None
+        last_date   = date.fromisoformat(last_result.date) if last_result else None
         gap_days    = (today - last_date).days if last_date else HYSTERESIS_STALE_DAYS + 1
         state_fresh = gap_days <= HYSTERESIS_STALE_DAYS
-        if not state_fresh and self._last_result:
+        if not state_fresh and last_result:
             logger.warning(
                 f"Regime [{today_str}]: hysteresis state stale ({gap_days}d gap) — "
                 f"treating all sectors as unknown=out; re-entry requires ≥ {ALLOCATION_ENTRY_THRESHOLD}"
             )
         currently_allocated = (
-            {e.sector for e in self._last_result.leaderboard if e.allocation > 0}
+            {e.sector for e in last_result.leaderboard if e.allocation > 0}
             if state_fresh
             else set()
         )
@@ -511,11 +609,11 @@ class RegimeBayes:
         # result under the same staleness rule as allocation; a same-date recompute
         # derives from the bucket the earlier run itself derived from, so re-running
         # a day is idempotent rather than self-reinforcing.
-        if self._last_result and state_fresh:
+        if last_result and state_fresh:
             prev_state = (
-                self._last_result.regime_prev_state
-                if self._last_result.date == today_str
-                else self._last_result.regime_state
+                last_result.regime_prev_state
+                if last_result.date == today_str
+                else last_result.regime_state
             )
         else:
             prev_state = None
@@ -532,28 +630,7 @@ class RegimeBayes:
         if prev_state is not None and result.regime_state != prev_state:
             logger.info(f"Regime [{today_str}]: market state {prev_state} → {result.regime_state}")
 
-        # Persist posteriors and full result — both survive restarts
-        # Excluded sectors are not updated in this cycle; omit them from DB writes
-        # so stale sub-floor values don't accumulate as misleading rows.
-        active_posteriors = {s: self._posteriors[s] for s in all_sectors if s in self._posteriors}
-        self._save_session_posteriors(today_str, active_posteriors, restore=posteriors_before)
-        # Only after the persist: _last_result is what the gates, Lock 1 and the
-        # trackers read. Assigned before it (until 2026-09-26), a failed persist
-        # left them trading on a session the DB, cache and history never got.
-        self._last_result = result
-        self._save_result(result)
-        self._append_signal_trace(entries)
-
-        logger.info(
-            f"Regime [{today_str}] leader={leader} | "
-            f"{len(qualifiers)} qualifiers | "
-            + " | ".join(
-                f"{e.sector}={e.allocation:.0%}"
-                for e in leaderboard if e.allocation > 0
-            )
-        )
-
-        return result
+        return result, RegimeState(posteriors=posteriors, last_result=result), entries
 
     def last_result(self) -> Optional[RegimeResult]:
         """Return most recent RegimeResult without recomputing."""
@@ -686,10 +763,12 @@ class RegimeBayes:
             logger.warning(f"Regime: could not reload cached result ({e}) — waiting for next EOD run")
             return None
 
-    def _current_leader(self, sector_snapshots: dict[str, float]) -> str:
+    @staticmethod
+    def _current_leader(last_result: Optional[RegimeResult],
+                        sector_snapshots: dict[str, float]) -> str:
         """Current leader from last result, or highest aggregate score on first run."""
-        if self._last_result:
-            return self._last_result.leader
+        if last_result:
+            return last_result.leader
         return max(sector_snapshots, key=sector_snapshots.get) if sector_snapshots else ""
 
     def _get_prior(self, sector: str, current_leader: str, total_sectors: int) -> float:

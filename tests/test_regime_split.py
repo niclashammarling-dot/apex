@@ -104,3 +104,66 @@ def test_positive_control_a_decay_change_breaks_the_comparison(monkeypatch):
     monkeypatch.setattr(rbm, "POSTERIOR_DECAY", rbm.POSTERIOR_DECAY + 1e-3)
     golden = json.loads(GOLDEN.read_text())
     assert _run_window() != golden
+
+
+def _db_rows():
+    conn = db.get_db()
+    n = (conn.execute("SELECT COUNT(*) FROM sector_posterior_history").fetchone()[0],
+         conn.execute("SELECT COUNT(*) FROM sector_posteriors").fetchone()[0])
+    conn.close()
+    return n
+
+
+def test_step_chained_over_the_window_equals_update_and_writes_nothing():
+    """step() is the engine's entry point: chained by hand it must give update()'s
+    results (golden) while the DB, the result cache, the trace and the instance stay
+    untouched."""
+    _clear_db()
+    inp, close = _inputs()
+    rb    = _seeded_rb(inp)
+    state = rbm.RegimeState(posteriors=dict(rb._posteriors), last_result=rb._last_result)
+    own   = (dict(rb._posteriors), rb._last_result)
+    files = {p: (p.stat().st_mtime_ns if p.exists() else None)
+             for p in (rbm.RESULT_CACHE_PATH, rbm.SIGNAL_TRACE_PATH)}
+    golden = json.loads(GOLDEN.read_text())
+    for d, want in zip(inp["days"], golden):
+        res, state, entries = rb.step(state, *_day_inputs(inp, close, d))
+        assert json.loads(json.dumps(asdict(res))) == want["result"], d
+        assert json.loads(json.dumps(state.posteriors)) == want["posteriors"], d
+        assert len(entries) == 11
+    assert _db_rows() == (0, 0)
+    assert {p: (p.stat().st_mtime_ns if p.exists() else None) for p in files} == files
+    assert (rb._posteriors, rb._last_result) == own
+
+
+def test_unpersisted_instance_reads_nothing_and_refuses_update(monkeypatch):
+    _clear_db()
+    def boom(*a, **k):
+        raise AssertionError("persisted=False must not read production state")
+    monkeypatch.setattr(RegimeBayes, "_load_posteriors", boom)
+    monkeypatch.setattr(RegimeBayes, "_load_result", boom)
+    inp, close = _inputs()
+    cfg = inp["sectors_cfg"]
+    rb  = RegimeBayes(cfg, {s: c["etf"] for s, c in cfg.items()}, {}, persisted=False)
+    assert rb._posteriors == {s: 1.0 / len(cfg) for s in cfg}      # live cold start, 1/15
+    assert rb.last_result() is None
+    with pytest.raises(RuntimeError, match="step\\(\\)-only"):
+        rb.update(*_day_inputs(inp, close, inp["days"][0]))
+    assert _db_rows() == (0, 0)
+    res, state, _ = rb.step(rbm.RegimeState.cold(cfg), *_day_inputs(inp, close, inp["days"][0]))
+    assert state.last_result is res and len(res.leaderboard) == 11
+
+
+@pytest.mark.parametrize("n", [10, 11, 12, 15])
+def test_decay_is_a_two_state_markov_step(n):
+    """decayed = d·p + (1 − d)/n is π' = a·π + (1 − b)(1 − π) with b = 1 − (1 − d)/n,
+    a = d + 1 − b: stationary point 1/n, the asymmetry the module docstring states."""
+    d = rbm.POSTERIOR_DECAY
+    b = 1 - (1 - d) / n
+    a = d + 1 - b
+    for p in (0.05, 0.0909, 0.26, 0.5, 0.95):
+        assert abs((d * p + (1 - d) / n) - (a * p + (1 - b) * (1 - p))) < 1e-12
+    assert abs((1 - b) / (2 - a - b) - 1 / n) < 1e-12
+    if n == 11:
+        assert (round(a, 3), round(b, 3)) == (0.909, 0.991)
+        assert (round(1 / (1 - a)), round(1 / (1 - b))) == (11, 110)
