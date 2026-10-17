@@ -7,7 +7,7 @@ Lock 1 as the sole entry filter. This lets you validate whether the quant
 signal engine has genuine predictive value before attributing edge to the LLMs.
 
 Two additional lock proxies CAN be backtested from historical data:
-  - vix_threshold: skip new entries when VIX > N (Macro lock proxy)
+  - vix_threshold: skip new entries when VIX >= N (Lock 1 B1, as live)
   - use_leading_rs: only enter if ticker outperforms its sector ETF over 5d (Leading lock RS proxy)
 
 Usage:
@@ -208,7 +208,7 @@ def run(
         time_stop_days:      Override TIME_STOP_DAYS (e.g. 15)
         lock1_threshold:     Override LOCK1_THRESHOLD (e.g. 0.72)
         max_entries_per_day: Cap new positions opened on a single day (e.g. 2)
-        vix_threshold:       Skip new entries when VIX exceeds this level (e.g. 25). None disables.
+        vix_threshold:       Skip new entries when VIX is at or above this level (live's `>=`). None disables.
         use_leading_rs:      Only enter if ticker's 5d return > its sector ETF's 5d return.
         max_positions:       Override MAX_POSITIONS (e.g. 3). Lower = more concentrated portfolio.
 
@@ -347,7 +347,7 @@ def run(
         entries_today    = 0
 
         # Macro lock proxy: skip new entries on high-VIX days
-        vix_blocked = vix_threshold is not None and _vix_on(raw_data, today) > vix_threshold
+        vix_blocked = vix_threshold is not None and _vix_on(raw_data, today) >= vix_threshold  # live: `>=`
 
         # Macro calendar filter
         macro_day = _macro_status(today)

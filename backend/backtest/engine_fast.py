@@ -282,7 +282,7 @@ def run(
 
         vix_blocked = (
             vix_threshold is not None
-            and vix_cache.get(today_str, 0.0) > vix_threshold
+            and vix_cache.get(today_str, 0.0) >= vix_threshold   # live: lock1_eligibility `vix >= threshold`
         )
 
         # Row 20: live sizes each queued trade by n·s/Σs within its sector over the
