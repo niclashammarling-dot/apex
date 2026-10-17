@@ -43,56 +43,11 @@ _vix_lock  = threading.Lock()
 _VIX_TTL   = 30 * 60   # 30 minutes
 
 # ── Economic calendar ─────────────────────────────────────────────────────────
-_FOMC_DATES = {
-    date(2025, 1, 29), date(2025, 3, 19), date(2025, 5, 7),  date(2025, 6, 18),
-    date(2025, 7, 30), date(2025, 9, 17), date(2025, 10, 29), date(2025, 12, 10),
-    date(2026, 1, 28), date(2026, 3, 18), date(2026, 4, 29), date(2026, 6, 17),
-    date(2026, 7, 29), date(2026, 9, 16), date(2026, 10, 28), date(2026, 12, 9),
-    # 2027: federalreserve.gov/monetarypolicy/fomccalendars.htm, read 2026-10-17
-    # (tentative until confirmed at the preceding meeting); decision day, as above.
-    date(2027, 1, 27), date(2027, 3, 17), date(2027, 4, 28), date(2027, 6, 9),
-    date(2027, 7, 28), date(2027, 9, 15), date(2027, 10, 27), date(2027, 12, 8),
-}
-
-_CPI_DATES = {
-    date(2025, 1, 15), date(2025, 2, 12), date(2025, 3, 12), date(2025, 4, 10),
-    date(2025, 5, 13), date(2025, 6, 11), date(2025, 7, 15), date(2025, 8, 12),
-    date(2025, 9, 10), date(2025, 10, 15), date(2025, 11, 13), date(2025, 12, 10),
-    # 2026–2027: BLS release schedules (bls.gov/schedule/2026, /2027), read 2026-10-17.
-    # The 2026 row was wrong in 8 of 12 months before that date (e.g. 11-12 for 11-10).
-    date(2026, 1, 13), date(2026, 2, 13), date(2026, 3, 11), date(2026, 4, 10),
-    date(2026, 5, 12), date(2026, 6, 10), date(2026, 7, 14), date(2026, 8, 12),
-    date(2026, 9, 11), date(2026, 10, 14), date(2026, 11, 10), date(2026, 12, 10),
-    date(2027, 1, 13), date(2027, 2, 11), date(2027, 3, 10), date(2027, 4, 13),
-    date(2027, 5, 12), date(2027, 6, 10), date(2027, 7, 14), date(2027, 8, 11),
-    date(2027, 9, 14), date(2027, 10, 14), date(2027, 11, 10), date(2027, 12, 10),
-}
-
-
-def _nfp_dates(start_year: int = 2025, end_year: int = 2026) -> set[date]:
-    """Non-Farm Payrolls — first Friday of each month."""
-    dates = set()
-    for year in range(start_year, end_year + 1):
-        for month in range(1, 13):
-            d = date(year, month, 1)
-            days_ahead = (4 - d.weekday()) % 7
-            dates.add(d + timedelta(days=days_ahead))
-    return dates
-
-
-# The first-Friday rule misses BLS's actual dates (2026: 4 of 12, e.g. 01-09 not 01-02;
-# 2027-01-01 is a holiday, BLS releases 01-08). From 2026 the BLS schedule is used as
-# published (Employment Situation, bls.gov/schedule/2026, /2027, read 2026-10-17).
-_NFP_BLS = {
-    date(2026, 1, 9),  date(2026, 2, 11), date(2026, 3, 6),  date(2026, 4, 3),
-    date(2026, 5, 8),  date(2026, 6, 5),  date(2026, 7, 2),  date(2026, 8, 7),
-    date(2026, 9, 4),  date(2026, 10, 2), date(2026, 11, 6), date(2026, 12, 4),
-    date(2027, 1, 8),  date(2027, 2, 5),  date(2027, 3, 5),  date(2027, 4, 2),
-    date(2027, 5, 7),  date(2027, 6, 4),  date(2027, 7, 2),  date(2027, 8, 6),
-    date(2027, 9, 3),  date(2027, 10, 8), date(2027, 11, 5), date(2027, 12, 3),
-}
-_NFP_DATES   = _nfp_dates(2025, 2025) | _NFP_BLS
-_MACRO_DATES = _FOMC_DATES | _CPI_DATES | _NFP_DATES
+# One calendar for Lock 1 and both backtest engines (2026-10-17, Niclas: "live måste ha
+# en enda kalender att gå efter"): backend/macro_calendar.py, official FOMC / BLS dates.
+from backend.macro_calendar import (CPI_DATES as _CPI_DATES, FOMC_DATES as _FOMC_DATES,
+                                    MACRO_DATES as _MACRO_DATES, NFP_DATES as _NFP_DATES,
+                                    macro_status as _shared_macro_status)
 
 # FOMC spans two meeting days; pre-event window is 2 to cover the full session.
 # CPI and NFP are single-day releases; their window comes from macro_event_blackout_days (cfg).
@@ -366,22 +321,11 @@ def _macro_status(today: date, fomc_blackout: int, cpi_nfp_blackout: int = 1) ->
 
     FOMC: hard block for the full pre-event window (fomc_blackout days).
     CPI/NFP: hard block on event day; pre_event within cpi_nfp_blackout days before.
-    Post-event entries are never blocked — the print is known.
+    Post-event entries are never blocked — the print is known. The rule lives in
+    backend/macro_calendar.py; a hard block now wins over a pre_event on the same day
+    (the loop over a set used to return whichever matched first, 2026-10-17).
     """
-    for d in _MACRO_DATES:
-        days_ahead = (d - today).days
-        if days_ahead < 0:
-            continue
-        if d in _FOMC_DATES:
-            if days_ahead <= fomc_blackout:
-                return "hard_block", f"FOMC on {d.isoformat()} (in {days_ahead}d)"
-        else:
-            name = "CPI" if d in _CPI_DATES else "NFP"
-            if days_ahead == 0:
-                return "hard_block", f"{name} on {d.isoformat()} (today)"
-            if 0 < days_ahead <= cpi_nfp_blackout:
-                return "pre_event", f"{name} on {d.isoformat()} (in {days_ahead}d)"
-    return "clear", None
+    return _shared_macro_status(today, fomc_blackout, cpi_nfp_blackout)
 
 
 def _check_calendar_expiry() -> None:
@@ -389,14 +333,14 @@ def _check_calendar_expiry() -> None:
     today       = date.today()
     future      = [d for d in _MACRO_DATES if d >= today]
     if not future:
-        logger.error("Lock 1: macro event calendar is exhausted — update _FOMC_DATES/_CPI_DATES")
+        logger.error("Lock 1: macro event calendar is exhausted — update backend/macro_calendar.py")
         return
     last_date   = max(future)
     days_left   = (last_date - today).days
     if days_left < 60:
         logger.warning(
             f"Lock 1: macro calendar expires in {days_left}d (last entry {last_date.isoformat()}) "
-            "— update _FOMC_DATES/_CPI_DATES/_nfp_dates before it runs dry"
+            "— add next year's official dates to backend/macro_calendar.py before it runs dry"
         )
 
 _check_calendar_expiry()

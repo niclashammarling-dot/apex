@@ -6,8 +6,8 @@ def _run91(tmp_path, monkeypatch, text, today):
     from audit import _audit_core as core
     from audit import checks_gate as cg
     repo = tmp_path / "repo"
-    (repo / "backend/gate").mkdir(parents=True, exist_ok=True)
-    (repo / "backend/gate/lock1_eligibility.py").write_text(text)
+    (repo / "backend").mkdir(parents=True, exist_ok=True)
+    (repo / "backend/macro_calendar.py").write_text(text)
     monkeypatch.setattr(cg, "REPO", repo)
     monkeypatch.setattr(core, "REPO", repo)
     monkeypatch.setattr(core, "findings", [])
