@@ -109,6 +109,7 @@ def run(
     intraday_stops:     bool        = True,
     ratchet_from_high:  bool        = False,
     stop_slip:          tuple[float, float] | None = None,   # None: exit_rules' measured R7 values (EXIT_PARITY.md)
+    kelly_factor:       dict[str, float] | None = None,      # {date: k} replaces half-Kelly's 0.50 that day (H-V1, 2026-10-17)
     parity_stats:       ParityStats | None = None,
     regime_layer:       bool        = False,
     random_entries:     dict  | None = None,
@@ -331,7 +332,11 @@ def run(
                 continue
 
             sector    = sig["sector"]
-            alloc_pct = min(sig["kelly_size"] if sig["kelly_size"] > 0 else 0.10, MAX_POSITION_SIZE)
+            _kelly    = sig["kelly_size"]
+            if kelly_factor is not None and _kelly > 0:
+                # ev_kelly sizes at f* × 0.50; a day's factor k replaces the 0.50 (missing day → 0.50).
+                _kelly = _kelly * kelly_factor.get(today_str, 0.5) / 0.5
+            alloc_pct = min(_kelly if _kelly > 0 else 0.10, MAX_POSITION_SIZE)
             if day_regime:
                 _scale = size_mult.get(sig["ticker"], 1.0)
                 if _scale != 1.0:

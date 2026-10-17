@@ -886,7 +886,8 @@ def check74():
 CHECK76_ACCEPTED_SLOW_ONLY = {"etf_negative_floor", "etf_negative_penalty",
                              "macro_hard_block", "macro_pre_event_penalty"}
 CHECK76_ACCEPTED_FAST_ONLY = {"precomputed", "regime_layer",   # regime_layer: rows 2/5/20/21, off by default (2026-10-17)
-                              "random_entries"}                  # RND placebo for the profit read, off by default (2026-10-17)
+                              "random_entries",                  # RND placebo for the profit read, off by default (2026-10-17)
+                              "kelly_factor"}                    # H-V1 VIX sizing experiment, off by default (2026-10-17)
 
 # Layer 2 — production components documented ABSENT from engine_fast.py
 # (PRODUCTION_GAP.md rows). If a symbol appears, the row is stale, not wrong —
