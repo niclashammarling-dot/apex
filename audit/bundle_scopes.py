@@ -48,7 +48,7 @@ BY_CHECK: dict[int, str] = {
     74: ("Tests with hardcoded absolute dates calling check_live_exits (wall-clock). Scope: make fixture dates "
          "relative to now (the d02f8ab FRZ pattern) and assert the branch the test means; suite. ~30 min."),
     90: ("Lock 5 prompt follow-up (rationale corrected 2026-10-17, live from 10-19). Scope: read the approval "
-         "share and median notional before vs since; with about eight L5 decisions a week only a large move "
+         "share and median notional before vs since; with about 18 L5 decisions a week (71 in the four weeks to 10-16) only a large move "
          "means anything. Read three or four L5 reasoning texts from W43 for whether they now cite the upstream "
          "allocation correctly. Decide at the 10-24 review: keep the check, re-evaluate, or retire it. ~15 min."),
     89: ("Live entries without a captured fill (P&L booked on the quote). Scope: read each id's parent order "

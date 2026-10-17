@@ -1815,7 +1815,7 @@ def check90(today: date | None = None) -> None:
       - median live_trades.notional of entries.
     WARNING (Friday bundle) from the change date to _C90_REVIEW, INFO after — the review
     decides keep / re-evaluate / retire. Silent before the change date. n is small
-    (about eight L5 decisions a week): a direction, not a test, and the detail says so.
+    (about 18 L5 decisions a week (71 in the four weeks to 10-16)): a direction, not a test, and the detail says so.
     SKIPPED without apex.db.
     """
     from datetime import timedelta
