@@ -772,7 +772,12 @@ def _fetch_earnings_dates(tickers: list[str], start: date, end: date) -> dict[st
 
 
 def _trading_days(start: date, end: date, raw_data: pd.DataFrame) -> list[date]:
+    # Sessions only (2026-10-17): the union index carries rows where only ^VIX has a
+    # bar (US holidays: 2026-05-25, 2026-09-07). Live never sees them; here they were
+    # simulated as trading days and put a NaN row into every ticker's indicator window.
     idx = raw_data.index
+    if SPY_TICKER in raw_data.columns.get_level_values(0):
+        idx = raw_data[SPY_TICKER]["Close"].dropna().index
     return [d.date() for d in idx if start <= d.date() <= end]
 
 
@@ -782,6 +787,9 @@ def _slice_history(raw_data: pd.DataFrame, ticker: str, today: date, lookback_da
             df = raw_data[ticker].copy()
         else:
             return None
+        # The ticker's own bars only: a row with no Close (a holiday row carried by
+        # another symbol) made rolling(14) ATR NaN → 0 for 14 sessions (2026-10-17).
+        df = df.dropna(subset=["Close"])
         df = df[df.index.date <= today].tail(lookback_days)
         if df.empty:
             return None
