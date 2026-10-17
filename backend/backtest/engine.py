@@ -191,6 +191,7 @@ def run(
     etf_negative_floor:   float        = -1.0,
     intraday_stops:     bool        = True,
     ratchet_from_high:  bool        = False,
+    stop_slip:          tuple[float, float] | None = None,   # None: exit_rules' measured R7 values (EXIT_PARITY.md)
     parity_stats:       ParityStats | None = None,
 ) -> BacktestResult:
     """
@@ -312,6 +313,7 @@ def run(
             ohlc_cache=ohlc_cache if intraday_stops else None,
             parity_stats=parity_stats,
             ratchet_from_high=ratchet_from_high,
+            stop_slip=stop_slip,
         )
         for ct in closed_today:
             trade  = ct["_trade"]
@@ -575,6 +577,7 @@ def _check_exits(
     ohlc_cache: dict[tuple[str, str], Bar] | None = None,
     parity_stats: ParityStats | None = None,
     ratchet_from_high: bool = False,
+    stop_slip: tuple[float, float] | None = None,
 ) -> list[dict]:
     # Malformed profit-lock config: one set without the other previously did
     # nothing silently (the old `if trigger and trail` guard swallowed it).
@@ -608,6 +611,7 @@ def _check_exits(
                 profit_lock_trigger_pct, profit_lock_trail_pct,
                 today_str=today_str, stats=parity_stats,
                 ratchet_from_high=ratchet_from_high,
+                **({} if stop_slip is None else {"stop_slip": stop_slip}),
             )
             if hit is not None:
                 fill, reason, outcome = hit

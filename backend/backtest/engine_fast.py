@@ -108,6 +108,7 @@ def run(
     precomputed:        dict  | None = None,
     intraday_stops:     bool        = True,
     ratchet_from_high:  bool        = False,
+    stop_slip:          tuple[float, float] | None = None,   # None: exit_rules' measured R7 values (EXIT_PARITY.md)
     parity_stats:       ParityStats | None = None,
     regime_layer:       bool        = False,
     random_entries:     dict  | None = None,
@@ -240,6 +241,7 @@ def run(
             ohlc_cache=ohlc_cache if intraday_stops else None,
             parity_stats=parity_stats,
             ratchet_from_high=ratchet_from_high,
+            stop_slip=stop_slip,
         )
         for ct in closed_today:
             trade  = ct["_trade"]
@@ -951,6 +953,7 @@ def _check_exits_fast(
     ohlc_cache: dict[tuple[str, str], Bar] | None = None,
     parity_stats: ParityStats | None = None,
     ratchet_from_high: bool = False,
+    stop_slip: tuple[float, float] | None = None,
 ) -> list[dict]:
     # See engine.py::_check_exits for the full derivation of this fix
     # (2026-08-17/18) — this function carried the identical defect.
@@ -983,6 +986,7 @@ def _check_exits_fast(
                 profit_lock_trigger_pct, profit_lock_trail_pct,
                 today_str=today_str, stats=parity_stats,
                 ratchet_from_high=ratchet_from_high,
+                **({} if stop_slip is None else {"stop_slip": stop_slip}),
             )
             if hit is not None:
                 fill, reason, outcome = hit

@@ -167,6 +167,27 @@ but any later sweep writing a cache file would silently swap the OHLC source.
 High is already present in the cache (all five OHLCV fields are), so the R4
 ratchet needs no new download.
 
+## R7 — Stop slippage, measured on live fills (2026-10-17)
+
+A live stop leg is a market order once triggered, so it fills below the price R2
+models. Measured on the Alpaca paper account, 44 filled sell-stop legs
+2026-07-07..10-16 (`GET /v2/orders`, status closed, nested), each fill against the
+engine's model for the same bar: the stop price, or the open when the open was at or
+below the stop and the fill came in the first minutes (a gap through the resting
+stop). Fills later in a day whose open was below the stop are intraday triggers: the
+stop was placed or ratcheted after the open, which the engine's bar-start model does
+not see.
+
+    intraday trigger   n 37   median -0.02 %   mean +0.05 %   min -0.37 %   max +1.13 %
+    gap at the open    n  7   median -0.50 %   mean -0.13 %   min -0.74 %   max +1.08 %
+
+Modelled as the median, adverse side only: `STOP_SLIP_INTRADAY_PCT` 0.0002,
+`STOP_SLIP_GAP_PCT` 0.005 (`exit_rules.py`), applied to the R2 fill. `stop_slip=(0, 0)`
+in either engine's `run()` is the earlier behaviour. n is thin (7 gaps); review
+2026-10-31. Fees and commission are not modelled (Niclas 10-17: negligible; $1.19
+measured since 07-07). Targets are out of scope here, see the next section: R7 is a
+per-leg measurement, so it does not carry the one-sided asymmetry into a calibration.
+
 ## The model is one-sided — targets are still close-only (found 2026-09-25, after the port)
 
 Checking Niclas's "TP on close versus intraday" question before trusting the

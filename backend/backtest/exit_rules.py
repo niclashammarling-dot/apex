@@ -23,9 +23,12 @@ Summary of what is modelled:
       does not see the bar's high). `ratchet_from_high=True` is the opposite
       bound, kept so the spread is measurable.
 
-Not modelled anywhere in backend/backtest/: slippage and commission. A live
-stop fills at MARKET after trigger, so R2 is optimistic by construction.
-Measuring that bias is step (2) of the parity sequence, not this module.
+  R7  stop slippage (2026-10-17): the fill from R2 is moved against the trade by
+      STOP_SLIP_INTRADAY_PCT (stop triggered inside the bar) or STOP_SLIP_GAP_PCT
+      (gap through the stop at the open), measured on live's stop fills.
+
+Not modelled: commission and fees (Alpaca: commission-free; SEC/CAT pass-through
+$1.19 on $40,972 sold since 07-07, measured 10-12; Niclas 10-17: ignore).
 """
 from __future__ import annotations
 
@@ -33,7 +36,17 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+# R7 — measured 2026-10-17 on 44 filled sell-stop legs of the Alpaca paper account
+# (2026-07-07 .. 10-16): fill vs the engine's model (stop price, or the open on a gap
+# through it in the first minutes). Intraday triggers (n 37): median -0.02 %, mean
+# +0.05 %; gaps at the open (n 7): median -0.50 %, mean -0.13 %. Medians, adverse
+# side only; thin n, review 2026-10-31.
+STOP_SLIP_INTRADAY_PCT = 0.0002
+STOP_SLIP_GAP_PCT      = 0.005
+
 __all__ = [
+    "STOP_SLIP_GAP_PCT",
+    "STOP_SLIP_INTRADAY_PCT",
     "Bar",
     "ParityStats",
     "build_ohlc_cache",
@@ -205,6 +218,7 @@ def check_intraday_stop(
     today_str: str = "",
     stats: ParityStats | None = None,
     ratchet_from_high: bool = False,
+    stop_slip: tuple[float, float] = (STOP_SLIP_INTRADAY_PCT, STOP_SLIP_GAP_PCT),
 ) -> tuple[float, str, str] | None:
     """
     Did this trade's resting stop trigger inside today's bar?
@@ -218,6 +232,9 @@ def check_intraday_stop(
     today's high BEFORE the stop is tested, which is what a live system that
     observed the exact high would have done. The default (False) is the floor
     and the shipped behaviour.
+
+    `stop_slip` is (intraday, gap) as fractions of the price; (0, 0) is the
+    pre-2026-10-17 behaviour.
     """
     if bar is None or bar.low is None or eff_sl is None:
         return None
@@ -239,6 +256,8 @@ def check_intraday_stop(
     # R2 — a gap through the stop cannot fill at the stop.
     gapped = bar.open is not None and bar.open <= stop_price
     fill   = bar.open if gapped else stop_price
+    # R7 — the live fill lands below the modelled price (market order after trigger).
+    fill  *= 1.0 - (stop_slip[1] if gapped else stop_slip[0])
 
     # R3 — the bar also reached the target. The stop wins, but the collision is
     # counted, and separately the subset whose sign this rule flips.

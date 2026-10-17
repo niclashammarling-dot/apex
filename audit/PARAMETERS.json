@@ -61,5 +61,23 @@
       "date": "2026-10-17",
       "review": "2026-10-24"
     }
+  },
+  "backend/backtest/exit_rules.py::STOP_SLIP_INTRADAY_PCT": {
+    "value": 0.0002,
+    "kind": "measured",
+    "tier": "money",
+    "source": "Measured 2026-10-17 on 44 filled sell-stop legs of the Alpaca paper account (2026-07-07..10-16): fill vs the engine's modelled price (stop, or the open on a gap through it). Intraday n 37 median -0.02 % mean +0.05 %; gap at the open n 7 median -0.50 % mean -0.13 %. Median, adverse side. Niclas 10-17: 'stop slip, modellera den från mätningen'; fees ignored.",
+    "engine": "engine_fast + engine (exit_rules.check_intraday_stop)",
+    "date": "2026-10-17",
+    "review": "2026-10-31"
+  },
+  "backend/backtest/exit_rules.py::STOP_SLIP_GAP_PCT": {
+    "value": 0.005,
+    "kind": "measured",
+    "tier": "money",
+    "source": "Measured 2026-10-17 on 44 filled sell-stop legs of the Alpaca paper account (2026-07-07..10-16): fill vs the engine's modelled price (stop, or the open on a gap through it). Intraday n 37 median -0.02 % mean +0.05 %; gap at the open n 7 median -0.50 % mean -0.13 %. Median, adverse side. Niclas 10-17: 'stop slip, modellera den från mätningen'; fees ignored.",
+    "engine": "engine_fast + engine (exit_rules.check_intraday_stop)",
+    "date": "2026-10-17",
+    "review": "2026-10-31"
   }
 }

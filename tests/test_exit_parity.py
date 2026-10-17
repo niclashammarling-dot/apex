@@ -91,7 +91,10 @@ def _replay(case: dict, params: dict, engine: str, stats: ParityStats | None = N
             params["trailing_stop_pct"], None, None,
         )
         fn = slow._check_exits if engine == "slow" else fast._check_exits_fast
-        closed = fn(*args, ohlc_cache=ohlc, parity_stats=stats, ratchet_from_high=False)
+        # stop_slip=(0, 0): the reference was certified on R1–R6, before R7 (2026-10-17);
+        # R7 has its own test (test_exit_rules_stop_slip.py).
+        closed = fn(*args, ohlc_cache=ohlc, parity_stats=stats, ratchet_from_high=False,
+                    stop_slip=(0.0, 0.0))
         if closed:
             assert len(closed) == 1
             return closed[0]["record"]
