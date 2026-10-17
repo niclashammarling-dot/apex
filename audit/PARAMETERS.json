@@ -30,6 +30,14 @@
       "commit": "7e810d0",
       "date": "2026-10-16",
       "review": "2026-10-30"
+    },
+    "audit/checks_gate.py::_C90_PRIOR_DAYS": {
+      "value": 28,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "Niclas 10-17: follow up the L5 prompt edit, W43 against the prior four weeks (4 x 7 calendar days). Report-only: no gate, size or exit reads it.",
+      "date": "2026-10-17",
+      "review": "2026-10-24"
     }
   }
 }

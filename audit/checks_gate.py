@@ -1793,6 +1793,76 @@ def check88() -> None:
          + f"; {len(b.get('excepted', []))} excepted")
 
 
+# ── CHECK 90 — Lock 5 output after the 2026-10-19 prompt change ────────────────
+
+_C90_CHANGE = "2026-10-19"   # first session on the corrected L5 prompt (Monday restart)
+_C90_REVIEW = "2026-10-24"   # Niclas 10-17: follow-up read in the Friday bundle, review that Saturday
+_C90_PRIOR_DAYS = 28         # the four weeks before the change
+
+
+def check90(today: date | None = None) -> None:
+    """
+    CHECK 90 — did the corrected Lock 5 prompt move L5's decisions or sizes?
+
+    The 2026-10-17 edit replaced the rationale clause only ("allocation weighting is
+    handled downstream" → the allocation acts upstream in Lock 1; the post-L5 multiplier
+    is score-relative). The binding no-Bayesian-sizing sentence is unchanged, but a prompt
+    edit can still shift L5 (Niclas 10-17: follow up). Compares, on live_gate_history and
+    live_trades, the four weeks before _C90_CHANGE with the days since:
+      - L5 approval share: TRADE_EXECUTED + TRADE_FAILED over those plus FILTERED_L3
+        (the L5 reject), fail-closed rows (CHECK 81's prefix) excluded — those were
+        never Claude's judgement;
+      - median live_trades.notional of entries.
+    WARNING (Friday bundle) from the change date to _C90_REVIEW, INFO after — the review
+    decides keep / re-evaluate / retire. Silent before the change date. n is small
+    (about eight L5 decisions a week): a direction, not a test, and the detail says so.
+    SKIPPED without apex.db.
+    """
+    from datetime import timedelta
+    from statistics import median
+    from backend.gate.types import L5_UNAVAILABLE_PREFIX
+    name  = "Lock 5 output after the prompt change"
+    db    = REPO / "data/apex.db"
+    today = today or date.today()
+    if today.isoformat() < _C90_CHANGE:
+        return
+    if not require_data_file(90, name, db):
+        return
+    start = (date.fromisoformat(_C90_CHANGE) - timedelta(days=_C90_PRIOR_DAYS)).isoformat()
+    end   = (today + timedelta(days=1)).isoformat()
+    try:
+        conn = sqlite3.connect(db)
+        rows = conn.execute(
+            "SELECT date(timestamp), gate_decision FROM live_gate_history "
+            "WHERE timestamp >= ? AND timestamp < ? "
+            "AND gate_decision IN ('TRADE_EXECUTED', 'TRADE_FAILED', 'FILTERED_L3') "
+            "AND (lock3_reasoning IS NULL OR lock3_reasoning NOT LIKE ?)",
+            (start, end, L5_UNAVAILABLE_PREFIX + "%")).fetchall()
+        trades = conn.execute(
+            "SELECT date(timestamp), notional FROM live_trades WHERE timestamp >= ? AND timestamp < ?",
+            (start, end)).fetchall()
+        conn.close()
+    except Exception as e:
+        flag(90, name, "WARNING", "data/apex.db:live_gate_history", f"could not query: {e}")
+        return
+
+    def share(part):
+        ok = sum(1 for _, g in part if g != "FILTERED_L3")
+        return ok, len(part)
+
+    b_ok, b_n = share([r for r in rows if r[0] < _C90_CHANGE])
+    a_ok, a_n = share([r for r in rows if r[0] >= _C90_CHANGE])
+    b_sz = [n for d, n in trades if d < _C90_CHANGE and n]
+    a_sz = [n for d, n in trades if d >= _C90_CHANGE and n]
+    pct  = lambda ok, n: f"{ok}/{n} ({ok / n:.0%})" if n else "0/0"
+    med  = lambda xs: f"${median(xs):,.0f} (n={len(xs)})" if xs else "none"
+    sev  = "WARNING" if today.isoformat() <= _C90_REVIEW else "INFO"
+    flag(90, name, sev, "backend/gate/lock5_claude.py:SYSTEM_PROMPT",
+         f"L5 approval {pct(b_ok, b_n)} in the 4 weeks before {_C90_CHANGE} vs {pct(a_ok, a_n)} since; "
+         f"median entry notional {med(b_sz)} vs {med(a_sz)}. Small n — a direction, not a test. "
+         f"Review {_C90_REVIEW} (Niclas 10-17): keep, re-evaluate or retire this check.")
+
+
 def run() -> None:
     check24()
     check25()
@@ -1815,3 +1885,4 @@ def run() -> None:
     check86()
     check87()
     check88()
+    check90()
