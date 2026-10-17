@@ -21,3 +21,19 @@ def test_spot_dates_from_the_sources():
     assert date(2021, 1, 1) not in NFP_DATES                      # first-Friday rule's holiday
     assert {date(2024, 11, 7), date(2020, 3, 18), date(2027, 12, 8)} <= FOMC_DATES
     assert not {date(2020, 3, 2), date(2020, 3, 15), date(2025, 8, 22)} & FOMC_DATES   # unscheduled
+
+
+def test_hard_block_wins_over_an_eve_on_the_same_day():
+    # Live's old loop over a set returned whichever event matched first (2026-10-17).
+    from datetime import timedelta
+    from backend.macro_calendar import macro_status
+    both = []
+    d = date(2015, 1, 1)
+    while d <= date(2027, 12, 31):
+        in_fomc = any(0 <= (f - d).days <= 2 for f in FOMC_DATES)
+        eve = any((e - d).days == 1 for e in CPI_DATES | NFP_DATES)
+        if in_fomc and eve:
+            both.append(d)
+        d += timedelta(days=1)
+    assert both                                               # such days exist
+    assert all(macro_status(x)[0] == "hard_block" for x in both)
