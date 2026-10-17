@@ -66,3 +66,10 @@ def test_size_multipliers_cancel_the_allocation():
         assert abs(lo[t] - hi[t]) <= 1e-3
         assert abs(lo[t] - 3 * dict(queued["Technology"])[t] / 2.17) <= 1e-3
     assert RegimeBayes.size_multipliers({"Technology": 0.0}, queued) == {}
+
+
+def test_cap_factors_times_base_is_the_live_cap():
+    from backend.sector_caps import cap_factors, caps_from_factors
+    f = cap_factors(SCORES, STATS["sectors"], RR)
+    assert caps_from_factors(0.30, f) == PARENT_CAPS_WITH
+    assert caps_from_factors(0.30, cap_factors(SCORES, STATS["sectors"], None)) == PARENT_CAPS_WITHOUT

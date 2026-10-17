@@ -40,6 +40,7 @@ from backend.config import (
 from backend.backtest.exit_rules import Bar, ParityStats, build_ohlc_cache, check_intraday_stop
 from backend.signals import aggregator, momentum, relative_strength, trend, volume
 from backend.signals.ev_kelly import compute as ev_kelly_compute
+from backend.sector_caps import caps_from_factors
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -102,6 +103,8 @@ def run(
     max_positions:      int   | None = None,
     sl_cooldown_days:   int   | None = None,   # None: live config (live_shape.live_cooloff_days)
     tp_cooldown_days:   int   | None = None,
+    max_sector_exposure: float | None = None,   # None: config MAX_SECTOR_EXPOSURE
+    daily_loss_cap:     float | None = None,   # None: DAILY_LOSS_CAP_PCT × initial_balance
     precomputed:        dict  | None = None,
     intraday_stops:     bool        = True,
     ratchet_from_high:  bool        = False,
@@ -214,6 +217,12 @@ def run(
         tp_cooldown_days = _live_tp if tp_cooldown_days is None else tp_cooldown_days
     SL_COOLDOWN_DAYS = sl_cooldown_days
     TP_COOLDOWN_DAYS = tp_cooldown_days
+    # Daily loss cap as live has it: 5 % of the starting balance (live $500 on $10,000,
+    # demo $100 on $2,000). Until 2026-10-17 the engines used config's $100 on a
+    # $10,000 simulation: 1 %, five times stricter than live.
+    from backend.backtest.live_shape import DAILY_LOSS_CAP_PCT
+    loss_cap   = daily_loss_cap if daily_loss_cap is not None else DAILY_LOSS_CAP_PCT * initial_balance
+    sector_max = max_sector_exposure if max_sector_exposure is not None else MAX_SECTOR_EXPOSURE
 
     balance      = initial_balance
     open_trades: list[dict] = []
@@ -262,6 +271,8 @@ def run(
         )
         if rnd is not None:
             rnd.shuffle(candidates)
+        # Row 21: the day's cap weights applied to this run's base cap.
+        day_caps = caps_from_factors(sector_max, day_regime["cap_factors"]) if day_regime else {}
 
         # 3. Attempt entries
         open_tickers     = {t["ticker"] for t in open_trades}
@@ -306,7 +317,7 @@ def run(
                 continue
             if sl_cooldown.get(sig["ticker"], date.min) > today:
                 continue
-            if daily_loss_today >= DAILY_LOSS_CAP:
+            if daily_loss_today >= loss_cap:
                 break
 
             if earnings_filter_days is not None:
@@ -325,7 +336,7 @@ def run(
                     alloc_pct = min(round(alloc_pct * _scale, 4), MAX_POSITION_SIZE)
             amount    = balance * alloc_pct
             projected = sector_exposure.get(sector, 0.0) + (amount / balance)
-            sector_cap = day_regime["caps"].get(sector, MAX_SECTOR_EXPOSURE) if day_regime else MAX_SECTOR_EXPOSURE
+            sector_cap = day_caps.get(sector, sector_max) if day_regime else sector_max
             if projected > sector_cap:
                 continue
 
@@ -793,14 +804,15 @@ def build_regime_timeline(precomputed: dict) -> dict:
     snapshot from t (live's caps read the latest intraday snapshot):
       bucket      row 2  aggregator weights for t's scores
       allocation  row 5  L1-A filter (> 0), row 20 multiplier gate
-      caps        row 21 dynamic_caps_from(snapshot(t), streaks ≤ t, result(t−1))
+      cap_factors row 21 sector_caps.cap_factors(snapshot(t), streaks ≤ t, result(t−1));
+                         the run applies its own base cap (caps_from_factors)
     Cold start from RegimeState.cold (live's uniform fallback), warm-up on the
     precompute lookback before the first day. Pure: RegimeBayes(persisted=False).
     Returns {"days": {date_str: {...}}, "warmup_sessions": int}.
     """
     from collections import defaultdict
     from backend.regime.regime_bayes import RegimeBayes, RegimeState
-    from backend.sector_caps import dynamic_caps_from
+    from backend.sector_caps import cap_factors
     from backend.sector_regime import _compute_sector_stats
 
     raw_data      = precomputed["raw_data"]
@@ -859,8 +871,7 @@ def build_regime_timeline(precomputed: dict) -> dict:
                 "regime_from": prev.date if prev else None,   # always the previous session
                 "bucket":     bucket,
                 "allocation": dict(prev.allocation) if prev else {},
-                "caps":       dynamic_caps_from(MAX_SECTOR_EXPOSURE, snapshot,
-                                                _compute_sector_stats(history), prev),
+                "cap_factors": cap_factors(snapshot, _compute_sector_stats(history), prev),
             }
 
         # OHLCV as the as_of path sees it: 90 calendar days ending d.

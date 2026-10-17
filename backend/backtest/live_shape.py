@@ -136,6 +136,11 @@ def describe_varied(entry: dict) -> str:
     return f"same trades for {entry['combos']} combos: {axes}"
 
 
+# Daily loss cap as a fraction of the starting balance: live $500 / $10,000 and demo
+# $100 / $2,000 are both 5 % (Niclas 2026-10-17). Equity-based is next Saturday's question.
+DAILY_LOSS_CAP_PCT = 0.05
+
+
 def live_cooloff_days() -> tuple[int, int]:
     """(sl_cooldown_days, tp_cooldown_days) for both engines, from live config
     (2026-10-17, PRODUCTION_GAP row 23). Live blocks re-entry by hours

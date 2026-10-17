@@ -79,7 +79,7 @@ def _forced(pre, **day):
     p["regime_timeline"] = {"warmup_sessions": 99, "days": {
         d.isoformat(): {"regime_from": None, "bucket": "neutral",
                         "allocation": {"Technology": 0.6, "Energy": 0.4, "Healthcare": 0.0},
-                        "caps": {}, **day}
+                        "cap_factors": {}, **day}
         for d in pre["trading_days"]}}
     return p
 
@@ -92,11 +92,21 @@ def test_row5_sectors_without_allocation_never_enter(pre):
     assert not any(t["sector"] == "Healthcare" for t in on["trade_log"])
 
 
-def test_row21_caps_bind(pre):
-    loose = _run(_forced(pre, caps={"Technology": 0.9, "Energy": 0.9}), regime_layer=True)
-    tight = _run(_forced(pre, caps={"Technology": 0.001, "Energy": 0.9}), regime_layer=True)
-    assert any(t["sector"] == "Technology" for t in loose["trade_log"])       # control
-    assert not any(t["sector"] == "Technology" for t in tight["trade_log"])
+def test_row21_cap_factors_bind_on_the_runs_base(pre, monkeypatch):
+    """Neutral factors (1, 1, 1) are the flat cap exactly; a tight Technology factor
+    (clamped to base × 0.5) moves Technology's trades; the base comes from the run."""
+    monkeypatch.setattr(rbm.RegimeBayes, "size_multipliers", staticmethod(lambda a, q: {}))
+    unit  = {s: (1.0, 1.0, 1.0) for s in ("Technology", "Energy", "Healthcare")}
+    tight = {**unit, "Technology": (0.5, 0.85, 0.75)}
+    flat  = _run(pre)
+    same  = _run(_forced(pre, allocation=ALL_IN, cap_factors=unit), regime_layer=True)
+    assert same["trade_log"] == flat["trade_log"]                               # control
+    t = _run(_forced(pre, allocation=ALL_IN, cap_factors=tight), regime_layer=True,
+             max_sector_exposure=0.10)
+    l = _run(_forced(pre, allocation=ALL_IN, cap_factors=unit), regime_layer=True,
+             max_sector_exposure=0.10)
+    tech = lambda r: sum(x["amount"] for x in r["trade_log"] if x["sector"] == "Technology")
+    assert tech(t) < tech(l)
 
 
 ALL_IN = {"Technology": 0.5, "Energy": 0.3, "Healthcare": 0.2}

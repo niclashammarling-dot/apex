@@ -83,7 +83,10 @@ def synthetic_precomputed() -> dict:
     }
 
 
-RUN_KW = dict(sl_cooldown_days=5, tp_cooldown_days=0, lock1_threshold=0.45, max_positions=6)
+# daily_loss_cap=100 and the default sector cap are the parent's values: the golden pins the
+# parent's arithmetic, so the 2026-10-17 default change (5 % of start) is passed out here.
+RUN_KW = dict(sl_cooldown_days=5, tp_cooldown_days=0, lock1_threshold=0.45, max_positions=6,
+              daily_loss_cap=100.0)
 
 
 def _summary(res: dict) -> dict:

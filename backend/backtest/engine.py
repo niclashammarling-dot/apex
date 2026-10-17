@@ -183,6 +183,8 @@ def run(
     max_positions:      int   | None = None,
     sl_cooldown_days:   int   | None = None,   # None: live config (live_shape.live_cooloff_days)
     tp_cooldown_days:   int   | None = None,
+    max_sector_exposure: float | None = None,   # None: config MAX_SECTOR_EXPOSURE
+    daily_loss_cap:     float | None = None,   # None: DAILY_LOSS_CAP_PCT × initial_balance
     macro_hard_block:   bool        = False,
     macro_pre_event_penalty: float | None = None,
     etf_negative_penalty: float | None = None,
@@ -285,6 +287,12 @@ def run(
         tp_cooldown_days = _live_tp if tp_cooldown_days is None else tp_cooldown_days
     SL_COOLDOWN_DAYS = sl_cooldown_days
     TP_COOLDOWN_DAYS = tp_cooldown_days
+    # Daily loss cap as live has it: 5 % of the starting balance (live $500 on $10,000,
+    # demo $100 on $2,000). Until 2026-10-17 the engines used config's $100 on a
+    # $10,000 simulation: 1 %, five times stricter than live.
+    from backend.backtest.live_shape import DAILY_LOSS_CAP_PCT
+    loss_cap   = daily_loss_cap if daily_loss_cap is not None else DAILY_LOSS_CAP_PCT * initial_balance
+    sector_max = max_sector_exposure if max_sector_exposure is not None else MAX_SECTOR_EXPOSURE
 
     # Simulate day by day
     balance      = initial_balance
@@ -365,7 +373,7 @@ def run(
                 continue
             if sl_cooldown.get(sig["ticker"], date.min) > today:
                 continue
-            if daily_loss_today >= DAILY_LOSS_CAP:
+            if daily_loss_today >= loss_cap:
                 break
 
             # Earnings date filter — skip if earnings within N days
@@ -401,7 +409,7 @@ def run(
             alloc_pct = min(sig["kelly_size"] if sig["kelly_size"] > 0 else 0.10, MAX_POSITION_SIZE)
             amount    = balance * alloc_pct
             projected = sector_exposure.get(sector, 0.0) + (amount / balance)
-            if projected > MAX_SECTOR_EXPOSURE:
+            if projected > sector_max:
                 continue
 
             entry_price = _price_on(raw_data, sig["ticker"], today)

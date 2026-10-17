@@ -52,6 +52,14 @@
       "tier": "ops",
       "source": "Annualisation convention for daily returns (NYSE sessions per year, the factor engine_fast._compute_metrics already uses as sqrt(252)). Report-only: no gate, size or exit reads it.",
       "date": "2026-10-17"
+    },
+    "backend/backtest/live_shape.py::DAILY_LOSS_CAP_PCT": {
+      "value": 0.05,
+      "kind": "chosen",
+      "tier": "money",
+      "source": "Niclas 2026-10-17: the engines' daily loss cap as live has it, 5 % of the starting balance (live $500 / $10,000, demo $100 / $2,000). Replaces config's $100 on a $10,000 simulation (1 %). Equity-based (5 % of current capital, Niclas's preference) is next Saturday's question.",
+      "date": "2026-10-17",
+      "review": "2026-10-24"
     }
   }
 }
