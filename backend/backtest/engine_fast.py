@@ -107,6 +107,7 @@ def run(
     ratchet_from_high:  bool        = False,
     parity_stats:       ParityStats | None = None,
     regime_layer:       bool        = False,
+    random_entries:     dict  | None = None,
 ) -> BacktestResult:
     tp       = take_profit_pct    if take_profit_pct    is not None else TAKE_PROFIT_PCT
     sl       = stop_loss_pct      if stop_loss_pct      is not None else STOP_LOSS_PCT
@@ -191,6 +192,15 @@ def run(
                 "ticker_sector": ticker_sector, "sector_etf": sector_etf,
             })["days"]
 
+    # RND placebo (profit read, 2026-10-17): {"seed": int, "per_day": {date_str: k}}.
+    # Entries are drawn at random from every scored ticker of the day (no threshold;
+    # allocated sectors only under regime_layer), capped at k entries that day — the
+    # reference run's count — with the same exits, cooloffs, caps and Kelly-from-cache
+    # sizing. The row 20 multiplier is score-relative, so it belongs to the signal and
+    # is not applied. Isolates signal edge from exit rules, sizing and exposure.
+    import random as _random
+    rnd = _random.Random(random_entries["seed"]) if random_entries else None
+
     # Pre-fetch earnings if needed
     earnings_dates: dict[str, set[date]] = {}
     if earnings_filter_days is not None:
@@ -246,10 +256,12 @@ def run(
         day_regime = regime_days.get(today_str) if regime_layer else None
         candidates = _get_candidates_from_cache(
             signal_cache, ticker_sector, sector_etf, etf_cache,
-            today_str, l1, spy["regime"], rolling_wr,
+            today_str, l1 if rnd is None else None, spy["regime"], rolling_wr,
             regime_state=day_regime["bucket"] if day_regime else None,
             sector_allocation=day_regime["allocation"] if day_regime else None,
         )
+        if rnd is not None:
+            rnd.shuffle(candidates)
 
         # 3. Attempt entries
         open_tickers     = {t["ticker"] for t in open_trades}
@@ -267,7 +279,7 @@ def run(
         # pass the per-ticker skips (held, cooloff, earnings, leading RS) — the ones
         # live would evaluate; capacity limits apply later, in the loop.
         size_mult: dict[str, float] = {}
-        if day_regime and not vix_blocked:
+        if day_regime and not vix_blocked and rnd is None:
             from backend.regime.regime_bayes import RegimeBayes
             queued: dict[str, list[tuple[str, float]]] = {}
             for sig in candidates:
@@ -283,10 +295,12 @@ def run(
                 queued.setdefault(sig["sector"], []).append((tk, sig["signal_score"]))
             size_mult = RegimeBayes.size_multipliers(day_regime["allocation"], queued)
 
-        for sig in ([] if vix_blocked else sorted(candidates, key=lambda s: s["signal_score"], reverse=True)):
+        day_epd = max_epd if rnd is None else random_entries["per_day"].get(today_str, 0)
+        ordered = candidates if rnd is not None else sorted(candidates, key=lambda s: s["signal_score"], reverse=True)
+        for sig in ([] if vix_blocked else ordered):
             if len(open_trades) >= max_pos:
                 break
-            if max_epd is not None and entries_today >= max_epd:
+            if day_epd is not None and entries_today >= day_epd:
                 break
             if sig["ticker"] in open_tickers:
                 continue
@@ -866,7 +880,7 @@ def _get_candidates_from_cache(
     sector_etf: dict[str, str],
     etf_cache: dict,
     today_str: str,
-    lock1_threshold: float,
+    lock1_threshold: float | None,
     spy_regime: float,
     rolling_win_rate: float | None,
     regime_state: str | None = None,
@@ -894,9 +908,11 @@ def _get_candidates_from_cache(
         if sig is None:
             continue
         score = sig["signal_score"] if regime_state is None else _regime_score(sig["components"], regime_state)
-        effective_threshold = max(lock1_threshold, SECTOR_THRESHOLD_FLOORS.get(sector, 0.0))
-        if score < effective_threshold:
-            continue
+        # lock1_threshold None: no threshold at all (the RND pool), floors included.
+        if lock1_threshold is not None:
+            effective_threshold = max(lock1_threshold, SECTOR_THRESHOLD_FLOORS.get(sector, 0.0))
+            if score < effective_threshold:
+                continue
         atr_pct = sig["atr_pct"]
         evk = ev_kelly_compute(spy_regime, rolling_win_rate=rolling_win_rate, atr_pct=atr_pct)
         kelly_size = round(evk["kelly_size"] * min(1.0, max(0.5, score)), 4)

@@ -153,3 +153,25 @@ def test_ipo_guard_scanner_finds_a_known_import():
     tree = ast.parse((REPO / "backend" / "scheduler.py").read_text())
     assert any(isinstance(n, ast.ImportFrom) and any(a.name == "IpoSentiment" for a in n.names)
                for n in ast.walk(tree))
+
+
+def test_rnd_draws_k_entries_per_day_from_the_unthresholded_pool(pre):
+    ref = _run(pre, regime_layer=True)
+    per_day: dict[str, int] = {}
+    for t in ref["trade_log"]:
+        per_day[t["entry_date"]] = per_day.get(t["entry_date"], 0) + 1
+    a  = _run(pre, regime_layer=True, random_entries={"seed": 1, "per_day": per_day})
+    a2 = _run(pre, regime_layer=True, random_entries={"seed": 1, "per_day": per_day})
+    b  = _run(pre, regime_layer=True, random_entries={"seed": 2, "per_day": per_day})
+    assert a["trade_log"] == a2["trade_log"]                      # seeded
+    assert a["trade_log"] != b["trade_log"]                       # seeds differ
+    got: dict[str, int] = {}
+    for t in a["trade_log"]:
+        got[t["entry_date"]] = got.get(t["entry_date"], 0) + 1
+    assert all(got.get(d, 0) <= k for d, k in per_day.items())    # never more than the reference
+    assert set(got) <= set(per_day)                               # only on reference entry days
+    assert sum(got.values()) >= 0.8 * sum(per_day.values())       # capacity rarely binds
+    # Below-threshold tickers enter: the pool is not the signal's candidate set.
+    scores = [t["signal_score"] for t in a["trade_log"]]
+    assert min(scores) < RUN_KW["lock1_threshold"]
+    assert _run(pre, regime_layer=True, random_entries={"seed": 1, "per_day": {}})["total_trades"] == 0

@@ -113,7 +113,8 @@ logs. Accepted divergences (edit the check's lists and this file together):
 
 - `run()` slow-only: `etf_negative_floor`, `etf_negative_penalty`,
   `macro_hard_block`, `macro_pre_event_penalty`; fast-only: `precomputed`,
-  `regime_layer` (2026-10-17; off by default, layer 3 runs with it off).
+  `regime_layer`, `random_entries` (2026-10-17; both off by default, layer 3 runs with them off;
+  `random_entries` is the profit read's RND placebo, not a production component).
 - `engine.py:330` macro block is unconditional on event days; `engine_fast`
   has no macro calendar.
 
