@@ -30,6 +30,21 @@
       "commit": "7e810d0",
       "date": "2026-10-16",
       "review": "2026-10-30"
+    },
+    "backend/backtest/engine_fast.py::REGIME_IPO_NEUTRAL_SHARE": {
+      "value": 0.05,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Any share in (0, 0.1) gives LR 1.0 under _lr_ipo_cluster's int(share * 10) step, for every sector count; 1/n does not (n <= 10 gives 1.2). The engine has no historical EDGAR feed, so IPO is neutral (floor_reconstruction.py precedent). Backtest-only: no live path reads it.",
+      "date": "2026-10-17"
+    },
+    "backend/backtest/engine_fast.py::REGIME_WARMUP_MIN_SESSIONS": {
+      "value": 30,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "Ruled 2026-10-16 (engine port pre-work, design B): warm-up >= 30 sessions at decay 0.90, cold-start residual 0.9^30 ~ 4 %. A refusal floor: the timeline raises below it rather than run cold. Backtest-only.",
+      "date": "2026-10-17",
+      "review": "2026-10-31"
     }
   }
 }

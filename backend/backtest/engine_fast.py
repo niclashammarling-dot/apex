@@ -106,6 +106,7 @@ def run(
     intraday_stops:     bool        = True,
     ratchet_from_high:  bool        = False,
     parity_stats:       ParityStats | None = None,
+    regime_layer:       bool        = False,
 ) -> BacktestResult:
     tp       = take_profit_pct    if take_profit_pct    is not None else TAKE_PROFIT_PCT
     sl       = stop_loss_pct      if stop_loss_pct      is not None else STOP_LOSS_PCT
@@ -176,6 +177,20 @@ def run(
         )
         logger.info("Backtest (fast): cache built — starting simulation loop")
 
+    # Regime layer (PRODUCTION_GAP rows 2, 5, 20, 21; opt-in, 2026-10-17). Built once
+    # per precomputed dict and kept in it, so optimizer and walk-forward runs share it.
+    regime_days: dict[str, dict] = {}
+    if regime_layer:
+        if precomputed is not None:
+            if "regime_timeline" not in precomputed:
+                precomputed["regime_timeline"] = build_regime_timeline(precomputed)
+            regime_days = precomputed["regime_timeline"]["days"]
+        else:
+            regime_days = build_regime_timeline({
+                "raw_data": raw_data, "trading_days": trading_days, "signal_cache": signal_cache,
+                "ticker_sector": ticker_sector, "sector_etf": sector_etf,
+            })["days"]
+
     # Pre-fetch earnings if needed
     earnings_dates: dict[str, set[date]] = {}
     if earnings_filter_days is not None:
@@ -228,9 +243,12 @@ def run(
         closed_so_far = len(closed_trades)
         rolling_wr = (wins_so_far / closed_so_far) if closed_so_far >= WIN_RATE_MIN_TRADES else None
 
+        day_regime = regime_days.get(today_str) if regime_layer else None
         candidates = _get_candidates_from_cache(
             signal_cache, ticker_sector, sector_etf, etf_cache,
             today_str, l1, spy["regime"], rolling_wr,
+            regime_state=day_regime["bucket"] if day_regime else None,
+            sector_allocation=day_regime["allocation"] if day_regime else None,
         )
 
         # 3. Attempt entries
@@ -243,6 +261,27 @@ def run(
             vix_threshold is not None
             and vix_cache.get(today_str, 0.0) > vix_threshold
         )
+
+        # Row 20: live sizes each queued trade by n·s/Σs within its sector over the
+        # cycle's queued set. The engine's queued set is the day's candidates that
+        # pass the per-ticker skips (held, cooloff, earnings, leading RS) — the ones
+        # live would evaluate; capacity limits apply later, in the loop.
+        size_mult: dict[str, float] = {}
+        if day_regime and not vix_blocked:
+            from backend.regime.regime_bayes import RegimeBayes
+            queued: dict[str, list[tuple[str, float]]] = {}
+            for sig in candidates:
+                tk = sig["ticker"]
+                if tk in open_tickers or sl_cooldown.get(tk, date.min) > today:
+                    continue
+                if earnings_filter_days is not None and any(
+                        today <= ed <= today + timedelta(days=earnings_filter_days)
+                        for ed in earnings_dates.get(tk, set())):
+                    continue
+                if use_leading_rs and not rs_cache.get((tk, today_str), True):
+                    continue
+                queued.setdefault(sig["sector"], []).append((tk, sig["signal_score"]))
+            size_mult = RegimeBayes.size_multipliers(day_regime["allocation"], queued)
 
         for sig in ([] if vix_blocked else sorted(candidates, key=lambda s: s["signal_score"], reverse=True)):
             if len(open_trades) >= max_pos:
@@ -266,9 +305,14 @@ def run(
 
             sector    = sig["sector"]
             alloc_pct = min(sig["kelly_size"] if sig["kelly_size"] > 0 else 0.10, MAX_POSITION_SIZE)
+            if day_regime:
+                _scale = size_mult.get(sig["ticker"], 1.0)
+                if _scale != 1.0:
+                    alloc_pct = min(round(alloc_pct * _scale, 4), MAX_POSITION_SIZE)
             amount    = balance * alloc_pct
             projected = sector_exposure.get(sector, 0.0) + (amount / balance)
-            if projected > MAX_SECTOR_EXPOSURE:
+            sector_cap = day_regime["caps"].get(sector, MAX_SECTOR_EXPOSURE) if day_regime else MAX_SECTOR_EXPOSURE
+            if projected > sector_cap:
                 continue
 
             entry_price = price_cache.get((sig["ticker"], today_str))
@@ -689,6 +733,10 @@ def _build_signal_cache(
                         "signal_score": score,
                         "kelly_size":   kelly_scaled,
                         "atr_pct":      atr_pct,
+                        # Weight-independent inputs (2026-10-17): the regime layer
+                        # re-weights them per day; signal_score stays the neutral value.
+                        "components":   (mom["momentum_score"], vol["volume_score"],
+                                         trd["trend_score"], rs["rs_score"], etf_mult),
                     }
                 except Exception:
                     continue
@@ -697,6 +745,114 @@ def _build_signal_cache(
 
     logger.info(f"Signal cache: {len(cache)} entries for {total} tickers × {len(trading_days)} days")
     return cache
+
+
+# ── Regime layer (PRODUCTION_GAP rows 2, 5, 20, 21; 2026-10-17) ──────────────
+
+# Uniform IPO in the engine (no historical EDGAR feed; never call IpoSentiment here —
+# tests/test_engine_regime_layer.py guards it). Any share in (0, 0.1) is LR 1.0 under
+# _lr_ipo_cluster's int(share × 10) step for every sector count; 1/n is not (n ≤ 10 → 1.2).
+REGIME_IPO_NEUTRAL_SHARE = 0.05
+# Sessions of regime history before the first backtest day (ruled 2026-10-16: ≥ 30 at
+# decay 0.90, residual 0.9^30 ≈ 4 % of the cold start). The precompute lookback
+# (130 calendar days, minus the 55 rows the signal modules need) gives about 34.
+REGIME_WARMUP_MIN_SESSIONS = 30
+
+
+def _regime_score(components: tuple, regime_state: str) -> float:
+    """The cached signal_score's formula with that bucket's aggregator weights."""
+    mom, vol, trd, rs, etf_mult = components
+    score = aggregator.compute(mom, vol, trd, rs, regime_state=regime_state)
+    return round(min(max(score * etf_mult, 0.0), 1.0), 4)
+
+
+def build_regime_timeline(precomputed: dict) -> dict:
+    """
+    The regime layer's daily inputs for every backtest day, computed once.
+
+    Sequential, as live: state(t−1) → bucket(t−1) → scores(t) under its weights →
+    snapshot(t) = per-sector mean score → RegimeBayes.step(t). Decisions on day t
+    read the regime from t−1 (live's EOD for t−1 runs before t's open) and the
+    snapshot from t (live's caps read the latest intraday snapshot):
+      bucket      row 2  aggregator weights for t's scores
+      allocation  row 5  L1-A filter (> 0), row 20 multiplier gate
+      caps        row 21 dynamic_caps_from(snapshot(t), streaks ≤ t, result(t−1))
+    Cold start from RegimeState.cold (live's uniform fallback), warm-up on the
+    precompute lookback before the first day. Pure: RegimeBayes(persisted=False).
+    Returns {"days": {date_str: {...}}, "warmup_sessions": int}.
+    """
+    from collections import defaultdict
+    from backend.regime.regime_bayes import RegimeBayes, RegimeState
+    from backend.sector_caps import dynamic_caps_from
+    from backend.sector_regime import _compute_sector_stats
+
+    raw_data      = precomputed["raw_data"]
+    trading_days  = precomputed["trading_days"]
+    signal_cache  = precomputed["signal_cache"]
+    ticker_sector = precomputed["ticker_sector"]
+    sector_etf    = precomputed["sector_etf"]
+    if not trading_days:
+        return {"days": {}, "warmup_sessions": 0}
+    start = trading_days[0]
+
+    # Warm-up: the lookback days before the window, scored by the same builder.
+    warm_days  = [ts.date() for ts in raw_data.index if ts.date() < start]
+    warm_cache = _build_signal_cache(
+        raw_data, ticker_sector, sector_etf,
+        _build_spy_cache(raw_data, warm_days),
+        _build_etf_cache(raw_data, list(sector_etf.values()), warm_days),
+        warm_days,
+    )
+    scored_warm = sorted({date.fromisoformat(d) for (_, d) in warm_cache})
+    if len(scored_warm) < REGIME_WARMUP_MIN_SESSIONS:
+        raise ValueError(f"regime warm-up has {len(scored_warm)} scored sessions before {start}, "
+                         f"needs ≥ {REGIME_WARMUP_MIN_SESSIONS}: extend the precompute lookback")
+
+    # The universe the caches were built from (precompute: get_sectors()), so the
+    # regime and the signals can never disagree on it.
+    sectors_cfg: dict[str, dict] = {s: {"tickers": [], "etf": e} for s, e in sector_etf.items()}
+    for ticker, sector in ticker_sector.items():
+        sectors_cfg[sector]["tickers"].append(ticker)
+    rb    = RegimeBayes(sectors_cfg, {s: c["etf"] for s, c in sectors_cfg.items()}, {}, persisted=False)
+    state = RegimeState.cold(sectors_cfg)
+    ipo   = {s: REGIME_IPO_NEUTRAL_SHARE for s in sectors_cfg}
+    index = raw_data.index
+    history: list[dict] = []
+    days: dict[str, dict] = {}
+
+    for d in scored_warm + list(trading_days):
+        ds     = d.isoformat()
+        prev   = state.last_result
+        bucket = (prev.regime_state if prev else None) or "neutral"
+        cache  = signal_cache if d >= start else warm_cache
+        by_sector: dict[str, list[float]] = defaultdict(list)
+        for ticker, sector in ticker_sector.items():
+            e = cache.get((ticker, ds))
+            if e is not None:
+                by_sector[sector].append(_regime_score(e["components"], bucket))
+        snapshot = {s: round(sum(v) / len(v), 4) for s, v in by_sector.items()}
+        history.extend({"sector": s, "day": ds, "avg_score": v} for s, v in snapshot.items())
+        # Live's streaks read get_sector_history(days=365): the same window here.
+        horizon = (d - timedelta(days=365)).isoformat()
+        while history and history[0]["day"] <= horizon:
+            history.pop(0)
+
+        if d >= start:
+            days[ds] = {
+                "regime_from": prev.date if prev else None,   # always the previous session
+                "bucket":     bucket,
+                "allocation": dict(prev.allocation) if prev else {},
+                "caps":       dynamic_caps_from(MAX_SECTOR_EXPOSURE, snapshot,
+                                                _compute_sector_stats(history), prev),
+            }
+
+        # OHLCV as the as_of path sees it: 90 calendar days ending d.
+        lo = index.searchsorted(pd.Timestamp(d - timedelta(days=90)), side="right")
+        hi = index.searchsorted(pd.Timestamp(d), side="right")
+        _, state, _ = rb.step(state, d, raw_data.iloc[lo:hi], snapshot, ipo)
+
+    logger.info(f"Regime timeline: {len(days)} days, warm-up {len(scored_warm)} sessions")
+    return {"days": days, "warmup_sessions": len(scored_warm)}
 
 
 # ── Fast simulation helpers ───────────────────────────────────────────────────
@@ -710,8 +866,15 @@ def _get_candidates_from_cache(
     lock1_threshold: float,
     spy_regime: float,
     rolling_win_rate: float | None,
+    regime_state: str | None = None,
+    sector_allocation: dict[str, float] | None = None,
 ) -> list[dict]:
     """Return scored candidates above threshold using precomputed cache.
+
+    regime_state (row 2): re-weight the cached components with that bucket's
+    aggregator weights instead of reading the neutral signal_score.
+    sector_allocation (row 5, L1-A): only sectors with allocation > 0 pass.
+    Both None = the engine without the regime layer, unchanged.
 
     signal_score and atr_pct come from the cache (expensive, stateless).
     kelly_size is recomputed live from spy_regime and rolling_win_rate so the
@@ -722,10 +885,12 @@ def _get_candidates_from_cache(
     for ticker, sector in ticker_sector.items():
         if sector in EXCLUDED_SECTORS:
             continue
+        if sector_allocation is not None and sector_allocation.get(sector, 0.0) <= 0:
+            continue
         sig = signal_cache.get((ticker, today_str))
         if sig is None:
             continue
-        score = sig["signal_score"]
+        score = sig["signal_score"] if regime_state is None else _regime_score(sig["components"], regime_state)
         effective_threshold = max(lock1_threshold, SECTOR_THRESHOLD_FLOORS.get(sector, 0.0))
         if score < effective_threshold:
             continue

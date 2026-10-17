@@ -24,10 +24,10 @@ Signal score is computed upstream in `data/fetcher_yahoo.py:127-136`.
 | # | Production component | Where (live) | In `engine_fast.py`? | Note |
 |---|---|---|---|---|
 | 1 | Signal aggregator, 4 signals | `fetcher_yahoo.py:127`, `signals/aggregator.py:17` | **yes** `:642` | same function |
-| 2 | Regime-conditioned aggregator weights (`regime_state` bull/neutral/bear from `RegimeBayes.market_regime_state`) | `fetcher_yahoo.py:132`, `aggregator.py:10-14` | **no** — `:642` omits `regime_state`, always neutral weights | trend weight 0.35 (bull) / 0.30 (neutral) / 0.25 (bear); RS 0.30/0.25/0.20 |
+| 2 | Regime-conditioned aggregator weights (`regime_state` bull/neutral/bear from `RegimeBayes.market_regime_state`) | `fetcher_yahoo.py:132`, `aggregator.py:10-14` | **closed under `regime_layer=True` only** (2026-10-17) — cache stores the components (`:738`), `_regime_score` re-weights them with bucket(t−1) (`:762`, `:250`); flag off = neutral weights, as before | trend weight 0.35 (bull) / 0.30 (neutral) / 0.25 (bear); RS 0.30/0.25/0.20 |
 | 3 | Sector ETF regime multiplier on score | `fetcher_yahoo.py:135-136` | **yes** `:629,:646` | same formula |
 | 4 | Kelly size × score scaling | `fetcher_yahoo.py:141` | **yes** `:695` | same formula |
-| 5 | L1-A: sector must have Bayesian `allocation > 0` (hysteresis enter ≥ 0.37 / exit < 0.33 on `aggregate_score × posterior`, posterior clamped [0.05, 0.95]) | `lock1_eligibility.py` docstring, `regime_bayes.py:47-48, 68-69, 466-470` | **no** — only `EXCLUDED_SECTORS` (`:684`) | the CHECK 71 finding: today 8 of 11 sectors cannot enter live; the backtest lets all 11 in |
+| 5 | L1-A: sector must have Bayesian `allocation > 0` (hysteresis enter ≥ 0.37 / exit < 0.33 on `aggregate_score × posterior`, posterior clamped [0.05, 0.95]) | `lock1_eligibility.py` docstring, `regime_bayes.py:47-48, 68-69, 466-470` | **closed under `regime_layer=True` only** (2026-10-17) — `allocation(t−1) > 0` filter in `_get_candidates_from_cache` (`:888`); flag off = only `EXCLUDED_SECTORS` | the CHECK 71 finding: today 8 of 11 sectors cannot enter live; the backtest lets all 11 in |
 | 6 | L1-B1: VIX threshold | `lock1_eligibility.py` | **yes** `vix_threshold` (`:229`) | |
 | 7 | L1-B2: macro event blackout (FOMC/CPI/NFP window) | `lock1_eligibility.py` | **no** in `engine_fast`; **yes, always on** in `engine.py` (`:330` — event day and FOMC −2 days block unconditionally; `macro_hard_block` only widens to pre-event days) | the divergence that first tripped CHECK 76 layer 3 |
 | 8 | L1-B3: earnings within N days | `lock1_eligibility.py` | **yes** `earnings_filter_days` (`:245`) | binary skip in both |
@@ -42,14 +42,38 @@ Signal score is computed upstream in `data/fetcher_yahoo.py:127-136`.
 | 17 | L4 leading: put/call ratio, unusual calls, volume accumulation (2 of 4 must pass) | `lock4_leading.py` | **no** | options data not reconstructible; volume accumulation could be |
 | 18 | L5 Claude synthesis (fail-closed, sonnet only) | `lock5_claude.py` | **no** | not reconstructible |
 | 19 | L5 context: rotation forecast (`sector_transitions.get_rotation_forecast`) | `chain.py:325-341`, `gate_runner_live.py:403` | **no** | |
-| 20 | Bayesian sector size scale on `position_size_pct` post-L5 | `gate_runner_live.py:486-497` | **no** | |
-| 21 | Dynamic sector caps (`compute_dynamic_caps`: score_w × duration_w × bayes_w, clamped [MIN_MULT, MAX_MULT]) | `sector_caps.py:51-93`, `gate_runner_live.py:399,526,566` | **no** — flat `MAX_SECTOR_EXPOSURE` (`:257`) | |
+| 20 | Bayesian sector size scale on `position_size_pct` post-L5 | `gate_runner_live.py:596-604`, arithmetic `RegimeBayes.size_multipliers` (shared since 2026-10-17) | **closed under `regime_layer=True` only** (2026-10-17) — same function over the day's queued set (`:284`), applied as live (`:309`) | n·s/Σs: the allocation level cancels (2026-10-16 pre-work finding 2); queued set = one decision a day vs live's per-cycle set |
+| 21 | Dynamic sector caps (`compute_dynamic_caps`: score_w × duration_w × bayes_w, clamped [MIN_MULT, MAX_MULT]) | `sector_caps.py:51-93`, `gate_runner_live.py:399,526,566` | **closed under `regime_layer=True` only** (2026-10-17) — `sector_caps.dynamic_caps_from` (the live wrapper's pure core) per day (`:845`, `:314`); flag off = flat `MAX_SECTOR_EXPOSURE` | streaks from the engine's own close snapshots over 365 days vs live's daily average of intraday snapshots |
 | 22 | Daily loss cap | live cfg | **yes** `DAILY_LOSS_CAP` (`:242`) | |
-| 23 | SL / TP re-entry cooloff per ticker | `gate_runner_live.py:397-400` (`get_recently_exited_live_tickers`, `exit_cooloff_hours` 24 after SL, `tp_cooloff_hours` 168 after TP, `data/live_config.json:21-22`; since `7fff25e` 2026-05-29, split `109e7be` 2026-06-03) | **yes, different values** — `sl_cooldown_days=5`, `tp_cooldown_days=0` defaults (`:199-209`); `optimizer.py` and `objective_walkforward.py` pass neither | **Corrected 2026-10-16.** Written 09-16 as "engine-only, 0 hits for cooldown/reentry": the search missed live's term (*cooloff*) and had no positive control. Real divergence: SL 5 d vs 1 d, TP none vs 7 d — sign on profit unknown. Every optimizer and walk-forward run since June, including the 09-16 Sharpe-cap case 1 (`ba1cd49`), ran with the engine values. Fix: the regime port reads both values from live config. |
+| 23 | SL / TP re-entry cooloff per ticker | `gate_runner_live.py:397-400` (`get_recently_exited_live_tickers`, `exit_cooloff_hours` 24 after SL, `tp_cooloff_hours` 168 after TP, `data/live_config.json:21-22`; since `7fff25e` 2026-05-29, split `109e7be` 2026-06-03) | **yes, live values by default since 2026-10-17** — both engines resolve `None` through `live_shape.live_cooloff_days()` (hours rounded up to days: 1 / 7; `engine_fast.py:202`, `engine.py:283`). Until then: 5 / 0 defaults, and `optimizer.py` / `objective_walkforward.py` passed neither. **Still different:** live puts a time-stop (EXPIRED) exit and REGIME/TIME wins on the SL cooloff (`db.get_recently_exited_live_tickers`); both engines put no cooloff after EXPIRED | **Corrected 2026-10-16.** Written 09-16 as "engine-only, 0 hits for cooldown/reentry": the search missed live's term (*cooloff*) and had no positive control. Real divergence: SL 5 d vs 1 d, TP none vs 7 d — sign on profit unknown. Every optimizer and walk-forward run since June, including the 09-16 Sharpe-cap case 1 (`ba1cd49`), ran with the engine values. Fix: the regime port reads both values from live config. |
 | 24 | Exits: TP / SL / time stop / TSL / profit-lock ratchet | `gate_runner_live.py`, `_check_missed_live_exits` | **yes** `_check_exits_fast` (`:706`) | exit-semantics defect fixed 2026-08-17/18 in both |
 | 25 | ATR-based exits | — | **engine-only** option `atr_exits` (`:269`) | 0 hits for an ATR exit/stop in `gate_runner_live.py` or `alpaca.py`; off by default, so inert unless a sweep passes it |
 | 26 | Corroboration gate on exit cancellation, OCO re-protection | `alpaca.py`, `gate_runner_live.py` | n/a | execution layer, no backtest analogue by design |
 | 27 | Sector universe | `ticker_config.get_sectors()` | **yes** (`:126`, fixed 2026-08-18) | parity since the stale-universe fix |
+
+## The regime layer in the engine (`regime_layer=True`, 2026-10-17)
+
+`build_regime_timeline` (`engine_fast.py:769`) computes it once per precompute
+with `RegimeBayes.step` (the live code, `persisted=False`): state(t−1) →
+bucket(t−1) → scores(t) → snapshot(t) → step(t). Decisions on t read the regime
+from t−1 and the snapshot from t. The flag is off by default, so every existing
+result stays reproducible and CHECK 76 layer 3 runs with it off. Rows 2, 5, 20, 21
+are closed **under the flag only**; a default run still has no regime layer.
+Known differences from live, none of them one-signed:
+
+- IPO uniform: share `REGIME_IPO_NEUTRAL_SHARE` = LR 1.0 (no historical EDGAR feed;
+  a guard test fails if `backend/backtest/` touches `IpoSentiment`).
+- Snapshots from the close (mean of the day's cached scores per sector); live uses
+  the last intraday poll before 16:15 ET. RSI-blocked tickers have no cache entry,
+  so they are not in the engine's snapshot mean.
+- One decision a day against many live cycles (the row 20 queued set).
+- Warm-up: cold start (live's uniform fallback) on the precompute lookback, at least
+  `REGIME_WARMUP_MIN_SESSIONS` scored sessions before the first day, else it refuses.
+- OHLCV per step: 90 calendar days ending t (the `as_of` path); live's same-day
+  path downloads `period="60d"`.
+- Transition priors are not passed (inert live, 2026-10-16 pre-work finding 1).
+- The timeline is not persisted, so no cache key covers the regime files; the signal
+  cache key already changes with `engine_fast.py`.
 
 ## What class of question the backtest can answer
 
@@ -57,7 +81,7 @@ Signal score is computed upstream in `data/fetcher_yahoo.py:127-136`.
 questions (24); position-count and per-position sizing questions *given*
 that every non-excluded sector is always enterable; universe questions.
 
-**Cannot answer:** anything that runs through the Bayesian regime layer
+**Cannot answer (flag off):** anything that runs through the Bayesian regime layer
 (2, 5, 20, 21) — which is the layer that decides *which sectors* are open on
 a given day. Live, that layer closed 8 of 11 sectors on 2026-09-15; the
 backtest never closes any. Any "too few positions" question is therefore
@@ -88,7 +112,8 @@ neutralises the accepted slow-only divergences, and requires identical trade
 logs. Accepted divergences (edit the check's lists and this file together):
 
 - `run()` slow-only: `etf_negative_floor`, `etf_negative_penalty`,
-  `macro_hard_block`, `macro_pre_event_penalty`; fast-only: `precomputed`.
+  `macro_hard_block`, `macro_pre_event_penalty`; fast-only: `precomputed`,
+  `regime_layer` (2026-10-17; off by default, layer 3 runs with it off).
 - `engine.py:330` macro block is unconditional on event days; `engine_fast`
   has no macro calendar.
 
@@ -109,7 +134,10 @@ engine's day loop with OHLCV-derivable signals — `floor_reconstruction.py`
 and `regime_conditioned_cs.py` already do that replay standalone. That build
 is the prerequisite for putting the entry floor through the harness
 (CHECK 71 follow-up); until it lands, the harness returns identical trade
-paths for any floor value, trivially.
+paths for any floor value, trivially. **Built 2026-10-17** as `regime_layer=True`
+on `RegimeBayes.step` — the live code, not a third replay copy. The two standalone
+replays above still carry their own copies of the loop (untested; repoint or retire
+is a bundle item, not done here).
 
 Row 25 runs the other way: the backtest enforces a rule production does
 not. Row 23 was listed here too until 2026-10-16. Production does have a
