@@ -150,3 +150,19 @@ def test_calendar_expiry_warns_when_near(monkeypatch):
         assert mock_warn.called, "logger.warning should fire when calendar near expiry"
         msg = mock_warn.call_args[0][0]
         assert "expires in" in msg
+
+
+# ── calendar content vs the official schedules (2026-10-17) ───────────────────
+
+def test_calendar_runs_through_2027_from_the_official_schedules():
+    # BLS CPI and Employment Situation, Fed FOMC (decision day), read 2026-10-17
+    assert {date(2026, 11, 10), date(2026, 12, 10), date(2027, 12, 10)} <= _CPI_DATES
+    assert date(2026, 11, 12) not in _CPI_DATES and date(2026, 12, 9) not in _CPI_DATES
+    assert {date(2026, 1, 9), date(2027, 1, 8), date(2027, 10, 8)} <= _NFP_DATES
+    assert date(2027, 1, 1) not in _NFP_DATES and date(2026, 1, 2) not in _NFP_DATES
+    assert {date(2027, 1, 27), date(2027, 12, 8)} <= _FOMC_DATES
+    assert len([d for d in _CPI_DATES if d.year == 2027]) == 12
+    assert len([d for d in _NFP_DATES if d.year == 2027]) == 12
+    assert len([d for d in _FOMC_DATES if d.year == 2027]) == 8
+    assert all(d.weekday() < 5 for d in _MACRO_DATES)          # no release on a weekend
+    assert max(_MACRO_DATES) == date(2027, 12, 10)

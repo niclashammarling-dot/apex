@@ -38,6 +38,14 @@
       "source": "Niclas 10-17: follow up the L5 prompt edit, W43 against the prior four weeks (4 x 7 calendar days). Report-only: no gate, size or exit reads it.",
       "date": "2026-10-17",
       "review": "2026-10-24"
+    },
+    "audit/checks_gate.py::_C91_WARN_DAYS": {
+      "value": 60,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "Claude 2026-10-17, CHECK 91: the same 60-day horizon as lock1_eligibility._check_calendar_expiry, so the bundle sees what the log warning saw; about two Friday bundles of lead time.",
+      "date": "2026-10-17",
+      "review": "2026-10-31"
     }
   }
 }

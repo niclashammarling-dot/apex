@@ -1866,6 +1866,40 @@ def check90(today: date | None = None) -> None:
          f"Review {_C90_REVIEW} (Niclas 10-17): keep, re-evaluate or retire this check.")
 
 
+# ── CHECK 91 — macro calendar horizon ─────────────────────────────────────────
+
+_C91_WARN_DAYS = 60   # same horizon as lock1_eligibility._check_calendar_expiry
+
+
+def check91(today: date | None = None) -> None:
+    """
+    CHECK 91 — how far ahead does Lock 1's macro calendar reach?
+
+    Lock 1 blocks or penalises entries around FOMC / CPI / NFP from hard-coded date
+    sets in backend/gate/lock1_eligibility.py. Past the last date the blackout is
+    silently "clear" every day. The module's own expiry warning went to the log
+    only and was found by chance in a test log on 2026-10-17, 53 days out. The same
+    day the 2026 CPI row turned out wrong in 8 of 12 months against the BLS schedule.
+    WARNING (Friday bundle) under 60 days left, CRITICAL once exhausted. Reads the
+    date literals from the file (no import: the module fetches VIX at use time).
+    """
+    today = today or date.today()
+    name  = "Macro calendar horizon"
+    path  = REPO / "backend/gate/lock1_eligibility.py"
+    if not require_data_file(91, name, path):
+        return
+    lits = [date(int(y), int(m), int(d))
+            for y, m, d in re.findall(r"date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})\)", path.read_text())]
+    last = max(lits) if lits else None
+    if last is None or last < today:
+        flag(91, name, "CRITICAL", "backend/gate/lock1_eligibility.py:_MACRO_DATES",
+             f"macro calendar exhausted (last date {last}); Lock 1 reads every day as clear — add the "
+             "official FOMC (federalreserve.gov) and BLS CPI / Employment Situation dates")
+    elif (last - today).days < _C91_WARN_DAYS:
+        flag(91, name, "WARNING", "backend/gate/lock1_eligibility.py:_MACRO_DATES",
+             f"macro calendar ends {last} ({(last - today).days} d) — add next year's FOMC and BLS dates")
+
+
 def run() -> None:
     check24()
     check25()
@@ -1889,3 +1923,4 @@ def run() -> None:
     check87()
     check88()
     check90()
+    check91()

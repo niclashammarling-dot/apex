@@ -47,6 +47,9 @@ BY_CHECK: dict[int, str] = {
          "so read this one first."),
     74: ("Tests with hardcoded absolute dates calling check_live_exits (wall-clock). Scope: make fixture dates "
          "relative to now (the d02f8ab FRZ pattern) and assert the branch the test means; suite. ~30 min."),
+    91: ("Macro calendar ends within 60 days. Scope: add next year's FOMC dates (federalreserve.gov/monetarypolicy/"
+         "fomccalendars.htm, decision day) and BLS CPI and Employment Situation dates (bls.gov/schedule/<year>) to "
+         "backend/gate/lock1_eligibility.py and its test; check the current year's rows against the same pages. ~20 min."),
     90: ("Lock 5 prompt follow-up (rationale corrected 2026-10-17, live from 10-19). Scope: read the approval "
          "share and median notional before vs since; with about 18 L5 decisions a week (71 in the four weeks to 10-16) only a large move "
          "means anything. Read three or four L5 reasoning texts from W43 for whether they now cite the upstream "

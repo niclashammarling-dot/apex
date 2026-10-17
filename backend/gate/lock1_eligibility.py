@@ -48,15 +48,24 @@ _FOMC_DATES = {
     date(2025, 7, 30), date(2025, 9, 17), date(2025, 10, 29), date(2025, 12, 10),
     date(2026, 1, 28), date(2026, 3, 18), date(2026, 4, 29), date(2026, 6, 17),
     date(2026, 7, 29), date(2026, 9, 16), date(2026, 10, 28), date(2026, 12, 9),
+    # 2027: federalreserve.gov/monetarypolicy/fomccalendars.htm, read 2026-10-17
+    # (tentative until confirmed at the preceding meeting); decision day, as above.
+    date(2027, 1, 27), date(2027, 3, 17), date(2027, 4, 28), date(2027, 6, 9),
+    date(2027, 7, 28), date(2027, 9, 15), date(2027, 10, 27), date(2027, 12, 8),
 }
 
 _CPI_DATES = {
     date(2025, 1, 15), date(2025, 2, 12), date(2025, 3, 12), date(2025, 4, 10),
     date(2025, 5, 13), date(2025, 6, 11), date(2025, 7, 15), date(2025, 8, 12),
     date(2025, 9, 10), date(2025, 10, 15), date(2025, 11, 13), date(2025, 12, 10),
-    date(2026, 1, 14), date(2026, 2, 11), date(2026, 3, 11), date(2026, 4, 8),
-    date(2026, 5, 13), date(2026, 6, 10), date(2026, 7, 15), date(2026, 8, 12),
-    date(2026, 9, 9),  date(2026, 10, 14), date(2026, 11, 12), date(2026, 12, 9),
+    # 2026–2027: BLS release schedules (bls.gov/schedule/2026, /2027), read 2026-10-17.
+    # The 2026 row was wrong in 8 of 12 months before that date (e.g. 11-12 for 11-10).
+    date(2026, 1, 13), date(2026, 2, 13), date(2026, 3, 11), date(2026, 4, 10),
+    date(2026, 5, 12), date(2026, 6, 10), date(2026, 7, 14), date(2026, 8, 12),
+    date(2026, 9, 11), date(2026, 10, 14), date(2026, 11, 10), date(2026, 12, 10),
+    date(2027, 1, 13), date(2027, 2, 11), date(2027, 3, 10), date(2027, 4, 13),
+    date(2027, 5, 12), date(2027, 6, 10), date(2027, 7, 14), date(2027, 8, 11),
+    date(2027, 9, 14), date(2027, 10, 14), date(2027, 11, 10), date(2027, 12, 10),
 }
 
 
@@ -71,7 +80,18 @@ def _nfp_dates(start_year: int = 2025, end_year: int = 2026) -> set[date]:
     return dates
 
 
-_NFP_DATES   = _nfp_dates()
+# The first-Friday rule misses BLS's actual dates (2026: 4 of 12, e.g. 01-09 not 01-02;
+# 2027-01-01 is a holiday, BLS releases 01-08). From 2026 the BLS schedule is used as
+# published (Employment Situation, bls.gov/schedule/2026, /2027, read 2026-10-17).
+_NFP_BLS = {
+    date(2026, 1, 9),  date(2026, 2, 11), date(2026, 3, 6),  date(2026, 4, 3),
+    date(2026, 5, 8),  date(2026, 6, 5),  date(2026, 7, 2),  date(2026, 8, 7),
+    date(2026, 9, 4),  date(2026, 10, 2), date(2026, 11, 6), date(2026, 12, 4),
+    date(2027, 1, 8),  date(2027, 2, 5),  date(2027, 3, 5),  date(2027, 4, 2),
+    date(2027, 5, 7),  date(2027, 6, 4),  date(2027, 7, 2),  date(2027, 8, 6),
+    date(2027, 9, 3),  date(2027, 10, 8), date(2027, 11, 5), date(2027, 12, 3),
+}
+_NFP_DATES   = _nfp_dates(2025, 2025) | _NFP_BLS
 _MACRO_DATES = _FOMC_DATES | _CPI_DATES | _NFP_DATES
 
 # FOMC spans two meeting days; pre-event window is 2 to cover the full session.
