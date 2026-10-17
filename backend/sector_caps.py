@@ -57,6 +57,10 @@ def compute_dynamic_caps(base_cap: float, regime_result=None) -> dict[str, float
     third Bayesian weight is blended in — qualifying sectors get a gentle cap
     boost proportional to their allocation, non-qualifying sectors get a mild
     reduction.  All weights are clamped to [MIN_MULT, MAX_MULT] as before.
+
+    Live wrapper: reads the latest sector scores and the streak stats from the DB
+    and hands them to dynamic_caps_from(), which the backtest engine calls with its
+    own snapshot history (2026-10-17, PRODUCTION_GAP row 21 — one implementation).
     """
     try:
         from backend.db import get_latest_sector_scores
@@ -67,14 +71,21 @@ def compute_dynamic_caps(base_cap: float, regime_result=None) -> dict[str, float
         logger.warning(f"Dynamic sector caps: could not load data — {e}")
         return {}
 
+    sector_stats = regime.get("sectors", {}) if regime.get("available") else {}
+    return dynamic_caps_from(base_cap, scores, sector_stats, regime_result)
+
+
+def dynamic_caps_from(base_cap: float, scores: dict[str, float],
+                      sector_stats: dict[str, dict], regime_result=None) -> dict[str, float]:
+    """Pure core of compute_dynamic_caps: no DB, no clock. sector_stats is
+    sector_regime._compute_sector_stats output ({sector: {"streak_days", ...}});
+    a sector missing from it gets the 10-day default streak, as live does."""
     if not scores:
         return {}
 
     mean_score = sum(scores.values()) / len(scores)
     if mean_score <= 0:
         return {}
-
-    sector_stats = regime.get("sectors", {}) if regime.get("available") else {}
 
     # Bayesian allocation lookup — built once, used per sector below
     bayes_alloc: dict[str, float] = {}

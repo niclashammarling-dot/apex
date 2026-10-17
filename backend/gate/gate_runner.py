@@ -562,20 +562,8 @@ def _compute_bayesian_multipliers(
                 (signal["ticker"], signal["signal_score"])
             )
 
-    multipliers: dict[str, float] = {}
-    allocs = regime_bayes_result.allocation
-
-    for sector, tickers in sector_queued.items():
-        sector_alloc = allocs.get(sector, 0.0)
-        if sector_alloc <= 0 or not tickers:
-            continue
-        baseline     = sector_alloc / len(tickers)   # equal-weight reference
-        ticker_scores = {t: s for t, s in tickers}
-        per_ticker    = RegimeBayes.ticker_allocations(sector_alloc, ticker_scores)
-        for ticker, alloc in per_ticker.items():
-            multipliers[ticker] = round(alloc / baseline, 4) if baseline > 0 else 1.0
-
-    return multipliers
+    # One implementation, shared with the backtest engine (2026-10-17).
+    return RegimeBayes.size_multipliers(regime_bayes_result.allocation, sector_queued)
 
 
 def _log_summary(ticker: str, result: dict) -> None:

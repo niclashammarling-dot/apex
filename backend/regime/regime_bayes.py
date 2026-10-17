@@ -664,6 +664,34 @@ class RegimeBayes:
             for ticker, score in ticker_scores.items()
         }
 
+    @staticmethod
+    def size_multipliers(
+        allocation: dict[str, float],
+        sector_queued: dict[str, list[tuple[str, float]]],
+    ) -> dict[str, float]:
+        """
+        Per-ticker size multipliers (PRODUCTION_GAP row 20), shared by the live gate
+        runners and the backtest engine (2026-10-17; moved out of
+        gate_runner._compute_bayesian_multipliers unchanged).
+
+        sector_queued: {sector: [(ticker, signal_score), ...]} — the trades queued in
+        one cycle. multiplier = ticker_allocation / (allocation / n) = n·s_i/Σs:
+        the sector's allocation cancels (2026-10-16 pre-work finding 2), so what is
+        left is the ticker's score against its sector's queued mean, gated on
+        allocation > 0. Sectors without allocation get no entry (multiplier 1.0).
+        """
+        multipliers: dict[str, float] = {}
+        for sector, tickers in sector_queued.items():
+            sector_alloc = allocation.get(sector, 0.0)
+            if sector_alloc <= 0 or not tickers:
+                continue
+            baseline      = sector_alloc / len(tickers)   # equal-weight reference
+            ticker_scores = {t: s for t, s in tickers}
+            per_ticker    = RegimeBayes.ticker_allocations(sector_alloc, ticker_scores)
+            for ticker, alloc in per_ticker.items():
+                multipliers[ticker] = round(alloc / baseline, 4) if baseline > 0 else 1.0
+        return multipliers
+
     # ── Private helpers ───────────────────────────────────────────────────────
 
     def _load_posteriors(self) -> dict[str, float]:
