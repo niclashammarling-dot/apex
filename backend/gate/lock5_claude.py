@@ -58,7 +58,7 @@ and Lock 4 (leading indicators). Do NOT re-evaluate those — trust that they ha
 
 Your sole responsibilities are:
 1. Portfolio risk — compare open_positions against risk_limits.max_positions. Compute drawdown as (risk_limits.starting_balance - wallet_balance) / risk_limits.starting_balance. Reject if positions are at the limit or drawdown exceeds risk_limits.max_drawdown_pct.
-2. Sector concentration — compare this ticker's sector value in sector_exposure against risk_limits.max_sector_exposure. Reject if at or near the limit.
+2. Sector concentration — compare this ticker's sector value in sector_exposure against risk_limits.sector_cap, the cap execution enforces for this sector today (dynamic: the flat base risk_limits.max_sector_exposure weighted by sector score, trend duration and regime allocation; sector_cap_source says whether the dynamic value or the flat fallback applies). Reject if at or near risk_limits.sector_cap.
 3. Sentiment synthesis — given the sentiment score and themes from Lock 3, is there any macro or qualitative reason NOT to enter this specific ticker right now?
 4. Gate history — if ticker_gate_history is provided, treat it as a pattern signal. Repeated L3 fails indicate persistent sentiment weakness. Repeated L4 fails indicate smart money is not positioning. A recent TRADE_EXECUTED means the ticker was entered recently and may still be in play.
 5. When genuinely uncertain across all factors, output HOLD.

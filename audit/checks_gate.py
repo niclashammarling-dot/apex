@@ -1804,10 +1804,12 @@ def check90(today: date | None = None) -> None:
     """
     CHECK 90 — did the corrected Lock 5 prompt move L5's decisions or sizes?
 
-    The 2026-10-17 edit replaced the rationale clause only ("allocation weighting is
-    handled downstream" → the allocation acts upstream in Lock 1; the post-L5 multiplier
-    is score-relative). The binding no-Bayesian-sizing sentence is unchanged, but a prompt
-    edit can still shift L5 (Niclas 10-17: follow up). Compares, on live_gate_history and
+    Two L5 changes go live together on 10-19 and this window cannot tell them apart:
+    (1) the rationale clause ("allocation weighting is handled downstream" → the
+    allocation acts upstream in Lock 1; the post-L5 multiplier is score-relative), the
+    binding no-Bayesian-sizing sentence unchanged; (2) L5 judges risk_limits.sector_cap,
+    the dynamic cap execution enforces, instead of the flat max_sector_exposure. Niclas
+    10-17: one point at a time — the other three L5 points wait for the 10-24 review. Compares, on live_gate_history and
     live_trades, the four weeks before _C90_CHANGE with the days since:
       - L5 approval share: TRADE_EXECUTED + TRADE_FAILED over those plus FILTERED_L3
         (the L5 reject), fail-closed rows (CHECK 81's prefix) excluded — those were
@@ -1859,7 +1861,8 @@ def check90(today: date | None = None) -> None:
     sev  = "WARNING" if today.isoformat() <= _C90_REVIEW else "INFO"
     flag(90, name, sev, "backend/gate/lock5_claude.py:SYSTEM_PROMPT",
          f"L5 approval {pct(b_ok, b_n)} in the 4 weeks before {_C90_CHANGE} vs {pct(a_ok, a_n)} since; "
-         f"median entry notional {med(b_sz)} vs {med(a_sz)}. Small n — a direction, not a test. "
+         f"median entry notional {med(b_sz)} vs {med(a_sz)}. Two changes in one window (rationale "
+         f"clause + enforced sector cap), not separable here. Small n — a direction, not a test. "
          f"Review {_C90_REVIEW} (Niclas 10-17): keep, re-evaluate or retire this check.")
 
 

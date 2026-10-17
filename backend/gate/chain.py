@@ -293,6 +293,10 @@ def build_base_context(
         gate_history_fn   — get_ticker_gate_fails (demo) vs get_live_ticker_gate_fails (live)
         mode_label        — None (demo) vs "LIVE — real money" (live)
     """
+    # The cap execution enforces for this ticker's sector today (dynamic, from the
+    # runner), falling back to the flat base as execution does (2026-10-17).
+    _caps       = wallet_ctx.get("dynamic_caps") or {}
+    _sector     = signal.get("sector", "")
     ctx: dict[str, Any] = {
         "wallet_balance":  wallet_ctx["balance"],
         "open_positions":  wallet_ctx["open_positions"],
@@ -300,6 +304,8 @@ def build_base_context(
         "risk_limits": {
             "starting_balance":    starting_balance,
             "max_positions":       cfg["max_positions"],
+            "sector_cap":          _caps.get(_sector, cfg["max_sector_exposure"]),
+            "sector_cap_source":   "dynamic" if _sector in _caps else "flat_fallback",
             "max_sector_exposure": cfg["max_sector_exposure"],
             "max_position_size":   cfg["max_position_size"],
             "daily_loss_cap":      cfg["daily_loss_cap"],

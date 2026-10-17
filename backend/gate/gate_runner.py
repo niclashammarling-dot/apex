@@ -134,6 +134,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     regime_bayes_result = _get_regime_bayes().last_result()
     dynamic_caps    = compute_dynamic_caps(cfg.get("max_sector_exposure", MAX_SECTOR_EXPOSURE),
                                            regime_result=regime_bayes_result)
+    wallet_ctx = {**wallet_ctx, "dynamic_caps": dynamic_caps}   # Lock 5 judges the enforced cap (2026-10-17)
     sector_regime   = compute_sector_regime()
     rotation_scores = compute_ticker_rotation_scores()
     ticker_signals  = compute_ticker_signals()

@@ -503,6 +503,8 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     sector_exposure_live: dict[str, float] = dict(_sector_exposure)
     dynamic_caps_live    = compute_dynamic_caps(cfg.get("max_sector_exposure", 0.30),
                                                 regime_result=regime_bayes_result)
+    # Lock 5 judges the cap execution enforces, not the flat base (2026-10-17).
+    wallet_ctx["dynamic_caps"] = dynamic_caps_live
 
     # Pre-rotation promotion — same logic as demo gate
     forecast         = get_rotation_forecast()
@@ -785,9 +787,10 @@ def _sector_cap_check(sector: str, notional: float, exposure: dict[str, float],
                       starting_balance: float) -> dict:
     """The execution-side sector cap test, with the evidence persisted per row.
 
-    Two caps sit on one decision: Lock 5 is shown the flat max_sector_exposure
-    and judges it, execution enforces dynamic_caps (falling back to the flat
-    value when compute_dynamic_caps returned nothing for the sector). Observe
+    One cap since 2026-10-17: Lock 5 is shown risk_limits.sector_cap, the same
+    dynamic cap execution enforces here (falling back to the flat value when
+    compute_dynamic_caps returned nothing for the sector). Until then L5 judged
+    the flat max_sector_exposure while execution enforced the dynamic cap. Observe
     only (2026-09-27): `over_flat` records whether the flat cap would have
     rejected this trade, so rows where the two disagree are countable. The
     enforced test is `over_cap`, unchanged.
