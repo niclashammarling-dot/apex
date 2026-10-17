@@ -42,8 +42,6 @@ backend/backtest/cooldown_sweep.py::PRODUCTION_TP
 backend/backtest/cooldown_sweep.py::SL_DAYS_VALUES
 backend/backtest/cooldown_sweep.py::TP_DAYS_VALUES
 backend/backtest/cooldown_sweep.py::TRAILING_STOP_PCT
-backend/backtest/engine.py::_CPI_NFP_EVENT_DAY_ONLY
-backend/backtest/engine.py::_FOMC_PRE_DAYS
 backend/backtest/etf_penalty_sweep.py::FLOORS
 backend/backtest/etf_penalty_sweep.py::RATES
 backend/backtest/floor_reconstruction.py::LEGACY_FLOOR
