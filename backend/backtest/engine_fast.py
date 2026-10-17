@@ -100,8 +100,8 @@ def run(
     vix_threshold:      float | None = None,
     use_leading_rs:     bool        = False,
     max_positions:      int   | None = None,
-    sl_cooldown_days:   int         = 5,
-    tp_cooldown_days:   int         = 0,
+    sl_cooldown_days:   int   | None = None,   # None: live config (live_shape.live_cooloff_days)
+    tp_cooldown_days:   int   | None = None,
     precomputed:        dict  | None = None,
     intraday_stops:     bool        = True,
     ratchet_from_high:  bool        = False,
@@ -182,6 +182,11 @@ def run(
         stock_tickers = [t for cfg in SECTORS.values() for t in cfg["tickers"]]
         earnings_dates = _fetch_earnings_dates(stock_tickers, start, end)
 
+    if sl_cooldown_days is None or tp_cooldown_days is None:
+        from backend.backtest.live_shape import live_cooloff_days
+        _live_sl, _live_tp = live_cooloff_days()
+        sl_cooldown_days = _live_sl if sl_cooldown_days is None else sl_cooldown_days
+        tp_cooldown_days = _live_tp if tp_cooldown_days is None else tp_cooldown_days
     SL_COOLDOWN_DAYS = sl_cooldown_days
     TP_COOLDOWN_DAYS = tp_cooldown_days
 

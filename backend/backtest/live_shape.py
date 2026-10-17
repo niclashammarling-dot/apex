@@ -134,3 +134,16 @@ def describe_varied(entry: dict) -> str:
         return "off" if v is None or v is False else "on" if v is True else str(v)
     axes = ", ".join(f"{a} {'/'.join(fmt(v) for v in vals)}" for a, vals in entry["varied"].items())
     return f"same trades for {entry['combos']} combos: {axes}"
+
+
+def live_cooloff_days() -> tuple[int, int]:
+    """(sl_cooldown_days, tp_cooldown_days) for both engines, from live config
+    (2026-10-17, PRODUCTION_GAP row 23). Live blocks re-entry by hours
+    (`exit_cooloff_hours` after SL/loss/expiry, `tp_cooloff_hours` after a TP/TSL
+    win); the engines block by calendar day, so hours round UP to whole days
+    (24 → 1, 168 → 7). Until this, both engines defaulted to 5 / 0 — every
+    optimizer and walk-forward run since June used those."""
+    import math
+    from backend.live_config import get_live_config
+    cfg = get_live_config()
+    return (math.ceil(cfg["exit_cooloff_hours"] / 24), math.ceil(cfg["tp_cooloff_hours"] / 24))
