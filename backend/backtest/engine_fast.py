@@ -640,7 +640,10 @@ def _build_signal_cache(
         try:
             if ticker not in raw_data.columns.get_level_values(0):
                 continue
-            df_full = raw_data[ticker].copy()
+            # The ticker's own bars only: a row with no Close (a holiday row carried by
+            # another symbol) froze ATR at its pre-holiday value via asof() for 14
+            # sessions and sat in every 90-row window (2026-10-17).
+            df_full = raw_data[ticker].dropna(subset=["Close"]).copy()
             if df_full.empty or len(df_full) < 55:
                 continue
 
@@ -939,7 +942,12 @@ def _fetch_earnings_dates(tickers: list[str], start: date, end: date) -> dict[st
 
 
 def _trading_days(start: date, end: date, raw_data: pd.DataFrame) -> list[date]:
+    # Sessions only (2026-10-17): the union index carries rows where only ^VIX has a
+    # bar (US holidays: 2026-05-25, 2026-09-07). Live never sees them; here they were
+    # simulated as trading days and put a NaN row into every ticker's indicator window.
     idx = raw_data.index
+    if SPY_TICKER in raw_data.columns.get_level_values(0):
+        idx = raw_data[SPY_TICKER]["Close"].dropna().index
     return [d.date() for d in idx if start <= d.date() <= end]
 
 
