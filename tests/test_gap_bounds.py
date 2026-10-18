@@ -21,3 +21,18 @@ def test_synthetic_table(tmp_path):
     p.write_text("| # | C | W | S | N |\n|---|---|---|---|---|\n| 1 | a | x | **yes** | |\n"
                  "| 2 | b | x | **no** in fast | |\n| 3 | c | x | **partial** — z | |\n")
     assert [r["row"] for r in open_rows(True, p)] == ["2", "3"]
+
+
+def test_off_both_rows_stay_in_the_description(tmp_path):
+    """A row the engines match only because live's rule is dead is still not modelled (2026-10-18)."""
+    p = tmp_path / "g.md"
+    p.write_text("| # | C | W | S | N |\n|---|---|---|---|---|\n| 1 | a | x | **yes** | |\n"
+                 "| 2 | b | x | **no** | |\n| 8 | e | x | **off-both** (live defect) | |\n")
+    assert [(r["row"], r["kind"]) for r in open_rows(True, p)] == [("2", "open"), ("8", "off-both")]
+
+
+def test_real_table_names_the_earnings_rows_as_off_both():
+    from backend.backtest.gap_bounds import describe
+    off = {r["row"] for r in open_rows(True) if r["kind"] == "off-both"}
+    assert {"8", "9"} <= off
+    assert "off in both engines and in live (live defect): 8, 9" in describe(True)
