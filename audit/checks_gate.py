@@ -1900,6 +1900,45 @@ def check91(today: date | None = None) -> None:
              f"macro calendar ends {last} ({(last - today).days} d) — add next year's FOMC and BLS dates")
 
 
+def check92(fetch=None) -> None:
+    """
+    CHECK 92 — live position protection health (2026-10-18).
+
+    Every open live position has a resting STOP leg at Alpaca below the last trade,
+    and no position is short. Silent until now: Alpaca does not adjust resting legs
+    for splits, and both bracket legs can fill in a fast market (Niclas's TP/SL
+    source summary, checked against the code 10-18). The evaluator is
+    backend/protection_health.py, shared with the first live exit cycle of each
+    session. A broker failure is a WARNING "did not evaluate", never a clean row.
+    `fetch`: (positions, open_trades, fetch_order) for tests; None reads Alpaca and apex.db.
+    """
+    name = "Live position protection"
+    db = REPO / "data/apex.db"
+    if not require_data_file(92, name, db):
+        return
+    try:
+        if fetch is None:
+            from backend.brokers import alpaca as broker
+            conn = sqlite3.connect(db)
+            conn.row_factory = sqlite3.Row
+            try:
+                trades = [dict(r) for r in conn.execute(
+                    "SELECT ticker, alpaca_order_id FROM live_trades WHERE outcome = 'OPEN'")]
+            finally:
+                conn.close()
+            positions, fetch_order = broker.get_positions(), broker.get_order_by_id
+        else:
+            positions, trades, fetch_order = fetch
+        from backend.protection_health import evaluate
+        found = evaluate(positions, trades, fetch_order)
+    except Exception as e:
+        flag(92, name, "WARNING", "backend/protection_health.py",
+             f"did not evaluate: {type(e).__name__}: {e}")
+        return
+    for f in found:
+        flag(92, name, f["severity"], f"Alpaca:{f['ticker']}", f["what"])
+
+
 def run() -> None:
     check24()
     check25()
@@ -1924,3 +1963,4 @@ def run() -> None:
     check88()
     check90()
     check91()
+    check92()

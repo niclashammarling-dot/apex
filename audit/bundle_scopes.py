@@ -47,6 +47,10 @@ BY_CHECK: dict[int, str] = {
          "so read this one first."),
     74: ("Tests with hardcoded absolute dates calling check_live_exits (wall-clock). Scope: make fixture dates "
          "relative to now (the d02f8ab FRZ pattern) and assert the branch the test means; suite. ~30 min."),
+    92: ("Live position protection fault. Scope: read the finding's ticker on Alpaca (get_positions, the bracket "
+         "via get_order_by_id). No resting STOP leg → place_oco_exit at the trade's TP/SL and update_live_trade_order_id; "
+         "stop at or above the last trade → check for a split or corporate action, re-level the leg with replace_stop_leg; "
+         "short → close the short and book it as a reconciliation item. 'did not evaluate' → read the broker error. ~20 min."),
     91: ("Macro calendar ends within 60 days. Scope: add next year's FOMC dates (federalreserve.gov/monetarypolicy/"
          "fomccalendars.htm, decision day) and BLS CPI and Employment Situation dates (bls.gov/schedule/<year>) to "
          "backend/macro_calendar.py and tests/test_macro_calendar.py; check the current year's rows against the same pages. ~20 min."),

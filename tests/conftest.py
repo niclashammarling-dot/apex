@@ -183,3 +183,14 @@ def _never_reach_the_broker(request):
     with patch("alpaca.common.rest.RESTClient.__init__", _refuse):
         yield
     assert not reached, f"test constructed a real Alpaca client: {reached}"
+
+
+@pytest.fixture(autouse=True)
+def _no_protection_hook_in_exit_tests(monkeypatch):
+    """CHECK 92's first-cycle hook in check_live_exits (2026-10-18) reads the wall clock
+    (is_market_open) and calls broker.get_order_by_id per open trade. Left on, every test
+    that drives check_live_exits would make extra broker calls on weekdays in market
+    hours only: the clock-dependent test class CHECK 74 hunts. tests/test_protection_health.py
+    imports the real hook before this fixture runs and tests it directly."""
+    import backend.live_trades_tracker as ltt
+    monkeypatch.setattr(ltt, "_protection_first_cycle", lambda *a, **k: None)

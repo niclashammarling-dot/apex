@@ -272,6 +272,42 @@ def _log_vol_slope(trade: dict) -> None:
     )
 
 
+_protection_checked_on: str | None = None
+
+
+def _protection_first_cycle(positions: list[dict], open_trades: list[dict], broker) -> None:
+    """CHECK 92's evaluator in the first exit cycle of each session (2026-10-18), so a
+    split effective at the open is caught then rather than at the nightly audit.
+    Read-only: logs and alerts, never touches an order. Marked done for the day only
+    after a full evaluation; a failure is logged as an error and retried next cycle."""
+    global _protection_checked_on
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo
+    from backend.scheduler import is_market_open
+    today = _dt.now(ZoneInfo("America/New_York")).date().isoformat()
+    if _protection_checked_on == today or not is_market_open():
+        return
+    try:
+        from backend.protection_health import evaluate
+        found = evaluate(positions, open_trades, broker.get_order_by_id)
+    except Exception as e:
+        logger.error(f"Protection health: did not evaluate — {type(e).__name__}: {e}")
+        return
+    for f in found:
+        logger.error(f"Protection health [{f['ticker']}] {f['severity']}: {f['what']}")
+    critical = [f for f in found if f["severity"] == "CRITICAL"]
+    if critical:
+        try:
+            from backend.alerts import _dispatch
+            _dispatch("Live position unprotected",
+                      "\n".join(f"{f['ticker']}: {f['what']}" for f in critical))
+        except Exception as e:
+            logger.error(f"Protection health: alert not sent — {e}")
+    if not any(f["what"].startswith("did not evaluate") for f in found):
+        _protection_checked_on = today
+    logger.info(f"Protection health: {len(open_trades)} open trades, {len(found)} findings")
+
+
 def _check_untracked_positions(alpaca_positions: set[str], open_trades: list[dict]) -> None:
     """
     Mirror of the reconciliation fallback: a ticker held at the broker with no
@@ -325,16 +361,18 @@ def check_live_exits() -> list[dict]:
     # Computed even when open_trades is empty, so a restored/untracked position
     # is still caught on a cycle where nothing else needs polling.
     try:
-        alpaca_positions = {p["ticker"] for p in broker.get_positions()}
+        position_rows    = broker.get_positions()
+        alpaca_positions = {p["ticker"] for p in position_rows}
     except Exception as e:
         logger.warning(f"Live exit check: could not fetch Alpaca positions — skipping reconciliation: {e}")
-        alpaca_positions = None
+        position_rows, alpaca_positions = None, None
 
     if alpaca_positions is not None:
         try:
             _check_untracked_positions(alpaca_positions, open_trades)
         except Exception as e:
             logger.warning(f"Live exit check: untracked-position check failed — {e}")
+        _protection_first_cycle(position_rows, open_trades, broker)
 
     if not open_trades:
         return []
