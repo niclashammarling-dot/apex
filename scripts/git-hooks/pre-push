@@ -5,15 +5,31 @@
 # red five minutes later. The full suite (~3.5 min) stays in CI.
 # Installed as a symlink: ln -sf ../../scripts/git-hooks/pre-push .git/hooks/pre-push
 # Bypass for an emergency only: git push --no-verify (say so in the commit or session).
+# History (2026-10-18, vault Sunday mechanism review, Niclas: "bygg nu"): the review asked
+# "has the hook ever blocked or slowed a push?" and could not answer — /tmp/apex-pre-push.log
+# is overwritten on every run and lost on reboot. Every run now appends one line to
+# logs/pre-push-history.log (APEX_PRE_PUSH_HISTORY overrides it; tests point it at tmp):
+#   <ISO time> | <HEAD sha> | rc=<n> | <seconds>s | <pytest summary line>
+# Reader: the INDEX review "APEX parameter ratchet by name + pre-push hook" (2026-11-01).
 repo=$(git rev-parse --show-toplevel) || exit 1
+hist="${APEX_PRE_PUSH_HISTORY:-$repo/logs/pre-push-history.log}"
+record() {  # $1 = rc, $2 = seconds, $3 = summary
+    mkdir -p "$(dirname "$hist")" 2>/dev/null
+    printf '%s | %s | rc=%s | %ss | %s\n' "$(date -Iseconds)" "$(git -C "$repo" rev-parse --short HEAD 2>/dev/null)" "$1" "$2" "$3" >> "$hist" \
+        || echo "pre-push: could not append to $hist" >&2
+}
 py="$repo/.venv/bin/python"
 [ -x "$py" ] || py=$(command -v python3)   # CI has no .venv
 if [ -z "$py" ]; then
     echo "pre-push: no .venv/bin/python and no python3 — cannot run the registry ratchet; push blocked (--no-verify to bypass)" >&2
+    record 1 0 "no python — blocked"
     exit 1
 fi
+t0=$(date +%s.%N)
 cd "$repo" && "$py" -m pytest -q -p no:cacheprovider tests/test_parameter_registry.py >/tmp/apex-pre-push.log 2>&1
 rc=$?
+secs=$(awk -v a="$t0" -v b="$(date +%s.%N)" 'BEGIN{printf "%.1f", b-a}')
+record "$rc" "$secs" "$(grep -E '[0-9]+ (passed|failed)|error' /tmp/apex-pre-push.log | tail -1)"
 if [ $rc -ne 0 ]; then
     grep -E 'AssertionError|new parameter|delete their lines|failed' /tmp/apex-pre-push.log >&2
     echo "pre-push: parameter registry ratchet failed — push blocked (full log /tmp/apex-pre-push.log)" >&2
