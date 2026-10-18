@@ -188,6 +188,37 @@ in either engine's `run()` is the earlier behaviour. n is thin (7 gaps); review
 measured since 07-07). Targets are out of scope here, see the next section: R7 is a
 per-leg measurement, so it does not carry the one-sided asymmetry into a calibration.
 
+## R8 — The take-profit leg, intraday (built 2026-10-18)
+
+PRODUCTION_GAP row 24b; the rules are the ones written below in "Rules for symmetric
+TP, when it is built", implemented in `exit_rules.check_intraday_bracket` for both
+engines:
+
+- The limit at `entry × (1 + tp)` fills when `high >= limit`, at the limit. A gap up
+  (`open >= limit`) fills at the open. No slippage: R7 is a market-order effect, and a
+  limit fills at the limit or better. Live never moves the TP leg
+  (`_maybe_ratchet_bracket_sl` PATCHes the stop only).
+- The open decides a bar when it lies beyond either leg. A bar that touches both legs
+  from an open between them is the ambiguous case: `tp_first=False` (shipped) books the
+  stop, the floor; `tp_first=True` the TP, the ceiling. `ParityStats.both_touched_ambiguous`
+  counts it; `tp_missed_by_close` counts TP fills on bars that closed below the limit.
+- `intraday_tp=False` is the pre-R8 model. The exit-parity fixture (41 stop exits,
+  certified 09-25) is the stop-only reference and is replayed with it; under R8, 3 of
+  the 41 become earlier TP fills (COP 03-23, HAL 03-26, QCOM 05-22). R8's own test is
+  `tests/test_exit_rules_take_profit.py`; the engine-level case fails on the parent
+  (`c2317cc`, no exit in either engine).
+
+Before/after on the CHECK 76 window 2026-03-02 → 05-29, `engine_fast.run` defaults
+(one run each, a compounding counterfactual, below any noise floor; recorded, not read):
+
+    stop-only (pre-R8)  40 trades  final 10610.22  return 6.1 %  maxDD 2.7 %  win 57.5 %  TP 20  SL 16  EOB 4
+    R8 floor (shipped)  44 trades  final 10339.85  return 3.4 %  maxDD 3.5 %  win 54.5 %  TP 21  SL 19  EOB 4
+      TP 17 intraday + 4 gap, 6 invisible to the close-only model; both-touched 0
+    R8 ceiling          identical to the floor (no bar touched both legs on this window)
+
+R8 also lowers a TP's fill where the close-only model booked a close above the limit:
+the limit fills at the limit.
+
 ## The model is one-sided — targets are still close-only (found 2026-09-25, after the port)
 
 Checking Niclas's "TP on close versus intraday" question before trusting the

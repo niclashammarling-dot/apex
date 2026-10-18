@@ -92,9 +92,12 @@ def _replay(case: dict, params: dict, engine: str, stats: ParityStats | None = N
         )
         fn = slow._check_exits if engine == "slow" else fast._check_exits_fast
         # stop_slip=(0, 0): the reference was certified on R1–R6, before R7 (2026-10-17);
-        # R7 has its own test (test_exit_rules_stop_slip.py).
+        # R7 has its own test (test_exit_rules_stop_slip.py). intraday_tp=False: it was
+        # certified with targets on the close, before R8 (2026-10-18), which turns 3 of
+        # these 41 stop exits into earlier TP fills (COP 03-23, HAL 03-26, QCOM 05-22);
+        # R8 has its own test (test_exit_rules_take_profit.py).
         closed = fn(*args, ohlc_cache=ohlc, parity_stats=stats, ratchet_from_high=False,
-                    stop_slip=(0.0, 0.0))
+                    stop_slip=(0.0, 0.0), intraday_tp=False)
         if closed:
             assert len(closed) == 1
             return closed[0]["record"]

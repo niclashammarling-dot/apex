@@ -50,7 +50,7 @@ from backend.config import (
     TIME_STOP_DAYS,
     WIN_RATE_MIN_TRADES,
 )
-from backend.backtest.exit_rules import Bar, ParityStats, build_ohlc_cache, check_intraday_stop
+from backend.backtest.exit_rules import Bar, ParityStats, build_ohlc_cache, check_intraday_bracket
 from backend.signals import aggregator, momentum, relative_strength, trend, volume
 from backend.signals.ev_kelly import compute as ev_kelly_compute
 
@@ -132,6 +132,8 @@ def run(
     intraday_stops:     bool        = True,
     ratchet_from_high:  bool        = False,
     stop_slip:          tuple[float, float] | None = None,   # None: exit_rules' measured R7 values (EXIT_PARITY.md)
+    intraday_tp:        bool        = True,    # R8: the TP limit leg fills intraday, as live's bracket (False: targets on the close)
+    tp_first:           bool        = False,   # R8 ceiling for a bar touching both legs; False books the stop (floor)
     parity_stats:       ParityStats | None = None,
 ) -> BacktestResult:
     """
@@ -254,6 +256,8 @@ def run(
             parity_stats=parity_stats,
             ratchet_from_high=ratchet_from_high,
             stop_slip=stop_slip,
+            intraday_tp=intraday_tp,
+            tp_first=tp_first,
         )
         for ct in closed_today:
             trade  = ct["_trade"]
@@ -518,6 +522,8 @@ def _check_exits(
     parity_stats: ParityStats | None = None,
     ratchet_from_high: bool = False,
     stop_slip: tuple[float, float] | None = None,
+    intraday_tp: bool = True,
+    tp_first: bool = False,
 ) -> list[dict]:
     # Malformed profit-lock config: one set without the other previously did
     # nothing silently (the old `if trigger and trail` guard swallowed it).
@@ -539,19 +545,20 @@ def _check_exits(
         eff_tp = trade.get("tp", take_profit_pct)
         eff_sl = trade.get("sl", stop_loss_pct)
 
-        # ── Intraday stop (EXIT_PARITY.md R1-R4) ────────────────────────────
+        # ── Intraday bracket: stop leg R1-R7, take-profit leg R8 (EXIT_PARITY.md)
         # Tested BEFORE the peak update on purpose: R4 measures the trail
         # against the peak as it stood at the START of the bar, because live's
         # ratchet is a 5-minute poll that usually never sees the bar's high.
         # engine_fast.py carries the identical block against its own cache.
         if ohlc_cache is not None:
-            hit = check_intraday_stop(
+            hit = check_intraday_bracket(
                 trade, ohlc_cache.get((trade["ticker"], today_str)),
                 eff_sl, eff_tp, trailing_stop_pct,
                 profit_lock_trigger_pct, profit_lock_trail_pct,
                 today_str=today_str, stats=parity_stats,
                 ratchet_from_high=ratchet_from_high,
                 **({} if stop_slip is None else {"stop_slip": stop_slip}),
+                intraday_tp=intraday_tp, tp_first=tp_first,
             )
             if hit is not None:
                 fill, reason, outcome = hit
