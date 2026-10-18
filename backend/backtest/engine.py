@@ -51,7 +51,8 @@ from backend.config import (
     WIN_RATE_MIN_TRADES,
 )
 from backend.backtest.exit_rules import Bar, ParityStats, build_ohlc_cache, check_intraday_bracket
-from backend.backtest.live_shape import etf_penalty_fails, etf_return_as_live, reentry_cooloff_days
+from backend.backtest.live_shape import (etf_penalty_fails, etf_return_as_live, live_overflow_increment,
+                                          overflow_admits, reentry_cooloff_days)
 from backend.signals import aggregator, momentum, relative_strength, trend, volume
 from backend.signals.ev_kelly import compute as ev_kelly_compute
 
@@ -130,6 +131,7 @@ def run(
     macro_pre_event_penalty: float | None = None,
     etf_negative_penalty: float | None = None,
     etf_negative_floor:   float        = -1.0,
+    overflow_quant_increment: float | None = None,  # row 14: None = live (0.05); math.inf = hard stop at max_positions
     intraday_stops:     bool        = True,
     ratchet_from_high:  bool        = False,
     stop_slip:          tuple[float, float] | None = None,   # None: exit_rules' measured R7 values (EXIT_PARITY.md)
@@ -168,6 +170,7 @@ def run(
     l1       = lock1_threshold    if lock1_threshold    is not None else LOCK1_THRESHOLD
     max_epd  = max_entries_per_day  # None means unlimited
     max_pos  = max_positions      if max_positions      is not None else MAX_POSITIONS
+    overflow_inc = overflow_quant_increment if overflow_quant_increment is not None else live_overflow_increment()
 
     start = date.fromisoformat(start_date)
     end   = date.fromisoformat(end_date)
@@ -306,12 +309,14 @@ def run(
                 new_score = sig["signal_score"] * (1.0 - macro_pre_event_penalty)
                 floor = SECTOR_THRESHOLD_FLOORS.get(sig["sector"], 0.0)
                 if new_score >= max(l1, floor):
-                    penalized.append({**sig, "signal_score": round(new_score, 4)})
+                    penalized.append({**sig, "signal_score": round(new_score, 4), "raw_score": sig["signal_score"]})
             candidates = penalized
 
         for sig in ([] if vix_blocked else sorted(candidates, key=lambda s: s["signal_score"], reverse=True)):
-            if len(open_trades) >= max_pos:
-                break
+            # Row 14: live has no hard cap; each slot over the roof raises the bar (live_shape).
+            if not overflow_admits(sig.get("raw_score", sig["signal_score"]), len(open_trades), max_pos,
+                                   max(l1, SECTOR_THRESHOLD_FLOORS.get(sig["sector"], 0.0)), overflow_inc):
+                continue
             if max_epd is not None and entries_today >= max_epd:
                 break
             if sig["ticker"] in open_tickers:

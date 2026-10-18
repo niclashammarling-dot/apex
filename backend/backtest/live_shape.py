@@ -192,3 +192,23 @@ def etf_penalty_fails(score: float, etf_ret: float | None, penalty: float | None
     if not penalty or etf_ret is None or round(etf_ret * 100, 2) >= floor_pct:
         return False
     return score * (1.0 - penalty) < threshold
+
+
+def overflow_admits(score: float, open_count: int, max_positions: int,
+                    base_threshold: float, increment: float) -> bool:
+    """Live's portfolio roof (2026-10-18, PRODUCTION_GAP row 14; `gate_runner_live.py`
+    566-627, `config.py` 115-118 "No hard cap"): below `max_positions` every candidate
+    is admitted; at or above it, slot n over the roof needs the raw signal score to
+    clear base_threshold x (1 + n x increment), rounded to 4 places as live does. A
+    rejected candidate does not stop the cycle; the next one is tried. increment
+    math.inf is the engines' hard stop at max_positions (before 2026-10-18)."""
+    if open_count < max_positions:
+        return True
+    level = open_count - max_positions + 1
+    return score >= round(base_threshold * (1 + level * increment), 4)
+
+
+def live_overflow_increment() -> float:
+    """`overflow_quant_increment` from live config (live 0.05)."""
+    from backend.live_config import get_live_config
+    return float(get_live_config()["overflow_quant_increment"])

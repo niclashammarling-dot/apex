@@ -895,7 +895,6 @@ CHECK76_ACCEPTED_FAST_ONLY = {"precomputed", "regime_layer",   # regime_layer: r
 # update the inventory, then this list.
 CHECK76_ABSENT_FROM_FAST = {
     "row 13 watchlist discount":  r"watchlist",
-    "row 14 overflow slots":      r"overflow",
 }
 
 # Layer 3 — behavioural: both engines over one fixed window with the documented
