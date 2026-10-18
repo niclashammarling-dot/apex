@@ -56,6 +56,7 @@ Signal score is computed upstream in `data/fetcher_yahoo.py:127-136`.
 | 29 | Sector snapshots from intraday polls | `sector_snapshots` (daily average of intraday polls) | **partial** — the engine's own close snapshots | feeds row 21 streaks and the regime scores |
 | 30 | Decision cadence: many gate cycles per session | `gate_runner_live.py` scheduler | **partial** — one decision a day at the close | the row 20 queued set and intraday entry prices differ |
 | 31 | Stop fill slippage | Alpaca market fill after the stop triggers | **yes** since 2026-10-17 — R7 (`exit_rules.py`, measured on 44 fills) | commission/fees ignored (Niclas 10-17) |
+| 32 | REGIME exit: sector off the Bayesian leaderboard AND the ticker down `TICKER_RECOVERY_DAYS` (5) closes in a row → close at market | `live_trades_tracker.py:668` (`check_live_regime_exits`, mirrors `wallet.check_regime_exits`) | **no** — 0 hits for a leaderboard/recovery exit in either engine | Found 2026-10-18 checking Niclas's TP/SL summary against the code; fired once in live (−$1,524.39). Not class 1 (locked 10-18): rides as an open row |
 
 ## The regime layer in the engine (`regime_layer=True`, 2026-10-17)
 
