@@ -38,7 +38,7 @@ from backend.config import (
     WIN_RATE_MIN_TRADES,
 )
 from backend.backtest.exit_rules import Bar, ParityStats, build_ohlc_cache, check_intraday_bracket
-from backend.backtest.live_shape import reentry_cooloff_days
+from backend.backtest.live_shape import etf_penalty_fails, etf_return_as_live, reentry_cooloff_days
 from backend.macro_calendar import macro_status
 from backend.signals import aggregator, momentum, relative_strength, trend, volume
 from backend.signals.ev_kelly import compute as ev_kelly_compute
@@ -116,6 +116,8 @@ def run(
     kelly_factor:       dict[str, float] | None = None,      # {date: k} replaces half-Kelly's 0.50 that day (H-V1, 2026-10-17)
     macro_hard_block:   bool        = False,   # also block pre-event days (engine.py's flag)
     macro_pre_event_penalty: float | None = None,   # live 0.05: score × (1 − p) on CPI/NFP eve, re-thresholded
+    etf_negative_penalty: float | None = None,      # row 11, live 0.15: sector ETF below the floor → score × (1 − p) must clear the threshold
+    etf_negative_floor:   float        = -1.0,      # percent, live -1.0
     parity_stats:       ParityStats | None = None,
     regime_layer:       bool        = False,
     random_entries:     dict  | None = None,
@@ -188,6 +190,24 @@ def run(
             spy_cache, etf_cache, trading_days,
         )
         logger.info("Backtest (fast): cache built — starting simulation loop")
+
+    # Row 11 (2026-10-18): the sector ETF return live's Lock 4 reads, per ETF and day.
+    etf_ret_live: dict[tuple[str, str], float | None] = {}
+    if etf_negative_penalty:
+        for _etf in set(sector_etf.values()):
+            if _etf and _etf in raw_data.columns.get_level_values(0):
+                _closes = raw_data[_etf]["Close"]
+                for d in trading_days:
+                    etf_ret_live[(_etf, d.isoformat())] = etf_return_as_live(_closes, d)
+    etf_penalty_blocked: list[dict] = []
+
+    def _etf_blocked(sig: dict, day_str: str) -> bool:
+        if not etf_negative_penalty or rnd is not None:
+            return False
+        return etf_penalty_fails(
+            sig["signal_score"], etf_ret_live.get((sector_etf.get(sig["sector"], ""), day_str)),
+            etf_negative_penalty, etf_negative_floor,
+            max(l1, SECTOR_THRESHOLD_FLOORS.get(sig["sector"], 0.0)))
 
     # Regime layer (PRODUCTION_GAP rows 2, 5, 20, 21; opt-in, 2026-10-17). Built once
     # per precomputed dict and kept in it, so optimizer and walk-forward runs share it.
@@ -323,6 +343,8 @@ def run(
                     continue
                 if use_leading_rs and not rs_cache.get((tk, today_str), True):
                     continue
+                if _etf_blocked(sig, today_str):
+                    continue
                 queued.setdefault(sig["sector"], []).append((tk, sig["signal_score"]))
             size_mult = RegimeBayes.size_multipliers(day_regime["allocation"], queued)
 
@@ -346,6 +368,17 @@ def run(
                     continue
 
             if use_leading_rs and not rs_cache.get((sig["ticker"], today_str), True):
+                continue
+
+            # Row 11: live's ETF negative penalty, after Lock 4 (chain.py:156-187); gates only.
+            if _etf_blocked(sig, today_str):
+                _er = etf_ret_live[(sector_etf[sig["sector"]], today_str)]
+                etf_penalty_blocked.append({
+                    "date": today_str, "ticker": sig["ticker"], "sector": sig["sector"],
+                    "original_score":  round(sig["signal_score"], 4),
+                    "penalized_score": round(sig["signal_score"] * (1.0 - etf_negative_penalty), 4),
+                    "etf_ret_pct":     round(_er * 100, 2),
+                })
                 continue
 
             sector    = sig["sector"]
@@ -426,10 +459,12 @@ def run(
             days_held=_trading_days_count(trade["entry_date"], end_date),
         ))
 
-    return _compute_metrics(
+    result = _compute_metrics(
         start_date, end_date, initial_balance, balance,
         closed_trades, equity_curve, raw_data, trading_days,
     )
+    result["etf_penalty_blocked"] = etf_penalty_blocked
+    return result
 
 
 # ── Signal cache persistence ──────────────────────────────────────────────────

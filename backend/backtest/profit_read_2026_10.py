@@ -44,6 +44,7 @@ def incumbent_from_live() -> dict:
         max_sector_exposure=c["max_sector_exposure"],
         sl_cooldown_days=sl, tp_cooldown_days=tp,
         macro_pre_event_penalty=c["macro_pre_event_penalty"],   # row 10, Niclas 10-17: "ja"
+        etf_negative_penalty=c["etf_negative_penalty"], etf_negative_floor=c["etf_negative_floor"],   # row 11, 2026-10-18
     )
 
 

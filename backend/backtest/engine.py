@@ -51,7 +51,7 @@ from backend.config import (
     WIN_RATE_MIN_TRADES,
 )
 from backend.backtest.exit_rules import Bar, ParityStats, build_ohlc_cache, check_intraday_bracket
-from backend.backtest.live_shape import reentry_cooloff_days
+from backend.backtest.live_shape import etf_penalty_fails, etf_return_as_live, reentry_cooloff_days
 from backend.signals import aggregator, momentum, relative_strength, trend, volume
 from backend.signals.ev_kelly import compute as ev_kelly_compute
 
@@ -331,23 +331,24 @@ def run(
             if use_leading_rs and not _leading_rs_pass(raw_data, sig["ticker"], sector_etf.get(sig["sector"], ""), today):
                 continue
 
-            # ETF negative penalty: penalise signal_score when sector ETF 5d return < floor
-            if etf_negative_penalty is not None:
-                etf_ret = _etf_5d_return(raw_data, sector_etf.get(sig["sector"], ""), today)
-                if etf_ret is not None and etf_ret < etf_negative_floor / 100:
-                    new_score = sig["signal_score"] * (1.0 - etf_negative_penalty)
-                    sec_floor = SECTOR_THRESHOLD_FLOORS.get(sig["sector"], 0.0)
-                    if new_score < max(l1, sec_floor):
-                        etf_penalty_blocked.append({
-                            "date":             today_str,
-                            "ticker":           sig["ticker"],
-                            "sector":           sig["sector"],
-                            "original_score":   round(sig["signal_score"], 4),
-                            "penalized_score":  round(new_score, 4),
-                            "etf_ret_pct":      round(etf_ret * 100, 2),
-                        })
-                        continue
-                    sig = {**sig, "signal_score": round(new_score, 4)}
+            # Row 11: live's ETF negative penalty, after Lock 4 (chain.py:156-187), on the
+            # return live's Lock 4 reads (7 intervals; 5 until 2026-10-18). Gates only, as
+            # live: the penalised score is not carried on (it replaced sig's until 10-18).
+            if etf_negative_penalty:
+                _etf    = sector_etf.get(sig["sector"], "")
+                etf_ret = (etf_return_as_live(raw_data[_etf]["Close"], today)
+                           if _etf and _etf in raw_data.columns.get_level_values(0) else None)
+                if etf_penalty_fails(sig["signal_score"], etf_ret, etf_negative_penalty, etf_negative_floor,
+                                     max(l1, SECTOR_THRESHOLD_FLOORS.get(sig["sector"], 0.0))):
+                    etf_penalty_blocked.append({
+                        "date":             today_str,
+                        "ticker":           sig["ticker"],
+                        "sector":           sig["sector"],
+                        "original_score":   round(sig["signal_score"], 4),
+                        "penalized_score":  round(sig["signal_score"] * (1.0 - etf_negative_penalty), 4),
+                        "etf_ret_pct":      round(etf_ret * 100, 2),
+                    })
+                    continue
 
             # Sector exposure check
             sector    = sig["sector"]
@@ -812,19 +813,6 @@ def _vix_on(raw_data: pd.DataFrame, today: date) -> float:
         return float(df["Close"].iloc[-1])
     except Exception:
         return 0.0
-
-
-def _etf_5d_return(raw_data: pd.DataFrame, etf: str, today: date) -> float | None:
-    """Return sector ETF 5-day return as a fraction, or None if data unavailable."""
-    if not etf:
-        return None
-    df = _slice_history(raw_data, etf, today, lookback_days=6)
-    if df is None or len(df) < 2:
-        return None
-    try:
-        return float(df["Close"].iloc[-1] / df["Close"].iloc[0]) - 1
-    except Exception:
-        return None
 
 
 def _leading_rs_pass(raw_data: pd.DataFrame, ticker: str, etf: str, today: date) -> bool:

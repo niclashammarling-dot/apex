@@ -164,3 +164,31 @@ def reentry_cooloff_days(exit_reason: str, outcome: str, sl_days: int, tp_days: 
     if exit_reason == "END_OF_BACKTEST":
         return 0
     return tp_days if (exit_reason in ("TP", "TSL") and outcome == "WIN") else sl_days
+
+
+def etf_return_as_live(closes, today) -> float | None:
+    """The sector ETF return live's Lock 4 reads (2026-10-18, PRODUCTION_GAP row 11):
+    `lock4_leading` downloads `period="8d"` (8 daily rows, measured 10-18) and takes
+    last / first - 1, so its "5d" return spans 7 trading-day intervals; fewer than 5
+    rows is an error there (no penalty). `closes` is the ETF's Close series; the
+    engine evaluates at today's close where live reads today's bar in progress.
+    engine.py used 5 intervals until this."""
+    import pandas as pd
+    s = closes.dropna()
+    s = s[s.index <= pd.Timestamp(today)].tail(8)
+    if len(s) < 5:
+        return None
+    return float(s.iloc[-1] / s.iloc[0]) - 1
+
+
+def etf_penalty_fails(score: float, etf_ret: float | None, penalty: float | None,
+                      floor_pct: float, threshold: float) -> bool:
+    """Live's ETF negative penalty (`chain.py:156-187`): when the sector ETF return,
+    in percent rounded to 2 decimals as Lock 4 reports it, is below `floor_pct`
+    (live -1.0), the score times (1 - penalty) must still clear the sector threshold
+    or the ticker is filtered. It gates only: live's final_score is Lock 4's or
+    Lock 5's, so the penalised score is not carried on. None or 0 is off (live:
+    `if etf_negative_penalty > 0`)."""
+    if not penalty or etf_ret is None or round(etf_ret * 100, 2) >= floor_pct:
+        return False
+    return score * (1.0 - penalty) < threshold
