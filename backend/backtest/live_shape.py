@@ -152,3 +152,15 @@ def live_cooloff_days() -> tuple[int, int]:
     from backend.live_config import get_live_config
     cfg = get_live_config()
     return (math.ceil(cfg["exit_cooloff_hours"] / 24), math.ceil(cfg["tp_cooloff_hours"] / 24))
+
+
+def reentry_cooloff_days(exit_reason: str, outcome: str, sl_days: int, tp_days: int) -> int:
+    """Days a ticker is blocked from re-entry after this exit, as live picks the window
+    (`db.get_recently_exited_live_tickers`, 2026-10-18, PRODUCTION_GAP row 23): only a
+    TP or TSL *win* gets `tp_cooloff_hours`; every other exit (SL, a TSL loss, TIME /
+    EXPIRED, REGIME) gets `exit_cooloff_hours`. Until this, both engines set no cooloff
+    after a TIME exit, and gave a TSL win the SL window when tp_days was 0.
+    END_OF_BACKTEST is not an exit live has: 0."""
+    if exit_reason == "END_OF_BACKTEST":
+        return 0
+    return tp_days if (exit_reason in ("TP", "TSL") and outcome == "WIN") else sl_days

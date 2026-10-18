@@ -38,6 +38,7 @@ from backend.config import (
     WIN_RATE_MIN_TRADES,
 )
 from backend.backtest.exit_rules import Bar, ParityStats, build_ohlc_cache, check_intraday_bracket
+from backend.backtest.live_shape import reentry_cooloff_days
 from backend.macro_calendar import macro_status
 from backend.signals import aggregator, momentum, relative_strength, trend, volume
 from backend.signals.ev_kelly import compute as ev_kelly_compute
@@ -259,12 +260,10 @@ def run(
             balance += trade["amount"] + (record["pnl"] or 0)
             if record["outcome"] in ("LOSS", "EXPIRED") and (record["pnl"] or 0) < 0:
                 daily_losses[today_str] = daily_losses.get(today_str, 0) + abs(record["pnl"] or 0)
-            _er  = record["exit_reason"]
-            _win = record["outcome"] == "WIN"
-            if (_er == "TP" or (_er == "TSL" and _win)) and TP_COOLDOWN_DAYS > 0:
-                sl_cooldown[trade["ticker"]] = today + timedelta(days=TP_COOLDOWN_DAYS)
-            elif _er in ("SL", "TSL") and SL_COOLDOWN_DAYS > 0:
-                sl_cooldown[trade["ticker"]] = today + timedelta(days=SL_COOLDOWN_DAYS)
+            _cool = reentry_cooloff_days(record["exit_reason"], record["outcome"],
+                                         SL_COOLDOWN_DAYS, TP_COOLDOWN_DAYS)
+            if _cool > 0:
+                sl_cooldown[trade["ticker"]] = today + timedelta(days=_cool)
 
         # 2. Generate candidates from cache
         spy       = spy_cache.get(today_str, {"regime": 0.0, "return_20d": 0.0})
