@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 // APEX overview pyramid — SKETCH (Niclas 2026-10-19: "en kombination"; idea
 // raw/inbox/ideas/2026-10-19-apex-overview-parts-and-process.md in the vault).
 // Layers by dependency form the pyramid: each stands on the one below. Each
@@ -10,42 +12,96 @@ const LAYERS = [
     key: "profit", name: "PROFIT", q: "Does it earn, in reality?",
     parts: ["Go criterion group 1 (90 % power, floor 3 mo)", "OUTCOMES O3 (hit rate > 72 %)", "Live months"],
     source: "OUTCOMES.md · go-criterion note",
+    register: "Vault wiki/_index/OUTCOMES.md (O3) and the go-criterion note (raw/notes/2026-10/2026-10-19-apex-go-criterion-group1-and-signal-register-ruled.md)",
+    writes: "Niclas's rulings in session: target, power, floor, population",
+    reads: "Every INDEX commitment carries an outcome tag [→ O3]; the weekly report and its weekly read (bundle section weekly)",
+    together: "The layer asks whether APEX earns. The register says what 'earns' means before anyone looks: hit rate above 72 % on in-session entries, and live months by the formula max(3, n/rate) at 90 % power. Live failing means the model is wrong.",
   },
   {
     key: "verify", name: "VERIFICATION", q: "Do we know it works?",
     parts: ["Test suite", "Audit CHECKs", "Battery cells (pre-registered)", "Weekend bundle"],
     source: "audit/CHECKS.md · tests/ · battery notes",
+    register: "audit/CHECKS.md (one row per CHECK), tests/, battery pre-registration notes in the vault",
+    writes: "A finding or a bug adds a CHECK row plus a positive-control test; a battery cell gets its rule written before the run",
+    reads: "publish_audit_state runs the CHECKs nightly; non-INFO findings reach the weekend bundle (TEST tab); the pre-push hook runs the parameter ratchet",
+    together: "This layer is the one that tells the others whether they hold. Its register is the list of what is checked; a part with no CHECK or test row is unverified, however well it runs.",
   },
   {
     key: "exec", name: "EXECUTION & RISK", q: "Is the order placed and sized right?",
     parts: ["Sizing (F15)", "Brackets: stop / target", "Slots and overflow", "Sector caps", "Broker guard"],
     source: "audit/PARAMETERS.json · live_config.json",
+    register: "audit/PARAMETERS.json (every parameter with provenance), data/live_config.json and data/demo_config.json",
+    writes: "A parameter change registers its value, source and engine/commit; Settings writes the configs",
+    reads: "tests/test_parameter_registry.py (ratchet, also run before every push); CHECK 9 config bounds; CHECK 90 reads Lock 5 against the enforced cap",
+    together: "The layer places and sizes orders. The register records why each number is what it is, so a size or stop can be traced to the test that set it (F15 stands: no size rule passed the 10-19 gate).",
   },
   {
     key: "parity", name: "ENGINE ↔ LIVE", q: "Does the backtest model live?",
     parts: ["engine_fast / engine.py", "Regime port (port-regime)", "Exit parity", "CHECK 76"],
     source: "PRODUCTION_GAP.md (numbered rows)",
+    register: "backend/backtest/PRODUCTION_GAP.md, numbered rows: every known difference between the engines and live",
+    writes: "A found difference becomes a row; a fix closes it with its commit",
+    reads: "CHECK 76 (backtest engine parity); the battery's flip attribution reverts named fixes to explain a changed verdict",
+    together: "A backtest only says something about live where the engine models live. The register is the list of where it does not yet, so a battery result is read with its open rows beside it.",
   },
   {
     key: "signals", name: "SIGNALS & LOCKS", q: "What does the model see?",
     parts: ["L1–L5 lock chain", "Regime Bayes", "Signal register S1–S10"],
     source: "PRODUCTION_GAP.md (S-rows)",
+    register: "backend/backtest/PRODUCTION_GAP.md, S-rows S1–S10: signal hypotheses (on port-regime until the merge)",
+    writes: "Every signal gap enters as an S-row (Niclas 2026-10-19)",
+    reads: "The weekend bundle's SIGNAL REGISTER section lists every open S-row (apex 2a066af, live after the merge)",
+    together: "S-row → battery cell with its rule written before the run → adopted into engine and live together, or discarded, with the verdict written into the row. The layer grows only through that path.",
   },
   {
     key: "data", name: "DATA & INPUTS", q: "Is the input there and true?",
     parts: ["Prices (Yahoo / Alpaca)", "Sector snapshots", "PCR", "Sentiment", "Macro calendar"],
     source: "data/ · input CHECKs",
+    register: "The input CHECK rows in audit/CHECKS.md (e.g. 75 prior-close fallback rate, 77–79 EOD regime) and the DB tables the jobs write",
+    writes: "Scheduler jobs: sector poll, EOD regime, PCR collection",
+    reads: "The nightly CHECKs; a missing input is a WARNING, never a silent skip",
+    together: "Everything above stands on this. A missing or wrong input shows here first, as a finding, before it can show up as a strange signal or a bad trade.",
   },
 ];
 
 const FUNNEL = ["BUILT", "TESTED", "IN FLIGHT"];
 
-function Band({ layer, i, n }) {
+function Detail({ layer }) {
+  const row = (label, text) => (
+    <div style={{ display: "grid", gridTemplateColumns: "150px 1fr", gap: 12, padding: "6px 0", borderTop: "1px solid var(--t-border)" }}>
+      <div className="t-meta" style={{ color: "var(--t-text-3)" }}>{label}</div>
+      <div className="t-meta" style={{ color: "var(--t-text-1)", lineHeight: 1.5 }}>{text}</div>
+    </div>
+  );
+  return (
+    <div style={{ margin: "0 2% 10px", padding: "10px 14px", border: "1px solid var(--t-accent)", background: "var(--t-bg-2)" }}>
+      {row("REGISTER", layer.register)}
+      {row("WRITES IT", layer.writes)}
+      {row("READS IT", layer.reads)}
+      {row("HOW THEY WORK", layer.together)}
+      {row("PARTS", (
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          {layer.parts.map((pt) => (
+            <div key={pt} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+              <span>{pt}</span>
+              <span style={{ color: "var(--t-text-3)" }}>built — · tested — · in flight —</span>
+            </div>
+          ))}
+        </div>
+      ))}
+      <div className="t-meta" style={{ color: "var(--t-text-3)", marginTop: 6 }}>Sketch text as of 2026-10-19; to be derived from the register once the mapping is decided.</div>
+    </div>
+  );
+}
+
+function Band({ layer, i, n, open, onToggle }) {
   // Width grows toward the base: top 40 %, base 100 %.
   const w = 40 + (60 * i) / (n - 1);
   const inset = (100 - w) / 2;
   return (
-    <div style={{ position: "relative", height: 92, marginBottom: 6 }}>
+    <>
+    <div onClick={onToggle} title={open ? "close" : "open the layer"}
+      style={{ position: "relative", height: 92, marginBottom: 6, cursor: "pointer" }}>
       <div
         style={{
           position: "absolute", inset: 0,
@@ -62,7 +118,7 @@ function Band({ layer, i, n }) {
       >
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--t-text-1)", letterSpacing: "0.08em" }}>
-            {layer.name}
+            <span style={{ color: "var(--t-accent)", marginRight: 6 }}>{open ? "▾" : "▸"}</span>{layer.name}
           </div>
           <div className="t-meta" style={{ marginTop: 2 }}>{layer.q}</div>
           <div className="t-meta" style={{ marginTop: 4, color: "var(--t-text-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -80,10 +136,14 @@ function Band({ layer, i, n }) {
         </div>
       </div>
     </div>
+    {open && <Detail layer={layer} />}
+    </>
   );
 }
 
 export default function OverviewPyramid() {
+  // ?layer=<key> opens one layer on load (deep link).
+  const [open, setOpen] = useState(() => new URLSearchParams(window.location.search).get("layer"));
   return (
     <div className="t-grid" style={{ gridTemplateColumns: "1fr 300px" }}>
       <div className="t-col-main">
@@ -93,7 +153,10 @@ export default function OverviewPyramid() {
             <div className="t-meta">SKETCH · COUNTS NOT DERIVED YET</div>
           </div>
           <div className="t-card-body">
-            {LAYERS.map((l, i) => <Band key={l.key} layer={l} i={i} n={LAYERS.length} />)}
+            {LAYERS.map((l, i) => (
+              <Band key={l.key} layer={l} i={i} n={LAYERS.length}
+                open={open === l.key} onToggle={() => setOpen(open === l.key ? null : l.key)} />
+            ))}
             <div className="t-meta" style={{ textAlign: "center", marginTop: 8 }}>
               each layer stands on the one below · a layer is never more trustworthy than its base
             </div>
