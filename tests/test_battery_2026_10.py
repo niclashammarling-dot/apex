@@ -414,7 +414,7 @@ class AnyStore(FakeStore):
         return {"summary": {"calmar": 1.0, "expectancy": {"usd": {"mean": 1.0}}, "total_return": 0.1,
                             "vs_spy_tbill": {"alpha_annual": 0.0, "t_alpha": 0.0}},
                 "spy_em": {"tbill": {"calmar": 2.0}}, "years": yrs, "folds": folds, "equity_curve": eq,
-                "engine": {"profit_factor": 1.0, "cagr": 0.05, "max_drawdown": 0.1}, "trade_log": [],
+                "engine": {"profit_factor": 1.0, "cagr": 0.05, "max_drawdown": 0.1, "total_trades": 1}, "trade_log": [],
                 "trading_days": [], "regime_days": {}}
 
 
@@ -512,3 +512,18 @@ def test_portfolio_kelly_is_excess_mean_over_variance():
     k = bt.portfolio_kelly(r, pd.Series(0.02 / 252, index=idx))
     assert k["kelly_rf"] == pytest.approx((k["m"] - 0.02) / k["s"] ** 2)
     assert k["r"] == pytest.approx(0.02) and abs(k["s"] - 0.20) < 0.01
+
+
+def test_macro_gate_needs_sixteen_paired_starts_and_the_oos_sign():
+    s = FakeStore()
+    rec = lambda c: {"summary": {"calmar": c}, "engine": {"total_trades": 1}, "years": {"2020": {"calmar": c}}}
+    for w in bt.WINDOWS:
+        for b in (bt.R2, bt.R1):
+            for st in bt.starts():
+                s.put(bt.unit(w, b, st), rec(1.0))
+                s.put(bt.unit(w, b, st, **bt.MACRO_OFF), rec(1.1 if (w == "OOS" or st < 16) else 0.9))
+    v = bt.read_macro_gate(s)
+    assert v["R2"]["IS"]["off_over_on_starts"] == 16 and v["rules"][0]["passed"] is True
+    assert v["rules"][1]["passed"] is False
+    s.put(bt.unit("IS", bt.R2, 15, **bt.MACRO_OFF), rec(0.9))           # 15/20: no longer robust
+    assert bt.read_macro_gate(s)["rules"][0]["passed"] is False

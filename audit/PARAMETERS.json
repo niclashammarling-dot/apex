@@ -171,6 +171,13 @@
       "tier": "ops",
       "source": "Vault raw/notes/2026-10/2026-10-19-apex-rerun-battery-written-and-the-runners-that-were-lost.md, choice 1 ruled 1C 2026-10-19 (Niclas: \"Ja på alla\"): R's expectancy must clear RND's 95th percentile at >= 4 of the 5 starts (tightened before the run). Battery design only: no live gate, size or exit reads it.",
       "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::MACRO_GATE_STARTS": {
+      "value": 16,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-macro-blackout-gate-preregistration.md (pushed 8faaf14c before the run; Niclas 2026-10-19 \"Ruling\"): the off/on arm must win at >= 16 of 20 paired starts; a consistency choice across start paths, not a p-value. Battery design only: no live gate, size or exit reads it.",
+      "date": "2026-10-19"
     }
   }
 }

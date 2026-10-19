@@ -167,6 +167,8 @@ HV1_ARMS = {"V1a": {}, "V1b": {"vix_threshold": None}}
 ETF_RATES = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
 ETF_FLOORS = [-0.5, -1.0, -1.5, -2.0]
 COOLOFF_00 = {"sl_cooldown_days": 0, "tp_cooldown_days": 0}
+MACRO_OFF = {"macro_blackout": False}
+MACRO_GATE_STARTS = 16                # of 20 paired starts (pre-registered 2026-10-19; a consistency choice, not a p-value)
 
 
 def build_cells() -> dict[str, Cell]:
@@ -198,6 +200,9 @@ def build_cells() -> dict[str, Cell]:
              + [unit("IS", R2, s, etf_negative_penalty=r, etf_negative_floor=f)
                 for r in ETF_RATES for f in ETF_FLOORS for s in starts()],
              read_etf),
+        Cell("macro_blackout_gate", VAULT_NOTES + "2026-10-19-apex-macro-blackout-gate-preregistration.md",
+             [unit(w, b, s, **m) for w in WINDOWS for b in (R2, R1) for s in starts() for m in ({}, MACRO_OFF)],
+             read_macro_gate),
         Cell("check80_counterfactual", VAULT_NOTES + "2026-10-15-apex-check80-first-read-rows-are-not-ticker-days.md",
              blocked="not an engine run: four threshold rules on gate-reached rows with simulated exits; "
                      "its reader is not written yet (battery step 2)"),
@@ -457,6 +462,32 @@ def read_3b(store: Store) -> dict:
             r = _rule("2015-2018: R2 vs R2-neutral (three outcomes)", None, rid="h", verdict=verdict,
                       calmar=[_cal(a), _cal(b)], years=f"{ahead}/{of}")
         out[w] = {"rules": [r]}
+    return out
+
+
+def read_macro_gate(store: Store) -> dict:
+    """Robustness gate, not a significance test (pre-registered 2026-10-19): the 20 starts share
+    >= 99 % of their days. A pass promotes the question to a family test; it never changes live."""
+    out: dict = {}
+    for name, b in (("R2", R2), ("R1", R1)):
+        row = {}
+        for w in WINDOWS:
+            on = [store.get(unit(w, b, s)) for s in starts()]
+            off = [store.get(unit(w, b, s, **MACRO_OFF)) for s in starts()]
+            d = np.array([_cal(f) - _cal(o) for f, o in zip(off, on)])
+            row[w] = {"off_over_on_starts": int((d > 0).sum()), "on_over_off_starts": int((d < 0).sum()),
+                      "mean_diff_off_minus_on": float(d.mean()),
+                      "trades_on_off_start0": [on[0]["engine"]["total_trades"], off[0]["engine"]["total_trades"]],
+                      "years_start0": {y: [on[0]["years"][y]["calmar"], off[0]["years"].get(y, {}).get("calmar")]
+                                       for y in on[0]["years"]}}
+        out[name] = row
+    r2 = out["R2"]
+    g_off = r2["IS"]["off_over_on_starts"] >= MACRO_GATE_STARTS and r2["OOS"]["mean_diff_off_minus_on"] > 0
+    g_on = r2["IS"]["on_over_off_starts"] >= MACRO_GATE_STARTS and r2["OOS"]["mean_diff_off_minus_on"] < 0
+    out["rules"] = [_rule("G-off: off beats on at >= 16/20 IS starts (R2) and OOS mean diff > 0", g_off, rid="g_off"),
+                    _rule("G-on: on beats off at >= 16/20 IS starts (R2) and OOS mean diff favours on", g_on, rid="g_on")]
+    out["read"] = ("Robustness gate. A pass lifts the question to a block-bootstrap test in the family; neither: "
+                   "no robust difference, the blackout stays. R1 beside, not deciding.")
     return out
 
 
