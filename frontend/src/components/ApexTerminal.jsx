@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import "../apex-dashboard.css";
 import BacktestPanel from "./BacktestPanel.jsx";
+import OverviewPyramid from "./OverviewPyramid.jsx";
 import TradeLog      from "./TradeLog.jsx";
 import NightLog      from "./NightLog.jsx";
 import MarketWindowPanel from "./MarketWindowPanel.jsx";
@@ -862,6 +863,7 @@ function Header({ mode, setMode, onSettings, onPromote, marketOpen }) {
       </div>
       <div className="t-row" style={{ gap: 12 }}>
         <button className={cls("t-btn", mode === "test" && "t-tab-on")} onClick={() => setMode("test")}>TEST</button>
+        <button className={cls("t-btn", mode === "pyramid" && "t-tab-on")} onClick={() => setMode("pyramid")}>PYRAMID</button>
         {onSettings && <button className="t-btn" onClick={onSettings}>⚙ SETTINGS</button>}
         {onPromote  && <button className="t-btn t-btn-promote" onClick={onPromote}>↑ PROMOTE</button>}
       </div>
@@ -870,7 +872,9 @@ function Header({ mode, setMode, onSettings, onPromote, marketOpen }) {
 }
 
 export default function ApexTerminal({ tweaks = {}, data: D, onSettings, onPromote, marketOpen, supplemental }) {
-  const [mode, setMode] = useState(tweaks.mode || "demo");
+  // ?tab=test|pyramid|live opens that view (deep link; also how the pyramid sketch was screenshotted 2026-10-19).
+  const urlTab = new URLSearchParams(window.location.search).get("tab");
+  const [mode, setMode] = useState(["demo", "live", "test", "pyramid"].includes(urlTab) ? urlTab : (tweaks.mode || "demo"));
   useEffect(() => { if (tweaks.mode) setMode(tweaks.mode); }, [tweaks.mode]);
 
   if (!D) return null;
@@ -880,6 +884,8 @@ export default function ApexTerminal({ tweaks = {}, data: D, onSettings, onPromo
       <Header mode={mode} setMode={setMode} onSettings={onSettings} onPromote={onPromote} marketOpen={marketOpen} />
       {mode === "test" ? (
         <TestView D={D} />
+      ) : mode === "pyramid" ? (
+        <OverviewPyramid />
       ) : (
         <>
           <div className="t-grid">
