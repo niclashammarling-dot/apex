@@ -152,7 +152,7 @@ def run(
         raw_data      = precomputed["raw_data"]
         ticker_sector = precomputed["ticker_sector"]
         sector_etf    = precomputed["sector_etf"]
-        trading_days  = precomputed["trading_days"]
+        trading_days  = window_days(precomputed, start, end)
         price_cache   = precomputed["price_cache"]
         spy_cache     = precomputed["spy_cache"]
         etf_cache     = precomputed["etf_cache"]
@@ -537,6 +537,26 @@ def _save_signal_cache(cache: dict, key: str) -> None:
 
 # ── Precompute (optimizer helper) ────────────────────────────────────────────
 
+def window_days(precomputed: dict, start: date, end: date) -> list[date]:
+    """The precompute's trading days inside [start, end] (2026-10-19).
+
+    run() used to loop over every day of the precompute whatever dates it was given, so
+    a fold run on a full-window precompute would have returned full-window results under
+    the fold's label (no caller did; found writing the rerun battery). A window inside
+    the precompute is sliced. A window reaching outside it is refused: build
+    precompute(start, end) for that window — widening is explicit, never a silent rebuild
+    with other caches. The regime timeline is still built on the whole precompute
+    (build_regime_timeline reads precomputed["trading_days"]), so its warm-up and state do
+    not depend on the slice.
+    """
+    days = precomputed["trading_days"]
+    w0, w1 = precomputed.get("window") or (days[0].isoformat(), days[-1].isoformat())
+    if start < date.fromisoformat(w0) or end > date.fromisoformat(w1):
+        raise ValueError(f"window {start}..{end} reaches outside the precompute {w0}..{w1}: "
+                         f"build precompute('{start}', '{end}') for it")
+    return [d for d in days if start <= d <= end]
+
+
 def precompute(start_date: str, end_date: str) -> dict:
     """
     Build all caches once for a date range.
@@ -589,6 +609,7 @@ def precompute(start_date: str, end_date: str) -> dict:
 
     logger.info(f"precompute: complete — {len(signal_cache)} signal cache entries")
     return {
+        "window":        (start_date, end_date),
         "raw_data":      raw_data,
         "ticker_sector": ticker_sector,
         "sector_etf":    sector_etf,
