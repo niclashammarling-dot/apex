@@ -62,6 +62,7 @@ class TestBuild:
         monkeypatch.setattr(bundle, "findings_items", lambda: list(self.items))
         monkeypatch.setattr(bundle, "todo_items", lambda: [])
         monkeypatch.setattr(bundle, "parity_items", lambda db=None: [])
+        monkeypatch.setattr(bundle, "signal_items", lambda: [])
         monkeypatch.setattr(bundle, "config_snapshot", lambda: dict(self.snap))
         monkeypatch.setattr(bundle, "weekly_items", lambda now: [])
         return tmp_path
@@ -229,6 +230,7 @@ class TestWeeklyRead:
         monkeypatch.setattr(bundle, "findings_items", lambda: [])
         monkeypatch.setattr(bundle, "todo_items", lambda: [])
         monkeypatch.setattr(bundle, "parity_items", lambda db=None: [])
+        monkeypatch.setattr(bundle, "signal_items", lambda: [])
         monkeypatch.setattr(bundle, "config_snapshot", lambda: {})
         (env / "data" / "weekly_report_sent.txt").write_text("2026-W43")
         b = bundle.build(now=self.FRI_W43)
@@ -236,3 +238,22 @@ class TestWeeklyRead:
         text = bundle.render_text(b)
         assert "WEEKLY REPORT READ — 2" in text
         assert bundle.WEEKLY_QUESTIONS[-1] in text
+
+
+
+def test_signal_register_rows_reach_the_bundle(tmp_path, monkeypatch):
+    # Control: the real register in this repo parses to its open S-rows.
+    real = bundle.signal_items()
+    assert real and all(i["section"] == "signals" and i["scope"] for i in real)
+    assert any(i["key"] == "signals:S1" for i in real)
+    gap = tmp_path / "backend" / "backtest"
+    gap.mkdir(parents=True)
+    (gap / "PRODUCTION_GAP.md").write_text(
+        "| Id | Hypothesis | Information | Data | Status |\n|---|---|---|---|---|\n"
+        "| S1 | one | x | have | open — measure |\n| S2 | two | y | none | adopted 2026-11-01 |\n")
+    monkeypatch.setattr(bundle, "REPO", tmp_path)
+    assert [i["key"] for i in bundle.signal_items()] == ["signals:S1"]       # closed rows leave the list
+    (gap / "PRODUCTION_GAP.md").write_text("# no register here\n")
+    assert bundle.signal_items()[0]["severity"] == "WARNING"                 # unreadable is never empty
+    (gap / "PRODUCTION_GAP.md").unlink()
+    assert bundle.signal_items()[0]["key"] == "signals:register-missing"
