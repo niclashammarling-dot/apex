@@ -276,6 +276,38 @@ def block_bootstrap_calmar_diff(ra: pd.Series, rb: pd.Series, block: int = 21, d
     return {"draws": len(out), "ci95": [float(lo), float(hi)], "mean": float(np.mean(out))}
 
 
+def pw_block_length(x) -> dict:
+    """Politis & White (2004) automatic block length with the Patton, Politis & White (2009)
+    correction (D_SB = 2 g(0)^2, D_CB = 4/3 g(0)^2), as `arch.bootstrap.optimal_block_length`
+    implements it (bashtage/arch base.py, read 2026-10-19): m is the first lag after which
+    k_n = max(5, log10 n) autocorrelations sit inside +-2 sqrt(log10 n / n); M = 2m; flat-top
+    window; b = (2 G^2 / D)^(1/3) n^(1/3), capped at min(3 sqrt n, n / 3). Derived for the
+    variance of a mean: for a Calmar difference it is a reasoned choice, not an optimum."""
+    x = np.asarray(x, float)
+    n = len(x)
+    eps = x - x.mean()
+    b_max = math.ceil(min(3 * math.sqrt(n), n / 3))
+    kn = max(5, int(math.log10(n)))
+    m_max = int(math.ceil(math.sqrt(n))) + kn
+    cv = 2 * math.sqrt(math.log10(n) / n)
+    acv, acorr, opt_m = np.zeros(m_max + 1), np.zeros(m_max + 1), None
+    for i in range(m_max + 1):
+        v1, v2 = eps[i + 1:] @ eps[i + 1:], eps[:-(i + 1)] @ eps[:-(i + 1)]
+        cross = eps[i:] @ eps[:n - i]
+        acv[i], acorr[i] = cross / n, abs(cross) / math.sqrt(v1 * v2)
+        if i >= kn and opt_m is None and np.all(acorr[i - kn:i] < cv):
+            opt_m = i - kn
+    m = min(2 * max(opt_m, 1) if opt_m is not None else m_max, m_max)
+    g, lr = 0.0, acv[0]
+    for k in range(1, m + 1):
+        lam = 1.0 if k / m <= 0.5 else 2 * (1 - k / m)
+        g += 2 * lam * k * acv[k]
+        lr += 2 * lam * acv[k]
+    b = lambda d: min(((2 * g ** 2) / d) ** (1 / 3) * n ** (1 / 3), b_max)
+    return {"n": n, "m": m, "stationary": float(b(2 * lr ** 2)), "circular": float(b(4 / 3 * lr ** 2)),
+            "b_max": b_max}
+
+
 def welch(a: list[float], b: list[float]) -> dict:
     a_, b_ = np.asarray(a, float), np.asarray(b, float)
     if len(a_) < 2 or len(b_) < 2:
@@ -358,6 +390,14 @@ def read_noise_floor(store: Store) -> dict:
                          "calmar_range": [float(c.min()), float(c.max())],
                          "total_return_mean": float(tr.mean()), "total_return_sd": float(tr.std(ddof=1))}
         row["R1_over_R2_starts"] = sum(_gt(_cal(store.get(unit(w, R1, s))), _cal(store.get(unit(w, R2, s)))) for s in starts())
+        # Block length for the bootstrap (method source note 2026-10-19): PW on the returns
+        # sizes a mean's variance; the Calmar a drawdown reads also depends on volatility
+        # clustering, which |r| carries.
+        ra, rb = _returns(store.get(unit(w, R2))), _returns(store.get(unit(w, R1)))
+        df = pd.concat({"a": ra, "b": rb}, axis=1, join="inner").dropna()
+        row["pw_block_length_start0"] = {"R2_r": pw_block_length(df["a"].values),
+                                         "R2_minus_R1_r": pw_block_length((df["a"] - df["b"]).values),
+                                         "R2_abs_r": pw_block_length(np.abs(df["a"].values))}
         row["readable_single_run_diff_R2"] = 2 * math.sqrt(2) * row["R2"]["calmar_sd"]
         row["readable_single_run_diff_R1"] = 2 * math.sqrt(2) * row["R1"]["calmar_sd"]
         out[w] = row

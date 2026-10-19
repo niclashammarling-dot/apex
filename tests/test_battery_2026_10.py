@@ -486,3 +486,21 @@ def test_fix_commits_are_in_this_branch_and_after_the_archive():
     for name, (c, _) in bt.FIXES.items():
         assert bt.git_is_ancestor(c, "HEAD"), name
         assert not bt.git_is_ancestor(c, "824150a"), name
+
+
+# ── Block length (Politis & White 2004, corrected 2009) ───────────────────────
+
+def test_pw_block_length_recovers_the_papers_ar1_optimum():
+    # Patton, Politis & White (2009) Table 1: AR(1) rho 0.7, N 800 -> b_opt,CB 20.83; Table 3:
+    # the estimate's mean ratio to it is 0.951. 200 draws here; the mean ratio sits in 0.8..1.1.
+    rng = np.random.default_rng(7)
+    ratios = []
+    for _ in range(200):
+        z = rng.normal(size=1000)
+        x = np.zeros(1000)
+        for t in range(1, 1000):
+            x[t] = 0.7 * x[t - 1] + z[t]
+        ratios.append(bt.pw_block_length(x[200:])["circular"] / 20.83)
+    assert 0.8 < float(np.mean(ratios)) < 1.1
+    white = bt.pw_block_length(rng.normal(size=1950))      # no dependence: a short block
+    assert white["circular"] < 5 and white["b_max"] == 133
