@@ -178,6 +178,50 @@
       "tier": "ops",
       "source": "Vault raw/notes/2026-10/2026-10-19-apex-macro-blackout-gate-preregistration.md (pushed 8faaf14c before the run; Niclas 2026-10-19 \"Ruling\"): the off/on arm must win at >= 16 of 20 paired starts; a consistency choice across start paths, not a p-value. Battery design only: no live gate, size or exit reads it.",
       "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::SIZE_FIXED": {
+      "value": {
+        "F15": 0.15,
+        "F10": 0.1
+      },
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-kelly-och-positionsstorlek-kalldokument.md, size cell ruled 2026-10-19 (Niclas: \"Ruling\" on Fable's three changes): two fixed fractions; F15 stands for live, where Lock 5 sits on the cap and cannot be backtested (LLM look-ahead). Battery design only: no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::SIZE_BOOK_C": {
+      "value": [
+        0.25,
+        0.5
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-kelly-och-positionsstorlek-kalldokument.md, size cell ruled 2026-10-19 (Niclas: \"Ruling\" on Fable's three changes): fractional Kelly on the book; Thorp 2006 7.3: half Kelly keeps 3/4 of growth with far less drawdown risk. Battery design only: no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::SIZE_BOOK_WINDOWS": {
+      "value": [
+        252,
+        0
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-kelly-och-positionsstorlek-kalldokument.md, size cell ruled 2026-10-19 (Niclas: \"Ruling\" on Fable's three changes): rule 4 at two windows (252 sessions and all prior history) so a zero multiplier can be told apart as window or edge. Battery design only: no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::SIZE_MIN_OBS": {
+      "value": 252,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-kelly-och-positionsstorlek-kalldokument.md, size cell ruled 2026-10-19 (Niclas: \"Ruling\" on Fable's three changes): sessions before rule 4's multiplier can be non-zero; matches the shorter window. Battery design only: no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::SIZE_Z": {
+      "value": 1.645,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-kelly-och-positionsstorlek-kalldokument.md, size cell ruled 2026-10-19 (Niclas: \"Ruling\" on Fable's three changes): one-sided 95 % lower bound on the mean; Thorp 2006 7.3 / MacLean-Thorp-Ziemba 2010: size on m_t < m_e. Battery design only: no live gate, size or exit reads it.",
+      "date": "2026-10-19"
     }
   }
 }

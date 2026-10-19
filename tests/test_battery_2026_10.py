@@ -48,7 +48,7 @@ def test_rnd_units_come_after_their_reference():
 
 def test_blocked_cells_say_why_and_have_no_units():
     cells = bt.build_cells()
-    for name in ("check80_counterfactual", "position_size", "earnings_on_off"):
+    for name in ("check80_counterfactual", "earnings_on_off"):
         assert cells[name].blocked and not cells[name].units
 
 
@@ -527,3 +527,44 @@ def test_macro_gate_needs_sixteen_paired_starts_and_the_oos_sign():
     assert v["rules"][1]["passed"] is False
     s.put(bt.unit("IS", bt.R2, 15, **bt.MACRO_OFF), rec(0.9))           # 15/20: no longer robust
     assert bt.read_macro_gate(s)["rules"][0]["passed"] is False
+
+
+# ── Size cell (ruled 2026-10-19) ──────────────────────────────────────────────
+
+def test_kelly_general_uses_the_realised_loss_not_the_stop():
+    log = [{"pnl_pct": 0.08}] * 55 + [{"pnl_pct": -0.05}] * 40 + [{"pnl_pct": -0.20}] * 5
+    k = bt.kelly_general(log)
+    a = (40 * 0.05 + 5 * 0.20) / 45
+    assert k["a"] == pytest.approx(a) and k["loss_max"] == pytest.approx(0.20)
+    assert k["f_star"] == pytest.approx((0.08 * 0.55 - a * 0.45) / (a * 0.08))
+    assert k["gambler_f_star"] == pytest.approx(k["f_star"] * a)          # the 1/a gap, exactly
+
+
+def test_book_factor_is_walk_forward_and_zero_without_edge():
+    idx = pd.bdate_range("2019-01-01", periods=800)
+    rng = np.random.default_rng(5)
+    good = pd.Series(rng.normal(0.30 / 252, 0.05 / np.sqrt(252), len(idx)), index=idx)
+    rf = pd.Series(0.0, index=idx)
+    k = bt.book_exposure_factor(good, rf, 0.5, 252)
+    days = [d.date().isoformat() for d in idx]
+    assert all(k[d] == 0.0 for d in days[:252]) and k[days[-1]] > 0
+    # day t uses returns before t only: changing day t's return leaves k(t) unchanged
+    bumped = good.copy(); bumped.iloc[500] = 0.5
+    assert bt.book_exposure_factor(bumped, rf, 0.5, 252)[days[500]] == k[days[500]]
+    flat = pd.Series(rng.normal(0.0, 0.05 / np.sqrt(252), len(idx)), index=idx)
+    assert float(np.median(list(bt.book_exposure_factor(flat, rf, 0.5, 252).values()))) == 0.0
+
+
+def test_engine_size_fixed_and_exposure_factor():
+    pre = synthetic_precomputed()
+    days = [d.isoformat() for d in pre["trading_days"]]
+    fixed = _ef(pre, size_fixed=0.05)["trade_log"]
+    assert fixed and all(abs(t["amount"] / 10_000 - 0.05) < 0.03 for t in fixed[:1])
+    none = _ef(pre, size_fixed=0.10, exposure_factor=dict.fromkeys(days, 0.0))
+    assert none["total_trades"] == 0                                       # multiplier 0: T-bill only
+
+
+def test_existing_unit_keys_unchanged_by_the_book_fields():
+    assert bt.unit("IS", bt.R2).key() == bt.Unit("IS", 0, bt._frozen(bt.R2)).key()
+    b = bt.book_unit("IS", 0, 0.5, 252)
+    assert b.key() != b.book_ref.key() and bt.ordered([b])[0].key() == b.book_ref.key()

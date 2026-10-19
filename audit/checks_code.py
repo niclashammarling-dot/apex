@@ -892,7 +892,9 @@ CHECK76_ACCEPTED_FAST_ONLY = {"precomputed", "regime_layer",   # regime_layer: r
                               "row2_neutral",                    # 3B: L2 on neutral weights under the layer, off by default (2026-10-19)
                               # Reverts of fixes since the 10-17 archive for the battery's flip attribution (7C);
                               # default True is the fixed engine, as engine.py (2026-10-19)
-                              "vix_block_inclusive", "macro_blackout", "cooloff_per_exit"}
+                              "vix_block_inclusive", "macro_blackout", "cooloff_per_exit",
+                              # Size cell: fixed fraction and per-day book multiplier, off by default (2026-10-19)
+                              "size_fixed", "exposure_factor"}
 
 # Layer 2 — production components documented ABSENT from engine_fast.py
 # (PRODUCTION_GAP.md rows). If a symbol appears, the row is stale, not wrong —

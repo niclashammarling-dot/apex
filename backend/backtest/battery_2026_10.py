@@ -88,6 +88,9 @@ class Unit:
     rnd_ref: "Unit | None" = None  # RND: the unit whose per-day entry counts it copies
     seed: int | None = None
     vix9d_kelly: bool = False      # H-V1 scaler replaces half-Kelly's 0.50
+    book_ref: "Unit | None" = None # size cell rule 4: the run whose returns set the book multiplier
+    book_c: float | None = None    # ... the Kelly fraction c
+    book_window: int | None = None # ... trailing sessions, 0 = all prior history in the window
 
     @property
     def kwargs(self) -> dict:
@@ -99,8 +102,10 @@ class Unit:
 
     def key(self) -> str:
         ref = self.rnd_ref.key() if self.rnd_ref else None
-        raw = json.dumps([self.window, self.start, self.kw, self.regime, ref, self.seed, self.vix9d_kelly],
-                         default=str)
+        parts = [self.window, self.start, self.kw, self.regime, ref, self.seed, self.vix9d_kelly]
+        if self.book_ref is not None:          # appended only when set: existing keys are unchanged
+            parts += [self.book_ref.key(), self.book_c, self.book_window]
+        raw = json.dumps(parts, default=str)
         return hashlib.sha1(raw.encode()).hexdigest()[:12]
 
 
@@ -155,6 +160,17 @@ def starts(n: int = N_STARTS) -> range:
     return range(n)
 
 
+def book_unit(w: str, s: int, c: float, window: int) -> Unit:
+    base = unit(w, R2, s, size_fixed=SIZE_FIXED["F10"])
+    return Unit(w, s, base.kw, (), book_ref=base, book_c=c, book_window=window)
+
+
+def _size_units() -> list[Unit]:
+    out = [unit(w, R2, s, size_fixed=f) for w in WINDOWS for f in SIZE_FIXED.values() for s in starts()]
+    out += [unit(w, R2, s) for w in WINDOWS for s in starts()]                      # ev_kelly half (incumbent)
+    return out + [book_unit(w, s, c, win) for w in WINDOWS for s in starts() for c in SIZE_BOOK_C for win in SIZE_BOOK_WINDOWS]
+
+
 def _profit_read_units(w: str) -> list[Unit]:
     out = [unit(w, b, s) for b in (R0, R1, R2) for s in starts()]
     return out + [u for b in (R2, R1) for s in RND_STARTS for u in rnd_units(unit(w, b, s))]
@@ -168,6 +184,11 @@ ETF_RATES = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
 ETF_FLOORS = [-0.5, -1.0, -1.5, -2.0]
 COOLOFF_00 = {"sl_cooldown_days": 0, "tp_cooldown_days": 0}
 MACRO_OFF = {"macro_blackout": False}
+SIZE_FIXED = {"F15": 0.15, "F10": 0.10}   # ruled 2026-10-19: F15 stands for live (L5 sits on the cap; L5 cannot be backtested)
+SIZE_BOOK_C = [0.25, 0.5]
+SIZE_BOOK_WINDOWS = [252, 0]              # 0: all prior history in the window
+SIZE_MIN_OBS = 252                        # sessions before the book multiplier can be non-zero
+SIZE_Z = 1.645                            # one-sided 95 % lower bound on the mean (Thorp 7.3: assume m_t < m_e)
 MACRO_GATE_STARTS = 16                # of 20 paired starts (pre-registered 2026-10-19; a consistency choice, not a p-value)
 
 
@@ -206,10 +227,8 @@ def build_cells() -> dict[str, Cell]:
         Cell("check80_counterfactual", VAULT_NOTES + "2026-10-15-apex-check80-first-read-rows-are-not-ticker-days.md",
              blocked="not an engine run: four threshold rules on gate-reached rows with simulated exits; "
                      "its reader is not written yet (battery step 2)"),
-        Cell("position_size", VAULT_NOTES + "2026-10-17-apex-open-questions-after-the-saturday-session.md item 33",
-             blocked="engine_fast has no sizing mode (only kelly_factor); L5-max / Kelly constant B / Kelly "
-                     "realised B / fixed fraction need an engine parameter, and the cell's rule is not "
-                     "pre-registered yet"),
+        Cell("position_size", VAULT_NOTES + "2026-10-19-apex-kelly-och-positionsstorlek-kalldokument.md",
+             _size_units(), read_size),
         Cell("earnings_on_off", VAULT_NOTES + "2026-10-18-apex-earnings-rules-dead-in-live-since-install.md",
              blocked="historical earnings-date source 2015-2026 (row 9)"),
     ]
@@ -323,6 +342,43 @@ def portfolio_kelly(r: pd.Series, rf: pd.Series | None = None, days: int = 252) 
     rr = float(rf.reindex(r.index).fillna(0.0).mean() * days) if rf is not None and len(rf) else 0.0
     return {"m": m, "s": math.sqrt(v), "r": rr, "kelly_r0": m / v if v > 0 else None,
             "kelly_rf": (m - rr) / v if v > 0 else None}
+
+
+def book_exposure_factor(r: pd.Series, rf: pd.Series, c: float, window: int) -> dict[str, float]:
+    """Size rule 4 (ruled 2026-10-19): day t's multiplier on the base book is c * max(0, (m_lo - r)/s^2)
+    from the base run's returns strictly before t: m_lo is the one-sided 95 % lower bound on the
+    annualised mean (iid standard error), s^2 the annualised variance, r the window's mean T-bill
+    rate over the same days. window 0 uses all prior days. Fewer than SIZE_MIN_OBS days: 0."""
+    r = r.dropna()
+    rfa = rf.reindex(r.index).ffill().fillna(0.0)
+    out, vals = {}, r.values
+    for i, d in enumerate(r.index):
+        lo = 0 if not window else max(0, i - window)
+        x = vals[lo:i]
+        if len(x) < SIZE_MIN_OBS:
+            out[d.date().isoformat()] = 0.0
+            continue
+        mu, sd = x.mean(), x.std(ddof=1)
+        m_lo = 252 * mu - SIZE_Z * 252 * sd / math.sqrt(len(x))
+        v = 252 * sd ** 2
+        rr = 252 * float(rfa.values[lo:i].mean())
+        out[d.date().isoformat()] = float(c * max(0.0, (m_lo - rr) / v)) if v > 0 else 0.0
+    return out
+
+
+def kelly_general(trade_log: list[dict]) -> dict:
+    """Thorp (2006) sec. 2: a unit wins b with p, loses a with q; f* = (bp - aq)/(ab). a is the
+    realised mean loss fraction (fills at or under the stop, gaps, slippage), not the stop level;
+    the loss tail is reported beside."""
+    pct = np.array([t["pnl_pct"] for t in trade_log if t.get("pnl_pct") is not None])   # a fraction (-0.0602 = -6.02 %)
+    wins, losses = pct[pct > 0], -pct[pct <= 0]
+    if not len(wins) or not len(losses):
+        return {"n": int(len(pct))}
+    p, b, a = len(wins) / len(pct), float(wins.mean()), float(losses.mean())
+    q = 1 - p
+    return {"n": int(len(pct)), "p": p, "b": b, "a": a, "f_star": (b * p - a * q) / (a * b),
+            "gambler_f_star": (p * (b / a) - q) / (b / a),
+            "loss_p95": float(np.percentile(losses, 95)), "loss_max": float(losses.max())}
 
 
 def welch(a: list[float], b: list[float]) -> dict:
@@ -462,6 +518,36 @@ def read_3b(store: Store) -> dict:
             r = _rule("2015-2018: R2 vs R2-neutral (three outcomes)", None, rid="h", verdict=verdict,
                       calmar=[_cal(a), _cal(b)], years=f"{ahead}/{of}")
         out[w] = {"rules": [r]}
+    return out
+
+
+def _growth(rec: dict) -> dict:
+    r = _returns(rec)
+    g, v = float(np.log1p(r).mean() * 252), float(np.log1p(r).var() * 252)
+    from backend.backtest import profit_metrics as pm
+    return {"log_growth": g, "max_drawdown": pm.max_drawdown(r),
+            "p_ever_halve_model": float(0.5 ** (2 * g / v)) if v > 0 and g > 0 else 1.0}   # Thorp (7.8)
+
+
+def read_size(store: Store) -> dict:
+    """Size cell (ruled 2026-10-19). Its threshold waits on the family ruling; until then a read."""
+    arms = {"F15 (live proxy)": lambda w, s: unit(w, R2, s, size_fixed=SIZE_FIXED["F15"]),
+            "F10": lambda w, s: unit(w, R2, s, size_fixed=SIZE_FIXED["F10"]),
+            "ev_kelly half": lambda w, s: unit(w, R2, s)}
+    for c in SIZE_BOOK_C:
+        for win in SIZE_BOOK_WINDOWS:
+            arms[f"book c{c} w{win or 'all'}"] = (lambda w, s, c=c, win=win: book_unit(w, s, c, win))
+    out: dict = {}
+    for w in WINDOWS:
+        row = {}
+        for name, mk in arms.items():
+            gs = [_growth(store.get(mk(w, s))) for s in starts()]
+            row[name] = {k: float(np.median([g[k] for g in gs])) for k in gs[0]}
+        row["rule1_general_formula_start0"] = kelly_general(store.get(unit(w, R2))["trade_log"])
+        out[w] = row
+    out["read"] = ("Medians over 20 starts. F15 stands for live (Lock 5 sits on the cap and cannot be backtested). "
+                   "Book rules at two windows show whether a zero multiplier comes from the window or the edge. "
+                   "Threshold: after the family ruling.")
     return out
 
 
@@ -751,7 +837,9 @@ def flips(verdicts: dict, explained: dict | None = None) -> list[dict]:
 
 def _ablate(u: Unit, revert: dict) -> Unit:
     ref = _ablate(u.rnd_ref, revert) if u.rnd_ref is not None else None
-    return Unit(u.window, u.start, _frozen({**u.kwargs, **revert}), u.regime, ref, u.seed, u.vix9d_kelly)
+    book = _ablate(u.book_ref, revert) if u.book_ref is not None else None
+    return Unit(u.window, u.start, _frozen({**u.kwargs, **revert}), u.regime, ref, u.seed, u.vix9d_kelly,
+                book, u.book_c, u.book_window)
 
 
 class AblatedStore:
@@ -908,6 +996,9 @@ class Runner:
         extra, missing = {}, None
         if u.vix9d_kelly:
             extra["kelly_factor"], missing = vix9d_kelly_factor(mk["vix9d"], [d.isoformat() for d in days])
+        if u.book_ref is not None:
+            base = self.store.get(u.book_ref)
+            extra["exposure_factor"] = book_exposure_factor(_returns(base), mk["rf"], u.book_c, u.book_window)
         if u.rnd_ref is not None:
             ref = self.store.get(u.rnd_ref)
             extra["random_entries"] = {"seed": u.seed, "per_day": ref["entries_per_day"],
@@ -978,10 +1069,11 @@ def ordered(units: list[Unit]) -> list[Unit]:
     """Unique units, references before the RND units that copy their entry counts, window by window."""
     seen: dict[str, Unit] = {}
     for u in units:
-        if u.rnd_ref is not None:
-            seen.setdefault(u.rnd_ref.key(), u.rnd_ref)
+        for ref in (u.rnd_ref, u.book_ref):
+            if ref is not None:
+                seen.setdefault(ref.key(), ref)
         seen.setdefault(u.key(), u)
-    return sorted(seen.values(), key=lambda u: (u.window, u.rnd_ref is not None, u.key()))
+    return sorted(seen.values(), key=lambda u: (u.window, u.rnd_ref is not None or u.book_ref is not None, u.key()))
 
 
 def git_state() -> tuple[str, bool]:

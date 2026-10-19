@@ -130,6 +130,10 @@ def run(
     vix_block_inclusive: bool       = True,    # False: `vix > threshold`, before 7cfbb8b
     macro_blackout:      bool       = True,    # False: no rows 7/10 blackout, before 60ea0f3
     cooloff_per_exit:    bool       = True,    # False: the per-exit window before 6f3921d (row 23)
+    # Size cell (ruled 2026-10-19): a fixed fraction in place of ev_kelly's half-Kelly, and a
+    # per-day book multiplier (missing day: 0, no exposure) capped at MAX_POSITION_SIZE.
+    size_fixed:          float | None = None,
+    exposure_factor:     dict[str, float] | None = None,
 ) -> BacktestResult:
     tp       = take_profit_pct    if take_profit_pct    is not None else TAKE_PROFIT_PCT
     sl       = stop_loss_pct      if stop_loss_pct      is not None else STOP_LOSS_PCT
@@ -409,6 +413,10 @@ def run(
                 # ev_kelly sizes at f* × 0.50; a day's factor k replaces the 0.50 (missing day → 0.50).
                 _kelly = _kelly * kelly_factor.get(today_str, 0.5) / 0.5
             alloc_pct = min(_kelly if _kelly > 0 else 0.10, MAX_POSITION_SIZE)
+            if size_fixed is not None:
+                alloc_pct = size_fixed
+            if exposure_factor is not None:
+                alloc_pct = min(alloc_pct * exposure_factor.get(today_str, 0.0), MAX_POSITION_SIZE)
             if day_regime:
                 _scale = size_mult.get(sig["ticker"], 1.0)
                 if _scale != 1.0:
