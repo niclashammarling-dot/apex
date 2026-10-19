@@ -504,3 +504,11 @@ def test_pw_block_length_recovers_the_papers_ar1_optimum():
     assert 0.8 < float(np.mean(ratios)) < 1.1
     white = bt.pw_block_length(rng.normal(size=1950))      # no dependence: a short block
     assert white["circular"] < 5 and white["b_max"] == 133
+
+
+def test_portfolio_kelly_is_excess_mean_over_variance():
+    idx = pd.bdate_range("2020-01-01", periods=2520)
+    r = pd.Series(np.random.default_rng(3).normal(0.10 / 252, 0.20 / np.sqrt(252), len(idx)), index=idx)
+    k = bt.portfolio_kelly(r, pd.Series(0.02 / 252, index=idx))
+    assert k["kelly_rf"] == pytest.approx((k["m"] - 0.02) / k["s"] ** 2)
+    assert k["r"] == pytest.approx(0.02) and abs(k["s"] - 0.20) < 0.01

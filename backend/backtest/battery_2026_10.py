@@ -308,6 +308,18 @@ def pw_block_length(x) -> dict:
             "b_max": b_max}
 
 
+def portfolio_kelly(r: pd.Series, rf: pd.Series | None = None, days: int = 252) -> dict:
+    """The book's continuous-time Kelly leverage f* = (m - r)/s^2 (Thorp 2006, eq. 7.3 / 8.2),
+    m and s^2 annualised from daily returns. f* > 1 means the measured mean would carry more
+    exposure than the book has; it rests entirely on the mean, which is the input Kelly is
+    most sensitive to (MacLean, Thorp & Ziemba 2010), so it is reported, never used to size."""
+    r = r.dropna()
+    m, v = float(r.mean() * days), float(r.var() * days)
+    rr = float(rf.reindex(r.index).fillna(0.0).mean() * days) if rf is not None and len(rf) else 0.0
+    return {"m": m, "s": math.sqrt(v), "r": rr, "kelly_r0": m / v if v > 0 else None,
+            "kelly_rf": (m - rr) / v if v > 0 else None}
+
+
 def welch(a: list[float], b: list[float]) -> dict:
     a_, b_ = np.asarray(a, float), np.asarray(b, float)
     if len(a_) < 2 or len(b_) < 2:
@@ -395,6 +407,8 @@ def read_noise_floor(store: Store) -> dict:
         # clustering, which |r| carries.
         ra, rb = _returns(store.get(unit(w, R2))), _returns(store.get(unit(w, R1)))
         df = pd.concat({"a": ra, "b": rb}, axis=1, join="inner").dropna()
+        # Unit records keep no T-bill series: r = 0 here; the hurdle lowers f* by r/s^2.
+        row["portfolio_kelly_start0"] = {"R2": portfolio_kelly(ra), "R1": portfolio_kelly(rb)}
         row["pw_block_length_start0"] = {"R2_r": pw_block_length(df["a"].values),
                                          "R2_minus_R1_r": pw_block_length((df["a"] - df["b"]).values),
                                          "R2_abs_r": pw_block_length(np.abs(df["a"].values))}
