@@ -154,3 +154,27 @@ engine's 5 d / none). The 09-16 search for "cooldown/reentry" never ran
 on live's word, "cooloff", and no known-present term was searched as a
 control. An absence claim on this file needs a positive control on the
 identical search.
+
+## Signal gaps — hypotheses (Niclas 2026-10-19)
+
+"Alla glapp måste in i production gap, testas och antingen slängas eller antas."
+These are not live components the engine lacks (the numbered rows above); they are
+information APEX does not use, or uses without a measured contribution. Ids are
+`S`-prefixed so `gap_bounds` never reads them as unmodelled rows. Each is closed by
+a battery cell with a rule written before its run: **adopted** (into live and the
+engine together) or **discarded** (with the cell's verdict). Data availability is
+the first gate: a hypothesis without history cannot be backtested and goes to a
+shadow book instead. Facts as of 2026-10-19, read from code.
+
+| Id | Hypothesis | Information | Data for a backtest | Status |
+|---|---|---|---|---|
+| S1 | The aggregator's four components are one signal, not four: momentum, trend, RS and volume are all price/volume (`aggregator.py:13-16`) | redundancy measurement | in the signal cache (have) | open — correlation of the components, then each one's marginal contribution |
+| S2 | Each backtestable lock adds to the chain more than the breadth it removes (fundamental law: IR ≈ IC × √breadth) | ablation per lock: L1 parts, ETF penalty, regime layer, L4 RS (row 16), L4 volume accumulation (row 17) | engine (have; row 17's volume part to build) | open |
+| S3 | Earnings information predicts the entry: surprise drift after the report, the pre-report premium | earnings dates and EPS surprise | historical dates/EPS 2015–2026 not in the repo (row 9) | open — data inventory first |
+| S4 | Options-implied information predicts the entry: IV skew/smirk, put/call, unusual calls | options history | none in the repo; L4 options parts live-only (row 17) | open — data inventory first |
+| S5 | Short interest and positioning predict the entry | short interest history | not in the repo | open — data inventory first |
+| S6 | Profitability/quality separates winners within a sector | fundamentals history | not in the repo | open — data inventory first |
+| S7 | Momentum-crash conditioning (after market drawdowns, high volatility) protects the sector rotation | market state from prices | have | open |
+| S8 | Breadth: more open sectors/positions raise IR more than the locks that close them cost (CHECK 71: 8 of 11 sectors closed 2026-09-15) | breadth measurement | engine (have) | open |
+| S9 | L3 sentiment (analyst consensus, short interest, news, X via Grok) adds to the chain | LLM over text | not backtestable (model look-ahead) | open — shadow book: forward returns of candidates L3 rejected vs passed |
+| S10 | L5 (Claude) adds to the chain | LLM | not backtestable | open — shadow book as S9 |
