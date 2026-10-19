@@ -188,6 +188,7 @@ SIZE_FIXED = {"F15": 0.15, "F10": 0.10}   # ruled 2026-10-19: F15 stands for liv
 SIZE_BOOK_C = [0.25, 0.5]
 SIZE_BOOK_WINDOWS = [252, 0]              # 0: all prior history in the window
 SIZE_MIN_OBS = 252                        # sessions before the book multiplier can be non-zero
+SIZE_GATE_STARTS = 16                     # of 20 paired starts (pre-registered 2026-10-19, vault 9c9ebe84)
 SIZE_Z = 1.645                            # one-sided 95 % lower bound on the mean (Thorp 7.3: assume m_t < m_e)
 MACRO_GATE_STARTS = 16                # of 20 paired starts (pre-registered 2026-10-19; a consistency choice, not a p-value)
 
@@ -521,6 +522,19 @@ def read_3b(store: Store) -> dict:
     return out
 
 
+def engine_losses(rec: dict) -> dict:
+    """The engine's realised loss distribution and how many SL exits lost more than the stop
+    distance, i.e. gapped through the initial stop (the trade log keeps no stop level)."""
+    stop = rec["kwargs"].get("stop_loss_pct") or 0.05
+    closed = [t for t in rec["trade_log"] if t.get("pnl_pct") is not None]
+    losses = np.array([-t["pnl_pct"] for t in closed if t["pnl_pct"] <= 0])
+    sl = [t for t in closed if t.get("exit_reason") == "SL"]
+    return {"n": len(closed), "losses": int(len(losses)), "loss_mean": float(losses.mean()) if len(losses) else None,
+            "loss_p95": float(np.percentile(losses, 95)) if len(losses) else None,
+            "loss_max": float(losses.max()) if len(losses) else None, "stop": stop,
+            "sl_n": len(sl), "sl_beyond_stop": sum(1 for t in sl if -t["pnl_pct"] > stop)}
+
+
 def _growth(rec: dict) -> dict:
     r = _returns(rec)
     g, v = float(np.log1p(r).mean() * 252), float(np.log1p(r).var() * 252)
@@ -538,16 +552,29 @@ def read_size(store: Store) -> dict:
         for win in SIZE_BOOK_WINDOWS:
             arms[f"book c{c} w{win or 'all'}"] = (lambda w, s, c=c, win=win: book_unit(w, s, c, win))
     out: dict = {}
+    per = {w: {name: [_growth(store.get(mk(w, s))) for s in starts()] for name, mk in arms.items()} for w in WINDOWS}
     for w in WINDOWS:
-        row = {}
-        for name, mk in arms.items():
-            gs = [_growth(store.get(mk(w, s))) for s in starts()]
-            row[name] = {k: float(np.median([g[k] for g in gs])) for k in gs[0]}
+        row = {name: {k: float(np.median([g[k] for g in gs])) for k in gs[0]} for name, gs in per[w].items()}
         row["rule1_general_formula_start0"] = kelly_general(store.get(unit(w, R2))["trade_log"])
+        row["engine_losses_start0"] = {n: engine_losses(store.get(mk(w, 0))) for n, mk in arms.items()
+                                       if n in ("F15 (live proxy)", "ev_kelly half")}
         out[w] = row
-    out["read"] = ("Medians over 20 starts. F15 stands for live (Lock 5 sits on the cap and cannot be backtested). "
-                   "Book rules at two windows show whether a zero multiplier comes from the window or the edge. "
-                   "Threshold: after the family ruling.")
+    base = "F15 (live proxy)"
+    rules = []
+    for name in arms:
+        if name == base:
+            continue
+        d_is = [a["log_growth"] - b["log_growth"] for a, b in zip(per["IS"][name], per["IS"][base])]
+        d_oos = [a["log_growth"] - b["log_growth"] for a, b in zip(per["OOS"][name], per["OOS"][base])]
+        ahead = sum(x > 0 for x in d_is)
+        rules.append(_rule(f"G-{name}: log growth above F15 at >= 16/20 IS starts and OOS median diff > 0",
+                           ahead >= SIZE_GATE_STARTS and float(np.median(d_oos)) > 0, rid=f"g_{name}",
+                           is_starts_ahead=f"{ahead}/{N_STARTS}", oos_median_diff=float(np.median(d_oos))))
+    out["rules"] = rules
+    out["read"] = ("Robustness gate (pre-registered 2026-10-19, vault 9c9ebe84): a pass lifts a rule to the family "
+                   "test, it never changes live; no pass: F15 stands. Idle cash earns 0 in the engine, which favours "
+                   "F15 over the cash-holding rules. Medians over 20 starts. F15 stands for live (Lock 5 sits on the cap and cannot be backtested). "
+                   "Book rules at two windows show whether a zero multiplier comes from the window or the edge.")
     return out
 
 

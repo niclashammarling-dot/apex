@@ -415,7 +415,7 @@ class AnyStore(FakeStore):
                             "vs_spy_tbill": {"alpha_annual": 0.0, "t_alpha": 0.0}},
                 "spy_em": {"tbill": {"calmar": 2.0}}, "years": yrs, "folds": folds, "equity_curve": eq,
                 "engine": {"profit_factor": 1.0, "cagr": 0.05, "max_drawdown": 0.1, "total_trades": 1}, "trade_log": [],
-                "trading_days": [], "regime_days": {}}
+                "trading_days": [], "regime_days": {}, "kwargs": {}}
 
 
 def test_every_archived_rule_resolves_on_its_reader(tmp_path):
@@ -568,3 +568,12 @@ def test_existing_unit_keys_unchanged_by_the_book_fields():
     assert bt.unit("IS", bt.R2).key() == bt.Unit("IS", 0, bt._frozen(bt.R2)).key()
     b = bt.book_unit("IS", 0, 0.5, 252)
     assert b.key() != b.book_ref.key() and bt.ordered([b])[0].key() == b.book_ref.key()
+
+
+def test_engine_losses_counts_sl_exits_beyond_the_stop():
+    rec = {"kwargs": {"stop_loss_pct": 0.05}, "trade_log": [
+        {"pnl_pct": -0.172, "exit_reason": "SL"}, {"pnl_pct": -0.051, "exit_reason": "SL"},
+        {"pnl_pct": -0.03, "exit_reason": "SL"}, {"pnl_pct": 0.04, "exit_reason": "TP"},
+        {"pnl_pct": -0.09, "exit_reason": "TIME"}]}
+    e = bt.engine_losses(rec)
+    assert e["sl_n"] == 3 and e["sl_beyond_stop"] == 2 and e["loss_max"] == pytest.approx(0.172) and e["losses"] == 4

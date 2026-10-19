@@ -222,6 +222,13 @@
       "tier": "ops",
       "source": "Vault raw/notes/2026-10/2026-10-19-apex-kelly-och-positionsstorlek-kalldokument.md, size cell ruled 2026-10-19 (Niclas: \"Ruling\" on Fable's three changes): one-sided 95 % lower bound on the mean; Thorp 2006 7.3 / MacLean-Thorp-Ziemba 2010: size on m_t < m_e. Battery design only: no live gate, size or exit reads it.",
       "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::SIZE_GATE_STARTS": {
+      "value": 16,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-size-gate-preregistration.md (pushed 9c9ebe84 before the run; Niclas 2026-10-19 \"Ruling\"): a size rule must beat F15 on log growth at >= 16 of 20 paired starts; a consistency choice across start paths, not a p-value. Battery design only.",
+      "date": "2026-10-19"
     }
   }
 }
