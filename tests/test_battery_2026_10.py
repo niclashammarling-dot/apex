@@ -223,6 +223,7 @@ def test_cap_reader_neighbours_exclude_030_and_need_four_folds():
 def test_a_reader_with_missing_units_reports_incomplete_never_a_pass(tmp_path):
     v = bt.read_all(bt.build_cells(), bt.Store(tmp_path), tmp_path)
     assert v.pop("_flips") == []                          # nothing read, nothing flipped
+    assert v.pop("_family")["m"] == 0
     for name, verdict in v.items():
         assert ("blocked" in verdict) != ("incomplete" in verdict), name
     assert (tmp_path / "verdicts" / "profit_read.json").exists()
@@ -235,7 +236,7 @@ def test_every_verdict_names_its_producer_for_the_vault_gate(tmp_path):
     repo = Path(__file__).resolve().parent.parent
     assert (repo / SCRIPT).exists()
     for f in (tmp_path / "verdicts").iterdir():
-        if f.name == "_flips.json":
+        if f.name in ("_flips.json", "_family.json"):
             continue
         p = json.loads(f.read_text())["producer"]
         assert p["repo"] == "apex" and p["commit"] == "abc123" and p["script"] == SCRIPT
@@ -576,4 +577,68 @@ def test_engine_losses_counts_sl_exits_beyond_the_stop():
         {"pnl_pct": -0.03, "exit_reason": "SL"}, {"pnl_pct": 0.04, "exit_reason": "TP"},
         {"pnl_pct": -0.09, "exit_reason": "TIME"}]}
     e = bt.engine_losses(rec)
-    assert e["sl_n"] == 3 and e["sl_beyond_stop"] == 2 and e["loss_max"] == pytest.approx(0.172) and e["losses"] == 4
+    assert e["sl_n"] == 3 and e["sl_gap_over_0_5pp"] == 1 and e["sl_slip_0_to_0_5pp"] == 1 and e["sl_within_stop"] == 1
+    assert e["sl_gap_over_2pp"] == 1 and e["loss_max"] == pytest.approx(0.172) and e["losses"] == 4
+
+
+# ── Family, primary edge, block length, parallel runner (ruled 2026-10-19) ────
+
+def test_holm_reproduces_harvey_liu_zhu_table_4():
+    # HLZ (2014) Table 4 panel B: ten p-values (%), Holm at 5 % rejects exactly tests 8, 7, 4, 9.
+    p = dict(zip(range(1, 11), [4.66, 0.85, 2.71, 0.05, 3.00, 0.84, 0.00, 0.00, 0.60, 1.28]))
+    rej = bt.holm({k: v / 100 for k, v in p.items()}, 0.05)
+    assert {k for k, r in rej.items() if r} == {8, 7, 4, 9}
+
+
+def test_family_read_applies_holm_to_family_rules_only():
+    v = {"a": {"rules": [bt._rule("x", True, rid="x", kind="family", p=0.001),
+                         bt._rule("y", True, rid="y", kind="family", p=0.06),
+                         bt._rule("z", True, rid="z", kind="robustness"),
+                         bt._rule("e", True, rid="e", kind="primary", p=0.001)]},
+         "b": {"IS": {"rules": [bt._rule("u", None, rid="u", kind="family", p=None)]}}}
+    f = bt.family_read(v)
+    assert f["m"] == 2 and f["members"]["a:x"]["counts"] and not f["members"]["a:y"]["holm_rejects"]
+    assert f["undecided_or_no_p"] == ["b:IS.u"]
+
+
+def test_bootstrap_circular_p_and_block_length_split():
+    idx = pd.bdate_range("2020-01-01", periods=600)
+    rng = np.random.default_rng(2)
+    b = pd.Series(rng.normal(0.0004, 0.01, len(idx)), index=idx)
+    a = b + 0.002                                                        # a dominates every day
+    r = bt.bootstrap_two_lengths(a, b, draws=200)
+    assert not r["undecided"] and r["p"] <= 1 / 201 + 1e-12 and r["fixed"]["block"] == bt.BLOCK_FIXED
+    same = bt.bootstrap_two_lengths(b, b, draws=200)
+    assert same["pw_abs_r"]["ci95"] == [0.0, 0.0] and same["p"] == 1.0
+
+
+def test_parallel_runner_writes_what_serial_writes(runner, tmp_path):
+    import json
+    units = [bt.unit("IS", bt.R2, 0), bt.unit("IS", bt.R1, 2)]
+    units += bt.rnd_units(units[0])[:3]
+    stores = []
+    for i, w in enumerate((1, 2)):
+        r = bt.Runner(bt.Store(tmp_path / str(i)), "deadbeef")
+        r.pre, r.market, r.inc = runner.pre, runner.market, runner.inc
+        bt.run_units(r, bt.ordered(units), workers=w, log=lambda m: None)
+        stores.append(r.store)
+    for u in bt.ordered(units):
+        assert json.dumps(stores[0].get(u), sort_keys=True, default=str) == json.dumps(stores[1].get(u), sort_keys=True, default=str)
+
+
+def test_a_frozen_runner_never_builds_a_precompute(runner):
+    r = bt.Runner(runner.store, "x")
+    r.frozen = True
+    with pytest.raises(RuntimeError, match="not precomputed"):
+        r._window("OOS")
+
+
+def test_run_reads_with_the_head_it_started_on(tmp_path, monkeypatch):
+    import json
+    heads = iter([("start1", False), ("end2", False)])
+    monkeypatch.setattr(bt, "git_state", lambda: next(heads))
+    monkeypatch.setattr(bt, "run_units", lambda *a, **k: None)
+    monkeypatch.setattr(bt.Runner, "incumbent", lambda self: {})
+    monkeypatch.setattr("backend.backtest.gap_bounds.describe", lambda **k: "")
+    assert bt.main([str(tmp_path), "--cells", "regime_weights_3b", "--run", "--ruling", "ja"]) == 0
+    assert json.loads((tmp_path / "verdicts" / "regime_weights_3b.json").read_text())["producer"]["commit"] == "start1"

@@ -55,9 +55,12 @@ import pandas as pd
 
 WINDOWS = {"IS": ("2019-01-02", "2026-10-16"), "OOS": ("2015-01-02", "2018-12-31")}
 N_STARTS = 20
-RND_SEEDS = range(1, 201)
+RND_SEEDS = range(1, 301)   # ruled 2026-10-19: >= 300 so the edge test can reach p <= 0.0033 (1/301)
 RND_STARTS = [0, 4, 8, 12, 16]        # 1C (ruled 2026-10-19): the signal-edge rule reads RND at five starts
 RND_PASS_STARTS = 4                   # ... and needs R above RND's 95th percentile at >= 4 of them
+EDGE_ALPHA = 0.05                     # ruled 2026-10-19: edge is the primary hypothesis, tested alone first
+FAMILY_ALPHA = 0.05                   # ruled 2026-10-19: Holm over the configuration questions that are significance tests
+BLOCK_FIXED = 21                      # reported beside the PW length on |r| (ruled 2026-10-19)
 EVENT_FOLDS = {
     "IS": {"F1": ("2026-03-02", "2026-04-30"), "F2": ("2026-05-01", "2026-06-30"),
            "F3": ("2026-07-01", "2026-09-11"), "COVID": ("2020-02-03", "2020-06-30"),
@@ -284,21 +287,35 @@ def paired(store: "Store", arm: Callable[[int], Unit], base: Callable[[int], Uni
 
 def block_bootstrap_calmar_diff(ra: pd.Series, rb: pd.Series, block: int = 21, draws: int = 2000,
                                 seed: int = 0) -> dict:
-    """Both series resampled jointly in blocks of `block` sessions (H-V1 rule 1b)."""
+    """Both series resampled jointly in circular blocks of `block` sessions (H-V1 rule 1b; circular
+    from 2026-10-19, the form PW's length is derived for). p_le0: share of draws <= 0."""
     from backend.backtest import profit_metrics as pm
     df = pd.concat({"a": ra, "b": rb}, axis=1, join="inner").dropna()
     n, rng = len(df), np.random.default_rng(seed)
-    starts_ = np.arange(0, n - block + 1)
+    starts_ = np.arange(n)
     out = []
     for _ in range(draws):
-        idx = np.concatenate([np.arange(s, s + block) for s in rng.choice(starts_, size=math.ceil(n / block))])[:n]
+        idx = np.concatenate([np.arange(s, s + block) % n for s in rng.choice(starts_, size=math.ceil(n / block))])[:n]
         s = df.iloc[idx].reset_index(drop=True)
         s.index = df.index                                   # calendar only sets the annualisation
         ca, cb = pm.calmar(s["a"]), pm.calmar(s["b"])
         if ca is not None and cb is not None:
             out.append(ca - cb)
     lo, hi = np.percentile(out, [2.5, 97.5])
-    return {"draws": len(out), "ci95": [float(lo), float(hi)], "mean": float(np.mean(out))}
+    return {"block": block, "draws": len(out), "ci95": [float(lo), float(hi)], "mean": float(np.mean(out)),
+            "p_le0": float((np.sum(np.asarray(out) <= 0) + 1) / (len(out) + 1))}
+
+
+def bootstrap_two_lengths(ra: pd.Series, rb: pd.Series, draws: int = 2000) -> dict:
+    """Ruled 2026-10-19: the decisive block is PW on |r| (circular length, the longer of the two
+    series, rounded up); BLOCK_FIXED beside. When the two lengths fall on opposite sides of
+    FAMILY_ALPHA the result is block-length dependent: undecided, not either length's verdict."""
+    df = pd.concat({"a": ra, "b": rb}, axis=1, join="inner").dropna()
+    pw = max(1, math.ceil(max(pw_block_length(np.abs(df["a"].values))["circular"],
+                              pw_block_length(np.abs(df["b"].values))["circular"])))
+    main, beside = block_bootstrap_calmar_diff(df["a"], df["b"], pw, draws), block_bootstrap_calmar_diff(df["a"], df["b"], BLOCK_FIXED, draws)
+    split = (main["p_le0"] <= FAMILY_ALPHA) != (beside["p_le0"] <= FAMILY_ALPHA)
+    return {"pw_abs_r": main, "fixed": beside, "undecided": split, "p": None if split else main["p_le0"]}
 
 
 def pw_block_length(x) -> dict:
@@ -388,12 +405,32 @@ def welch(a: list[float], b: list[float]) -> dict:
         return {"n": len(a_), "diff": None, "ci95": None}
     d = a_.mean() - b_.mean()
     se = math.sqrt(a_.var(ddof=1) / len(a_) + b_.var(ddof=1) / len(b_))
-    return {"n": len(a_), "diff": float(d), "ci95": [float(d - 1.96 * se), float(d + 1.96 * se)]}
+    return {"n": len(a_), "diff": float(d), "se": float(se), "ci95": [float(d - 1.96 * se), float(d + 1.96 * se)],
+            "p_below_0": float(1 - _norm_sf(d / se)) if se > 0 else None}
 
 
-def _rule(name: str, passed: bool | None, rid: str | None = None, **detail) -> dict:
-    """`rid` names the rule for the flip check (7C): stable across wording edits."""
-    return {"rule": name, "id": rid, "passed": passed, **detail}
+def _rule(name: str, passed: bool | None, rid: str | None = None, kind: str = "robustness", **detail) -> dict:
+    """`rid` names the rule for the flip check (7C): stable across wording edits. `kind` (ruled
+    2026-10-19): "primary" (edge, tested alone at EDGE_ALPHA), "family" (a significance test with a
+    sampled null; carries `p` and enters Holm at FAMILY_ALPHA), "robustness" (paired starts, folds,
+    counts: a gate, outside the family), "reading" (no rule)."""
+    return {"rule": name, "id": rid, "kind": kind, "passed": passed, **detail}
+
+
+def holm(ps: dict[str, float], alpha: float = FAMILY_ALPHA) -> dict[str, bool]:
+    """Holm (1979) as Harvey, Liu & Zhu (2014) sec. 4.4.2 give it: order the p-values, find the
+    first k with p_(k) > alpha / (M + 1 - k), reject the hypotheses before it. FWER <= alpha under
+    any dependence."""
+    order = sorted(ps, key=lambda k: ps[k])
+    m, out, stop = len(order), {}, False
+    for i, k in enumerate(order, 1):
+        stop = stop or ps[k] > alpha / (m + 1 - i)
+        out[k] = not stop
+    return out
+
+
+def _norm_sf(z: float) -> float:
+    return 0.5 * math.erfc(z / math.sqrt(2))
 
 
 # ── Readers: each applies its note's rule, as written before the run ──────────
@@ -414,9 +451,13 @@ def _signal_edge(store: Store, w: str, name: str, base: dict) -> dict:
         e = _expectancy(store.get(unit(w, base, s)))
         by_start[str(s)] = {"expectancy": e, "rnd_p95": p95, "above": e > p95}
     n = sum(v["above"] for v in by_start.values())
-    return _rule(f"signal edge {name}: expectancy > RND-on-{name} p95 at >= {RND_PASS_STARTS} of {len(RND_STARTS)} starts",
-                 n >= RND_PASS_STARTS, rid=f"edge_{name}", starts_above=f"{n}/{len(RND_STARTS)}", by_start=by_start,
-                 start0_as_preregistered=by_start["0"]["above"])
+    seeds0 = [_expectancy(store.get(u)) for u in rnd_units(unit(w, base, 0))]
+    e0 = by_start["0"]["expectancy"]
+    p = (sum(x >= e0 for x in seeds0) + 1) / (len(seeds0) + 1)
+    return _rule(f"signal edge {name} (primary, alone at {EDGE_ALPHA}): RND rank p at start 0 <= {EDGE_ALPHA} and "
+                 f"above RND p95 at >= {RND_PASS_STARTS} of {len(RND_STARTS)} starts (robustness)",
+                 n >= RND_PASS_STARTS and p <= EDGE_ALPHA, rid=f"edge_{name}", kind="primary", p=p,
+                 starts_above=f"{n}/{len(RND_STARTS)}", by_start=by_start, start0_as_preregistered=by_start["0"]["above"])
 
 
 def read_profit_read(store: Store) -> dict:
@@ -435,6 +476,8 @@ def read_profit_read(store: Store) -> dict:
             _rule("against the market: R2 alpha > 0 with t >= 2 (T-bill) and Calmar > SPY-EM (T-bill)",
                   (r2["summary"]["vs_spy_tbill"]["alpha_annual"] or -1) > 0 and (r2["summary"]["vs_spy_tbill"]["t_alpha"] or 0) >= 2
                   and _gt(_cal(r2), mkt["calmar"]), rid="vs_market",
+                  kind="family" if w == "IS" else "robustness",
+                  p=_norm_sf(r2["summary"]["vs_spy_tbill"]["t_alpha"]) if r2["summary"]["vs_spy_tbill"]["t_alpha"] is not None else None,
                   alpha=r2["summary"]["vs_spy_tbill"]["alpha_annual"], t=r2["summary"]["vs_spy_tbill"]["t_alpha"],
                   calmar=_cal(r2), spy_em=mkt["calmar"]),
         ]
@@ -532,7 +575,13 @@ def engine_losses(rec: dict) -> dict:
     return {"n": len(closed), "losses": int(len(losses)), "loss_mean": float(losses.mean()) if len(losses) else None,
             "loss_p95": float(np.percentile(losses, 95)) if len(losses) else None,
             "loss_max": float(losses.max()) if len(losses) else None, "stop": stop,
-            "sl_n": len(sl), "sl_beyond_stop": sum(1 for t in sl if -t["pnl_pct"] > stop)}
+            "sl_n": len(sl),
+            # Buckets beyond the stop: within 0.5 pp is the modelled slip (R7 gap median 0.50 %);
+            # beyond it is a gap through the stop. (A single "> stop" count also caught the slip.)
+            "sl_within_stop": sum(1 for t in sl if -t["pnl_pct"] <= stop),
+            "sl_slip_0_to_0_5pp": sum(1 for t in sl if stop < -t["pnl_pct"] <= stop + 0.005),
+            "sl_gap_over_0_5pp": sum(1 for t in sl if -t["pnl_pct"] > stop + 0.005),
+            "sl_gap_over_2pp": sum(1 for t in sl if -t["pnl_pct"] > stop + 0.02)}
 
 
 def _growth(rec: dict) -> dict:
@@ -638,17 +687,20 @@ def read_hv1(store: Store) -> dict:
         a = lambda s, arm=arm: unit("IS", R2, s, vix9d_kelly=True, **arm)
         pr = paired(store, a, base)
         a0, b0 = store.get(a(0)), store.get(base(0))
-        bs = block_bootstrap_calmar_diff(_returns(a0), _returns(b0))
+        bs = bootstrap_two_lengths(_returns(a0), _returns(b0))
         oos = _cal(store.get(unit("OOS", R2, vix9d_kelly=True, **arm))) - _cal(store.get(unit("OOS", R2)))
         dd_ok = all(a0["folds"][f]["max_drawdown"] <= b0["folds"][f]["max_drawdown"] for f in ("COVID", "Y2022"))
         out[name] = {"rules": [
-            _rule("a: mean paired Calmar diff > 2 SE over 20 starts", pr["mean"] > 2 * pr["se"], rid="a", **pr),
-            _rule("b: block bootstrap (21 sessions, 2,000 draws) Calmar diff CI above 0", bs["ci95"][0] > 0, rid="b", **bs),
+            _rule("a: mean paired Calmar diff > 2 SE over 20 starts (robustness)", pr["mean"] > 2 * pr["se"], rid="a", **pr),
+            _rule("b: circular block bootstrap (PW on |r|; 21 beside) Calmar diff > 0, p in the Holm family",
+                  None if bs["undecided"] else bs["p"] <= FAMILY_ALPHA, rid="b", kind="family", p=bs["p"],
+                  verdict="undecided: block-length dependent" if bs["undecided"] else None, **{k: bs[k] for k in ("pw_abs_r", "fixed")}),
             _rule("c: COVID and 2022 max DD not above baseline", dd_ok, rid="c",
                   dd={f: [a0["folds"][f]["max_drawdown"], b0["folds"][f]["max_drawdown"]] for f in ("COVID", "Y2022")}),
             _rule("d: 2015-2018 Calmar diff not of the opposite sign", not (pr["mean"] > 0 > oos), rid="d", oos_diff=oos)],
             "vix9d_missing_days": a0.get("vix9d_missing_days")}
-    out["read"] = "Each arm needs all four. Rule b reads 'CI excludes 0' on the side the arm claims (above)."
+    out["read"] = ("Each arm needs all four; b additionally survives Holm across the family (_family). "
+                   "a, c, d are robustness gates.")
     return out
 
 
@@ -705,7 +757,8 @@ def read_cooloff(store: Store) -> dict:
     ci = lambda x: x.get("ci95") or [float("nan")] * 2
     rules = [
         _rule("H-TP: win re-entries 1-7 below fresh, CI below 0 on 2019-2026, same sign 2015-2018",
-              ci(is_["win_1-7"])[1] < 0 and (oos["win_1-7"]["diff"] or 0) < 0, rid="h_tp", IS=is_["win_1-7"], OOS=oos["win_1-7"]),
+              ci(is_["win_1-7"])[1] < 0 and (oos["win_1-7"]["diff"] or 0) < 0, rid="h_tp", kind="family",
+              p=is_["win_1-7"].get("p_below_0"), IS=is_["win_1-7"], OOS=oos["win_1-7"]),
         _rule("H-SL: loss re-entries 1-3: CI includes 0 or above on 2019-2026; not significantly negative 2015-2018",
               ci(is_.get("loss_1-3", {}))[1] >= 0 and not ci(oos.get("loss_1-3", {}))[1] < 0, rid="h_sl",
               IS=is_.get("loss_1-3"), OOS=oos.get("loss_1-3")),
@@ -978,6 +1031,9 @@ class Runner:
 
     def _window(self, w: str) -> dict:
         if w not in self.pre:
+            if getattr(self, "frozen", False):
+                # A worker never builds a precompute: concurrent cache writes are the 09-16 trap.
+                raise RuntimeError(f"window {w} was not precomputed before the workers started")
             import yfinance as yf
             from backend.backtest.engine_fast import precompute
             a, b = WINDOWS[w]
@@ -1069,6 +1125,48 @@ class Runner:
         return rec
 
 
+_WORKER_RUNNER: "Runner | None" = None
+
+
+def _work(u: Unit) -> tuple[str, dict]:
+    return u.key(), _WORKER_RUNNER.run(u)
+
+
+def run_units(runner: "Runner", todo: list[Unit], workers: int = 1, log=print) -> None:
+    """Run and store `todo`. workers > 1 (ruled 2026-10-19): every window, regime timeline and the
+    incumbent are built in this process first; workers are forked after and only run engines (a
+    worker that would build a precompute raises). Units that copy a reference (RND, book) run in
+    a second phase, after every reference is stored. Each record is the same as a serial run's
+    (test: test_parallel_runner_writes_what_serial_writes)."""
+    global _WORKER_RUNNER
+    t0 = time.time()
+    if workers <= 1:
+        for i, u in enumerate(todo, 1):
+            runner.store.put(u, runner.run(u))
+            if i % 10 == 0 or i == len(todo):
+                log(f"{i}/{len(todo)} units, {time.time() - t0:.0f}s")
+        return
+    import multiprocessing as mp
+    for u in todo:
+        runner._window(u.window)
+        if u.regime_layer:
+            runner._timeline(u.window, u.regime)
+    runner.incumbent()
+    runner.frozen = True
+    _WORKER_RUNNER = runner
+    phases = [[u for u in todo if u.rnd_ref is None and u.book_ref is None],
+              [u for u in todo if u.rnd_ref is not None or u.book_ref is not None]]
+    by_key = {u.key(): u for u in todo}
+    done = 0
+    with mp.get_context("fork").Pool(workers) as pool:
+        for phase in phases:
+            for key, rec in pool.imap_unordered(_work, phase, chunksize=1):
+                runner.store.put(by_key[key], rec)
+                done += 1
+                if done % 10 == 0 or done == len(todo):
+                    log(f"{done}/{len(todo)} units, {time.time() - t0:.0f}s ({workers} workers)")
+
+
 def _entries_per_day(trade_log: list[dict]) -> dict[str, int]:
     out: dict[str, int] = {}
     for t in trade_log:
@@ -1150,8 +1248,41 @@ def read_all(cells: dict[str, Cell], store: Store, outdir: Path, commit: str = "
     for f in sorted((outdir / "explanations").glob("*.json")) if (outdir / "explanations").exists() else []:
         explained.update(json.loads(f.read_text()))
     verdicts["_flips"] = flips(verdicts, explained)
+    verdicts["_family"] = family_read(verdicts)
+    (outdir / "verdicts" / "_family.json").write_text(json.dumps(verdicts["_family"], indent=1, default=str))
     (outdir / "verdicts" / "_flips.json").write_text(json.dumps(verdicts["_flips"], indent=1, default=str))
     return verdicts
+
+
+def _walk_rules(v, path=""):
+    if isinstance(v, dict):
+        if "rule" in v and "kind" in v:
+            yield path, v
+        for k, x in v.items():
+            if k != "rules":
+                yield from _walk_rules(x, f"{path}.{k}" if path else k)
+        for r in v.get("rules", []) if isinstance(v.get("rules"), list) else []:
+            yield from _walk_rules(r, path)
+
+
+def family_read(verdicts: dict) -> dict:
+    """Holm over every rule of kind "family" that has a p (an undecided rule has none and is listed
+    apart). A family rule counts only if its own conditions pass and Holm rejects its null."""
+    members, undecided = {}, []
+    for cell, v in verdicts.items():
+        if cell.startswith("_") or not isinstance(v, dict) or "blocked" in v or "incomplete" in v:
+            continue
+        for path, r in _walk_rules(v):
+            if r["kind"] != "family":
+                continue
+            key = f"{cell}:{path}.{r['id']}".replace(":.", ":")
+            (members.__setitem__(key, r) if r.get("p") is not None else undecided.append(key))
+    rej = holm({k: r["p"] for k, r in members.items()}) if members else {}
+    return {"alpha": FAMILY_ALPHA, "m": len(members),
+            "members": {k: {"p": r["p"], "holm_rejects": rej[k], "own_conditions": r["passed"],
+                            "counts": bool(rej[k] and r["passed"])} for k, r in members.items()},
+            "undecided_or_no_p": undecided,
+            "read": "Holm (FWER <= alpha under any dependence). Edge is primary and outside; robustness gates outside."}
 
 
 def git_is_ancestor(a: str, b: str) -> bool:
@@ -1165,6 +1296,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--run", action="store_true")
     ap.add_argument("--ruling", default="")
     ap.add_argument("--read", action="store_true")
+    ap.add_argument("--workers", type=int, default=1, help="parallel engine runs (caches built first, in this process)")
     ap.add_argument("--explain", default="", help="cell: attribute its flips by reverting each fix (runs units; needs --ruling)")
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     a = ap.parse_args(argv)
@@ -1189,11 +1321,7 @@ def main(argv: list[str] | None = None) -> int:
              "commit": head, "ruling": a.ruling, "started": pd.Timestamp.now(tz="Europe/Stockholm").isoformat(),
              "incumbent": runner.incumbent(), "windows": WINDOWS, "cells": list(cells)}, indent=1))
         todo = [u for u in ordered([u for c in cells.values() for u in c.units]) if not store.has(u)]
-        t0 = time.time()
-        for i, u in enumerate(todo, 1):
-            store.put(u, runner.run(u))
-            if i % 10 == 0 or i == len(todo):
-                print(f"{i}/{len(todo)} units, {time.time() - t0:.0f}s", flush=True)
+        run_units(runner, todo, a.workers, log=lambda m: print(m, flush=True))
     if a.explain:
         if not a.ruling.strip():
             print("refused: --explain runs units and needs --ruling")
@@ -1210,7 +1338,9 @@ def main(argv: list[str] | None = None) -> int:
         (a.outdir / "explanations" / f"{cell.name}.json").write_text(json.dumps(res, indent=1, default=str))
         print(json.dumps({k: v["status"] for k, v in res.items()}, indent=1), flush=True)
     if a.run or a.read:
-        print(json.dumps(read_all(cells, store, a.outdir, git_state()[0], raw_argv), indent=1, default=str), flush=True)
+        # A --run reads with the code it loaded: the head captured at its start, not the head at its end.
+        read_head = head if a.run else git_state()[0]
+        print(json.dumps(read_all(cells, store, a.outdir, read_head, raw_argv), indent=1, default=str), flush=True)
     return 0
 
 

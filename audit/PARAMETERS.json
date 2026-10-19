@@ -229,6 +229,27 @@
       "tier": "ops",
       "source": "Vault raw/notes/2026-10/2026-10-19-apex-size-gate-preregistration.md (pushed 9c9ebe84 before the run; Niclas 2026-10-19 \"Ruling\"): a size rule must beat F15 on log growth at >= 16 of 20 paired starts; a consistency choice across start paths, not a p-value. Battery design only.",
       "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::EDGE_ALPHA": {
+      "value": 0.05,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-testmetodik-i-batteriet-kalldokument.md, ruled 2026-10-19 (Niclas: \"om du inte har invändningar mot fable så kör på det. Ruling\"): edge vs RND is the primary hypothesis, tested alone at 5 % before the family (hierarchical: go/no-go for real money does not share its alpha). Battery design only.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::FAMILY_ALPHA": {
+      "value": 0.05,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-testmetodik-i-batteriet-kalldokument.md, ruled 2026-10-19 (Niclas: \"om du inte har invändningar mot fable så kör på det. Ruling\"): Holm FWER over the configuration questions that are significance tests (Harvey, Liu & Zhu 2014 sec. 4.4: FWER for few tests, valid under any dependence). Battery design only.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::BLOCK_FIXED": {
+      "value": 21,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-testmetodik-i-batteriet-kalldokument.md, ruled 2026-10-19 (Niclas: \"om du inte har invändningar mot fable så kör på det. Ruling\"): the 10-17 block length, reported beside the decisive PW length on |r|; a verdict that flips between them is undecided. Battery design only.",
+      "date": "2026-10-19"
     }
   }
 }
