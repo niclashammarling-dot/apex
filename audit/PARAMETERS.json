@@ -82,6 +82,75 @@
       "review": "2026-10-31",
       "commit": "58916ea",
       "sample": "44 filled Alpaca paper sell-stop legs 2026-07-07..2026-10-16 (37 intraday, 7 gap at the open)"
+    },
+    "backend/backtest/battery_2026_10.py::N_STARTS": {
+      "value": 20,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-17-apex-noise-floor-start-shift-and-vix-without-the-cut.md: the run started on each of the first 20 sessions of the window; regime-recovery and H-V1 rules read the same 20 paired starts. Battery design only (2026-10-19): no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::VIX9D_WINDOW": {
+      "value": 63,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-17-apex-vix-sizing-and-holdings-hypotheses.md: H-V1 rank window locked at 63 sessions before the run (no search). Battery design only (2026-10-19): no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::CAP_GRID": {
+      "value": [
+        0.15,
+        0.2,
+        0.25,
+        0.26,
+        0.27,
+        0.28,
+        0.29,
+        0.3,
+        0.35,
+        0.4,
+        0.5
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-17-apex-sector-cap-sweep-preregistration.md: the 10-17 grid plus the 0.26-0.29 extension (Niclas 10-17), rerun unchanged. Battery design only (2026-10-19): no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::ETF_RATES": {
+      "value": [
+        0.05,
+        0.1,
+        0.15,
+        0.2,
+        0.25,
+        0.3
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "backend/backtest/etf_penalty_sweep.py RATES: the 07-17 sweep's grid, rerun on engine_fast (10-18 scope ruling). Battery design only (2026-10-19): no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::ETF_FLOORS": {
+      "value": [
+        -0.5,
+        -1.0,
+        -1.5,
+        -2.0
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "backend/backtest/etf_penalty_sweep.py FLOORS: the 07-17 sweep's grid, rerun on engine_fast (10-18 scope ruling). Battery design only (2026-10-19): no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::COOLOFF_00": {
+      "value": {
+        "sl_cooldown_days": 0,
+        "tp_cooldown_days": 0
+      },
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-17-apex-cooloff-mechanism-and-exits-baseline-hypotheses.md: cooloffs 0/0 so every re-entry the signal wants happens. Battery design only (2026-10-19): no live gate, size or exit reads it.",
+      "date": "2026-10-19"
     }
   }
 }

@@ -122,6 +122,7 @@ def run(
     overflow_quant_increment: float | None = None,  # row 14: None = live (0.05); math.inf = hard stop at max_positions
     parity_stats:       ParityStats | None = None,
     regime_layer:       bool        = False,
+    row2_neutral:       bool        = False,   # 3B: L2 scored with neutral weights; allocation, caps, multiplier unchanged
     random_entries:     dict  | None = None,
 ) -> BacktestResult:
     tp       = take_profit_pct    if take_profit_pct    is not None else TAKE_PROFIT_PCT
@@ -298,7 +299,7 @@ def run(
         candidates = _get_candidates_from_cache(
             signal_cache, ticker_sector, sector_etf, etf_cache,
             today_str, l1 if rnd is None else None, spy["regime"], rolling_wr,
-            regime_state=day_regime["bucket"] if day_regime else None,
+            regime_state=("neutral" if row2_neutral else day_regime["bucket"]) if day_regime else None,
             sector_allocation=day_regime["allocation"] if day_regime else None,
         )
         if rnd is not None:
