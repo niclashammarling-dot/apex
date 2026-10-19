@@ -27,6 +27,14 @@ Run from apex-port-regime/ (prints the plan; nothing runs without --run):
     venv/bin/python -u -m backend.backtest.battery_2026_10 <outdir> [--cells a,b]
     venv/bin/python -u -m backend.backtest.battery_2026_10 <outdir> --run --ruling "<Niclas's words>"
     venv/bin/python -u -m backend.backtest.battery_2026_10 <outdir> --read
+    venv/bin/python -u -m backend.backtest.battery_2026_10 <outdir> --explain <cell> --ruling "<words>"
+
+Ruled 2026-10-19 (Niclas: "Ja på alla", on the seven choices in the 10-19 note):
+  1C  the signal edge reads RND at RND_STARTS and needs >= RND_PASS_STARTS of them; RND keeps
+      R's non-score constraints and gets the reference's open slots in place of row 14's bar.
+  6C  ETF arms at 20 paired starts: the 07-17 criterion at start 0 and at >= 11 of 20.
+  7C  `_flips` lists every archived rule whose outcome reversed; it is used only once
+      --explain attributes it to exactly one fix in FIXES by revert and trade-log diff.
 """
 from __future__ import annotations
 
@@ -48,6 +56,8 @@ import pandas as pd
 WINDOWS = {"IS": ("2019-01-02", "2026-10-16"), "OOS": ("2015-01-02", "2018-12-31")}
 N_STARTS = 20
 RND_SEEDS = range(1, 201)
+RND_STARTS = [0, 4, 8, 12, 16]        # 1C (ruled 2026-10-19): the signal-edge rule reads RND at five starts
+RND_PASS_STARTS = 4                   # ... and needs R above RND's 95th percentile at >= 4 of them
 EVENT_FOLDS = {
     "IS": {"F1": ("2026-03-02", "2026-04-30"), "F2": ("2026-05-01", "2026-06-30"),
            "F3": ("2026-07-01", "2026-09-11"), "COVID": ("2020-02-03", "2020-06-30"),
@@ -147,7 +157,7 @@ def starts(n: int = N_STARTS) -> range:
 
 def _profit_read_units(w: str) -> list[Unit]:
     out = [unit(w, b, s) for b in (R0, R1, R2) for s in starts()]
-    return out + rnd_units(unit(w, R2)) + rnd_units(unit(w, R1))
+    return out + [u for b in (R2, R1) for s in RND_STARTS for u in rnd_units(unit(w, b, s))]
 
 
 CAP_GRID = [0.15, 0.20, 0.25, 0.26, 0.27, 0.28, 0.29, 0.30, 0.35, 0.40, 0.50]   # lists: the registry pins JSON lists
@@ -184,8 +194,9 @@ def build_cells() -> dict[str, Cell]:
              + rnd_units(unit("IS", R1)) + rnd_units(unit("OOS", R1)), read_cooloff),
         Cell("etf_penalty", VAULT_NOTES + "2026-10-17-apex-scope-for-sunday-2026-10-18.md (ETF 0.15 cell); "
              "criterion: etf_penalty_sweep._meets_criterion",
-             [unit("IS", R2, etf_negative_penalty=None)]
-             + [unit("IS", R2, etf_negative_penalty=r, etf_negative_floor=f) for r in ETF_RATES for f in ETF_FLOORS],
+             [unit("IS", R2, s, etf_negative_penalty=None) for s in starts()]
+             + [unit("IS", R2, s, etf_negative_penalty=r, etf_negative_floor=f)
+                for r in ETF_RATES for f in ETF_FLOORS for s in starts()],
              read_etf),
         Cell("check80_counterfactual", VAULT_NOTES + "2026-10-15-apex-check80-first-read-rows-are-not-ticker-days.md",
              blocked="not an engine run: four threshold rules on gate-reached rows with simulated exits; "
@@ -274,31 +285,50 @@ def welch(a: list[float], b: list[float]) -> dict:
     return {"n": len(a_), "diff": float(d), "ci95": [float(d - 1.96 * se), float(d + 1.96 * se)]}
 
 
-def _rule(name: str, passed: bool | None, **detail) -> dict:
-    return {"rule": name, "passed": passed, **detail}
+def _rule(name: str, passed: bool | None, rid: str | None = None, **detail) -> dict:
+    """`rid` names the rule for the flip check (7C): stable across wording edits."""
+    return {"rule": name, "id": rid, "passed": passed, **detail}
 
 
 # ── Readers: each applies its note's rule, as written before the run ──────────
+
+def _expectancy(rec: dict) -> float:
+    return rec["expectancy"]["usd"]["mean"] if "seed" in rec else rec["summary"]["expectancy"]["usd"]["mean"]
+
+
+def _signal_edge(store: Store, w: str, name: str, base: dict) -> dict:
+    """1C (ruled 2026-10-19): R's expectancy above its RND's 95th percentile at >= 4 of the five
+    RND_STARTS; one start's path cannot carry the go/no-go. The pre-registered start-0 reading is
+    reported beside. RND keeps R's cooloffs, caps, loss cap, macro blackout and per-day counts;
+    the score-relative pieces (threshold, pre-event and ETF penalties, row 20 multiplier, row
+    14's bar) are the signal's and are left out, row 14 replaced by the reference's open slots."""
+    by_start = {}
+    for s in RND_STARTS:
+        p95 = float(np.percentile([_expectancy(store.get(u)) for u in rnd_units(unit(w, base, s))], 95))
+        e = _expectancy(store.get(unit(w, base, s)))
+        by_start[str(s)] = {"expectancy": e, "rnd_p95": p95, "above": e > p95}
+    n = sum(v["above"] for v in by_start.values())
+    return _rule(f"signal edge {name}: expectancy > RND-on-{name} p95 at >= {RND_PASS_STARTS} of {len(RND_STARTS)} starts",
+                 n >= RND_PASS_STARTS, rid=f"edge_{name}", starts_above=f"{n}/{len(RND_STARTS)}", by_start=by_start,
+                 start0_as_preregistered=by_start["0"]["above"])
+
 
 def read_profit_read(store: Store) -> dict:
     out: dict = {}
     for w in WINDOWS:
         r0, r1, r2 = (store.get(unit(w, b)) for b in (R0, R1, R2))
-        rnd2 = [store.get(u) for u in rnd_units(unit(w, R2))]
-        rnd1 = [store.get(u) for u in rnd_units(unit(w, R1))]
-        p95 = lambda rs: float(np.percentile([x["expectancy"]["usd"]["mean"] for x in rs], 95))
-        e = lambda rec: rec["summary"]["expectancy"]["usd"]["mean"]
         mkt = r2["spy_em"]["tbill"]
         crisis = ("Y2022", "COVID") if w == "IS" else ("CRISIS_2015", "Q4_2018")
         rules = [
-            _rule("signal edge R2: expectancy > RND-on-R2 p95", e(r2) > p95(rnd2), r2=e(r2), p95=p95(rnd2)),
-            _rule("signal edge R1: expectancy > RND-on-R1 p95", e(r1) > p95(rnd1), r1=e(r1), p95=p95(rnd1)),
+            _signal_edge(store, w, "R2", R2),
+            _signal_edge(store, w, "R1", R1),
             _rule("regime layer: R2 Calmar >= R1 and R2 max DD < R1 in both crisis folds",
                   (_cal(r2) >= _cal(r1)) and all(r2["folds"][f]["max_drawdown"] < r1["folds"][f]["max_drawdown"] for f in crisis),
+                  rid="regime_layer",
                   calmar=[_cal(r2), _cal(r1)], dd={f: [r2["folds"][f]["max_drawdown"], r1["folds"][f]["max_drawdown"]] for f in crisis}),
             _rule("against the market: R2 alpha > 0 with t >= 2 (T-bill) and Calmar > SPY-EM (T-bill)",
                   (r2["summary"]["vs_spy_tbill"]["alpha_annual"] or -1) > 0 and (r2["summary"]["vs_spy_tbill"]["t_alpha"] or 0) >= 2
-                  and _gt(_cal(r2), mkt["calmar"]),
+                  and _gt(_cal(r2), mkt["calmar"]), rid="vs_market",
                   alpha=r2["summary"]["vs_spy_tbill"]["alpha_annual"], t=r2["summary"]["vs_spy_tbill"]["t_alpha"],
                   calmar=_cal(r2), spy_em=mkt["calmar"]),
         ]
@@ -307,6 +337,7 @@ def read_profit_read(store: Store) -> dict:
         else:
             ahead, of = years_ahead(r1, r0)
             rules.append(_rule("cooloffs: R1 Calmar > R0 and ahead in >= 3 of 4 years", _gt(_cal(r1), _cal(r0)) and ahead >= 3,
+                               rid="cooloffs",
                                diff=_cal(r1) - _cal(r0), years=f"{ahead}/{of}"))
         beside = {"R2_over_R1_starts": sum(_gt(_cal(store.get(unit(w, R2, s))), _cal(store.get(unit(w, R1, s)))) for s in starts()),
                   "R1_over_R0_starts": sum(_gt(_cal(store.get(unit(w, R1, s))), _cal(store.get(unit(w, R0, s)))) for s in starts()),
@@ -352,7 +383,7 @@ def read_sector_cap(store: Store) -> dict:
     a, b = store.get(unit("OOS", R2, max_sector_exposure=0.25)), store.get(unit("OOS", R2, max_sector_exposure=0.30))
     ahead, of = years_ahead(a, b)
     out["OOS"] = {"rules": [_rule("0.25 beats 0.30 on R2: window Calmar and >= 3 of 4 years",
-                                  _gt(_cal(a), _cal(b)) and ahead >= 3, calmar=[_cal(a), _cal(b)], years=f"{ahead}/{of}")]}
+                                  _gt(_cal(a), _cal(b)) and ahead >= 3, rid="h", calmar=[_cal(a), _cal(b)], years=f"{ahead}/{of}")]}
     out["read"] = ("IS rule (10-17): beats 0.30 over the window, in >= 4 of 5 folds, and both grid neighbours "
                    "other than 0.30 beat 0.30 too; on R2. A pass is a bundle proposal, not a config change.")
     return out
@@ -365,11 +396,11 @@ def read_3b(store: Store) -> dict:
         ahead, of = years_ahead(a, b)
         if w == "IS":
             r = _rule("H: R2 Calmar > R2-neutral over the window and in >= 6 of 8 years",
-                      _gt(_cal(a), _cal(b)) and ahead >= 6, calmar=[_cal(a), _cal(b)], years=f"{ahead}/{of}")
+                      _gt(_cal(a), _cal(b)) and ahead >= 6, rid="h", calmar=[_cal(a), _cal(b)], years=f"{ahead}/{of}")
         else:
             verdict = ("row 2 kept, switch-off withdrawn" if _gt(_cal(a), _cal(b)) and ahead >= 3 else
                        "switch-off stands, weak" if _gt(_cal(a), _cal(b)) else "switch-off stands")
-            r = _rule("2015-2018: R2 vs R2-neutral (three outcomes)", None, verdict=verdict,
+            r = _rule("2015-2018: R2 vs R2-neutral (three outcomes)", None, rid="h", verdict=verdict,
                       calmar=[_cal(a), _cal(b)], years=f"{ahead}/{of}")
         out[w] = {"rules": [r]}
     return out
@@ -394,9 +425,9 @@ def read_recovery(store: Store) -> dict:
         dd22 = float(np.mean([store.get(unit("IS", R2, s, regime=v))["folds"]["Y2022"]["max_drawdown"] for s in starts()]))
         oos = _cal(store.get(unit("OOS", R2, regime=v))) - _cal(oos_base)
         out[name] = {"rules": [
-            _rule("1: mean paired Calmar diff > 2 SE over 20 starts", pr["mean"] > 2 * pr["se"], **pr),
-            _rule("2: 2022 max DD (mean over starts) below R1's 2022 DD", dd22 < r1_2022_dd, dd=dd22),
-            _rule("3: 2015-2018 Calmar diff not of the opposite sign", not (pr["mean"] > 0 > oos), oos_diff=oos)],
+            _rule("1: mean paired Calmar diff > 2 SE over 20 starts", pr["mean"] > 2 * pr["se"], rid="c1", **pr),
+            _rule("2: 2022 max DD (mean over starts) below R1's 2022 DD", dd22 < r1_2022_dd, rid="c2", dd=dd22),
+            _rule("3: 2015-2018 Calmar diff not of the opposite sign", not (pr["mean"] > 0 > oos), rid="c3", oos_diff=oos)],
             "beside": {"first_allocation_after_2020-03-23": _first_allocation_after(store.get(unit("IS", R2, regime=v)), "2020-03-23")}}
     out["read"] = "A variant passes on all three. None passes: recovery speed is not the binding problem (HMM deprioritised)."
     return out
@@ -413,11 +444,11 @@ def read_hv1(store: Store) -> dict:
         oos = _cal(store.get(unit("OOS", R2, vix9d_kelly=True, **arm))) - _cal(store.get(unit("OOS", R2)))
         dd_ok = all(a0["folds"][f]["max_drawdown"] <= b0["folds"][f]["max_drawdown"] for f in ("COVID", "Y2022"))
         out[name] = {"rules": [
-            _rule("a: mean paired Calmar diff > 2 SE over 20 starts", pr["mean"] > 2 * pr["se"], **pr),
-            _rule("b: block bootstrap (21 sessions, 2,000 draws) Calmar diff CI above 0", bs["ci95"][0] > 0, **bs),
-            _rule("c: COVID and 2022 max DD not above baseline", dd_ok,
+            _rule("a: mean paired Calmar diff > 2 SE over 20 starts", pr["mean"] > 2 * pr["se"], rid="a", **pr),
+            _rule("b: block bootstrap (21 sessions, 2,000 draws) Calmar diff CI above 0", bs["ci95"][0] > 0, rid="b", **bs),
+            _rule("c: COVID and 2022 max DD not above baseline", dd_ok, rid="c",
                   dd={f: [a0["folds"][f]["max_drawdown"], b0["folds"][f]["max_drawdown"]] for f in ("COVID", "Y2022")}),
-            _rule("d: 2015-2018 Calmar diff not of the opposite sign", not (pr["mean"] > 0 > oos), oos_diff=oos)],
+            _rule("d: 2015-2018 Calmar diff not of the opposite sign", not (pr["mean"] > 0 > oos), rid="d", oos_diff=oos)],
             "vix9d_missing_days": a0.get("vix9d_missing_days")}
     out["read"] = "Each arm needs all four. Rule b reads 'CI excludes 0' on the side the arm claims (above)."
     return out
@@ -476,9 +507,9 @@ def read_cooloff(store: Store) -> dict:
     ci = lambda x: x.get("ci95") or [float("nan")] * 2
     rules = [
         _rule("H-TP: win re-entries 1-7 below fresh, CI below 0 on 2019-2026, same sign 2015-2018",
-              ci(is_["win_1-7"])[1] < 0 and (oos["win_1-7"]["diff"] or 0) < 0, IS=is_["win_1-7"], OOS=oos["win_1-7"]),
+              ci(is_["win_1-7"])[1] < 0 and (oos["win_1-7"]["diff"] or 0) < 0, rid="h_tp", IS=is_["win_1-7"], OOS=oos["win_1-7"]),
         _rule("H-SL: loss re-entries 1-3: CI includes 0 or above on 2019-2026; not significantly negative 2015-2018",
-              ci(is_.get("loss_1-3", {}))[1] >= 0 and not ci(oos.get("loss_1-3", {}))[1] < 0,
+              ci(is_.get("loss_1-3", {}))[1] >= 0 and not ci(oos.get("loss_1-3", {}))[1] < 0, rid="h_sl",
               IS=is_.get("loss_1-3"), OOS=oos.get("loss_1-3")),
     ]
     ha = {}
@@ -488,7 +519,7 @@ def read_cooloff(store: Store) -> dict:
                  "share_calmar_over_spy_em": float(np.mean([_gt(s["calmar"], s["spy_em_calmar"]) for s in seeds]))}
     rules.append(_rule("H-A: median RND-on-R1 alpha > 0 (T-bill) and >= 80 % of seeds above SPY-EM Calmar; same sign 2015-2018",
                        ha["IS"]["median_alpha_tbill"] > 0 and ha["IS"]["share_calmar_over_spy_em"] >= 0.8
-                       and ha["OOS"]["median_alpha_tbill"] > 0, **ha))
+                       and ha["OOS"]["median_alpha_tbill"] > 0, rid="h_a", **ha))
     out["rules"] = rules
     out["read"] = ("R1 decides, R2 beside. The 0-session bin is reported separately (declared deviation 10-17); "
                    "the rules read the bins as written. A candidate length goes to a portfolio confirmation run, "
@@ -496,21 +527,215 @@ def read_cooloff(store: Store) -> dict:
     return out
 
 
+ETF_MAJORITY = N_STARTS // 2 + 1      # 6C: the median start meets the criterion (11 of 20)
+
+
 def read_etf(store: Store) -> dict:
+    """6C (ruled 2026-10-19): an arm passes if `_meets_criterion` holds against the null arm at
+    start 0 AND on the same start's pair at >= 11 of 20 starts (the median start meets it). A
+    25-arm grid read at one start is where noise picks the winner (the cap sweep: Calmar 1.65 ->
+    1.12 between neighbours). The criterion was written 2026-07-17 for engine.py; here it is
+    read on engine_fast, so the 0.15 decision's evidence is not of its 07-17 form."""
     from backend.backtest.etf_penalty_sweep import _meets_criterion
-    null = store.get(unit("IS", R2, etf_negative_penalty=None))["engine"]
+    null = lambda s: store.get(unit("IS", R2, s, etf_negative_penalty=None))["engine"]
+    nulls = [null(s) for s in starts()]
     grid = {}
     for r in ETF_RATES:
         row = {}
         for f in ETF_FLOORS:
-            e = store.get(unit("IS", R2, etf_negative_penalty=r, etf_negative_floor=f))["engine"]
+            arm = [store.get(unit("IS", R2, s, etf_negative_penalty=r, etf_negative_floor=f))["engine"] for s in starts()]
+            met = [_meets_criterion(a, n) for a, n in zip(arm, nulls)]
+            e = arm[0]
             row[str(f)] = {"profit_factor": e["profit_factor"], "cagr": e["cagr"], "max_drawdown": e["max_drawdown"],
-                           "meets": _meets_criterion(e, null)}
-        grid[str(r)] = {"floors": row, "floors_passing": sum(v["meets"] for v in row.values())}
-    return {"null": null, "grid": grid,
-            "read": ("07-17 criterion vs no penalty: PF +2 %, or CAGR +0.5 pp with max DD no worse than +1 pp. "
+                           "meets_start0": met[0], "meets_starts": f"{sum(met)}/{N_STARTS}",
+                           "passes": met[0] and sum(met) >= ETF_MAJORITY}
+        grid[str(r)] = {"floors": row, "floors_passing": sum(v["passes"] for v in row.values())}
+    live = grid["0.15"]["floors"]["-1.0"]
+    return {"null": nulls[0], "grid": grid,
+            "rules": [_rule("live 0.15 / -1.0 meets the 07-17 criterion at start 0 and at >= 11 of 20 paired starts",
+                            live["passes"], rid="live_015", **live)],
+            "read": ("07-17 criterion (written for engine.py, read here on engine_fast) vs no penalty: PF +2 %, "
+                     "or CAGR +0.5 pp with max DD no worse than +1 pp; at start 0 and on >= 11 of 20 paired starts. "
                      "Prefer a rate that passes across floors over the single best cell (the sweep's own docstring). "
                      "Live 0.15 / -1.0 stays until this is read.")}
+
+
+# ── Flips against the archive (7C, ruled 2026-10-19) ─────────────────────────
+#
+# The archived 2026-10-17 numbers are before-numbers, not a gate. A rule whose outcome
+# reverses against its archived outcome is a finding: its new outcome is not used until
+# the flip is attributed to one named fix by reverting each fix since the archive commit,
+# one at a time, and diffing the trade logs. A flip no single revert restores, or that
+# several restore, stays unexplained: an interaction or a bug, and neither verdict is used.
+
+FIXES = {   # every engine fix since the 10-17 archive commits, as the run() kwargs that revert it
+    "vix_ge (7cfbb8b)":            ("7cfbb8b", {"vix_block_inclusive": False}),
+    "r7_stop_slip (58916ea)":      ("58916ea", {"stop_slip": (0.0, 0.0)}),
+    "macro_rows_7_10 (60ea0f3)":   ("60ea0f3", {"macro_blackout": False}),
+    "r8_intraday_tp_24b (8177535)": ("8177535", {"intraday_tp": False}),
+    "cooloff_window_row23 (6f3921d)": ("6f3921d", {"cooloff_per_exit": False}),
+    "etf_penalty_row11 (6e22f5a)": ("6e22f5a", {"etf_negative_penalty": None}),
+    "overflow_row14 (3d921a7)":    ("3d921a7", {"overflow_quant_increment": math.inf}),
+}
+
+_PR = VAULT_NOTES + "2026-10-16-apex-profit-read-preregistration.md"
+_OOS = VAULT_NOTES + "2026-10-17-apex-oos-profit-read-2015-2018-preregistration.md"
+
+
+def rule_index(v, prefix: str = "") -> dict:
+    """Every rule in a verdict with an id, keyed by its path: `passed`, or `verdict` for a
+    three-outcome rule."""
+    out = {}
+    if isinstance(v, dict):
+        if v.get("id") and "rule" in v:
+            out[(prefix + "." if prefix else "") + v["id"]] = v["passed"] if v["passed"] is not None else v.get("verdict")
+        for k, x in v.items():
+            if k != "rules":
+                out.update(rule_index(x, f"{prefix}.{k}" if prefix else k))
+        for r in v.get("rules", []):
+            out.update(rule_index(r, prefix))
+    return out
+
+
+def _cap_any(v) -> bool:
+    return any(x["passes"] for x in v["IS_R2"]["grid"].values())
+
+
+def _all(*keys):
+    return lambda idx, v: all(idx[k] for k in keys)
+
+
+# (cell, what, getter(index, verdict), archived outcome, archive commit, source)
+ARCHIVED = [
+    ("profit_read", "IS signal edge R2", "IS.edge_R2", False, "824150a", _PR + " result 1"),
+    ("profit_read", "IS signal edge R1 (exp. b, rank 198/200)", "IS.edge_R1", True, "824150a", _PR + " experiment b"),
+    ("profit_read", "IS regime layer", "IS.regime_layer", False, "824150a", _PR + " result 2"),
+    ("profit_read", "IS against the market", "IS.vs_market", False, "824150a", _PR + " result 3"),
+    ("profit_read", "OOS signal edge R2", "OOS.edge_R2", False, "824150a", _OOS + " result 1a"),
+    ("profit_read", "OOS signal edge R1", "OOS.edge_R1", False, "824150a", _OOS + " result 1b"),
+    ("profit_read", "OOS regime layer", "OOS.regime_layer", False, "824150a", _OOS + " result 2"),
+    ("profit_read", "OOS against the market", "OOS.vs_market", False, "824150a", _OOS + " result 3"),
+    ("profit_read", "OOS cooloffs", "OOS.cooloffs", True, "824150a", _OOS + " result 4"),
+    ("sector_cap", "IS: some value beats 0.30 on R2", lambda idx, v: _cap_any(v), False, "824150a",
+     VAULT_NOTES + "2026-10-17-apex-sector-cap-sweep-preregistration.md result + extension"),
+    ("sector_cap", "OOS 0.25 beats 0.30", "OOS.h", False, "3fe8aad",
+     VAULT_NOTES + "2026-10-17-apex-sector-cap-sweep-preregistration.md OOS result"),
+    ("regime_weights_3b", "IS H", "IS.h", False, "824150a", VAULT_NOTES + "2026-10-17-apex-regime-weights-hypothesis-3b.md"),
+    ("regime_weights_3b", "OOS three outcomes", "OOS.h", "switch-off stands", "3fe8aad",
+     VAULT_NOTES + "2026-10-17-apex-regime-weights-hypothesis-3b.md 2015-2018"),
+    ("regime_recovery", "F10 passes all three", _all("F10.c1", "F10.c2", "F10.c3"), True, "3fe8aad",
+     VAULT_NOTES + "2026-10-17-apex-regime-slow-reopening-mechanism-test.md"),
+    ("regime_recovery", "F15 passes all three", _all("F15.c1", "F15.c2", "F15.c3"), True, "3fe8aad",
+     VAULT_NOTES + "2026-10-17-apex-regime-slow-reopening-mechanism-test.md"),
+    ("regime_recovery", "D80 passes all three", _all("D80.c1", "D80.c2", "D80.c3"), False, "3fe8aad",
+     VAULT_NOTES + "2026-10-17-apex-regime-slow-reopening-mechanism-test.md"),
+    ("cooloff_mechanism", "H-TP", "h_tp", False, "3fe8aad",
+     VAULT_NOTES + "2026-10-17-apex-cooloff-mechanism-and-exits-baseline-hypotheses.md result 1"),
+    ("cooloff_mechanism", "H-SL", "h_sl", True, "3fe8aad",
+     VAULT_NOTES + "2026-10-17-apex-cooloff-mechanism-and-exits-baseline-hypotheses.md result 2"),
+    ("cooloff_mechanism", "H-A", "h_a", False, "3fe8aad",
+     VAULT_NOTES + "2026-10-17-apex-cooloff-mechanism-and-exits-baseline-hypotheses.md result 3"),
+    ("etf_penalty", "live 0.15 / -1.0 meets the criterion (07-17, engine.py)", "live_015", True, None,
+     VAULT_NOTES + "2026-10-17-apex-scope-for-sunday-2026-10-18.md (07-17 sweep)"),
+]
+
+
+def _archived_value(get, verdict: dict):
+    idx = rule_index(verdict)
+    return get(idx, verdict) if callable(get) else idx[get]
+
+
+def flips(verdicts: dict, explained: dict | None = None) -> list[dict]:
+    """Archived rules whose outcome reversed. `use` is True only when the flip is explained
+    by exactly one named fix (`explain`); otherwise neither the old nor the new verdict is used."""
+    out = []
+    for cell, what, get, then, commit, src in ARCHIVED:
+        v = verdicts.get(cell, {})
+        if "blocked" in v or "incomplete" in v or not v:
+            continue
+        now = _archived_value(get, v)
+        if now == then:
+            continue
+        e = (explained or {}).get(f"{cell}:{what}")
+        out.append({"cell": cell, "rule": what, "archived": then, "now": now, "archive_commit": commit, "source": src,
+                    "explained_by": e["fix"] if e and e["status"] == "explained" else None,
+                    "status": e["status"] if e else "unexplained: run --explain " + cell,
+                    "use": bool(e and e["status"] == "explained")})
+    return out
+
+
+def _ablate(u: Unit, revert: dict) -> Unit:
+    ref = _ablate(u.rnd_ref, revert) if u.rnd_ref is not None else None
+    return Unit(u.window, u.start, _frozen({**u.kwargs, **revert}), u.regime, ref, u.seed, u.vix9d_kelly)
+
+
+class AblatedStore:
+    """The cell's readers, unchanged, see every unit with one fix reverted."""
+    def __init__(self, store: Store, revert: dict):
+        self.store, self.revert = store, revert
+
+    def get(self, u: Unit) -> dict:
+        return self.store.get(_ablate(u, self.revert))
+
+    def has(self, u: Unit) -> bool:
+        return self.store.has(_ablate(u, self.revert))
+
+
+def applicable_fixes(cell: Cell, commit: str | None, is_ancestor: Callable[[str, str], bool]) -> dict[str, dict]:
+    """Fixes the archive run did not have and the cell does not set itself (reverting the ETF
+    penalty in the ETF cell is the cell's own null arm, not an attribution)."""
+    own = {k for u in cell.units for k in u.kwargs if k not in dict(unit("IS", R2).kw)}
+    return {n: kw for n, (c, kw) in FIXES.items()
+            if not (commit and is_ancestor(c, commit)) and not (set(kw) & own)}
+
+
+def trade_log_diff(new: list[dict], old: list[dict]) -> dict:
+    """Trades keyed by (ticker, entry_date): only in the fixed run, only with the fix reverted,
+    and shared trades whose exit differs. The signature a fix leaves is in these rows."""
+    key = lambda t: (t["ticker"], t["entry_date"])
+    a, b = {key(t): t for t in new}, {key(t): t for t in old}
+    changed = [{"ticker": k[0], "entry_date": k[1], "fixed": [a[k].get("exit_reason"), a[k].get("exit_date")],
+                "reverted": [b[k].get("exit_reason"), b[k].get("exit_date")]}
+               for k in sorted(set(a) & set(b))
+               if (a[k].get("exit_reason"), a[k].get("exit_date")) != (b[k].get("exit_reason"), b[k].get("exit_date"))]
+    return {"only_fixed": len(set(a) - set(b)), "only_reverted": len(set(b) - set(a)), "exit_changed": len(changed),
+            "examples": {"only_fixed": [list(k) for k in sorted(set(a) - set(b))[:5]],
+                         "only_reverted": [list(k) for k in sorted(set(b) - set(a))[:5]],
+                         "exit_changed": changed[:5]}}
+
+
+def explain(cell: Cell, store: Store, verdict: dict, is_ancestor: Callable[[str, str], bool],
+            run_unit: Callable[[Unit], None] | None = None) -> dict:
+    """For each of the cell's flips: re-read the cell with each applicable fix reverted (running
+    missing units through `run_unit` when given) and classify. explained = exactly one revert
+    restores the archived outcome and its start-0 trade logs differ from the fixed run."""
+    out = {}
+    for f in flips({cell.name: verdict}):
+        archived_row = next(r for r in ARCHIVED if r[0] == cell.name and r[1] == f["rule"])
+        restores, tried = [], {}
+        for name, revert in applicable_fixes(cell, f["archive_commit"], is_ancestor).items():
+            if run_unit is not None:
+                for u in ordered([_ablate(u, revert) for u in cell.units]):
+                    if not store.has(u):
+                        run_unit(u)
+            try:
+                back = _archived_value(archived_row[2], cell.read(AblatedStore(store, revert)))
+            except MissingUnit as e:
+                tried[name] = {"incomplete": e.args[0].key()}
+                continue
+            diffs = {u.key(): trade_log_diff(store.get(u)["trade_log"], store.get(_ablate(u, revert))["trade_log"])
+                     for u in cell.units if u.start == 0 and u.rnd_ref is None}
+            moved = any(d["only_fixed"] or d["only_reverted"] or d["exit_changed"] for d in diffs.values())
+            tried[name] = {"outcome_reverted": back, "restores_archived": back == f["archived"],
+                           "trade_logs_differ": moved, "diff": diffs}
+            if back == f["archived"] and moved:
+                restores.append(name)
+        status = ("explained" if len(restores) == 1 else
+                  "unexplained: no single fix restores it (interaction or bug)" if not restores else
+                  "unexplained: several fixes restore it (" + ", ".join(restores) + ")")
+        out[f"{cell.name}:{f['rule']}"] = {"status": status, "fix": restores[0] if len(restores) == 1 else None,
+                                           "tried": tried}
+    return out
 
 
 # ── Running ───────────────────────────────────────────────────────────────────
@@ -599,7 +824,9 @@ class Runner:
         if u.vix9d_kelly:
             extra["kelly_factor"], missing = vix9d_kelly_factor(mk["vix9d"], [d.isoformat() for d in days])
         if u.rnd_ref is not None:
-            extra["random_entries"] = {"seed": u.seed, "per_day": self.store.get(u.rnd_ref)["entries_per_day"]}
+            ref = self.store.get(u.rnd_ref)
+            extra["random_entries"] = {"seed": u.seed, "per_day": ref["entries_per_day"],
+                                       "open_cap": ref["open_after_entries"]}
         with regime_constants(dict(u.regime)):
             res = run(days[0].isoformat(), days[-1].isoformat(), initial_balance=10_000.0,
                       precomputed=pre_u, **kw, **extra)
@@ -622,6 +849,7 @@ class Runner:
                "summary": summ, "years": years_of(r), "folds": folds_of(r, u.window),
                "engine": {k: res[k] for k in ("profit_factor", "cagr", "max_drawdown", "total_trades", "win_rate")},
                "entries_per_day": _entries_per_day(res["trade_log"]),
+               "open_after_entries": open_after_entries(res["trade_log"], [d.isoformat() for d in days]),
                "trading_days": [d.isoformat() for d in days],
                "equity_curve": res["equity_curve"], "trade_log": res["trade_log"]}
         if u.regime_layer:
@@ -642,6 +870,22 @@ def _entries_per_day(trade_log: list[dict]) -> dict[str, int]:
     out: dict[str, int] = {}
     for t in trade_log:
         out[t["entry_date"]] = out.get(t["entry_date"], 0) + 1
+    return out
+
+
+def open_after_entries(trade_log: list[dict], days: list[str]) -> dict[str, int]:
+    """Open positions at the end of each session's entries: exits run before entries in the
+    engine's day, so a trade that exits on d is closed by then and one entered on d is open."""
+    delta: dict[str, int] = {}
+    for t in trade_log:
+        delta[t["entry_date"]] = delta.get(t["entry_date"], 0) + 1
+        if t.get("exit_date"):
+            delta[t["exit_date"]] = delta.get(t["exit_date"], 0) - 1
+    out, n, before = {}, 0, sorted(k for k in delta if k < days[0]) if days else []
+    n = sum(delta[k] for k in before)
+    for d in days:
+        n += delta.get(d, 0)
+        out[d] = n
     return out
 
 
@@ -684,7 +928,7 @@ def producer(commit: str, argv: list[str], why: str) -> dict:
 
 
 def read_all(cells: dict[str, Cell], store: Store, outdir: Path, commit: str = "", argv: list[str] = ()) -> dict:
-    verdicts = {}
+    verdicts: dict = {}
     for c in cells.values():
         if c.blocked:
             v = {"blocked": c.blocked}
@@ -698,7 +942,16 @@ def read_all(cells: dict[str, Cell], store: Store, outdir: Path, commit: str = "
         verdicts[c.name] = v
         (outdir / "verdicts").mkdir(exist_ok=True)
         (outdir / "verdicts" / f"{c.name}.json").write_text(json.dumps(v, indent=1, default=str))
+    explained = {}
+    for f in sorted((outdir / "explanations").glob("*.json")) if (outdir / "explanations").exists() else []:
+        explained.update(json.loads(f.read_text()))
+    verdicts["_flips"] = flips(verdicts, explained)
+    (outdir / "verdicts" / "_flips.json").write_text(json.dumps(verdicts["_flips"], indent=1, default=str))
     return verdicts
+
+
+def git_is_ancestor(a: str, b: str) -> bool:
+    return subprocess.run(["git", "merge-base", "--is-ancestor", a, b]).returncode == 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -708,6 +961,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--run", action="store_true")
     ap.add_argument("--ruling", default="")
     ap.add_argument("--read", action="store_true")
+    ap.add_argument("--explain", default="", help="cell: attribute its flips by reverting each fix (runs units; needs --ruling)")
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     a = ap.parse_args(argv)
     cells = build_cells()
@@ -736,6 +990,21 @@ def main(argv: list[str] | None = None) -> int:
             store.put(u, runner.run(u))
             if i % 10 == 0 or i == len(todo):
                 print(f"{i}/{len(todo)} units, {time.time() - t0:.0f}s", flush=True)
+    if a.explain:
+        if not a.ruling.strip():
+            print("refused: --explain runs units and needs --ruling")
+            return 2
+        head, dirty = git_state()
+        if dirty:
+            print("refused: tracked files are modified; a result must name the code it ran on")
+            return 2
+        cell = build_cells()[a.explain]
+        verdict = read_all({cell.name: cell}, store, a.outdir, head, raw_argv)[cell.name]
+        runner = Runner(store, head)
+        res = explain(cell, store, verdict, git_is_ancestor, lambda u: store.put(u, runner.run(u)))
+        (a.outdir / "explanations").mkdir(exist_ok=True)
+        (a.outdir / "explanations" / f"{cell.name}.json").write_text(json.dumps(res, indent=1, default=str))
+        print(json.dumps({k: v["status"] for k, v in res.items()}, indent=1), flush=True)
     if a.run or a.read:
         print(json.dumps(read_all(cells, store, a.outdir, git_state()[0], raw_argv), indent=1, default=str), flush=True)
     return 0

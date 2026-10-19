@@ -166,6 +166,15 @@ def reentry_cooloff_days(exit_reason: str, outcome: str, sl_days: int, tp_days: 
     return tp_days if (exit_reason in ("TP", "TSL") and outcome == "WIN") else sl_days
 
 
+def reentry_cooloff_days_before_row23(exit_reason: str, outcome: str, sl_days: int, tp_days: int) -> int:
+    """The window both engines set before 2026-10-18 (6f3921d), kept only so the battery can
+    revert row 23 for flip attribution: a TP or TSL win gets tp_days when that is > 0; any
+    other SL or TSL exit, and a TSL win when tp_days is 0, gets sl_days; TIME gets none."""
+    if (exit_reason == "TP" or (exit_reason == "TSL" and outcome == "WIN")) and tp_days > 0:
+        return tp_days
+    return sl_days if exit_reason in ("SL", "TSL") else 0
+
+
 def etf_return_as_live(closes, today) -> float | None:
     """The sector ETF return live's Lock 4 reads (2026-10-18, PRODUCTION_GAP row 11):
     `lock4_leading` downloads `period="8d"` (8 daily rows, measured 10-18) and takes

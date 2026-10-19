@@ -889,7 +889,10 @@ CHECK76_ACCEPTED_SLOW_ONLY: set[str] = set()
 CHECK76_ACCEPTED_FAST_ONLY = {"precomputed", "regime_layer",   # regime_layer: rows 2/5/20/21, off by default (2026-10-17)
                               "random_entries",                  # RND placebo for the profit read, off by default (2026-10-17)
                               "kelly_factor",                    # H-V1 VIX sizing experiment, off by default (2026-10-17)
-                              "row2_neutral"}                    # 3B: L2 on neutral weights under the layer, off by default (2026-10-19)
+                              "row2_neutral",                    # 3B: L2 on neutral weights under the layer, off by default (2026-10-19)
+                              # Reverts of fixes since the 10-17 archive for the battery's flip attribution (7C);
+                              # default True is the fixed engine, as engine.py (2026-10-19)
+                              "vix_block_inclusive", "macro_blackout", "cooloff_per_exit"}
 
 # Layer 2 — production components documented ABSENT from engine_fast.py
 # (PRODUCTION_GAP.md rows). If a symbol appears, the row is stale, not wrong —

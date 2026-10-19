@@ -51,4 +51,6 @@ def test_both_engines_take_the_window_from_the_shared_rule():
     import inspect
     for mod in (engine, engine_fast):
         src = inspect.getsource(mod.run)
-        assert "reentry_cooloff_days(" in src and '_er in ("SL", "TSL")' not in src
+        # engine_fast may pick the pre-row-23 rule only as the battery's revert (cooloff_per_exit=False)
+        assert ("reentry_cooloff_days(" in src or "_window = reentry_cooloff_days if cooloff_per_exit" in src)
+        assert '_er in ("SL", "TSL")' not in src

@@ -39,7 +39,8 @@ from backend.config import (
 )
 from backend.backtest.exit_rules import Bar, ParityStats, build_ohlc_cache, check_intraday_bracket
 from backend.backtest.live_shape import (etf_penalty_fails, etf_return_as_live, live_overflow_increment,
-                                          overflow_admits, reentry_cooloff_days)
+                                          overflow_admits, reentry_cooloff_days,
+                                          reentry_cooloff_days_before_row23)
 from backend.macro_calendar import macro_status
 from backend.signals import aggregator, momentum, relative_strength, trend, volume
 from backend.signals.ev_kelly import compute as ev_kelly_compute
@@ -124,6 +125,11 @@ def run(
     regime_layer:       bool        = False,
     row2_neutral:       bool        = False,   # 3B: L2 scored with neutral weights; allocation, caps, multiplier unchanged
     random_entries:     dict  | None = None,
+    # Reverts of the fixes since the 10-17 archive, for the battery's flip attribution (7C,
+    # 2026-10-19); the defaults are the fixed engine, False the code before the fix.
+    vix_block_inclusive: bool       = True,    # False: `vix > threshold`, before 7cfbb8b
+    macro_blackout:      bool       = True,    # False: no rows 7/10 blackout, before 60ea0f3
+    cooloff_per_exit:    bool       = True,    # False: the per-exit window before 6f3921d (row 23)
 ) -> BacktestResult:
     tp       = take_profit_pct    if take_profit_pct    is not None else TAKE_PROFIT_PCT
     sl       = stop_loss_pct      if stop_loss_pct      is not None else STOP_LOSS_PCT
@@ -233,8 +239,11 @@ def run(
     # reference run's count — with the same exits, cooloffs, caps and Kelly-from-cache
     # sizing. The row 20 multiplier is score-relative, so it belongs to the signal and
     # is not applied. Isolates signal edge from exit rules, sizing and exposure.
+    # Optional "open_cap": {date_str: n}, the reference's open positions after that day's
+    # entries; it replaces row 14's score bar above the roof (1C, 2026-10-19).
     import random as _random
     rnd = _random.Random(random_entries["seed"]) if random_entries else None
+    rnd_open_cap: dict[str, int] = (random_entries or {}).get("open_cap", {})
 
     # Pre-fetch earnings if needed
     earnings_dates: dict[str, set[date]] = {}
@@ -284,8 +293,8 @@ def run(
             balance += trade["amount"] + (record["pnl"] or 0)
             if record["outcome"] in ("LOSS", "EXPIRED") and (record["pnl"] or 0) < 0:
                 daily_losses[today_str] = daily_losses.get(today_str, 0) + abs(record["pnl"] or 0)
-            _cool = reentry_cooloff_days(record["exit_reason"], record["outcome"],
-                                         SL_COOLDOWN_DAYS, TP_COOLDOWN_DAYS)
+            _window = reentry_cooloff_days if cooloff_per_exit else reentry_cooloff_days_before_row23
+            _cool = _window(record["exit_reason"], record["outcome"], SL_COOLDOWN_DAYS, TP_COOLDOWN_DAYS)
             if _cool > 0:
                 sl_cooldown[trade["ticker"]] = today + timedelta(days=_cool)
 
@@ -307,7 +316,7 @@ def run(
         # Rows 7 / 10 (2026-10-17): Lock 1 B2's macro blackout, as engine.py and live —
         # FOMC −2 days through the decision day and CPI/NFP release days block entries;
         # the eve of CPI/NFP takes the pre-event penalty and must clear the threshold again.
-        macro_day = macro_status(today)[0]
+        macro_day = macro_status(today)[0] if macro_blackout else None
         if macro_day == "hard_block" or (macro_hard_block and macro_day == "pre_event"):
             candidates = []
         elif macro_day == "pre_event" and macro_pre_event_penalty is not None and rnd is None:
@@ -327,7 +336,8 @@ def run(
 
         vix_blocked = (
             vix_threshold is not None
-            and vix_cache.get(today_str, 0.0) >= vix_threshold   # live: lock1_eligibility `vix >= threshold`
+            and (vix_cache.get(today_str, 0.0) >= vix_threshold if vix_block_inclusive   # live: lock1_eligibility `vix >= threshold`
+                 else vix_cache.get(today_str, 0.0) > vix_threshold)
         )
 
         # Row 20: live sizes each queued trade by n·s/Σs within its sector over the
@@ -357,8 +367,13 @@ def run(
         ordered = candidates if rnd is not None else sorted(candidates, key=lambda s: s["signal_score"], reverse=True)
         for sig in ([] if vix_blocked else ordered):
             # Row 14: live has no hard cap; each slot over the roof raises the bar (live_shape).
-            if not overflow_admits(sig.get("raw_score", sig["signal_score"]), len(open_trades), max_pos,
-                                   max(l1, SECTOR_THRESHOLD_FLOORS.get(sig["sector"], 0.0)), overflow_inc):
+            # RND (1C, ruled 2026-10-19): the bar is a score, so it is the signal's; a random
+            # entry instead gets the slots its reference held after that day's entries.
+            if rnd is not None:
+                if len(open_trades) >= max(max_pos, rnd_open_cap.get(today_str, max_pos)):
+                    continue
+            elif not overflow_admits(sig.get("raw_score", sig["signal_score"]), len(open_trades), max_pos,
+                                     max(l1, SECTOR_THRESHOLD_FLOORS.get(sig["sector"], 0.0)), overflow_inc):
                 continue
             if day_epd is not None and entries_today >= day_epd:
                 break

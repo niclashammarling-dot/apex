@@ -151,6 +151,26 @@
       "tier": "ops",
       "source": "Vault raw/notes/2026-10/2026-10-17-apex-cooloff-mechanism-and-exits-baseline-hypotheses.md: cooloffs 0/0 so every re-entry the signal wants happens. Battery design only (2026-10-19): no live gate, size or exit reads it.",
       "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::RND_STARTS": {
+      "value": [
+        0,
+        4,
+        8,
+        12,
+        16
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-rerun-battery-written-and-the-runners-that-were-lost.md, choice 1 ruled 1C 2026-10-19 (Niclas: \"Ja på alla\"): the signal-edge rule reads RND at five of the 20 starts, every fourth from 0 (4,000 RND runs, about 5.5 h estimated) so one start's path cannot carry go/no-go. Battery design only: no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::RND_PASS_STARTS": {
+      "value": 4,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-rerun-battery-written-and-the-runners-that-were-lost.md, choice 1 ruled 1C 2026-10-19 (Niclas: \"Ja på alla\"): R's expectancy must clear RND's 95th percentile at >= 4 of the 5 starts (tightened before the run). Battery design only: no live gate, size or exit reads it.",
+      "date": "2026-10-19"
     }
   }
 }

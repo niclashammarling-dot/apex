@@ -222,6 +222,7 @@ def test_cap_reader_neighbours_exclude_030_and_need_four_folds():
 
 def test_a_reader_with_missing_units_reports_incomplete_never_a_pass(tmp_path):
     v = bt.read_all(bt.build_cells(), bt.Store(tmp_path), tmp_path)
+    assert v.pop("_flips") == []                          # nothing read, nothing flipped
     for name, verdict in v.items():
         assert ("blocked" in verdict) != ("incomplete" in verdict), name
     assert (tmp_path / "verdicts" / "profit_read.json").exists()
@@ -234,6 +235,8 @@ def test_every_verdict_names_its_producer_for_the_vault_gate(tmp_path):
     repo = Path(__file__).resolve().parent.parent
     assert (repo / SCRIPT).exists()
     for f in (tmp_path / "verdicts").iterdir():
+        if f.name == "_flips.json":
+            continue
         p = json.loads(f.read_text())["producer"]
         assert p["repo"] == "apex" and p["commit"] == "abc123" and p["script"] == SCRIPT
         assert p["run"].endswith("out --read") and p["why"].startswith("raw/notes/2026-10/") and " " not in p["why"]
@@ -284,3 +287,202 @@ def test_engine_sharpe_slices_the_same_way():
     assert all(a.isoformat() <= t["entry_date"] <= b.isoformat() for t in res["trade_log"])
     with pytest.raises(ValueError, match="outside the precompute"):
         es.run(a.isoformat(), "2099-01-01", precomputed=pre)
+
+
+# ── Fix reverts (7C attribution; 2026-10-19) ──────────────────────────────────
+
+from tests.test_engine_flag_off_parity import GOLDEN, END, START, _summary   # noqa: E402
+
+
+def _ef(pre, **kw):
+    return ef.run(START.isoformat(), END.isoformat(), precomputed=pre, **{**RUN_KW, **kw})
+
+
+def test_every_fix_reverted_is_the_parent_engine():
+    # Positive control for the attribution set: with all seven reverts the engine reproduces
+    # the cf3db17 golden, without the macro monkeypatch the golden test needs.
+    import json
+    revert = {k: v for _, kw in bt.FIXES.values() for k, v in kw.items()}
+    assert _summary(_ef(synthetic_precomputed(), **revert)) == json.loads(GOLDEN.read_text())
+
+
+def test_macro_revert_enters_on_hard_block_days():
+    from backend.macro_calendar import macro_status
+    pre = synthetic_precomputed()
+    hard = {d.isoformat() for d in pre["trading_days"] if macro_status(d)[0] == "hard_block"}
+    assert not {t["entry_date"] for t in _ef(pre)["trade_log"]} & hard
+    assert {t["entry_date"] for t in _ef(pre, macro_blackout=False)["trade_log"]} & hard
+
+
+def test_vix_revert_lets_the_threshold_day_through():
+    pre = synthetic_precomputed()
+    pre = {**pre, "vix_cache": {d.isoformat(): 30.0 for d in pre["trading_days"]}}
+    assert _ef(pre, vix_threshold=30.0)["total_trades"] == 0
+    assert _ef(pre, vix_threshold=30.0, vix_block_inclusive=False)["total_trades"] > 0
+
+
+def _reentries_after(trades, reason, days):
+    out = 0
+    for t in trades:
+        if t.get("exit_reason") != reason or not t.get("exit_date"):
+            continue
+        x = pd.Timestamp(t["exit_date"])
+        out += sum(1 for u in trades if u["ticker"] == t["ticker"]
+                   and x < pd.Timestamp(u["entry_date"]) < x + pd.Timedelta(days=days))   # day x+N is open
+    return out
+
+
+def test_cooloff_revert_sets_no_window_after_a_time_exit():
+    pre = synthetic_precomputed()
+    kw = dict(time_stop_days=3, sl_cooldown_days=20, tp_cooldown_days=0)
+    fixed, old = _ef(pre, **kw)["trade_log"], _ef(pre, cooloff_per_exit=False, **kw)["trade_log"]
+    assert any(t["exit_reason"] == "TIME" for t in fixed)
+    assert _reentries_after(fixed, "TIME", 20) == 0
+    assert _reentries_after(old, "TIME", 20) > 0
+
+
+# ── RND keeps the reference's slots, not row 14's score bar (1C) ──────────────
+
+def test_rnd_fills_the_reference_slots_above_the_roof_without_the_score_bar():
+    pre = synthetic_precomputed()
+    days = [d.isoformat() for d in pre["trading_days"]]
+    rnd = {"seed": 3, "per_day": dict.fromkeys(days, 5), "open_cap": dict.fromkeys(days, 3)}
+    # lock1 0.99: row 14's bar above the roof cannot be met by any score, so a score bar
+    # would hold RND at one position; the reference's 3 slots are what it gets instead.
+    res = _ef(pre, max_positions=1, lock1_threshold=0.99, overflow_quant_increment=None, random_entries=rnd)
+    opened = bt.open_after_entries(res["trade_log"], days)
+    assert max(opened.values()) == 3
+
+
+def test_open_after_entries_counts_exits_before_entries():
+    days = ["2025-01-01", "2025-01-02", "2025-01-03"]
+    log = [{"entry_date": days[0], "exit_date": days[1]}, {"entry_date": days[1], "exit_date": None},
+           {"entry_date": days[1], "exit_date": days[2]}]
+    assert bt.open_after_entries(log, days) == {days[0]: 1, days[1]: 2, days[2]: 1}
+
+
+# ── 1C and 6C readers ─────────────────────────────────────────────────────────
+
+def _erec(e):
+    return {"summary": {"expectancy": {"usd": {"mean": e}}}}
+
+
+def test_signal_edge_needs_four_of_five_starts():
+    s = FakeStore()
+    for st in bt.RND_STARTS:
+        ref = bt.unit("IS", bt.R2, st)
+        s.put(ref, _erec(10.0 if st != 16 else 0.0))              # above at 4 of 5
+        for u in bt.rnd_units(ref):
+            s.put(u, {"seed": u.seed, "expectancy": {"usd": {"mean": u.seed / 200 * 5}}})
+    r = bt._signal_edge(s, "IS", "R2", bt.R2)
+    assert r["passed"] is True and r["starts_above"] == "4/5" and r["start0_as_preregistered"] is True
+    s.put(bt.unit("IS", bt.R2, 12), _erec(0.0))
+    assert bt._signal_edge(s, "IS", "R2", bt.R2)["passed"] is False
+
+
+def test_etf_reader_needs_start0_and_eleven_of_twenty():
+    s = FakeStore()
+    e = lambda pf: {"engine": {"profit_factor": pf, "cagr": 0.05, "max_drawdown": 0.1}}
+    for st in bt.starts():
+        s.put(bt.unit("IS", bt.R2, st, etf_negative_penalty=None), e(1.0))
+        for r in bt.ETF_RATES:
+            for f in bt.ETF_FLOORS:
+                good = (r == 0.15 and st < 11) or (r == 0.20 and 0 < st <= 15)
+                s.put(bt.unit("IS", bt.R2, st, etf_negative_penalty=r, etf_negative_floor=f), e(1.05 if good else 1.0))
+    v = bt.read_etf(s)
+    assert v["grid"]["0.15"]["floors"]["-1.0"]["meets_starts"] == "11/20" and v["rules"][0]["passed"] is True
+    assert v["grid"]["0.2"]["floors"]["-1.0"]["passes"] is False            # 15/20 but not at start 0
+    assert "engine_fast" in v["read"] and "engine.py" in v["read"]
+
+
+# ── Flips and their attribution (7C) ──────────────────────────────────────────
+
+class AnyStore(FakeStore):
+    """A plausible record for every unit, so every reader runs end to end."""
+    def get(self, u):
+        if u.key() in self.recs:
+            return self.recs[u.key()]
+        if u.seed is not None:
+            return {"seed": u.seed, "expectancy": {"usd": {"mean": 0.0}}, "alpha_tbill": 0.0,
+                    "calmar": 0.5, "spy_em_calmar": 1.0}
+        idx = pd.bdate_range("2019-01-02", periods=300)
+        walk = np.cumprod(1 + np.random.default_rng(0).normal(0.0004, 0.01, len(idx)))
+        eq = [{"date": d.date().isoformat(), "balance": 10_000 * w} for d, w in zip(idx, walk)]
+        yrs = {str(y): {"calmar": 1.0, "max_drawdown": 0.1, "total_return": 0.1} for y in range(2015, 2027)}
+        folds = {f: {"calmar": 1.0, "max_drawdown": 0.1, "total_return": 0.1}
+                 for w in bt.EVENT_FOLDS.values() for f in w}
+        return {"summary": {"calmar": 1.0, "expectancy": {"usd": {"mean": 1.0}}, "total_return": 0.1,
+                            "vs_spy_tbill": {"alpha_annual": 0.0, "t_alpha": 0.0}},
+                "spy_em": {"tbill": {"calmar": 2.0}}, "years": yrs, "folds": folds, "equity_curve": eq,
+                "engine": {"profit_factor": 1.0, "cagr": 0.05, "max_drawdown": 0.1}, "trade_log": [],
+                "trading_days": [], "regime_days": {}}
+
+
+def test_every_archived_rule_resolves_on_its_reader(tmp_path):
+    v = bt.read_all(bt.build_cells(), AnyStore(), tmp_path)
+    for cell, what, get, then, commit, src in bt.ARCHIVED:
+        assert "incomplete" not in v[cell], cell
+        now = bt._archived_value(get, v[cell])                    # KeyError = a renamed rule id
+        assert isinstance(now, (bool, str)), (cell, what)
+        assert src.startswith(bt.VAULT_NOTES)
+    flipped = {(f["cell"], f["rule"]) for f in v["_flips"]}
+    assert ("profit_read", "IS signal edge R2") in flipped        # R 1.0 above RND 0.0: archived fail flips
+    assert all(f["use"] is False and f["status"].startswith("unexplained") for f in v["_flips"])
+
+
+def _toy_cell(rule_value):
+    """A cell whose one rule is `rule_value(record)` on its start-0 unit."""
+    u = bt.unit("IS", bt.R2)
+    return bt.Cell("toy", bt.VAULT_NOTES + "toy.md", [u],
+                   lambda st: {"rules": [bt._rule("toy", rule_value(st.get(u)), rid="t")]})
+
+
+def test_explain_names_the_one_fix_whose_revert_restores_the_archive(monkeypatch):
+    monkeypatch.setattr(bt, "ARCHIVED", [("toy", "toy rule", "t", False, None, bt.VAULT_NOTES + "toy.md")])
+    monkeypatch.setattr(bt, "FIXES", {"A": ("a", {"fa": False}), "B": ("b", {"fb": False})})
+    s = FakeStore()
+    u = bt.unit("IS", bt.R2)
+    t = lambda n: [{"ticker": f"T{i}", "entry_date": "2025-01-01", "exit_date": "2025-01-05", "exit_reason": "TP"}
+                   for i in range(n)]
+    s.put(u, {"v": True, "trade_log": t(3)})
+    s.put(bt._ablate(u, {"fa": False}), {"v": False, "trade_log": t(2)})     # A restores, logs differ
+    s.put(bt._ablate(u, {"fb": False}), {"v": True, "trade_log": t(3)})
+    cell = _toy_cell(lambda r: r["v"])
+    verdict = cell.read(s)
+    assert bt.flips({"toy": verdict})[0]["use"] is False
+    res = bt.explain(cell, s, verdict, lambda a, b: False)
+    e = res["toy:toy rule"]
+    assert e["status"] == "explained" and e["fix"] == "A"
+    assert e["tried"]["A"]["diff"][u.key()]["only_fixed"] == 1
+    assert bt.flips({"toy": verdict}, res)[0]["use"] is True
+    # B also restoring makes it ambiguous; a fix already in the archive commit is not tried
+    s.put(bt._ablate(u, {"fb": False}), {"v": False, "trade_log": t(1)})
+    assert bt.explain(cell, s, verdict, lambda a, b: False)["toy:toy rule"]["status"].startswith("unexplained: several")
+    monkeypatch.setattr(bt, "ARCHIVED", [("toy", "toy rule", "t", False, "arch", bt.VAULT_NOTES + "toy.md")])
+    only_a = bt.explain(cell, s, verdict, lambda fix, arch: fix == "b")["toy:toy rule"]
+    assert only_a["status"] == "explained" and set(only_a["tried"]) == {"A"}
+
+
+def test_explain_needs_the_trade_logs_to_move(monkeypatch):
+    monkeypatch.setattr(bt, "ARCHIVED", [("toy", "toy rule", "t", False, None, bt.VAULT_NOTES + "toy.md")])
+    monkeypatch.setattr(bt, "FIXES", {"A": ("a", {"fa": False})})
+    s = FakeStore()
+    u = bt.unit("IS", bt.R2)
+    log = [{"ticker": "T", "entry_date": "2025-01-01", "exit_date": "2025-01-05", "exit_reason": "TP"}]
+    s.put(u, {"v": True, "trade_log": log})
+    s.put(bt._ablate(u, {"fa": False}), {"v": False, "trade_log": log})       # outcome back, same trades
+    cell = _toy_cell(lambda r: r["v"])
+    e = bt.explain(cell, s, cell.read(s), lambda a, b: False)["toy:toy rule"]
+    assert e["status"].startswith("unexplained: no single fix")
+
+
+def test_the_etf_cell_does_not_try_its_own_penalty_as_an_attribution():
+    cell = bt.build_cells()["etf_penalty"]
+    fx = bt.applicable_fixes(cell, None, lambda a, b: False)
+    assert "etf_penalty_row11 (6e22f5a)" not in fx and len(fx) == len(bt.FIXES) - 1
+
+
+def test_fix_commits_are_in_this_branch_and_after_the_archive():
+    for name, (c, _) in bt.FIXES.items():
+        assert bt.git_is_ancestor(c, "HEAD"), name
+        assert not bt.git_is_ancestor(c, "824150a"), name
