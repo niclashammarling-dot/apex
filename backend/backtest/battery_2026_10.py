@@ -17,11 +17,11 @@ Structure:
   Store  one JSON per unit, written as soon as the unit finishes: a killed run
          resumes where it stopped.
 
-Start shifts: with a precompute, engine_fast.run ignores start_date/end_date and
-loops over precomputed["trading_days"] (engine_fast.py, the day loop). A shifted
-start is therefore the precompute with trading_days[k:], sharing the regime
-timeline built once on the full window (the regime is a market state; only the
-portfolio path moves, as in the 10-17 noise floor).
+Start shifts: start k passes the window's k-th session as start_date on the full
+precompute; run() slices its days to the window (engine_fast.window_days, 2026-10-19;
+before that it looped over every precomputed day whatever dates it was given). The
+regime timeline is built once on the full window and shared (the regime is a market
+state; only the portfolio path moves, as in the 10-17 noise floor).
 
 Run from apex-port-regime/ (prints the plan; nothing runs without --run):
     venv/bin/python -u -m backend.backtest.battery_2026_10 <outdir> [--cells a,b]
@@ -591,7 +591,7 @@ class Runner:
         pre = self._window(u.window)
         mk = self.market[u.window]
         days = pre["trading_days"][u.start:]
-        pre_u = {**pre, "trading_days": days}
+        pre_u = dict(pre)                      # own dict: the timeline below is per regime patch
         if u.regime_layer:
             pre_u["regime_timeline"] = self._timeline(u.window, u.regime)
         kw = {**self.incumbent(), **u.kwargs}
@@ -601,7 +601,7 @@ class Runner:
         if u.rnd_ref is not None:
             extra["random_entries"] = {"seed": u.seed, "per_day": self.store.get(u.rnd_ref)["entries_per_day"]}
         with regime_constants(dict(u.regime)):
-            res = run(days[0].isoformat(), WINDOWS[u.window][1], initial_balance=10_000.0,
+            res = run(days[0].isoformat(), days[-1].isoformat(), initial_balance=10_000.0,
                       precomputed=pre_u, **kw, **extra)
         r = pm.daily_returns(res["equity_curve"])
         closed = [t for t in res["trade_log"] if t.get("pnl") is not None]
@@ -673,7 +673,17 @@ def plan(cells: dict[str, Cell], store: Store) -> dict:
     return out
 
 
-def read_all(cells: dict[str, Cell], store: Store, outdir: Path) -> dict:
+SCRIPT = "backend/backtest/battery_2026_10.py"
+
+
+def producer(commit: str, argv: list[str], why: str) -> dict:
+    """The block the vault's data_provenance_check reads on an archived result (2026-10-19): this
+    script at a pushed commit, how it was run, and the note that says why."""
+    return {"repo": "apex", "commit": commit, "script": SCRIPT,
+            "run": "python -u -m backend.backtest.battery_2026_10 " + " ".join(argv), "why": why}
+
+
+def read_all(cells: dict[str, Cell], store: Store, outdir: Path, commit: str = "", argv: list[str] = ()) -> dict:
     verdicts = {}
     for c in cells.values():
         if c.blocked:
@@ -684,6 +694,7 @@ def read_all(cells: dict[str, Cell], store: Store, outdir: Path) -> dict:
             except MissingUnit as e:
                 v = {"incomplete": f"unit {e.args[0].key()} ({e.args[0].window}) has not run"}
         v["note"] = c.note
+        v["producer"] = producer(commit, list(argv), c.note.split(" ")[0])
         verdicts[c.name] = v
         (outdir / "verdicts").mkdir(exist_ok=True)
         (outdir / "verdicts" / f"{c.name}.json").write_text(json.dumps(v, indent=1, default=str))
@@ -697,6 +708,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--run", action="store_true")
     ap.add_argument("--ruling", default="")
     ap.add_argument("--read", action="store_true")
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
     a = ap.parse_args(argv)
     cells = build_cells()
     if a.cells:
@@ -715,7 +727,8 @@ def main(argv: list[str] | None = None) -> int:
         print(describe(regime_layer=True), flush=True)
         runner = Runner(store, head)
         (a.outdir / "manifest.json").write_text(json.dumps(
-            {"commit": head, "ruling": a.ruling, "started": pd.Timestamp.now(tz="Europe/Stockholm").isoformat(),
+            {"producer": producer(head, raw_argv, cells[next(iter(cells))].note.split(" ")[0]),
+             "commit": head, "ruling": a.ruling, "started": pd.Timestamp.now(tz="Europe/Stockholm").isoformat(),
              "incumbent": runner.incumbent(), "windows": WINDOWS, "cells": list(cells)}, indent=1))
         todo = [u for u in ordered([u for c in cells.values() for u in c.units]) if not store.has(u)]
         t0 = time.time()
@@ -724,7 +737,7 @@ def main(argv: list[str] | None = None) -> int:
             if i % 10 == 0 or i == len(todo):
                 print(f"{i}/{len(todo)} units, {time.time() - t0:.0f}s", flush=True)
     if a.run or a.read:
-        print(json.dumps(read_all(cells, store, a.outdir), indent=1, default=str), flush=True)
+        print(json.dumps(read_all(cells, store, a.outdir, git_state()[0], raw_argv), indent=1, default=str), flush=True)
     return 0
 
 

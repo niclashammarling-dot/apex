@@ -227,6 +227,18 @@ def test_a_reader_with_missing_units_reports_incomplete_never_a_pass(tmp_path):
     assert (tmp_path / "verdicts" / "profit_read.json").exists()
 
 
+def test_every_verdict_names_its_producer_for_the_vault_gate(tmp_path):
+    import json
+    from backend.backtest.battery_2026_10 import SCRIPT
+    bt.read_all(bt.build_cells(), bt.Store(tmp_path), tmp_path, "abc123", ["out", "--read"])
+    repo = Path(__file__).resolve().parent.parent
+    assert (repo / SCRIPT).exists()
+    for f in (tmp_path / "verdicts").iterdir():
+        p = json.loads(f.read_text())["producer"]
+        assert p["repo"] == "apex" and p["commit"] == "abc123" and p["script"] == SCRIPT
+        assert p["run"].endswith("out --read") and p["why"].startswith("raw/notes/2026-10/") and " " not in p["why"]
+
+
 # ── Run guard ─────────────────────────────────────────────────────────────────
 
 def test_run_is_refused_without_a_ruling_and_on_a_dirty_tree(tmp_path, monkeypatch):
@@ -242,3 +254,33 @@ def test_plan_counts_without_running(tmp_path, capsys):
     assert bt.main([str(tmp_path)]) == 0
     out = capsys.readouterr().out
     assert '"unique_units"' in out and not list(Path(tmp_path, "units").iterdir())
+
+
+# ── engine_fast.run honours its window on a precompute (2026-10-19) ───────────
+
+def test_run_on_a_precompute_slices_to_its_window_and_refuses_outside(runner):
+    pre = synthetic_precomputed()
+    days = pre["trading_days"]
+    a, b = days[10], days[40]
+    res = ef.run(a.isoformat(), b.isoformat(), precomputed=pre, **RUN_KW)
+    assert res["equity_curve"][0]["date"] == a.isoformat()
+    assert all(a.isoformat() <= t["entry_date"] <= b.isoformat() for t in res["trade_log"])
+    assert max(p["date"] for p in res["equity_curve"]) <= b.isoformat()
+    sliced = ef.run(a.isoformat(), b.isoformat(),
+                    precomputed={**pre, "trading_days": [d for d in days if a <= d <= b]}, **RUN_KW)
+    assert res["trade_log"] == sliced["trade_log"]               # the same as slicing by hand
+    with pytest.raises(ValueError, match="outside the precompute"):
+        ef.run(a.isoformat(), "2099-01-01", precomputed=pre, **RUN_KW)
+    with pytest.raises(ValueError, match="outside the precompute"):
+        ef.run("2025-03-03", b.isoformat(), precomputed={**pre, "window": (a.isoformat(), b.isoformat())}, **RUN_KW)
+
+
+def test_engine_sharpe_slices_the_same_way():
+    from backend.backtest import engine_sharpe as es
+    pre = synthetic_precomputed()
+    days = pre["trading_days"]
+    a, b = days[10], days[40]
+    res = es.run(a.isoformat(), b.isoformat(), precomputed=pre)
+    assert all(a.isoformat() <= t["entry_date"] <= b.isoformat() for t in res["trade_log"])
+    with pytest.raises(ValueError, match="outside the precompute"):
+        es.run(a.isoformat(), "2099-01-01", precomputed=pre)
