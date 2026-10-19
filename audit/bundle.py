@@ -27,6 +27,11 @@ Sections:
   config    values as applied, read from code and config files, diffed against
             the previous bundle (a decision record is not the applied value:
             329025a's message said 0.70, the code held 0.75 for 4.5 months)
+  signals   the signal register (2026-10-19): every open S-row of
+            backend/backtest/PRODUCTION_GAP.md, so a weekend session works from the
+            list (Niclas: "Se till så att lördags sessioner framöver vet om production
+            gap och signalistan och förhåller sig till den"); a register that cannot be
+            read is a WARNING, never an empty section
   weekly    the weekly report's named reader (2026-10-15): one item per week
             from WEEKLY_READ_START whose read is not filed in the vault
             (raw/notes/YYYY-MM/YYYY-MM-DD-apex-weekly-read-<ISO week>.md), with
@@ -424,6 +429,33 @@ def weekly_items(now: datetime) -> list[dict]:
     return out
 
 
+# ── signal register ───────────────────────────────────────────────────────────
+
+GAP_FILE_REL = "backend/backtest/PRODUCTION_GAP.md"
+_S_ROW = re.compile(r"^\|\s*(S\d+)\s*\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|")
+SIGNAL_SCOPE = ("weekend order (ruled 2026-10-19): open S-rows are hypotheses; take the next one whose data "
+                "exists, write its battery cell and rule before the run, run, then adopt (live and engine "
+                "together) or discard, and write the verdict into the row. The battery decides edge; live "
+                "shows whether the model holds against reality, and when live fails the model is wrong.")
+
+
+def signal_items() -> list[dict]:
+    path = REPO / GAP_FILE_REL
+    if not path.exists():
+        return [_item("signals:register-missing", "signals", "WARNING", GAP_FILE_REL,
+                      "signal register not found — the weekend list of signal hypotheses cannot be read",
+                      scope="restore the 'Signal gaps — hypotheses' section of PRODUCTION_GAP.md")]
+    rows = [m.groups() for m in map(_S_ROW.match, path.read_text(encoding="utf-8").splitlines()) if m]
+    if not rows:   # the file exists and holds S-rows: zero parsed means the reader broke, not "no gaps"
+        return [_item("signals:register-unparsed", "signals", "WARNING", GAP_FILE_REL,
+                      "no S-rows parsed from the signal register (format changed?)",
+                      scope="fix audit/bundle.py _S_ROW against the table, test_signal_register_rows")]
+    return [_item(f"signals:{sid}", "signals", "TODO", GAP_FILE_REL,
+                  f"{sid}: {hyp.strip()[:160]} — data: {data.strip()[:80]} — {status.strip()[:80]}",
+                  scope=SIGNAL_SCOPE)
+            for sid, hyp, _info, data, status in rows if status.strip().lower().startswith("open")]
+
+
 # ── scopes ────────────────────────────────────────────────────────────────────
 
 def _scope_for(it: dict) -> str | None:
@@ -450,7 +482,7 @@ def build(write: bool = False, now: datetime | None = None, db: Path | None = No
 
     snap = config_snapshot()
     items = (findings_items() + todo_items() + parity_items(db) + config_items(prev.get("config"), snap)
-             + weekly_items(now))
+             + weekly_items(now) + signal_items())
     excepted = []
     kept = []
     for it in items:
@@ -472,7 +504,7 @@ def build(write: bool = False, now: datetime | None = None, db: Path | None = No
     bundle = {"generated_at": now.isoformat(), "host_commit": commit, "items": kept,
               "excepted": excepted, "config": snap,
               "counts": {**{s: sum(1 for i in kept if i["section"] == s)
-                            for s in ("findings", "todos", "parity", "config", "weekly")},
+                            for s in ("findings", "todos", "parity", "config", "weekly", "signals")},
                          "no_scope": sum(1 for i in kept if not i["scope"])}}
     if write:
         STATE.mkdir(parents=True, exist_ok=True)
@@ -487,7 +519,7 @@ def render_text(b: dict) -> str:
              "Nothing here is removed automatically.", ""]
     names = {"findings": "AUDIT FINDINGS (non-INFO)", "todos": "TODO MARKERS",
              "parity": "SIGNALS WITH NO READER", "config": "CONFIG CHANGED SINCE LAST BUNDLE",
-             "weekly": "WEEKLY REPORT READ"}
+             "weekly": "WEEKLY REPORT READ", "signals": "SIGNAL REGISTER (open hypotheses)"}
     for s, title in names.items():
         rows = [i for i in b["items"] if i["section"] == s]
         lines.append(f"{title} — {len(rows)}")
