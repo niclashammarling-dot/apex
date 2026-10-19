@@ -329,6 +329,15 @@ def init_db() -> None:
                 outcome     TEXT
             );
 
+            -- weekly_report_snapshots: what each sent weekly report stood on that the DB
+            -- cannot recompute later (optimizer result, noise floor, thresholds as they
+            -- stood, commentary, serving commit). One row per ISO week, never overwritten.
+            CREATE TABLE IF NOT EXISTS weekly_report_snapshots (
+                week        TEXT PRIMARY KEY,
+                written_at  TEXT NOT NULL,
+                payload     TEXT NOT NULL
+            );
+
             -- l5_token_usage: no writer since 2026-10-10 (no reader after CHECK 52's retirement);
             -- history kept.
             CREATE TABLE IF NOT EXISTS l5_token_usage (
@@ -1716,6 +1725,30 @@ def get_job_runs() -> list[dict]:
     conn = get_db()
     try:
         return [dict(r) for r in conn.execute("SELECT * FROM job_runs ORDER BY job").fetchall()]
+    finally:
+        conn.close()
+
+
+def insert_weekly_snapshot(week: str, payload: dict) -> bool:
+    """Store one week's report facts (weekly_report_snapshots). True when written,
+    False when the week already has a row: the first send's facts are the record."""
+    conn = get_db()
+    try:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO weekly_report_snapshots (week, written_at, payload) VALUES (?, ?, ?)",
+            (week, datetime.now(timezone.utc).isoformat(), json.dumps(payload, sort_keys=True, default=str)))
+        conn.commit()
+        return cur.rowcount == 1
+    finally:
+        conn.close()
+
+
+def get_weekly_snapshot(week: str) -> dict | None:
+    conn = get_db()
+    try:
+        r = conn.execute("SELECT week, written_at, payload FROM weekly_report_snapshots WHERE week = ?",
+                         (week,)).fetchone()
+        return {"week": r["week"], "written_at": r["written_at"], "payload": json.loads(r["payload"])} if r else None
     finally:
         conn.close()
 

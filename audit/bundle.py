@@ -357,6 +357,7 @@ WEEKLY_SENT       = REPO / "data" / "weekly_report_sent.txt"   # backend/weekly_
 # 2026-10-15: "weekly reads should absolutely be in the vault"). The host bundle reads it.
 VAULT             = Path("/mnt/c/Users/Nix/Niclas-KB")
 WEEKLY_READ_START = "2026-W42"   # first week with a filed read due (mechanism shipped 2026-10-15)
+WEEKLY_SNAPSHOT_START = "2026-W43"   # first send by code that stores weekly_report_snapshots (2026-10-19)
 WEEKLY_QUESTIONS  = (
     "Which numbers sit outside their prior-week reference with n >= 10 on both sides?",
     "Does each funnel balance, and does any decision show under 'other'?",
@@ -372,6 +373,21 @@ def _iso_week(d) -> str:
     return f"{y}-W{w:02d}"
 
 
+def _snapshot_stored(week: str) -> bool | None:
+    """backend/weekly_report._store_snapshot's row for `week`; None when the DB or table is unreadable."""
+    db = REPO / "data" / "apex.db"
+    if not db.exists():
+        return None
+    try:
+        c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            return c.execute("SELECT 1 FROM weekly_report_snapshots WHERE week = ?", (week,)).fetchone() is not None
+        finally:
+            c.close()
+    except sqlite3.Error:
+        return None
+
+
 def weekly_items(now: datetime) -> list[dict]:
     from datetime import date, timedelta
     current = _iso_week(now.astimezone(timezone.utc).date())   # _mark_sent labels weeks in UTC
@@ -381,6 +397,12 @@ def weekly_items(now: datetime) -> list[dict]:
         out.append(_item(f"weekly:sent:{current}", "weekly", "WARNING", _rel(WEEKLY_SENT),
                          f"weekly report not sent for {current} (marker reads {sent or 'nothing: file missing'})",
                          scope="check the scheduler log for 'Weekly report failed'; send it before reading"))
+    elif current >= WEEKLY_SNAPSHOT_START and (stored := _snapshot_stored(current)) is not True:
+        out.append(_item(f"weekly:snapshot:{current}", "weekly", "WARNING", "data/apex.db:weekly_report_snapshots",
+                         f"weekly report {current} sent but its snapshot is "
+                         + ("not stored" if stored is False else "unreadable (no DB or no table)"),
+                         scope="grep logs/apex_*.log for 'Weekly snapshot'; the week's optimizer result, "
+                               "thresholds and commentary are recoverable only until next week's overwrite"))
     y, w = WEEKLY_READ_START.split("-W")
     d = date.fromisocalendar(int(y), int(w), 1)
     questions = " ".join(f"({i}) {q}" for i, q in enumerate(WEEKLY_QUESTIONS, 1))

@@ -863,8 +863,10 @@ def _reference_note(ref: dict, rdemo: dict, since: str) -> str:
     return out
 
 
-def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) -> tuple[str, str, str]:
-    """Return (subject, html_body, plain_body)."""
+def build_report(recal_changes: dict[str, tuple[float, float]] | None = None,
+                 capture: dict | None = None) -> tuple[str, str, str]:
+    """Return (subject, html_body, plain_body). A dict passed as `capture` is filled
+    with the facts the DB cannot recompute later, for send_weekly_report to store."""
     since  = _week_start_iso()
     until  = (datetime.fromisoformat(since) + timedelta(days=7)).isoformat()
     now    = datetime.now(timezone.utc)
@@ -891,6 +893,22 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None) ->
         demo, live, dfunnel, lfunnel,
         sector_pnl, thresh_status, sweep_top, recal_changes, partials, ref,
     )
+    if capture is not None:
+        # Order (b) of the 10-03 read, second half: derive what the DB holds, store
+        # only what it cannot give back. optimizer_results.json and sweep_results.json
+        # are overwritten weekly, ticker_thresholds and the noise floor change in place,
+        # and the commentary exists only in the mail.
+        from backend.code_identity import read_code_identity
+        capture.update({
+            "week": _this_week_label(), "since": since, "until": until,
+            "code": read_code_identity(),
+            "optimizer": {"state": opt_state, "detail": opt_detail, "result": opt},
+            "sweep": {"state": sweep_state, "detail": sweep_detail, "top": sweep_top},
+            "thresholds": thresh_status,
+            "recal_changes": recal_changes,
+            "commentary": commentary,
+            "commentary_min_n": COMMENTARY_MIN_N, "reference_weeks": REFERENCE_WEEKS,
+        })
 
     subject = f"[APEX] Weekly Report — {week_label}"
 
@@ -1293,6 +1311,20 @@ LOCK 2 QUANT THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
 
 # ── Scheduler entry point ─────────────────────────────────────────────────────
 
+def _store_snapshot(capture: dict) -> None:
+    """Before the send, so a failed mail still leaves the week's facts. A failed
+    write is logged as an error and the report still goes out; the weekend bundle
+    warns on a sent week with no row."""
+    try:
+        from backend.db import insert_weekly_snapshot
+        if insert_weekly_snapshot(capture["week"], capture):
+            logger.info(f"Weekly snapshot stored for {capture['week']}")
+        else:
+            logger.warning(f"Weekly snapshot for {capture['week']} already stored — kept the first")
+    except Exception as e:
+        logger.error(f"Weekly snapshot not stored: {e}")
+
+
 def send_weekly_report() -> None:
     # Mark before sending — prevents duplicate sends on rapid server restarts.
     # Trade-off: a crash after marking but before sending skips that week's email.
@@ -1331,7 +1363,9 @@ def send_weekly_report() -> None:
 
     try:
         # Pass dict as-is: None = calibration didn't run; {} = ran but no meaningful change; filled = real changes
-        subject, html, plain = build_report(recal_changes=recal_changes if flagged else None)
+        capture: dict = {}
+        subject, html, plain = build_report(recal_changes=recal_changes if flagged else None, capture=capture)
+        _store_snapshot(capture)
         from backend.alerts import _cfg, _send_email, _send_slack
         cfg = _cfg()
         sent = False

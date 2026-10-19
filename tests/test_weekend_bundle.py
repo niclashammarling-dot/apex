@@ -188,6 +188,11 @@ class TestWeeklyRead:
         monkeypatch.setattr(bundle, "VAULT", tmp_path / "vault")
         (tmp_path / "data").mkdir()
         (tmp_path / "vault" / "raw" / "notes" / "2026-10").mkdir(parents=True)
+        c = sqlite3.connect(tmp_path / "data" / "apex.db")
+        c.execute("CREATE TABLE weekly_report_snapshots (week TEXT PRIMARY KEY, written_at TEXT, payload TEXT)")
+        c.execute("INSERT INTO weekly_report_snapshots VALUES ('2026-W43', '2026-10-23T20:05:00+00:00', '{}')")
+        c.commit()
+        c.close()
         return tmp_path
 
     def test_unfiled_weeks_are_items_current_one_todo_older_warning(self, env):
@@ -209,6 +214,21 @@ class TestWeeklyRead:
         monkeypatch.setattr(bundle, "VAULT", env / "nowhere")
         assert [(i["key"], i["severity"]) for i in bundle.weekly_items(self.FRI_W43)] == [
             ("weekly:vault-missing", "WARNING")]
+
+    def test_sent_week_without_snapshot_is_a_warning(self, env):
+        (env / "data" / "weekly_report_sent.txt").write_text("2026-W43")
+        c = sqlite3.connect(env / "data" / "apex.db")
+        c.execute("DELETE FROM weekly_report_snapshots")
+        c.commit()
+        c.close()
+        snap = [i for i in bundle.weekly_items(self.FRI_W43) if i["key"] == "weekly:snapshot:2026-W43"]
+        assert len(snap) == 1 and snap[0]["severity"] == "WARNING" and "not stored" in snap[0]["text"]
+
+    def test_unreadable_snapshot_db_is_a_warning(self, env):
+        (env / "data" / "weekly_report_sent.txt").write_text("2026-W43")
+        (env / "data" / "apex.db").unlink()
+        snap = [i for i in bundle.weekly_items(self.FRI_W43) if i["key"] == "weekly:snapshot:2026-W43"]
+        assert len(snap) == 1 and "unreadable" in snap[0]["text"]
 
     def test_unsent_report_is_a_warning(self, env):
         items = bundle.weekly_items(self.FRI_W43)
