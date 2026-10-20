@@ -367,6 +367,16 @@
       "tier": "ops",
       "date": "2026-10-20",
       "source": "Live-vs-engine comparison 2026-10-20 (vault raw/notes/2026-10/2026-10-20-apex-live-vs-engine-canonical-sample.md); archives the in-session probe that read two trade sets the opposite way. 200 same-day same-ATR-quintile random entries per live trade, as the in-session probe. Probe only: no live gate, size or exit reads it."
+    },
+    "backend/backtest/exit_rules.py::POLLED_PEAK_GAP": {
+      "value": 0.0026,
+      "kind": "measured",
+      "tier": "ops",
+      "date": "2026-10-20",
+      "source": "Median of (highest high over the trade - live's stored peak_price) / entry on the canonical live sample; R9's polled setting (EXIT_PARITY.md R9). Vault raw/notes/2026-10/2026-10-20-apex-live-vs-engine-canonical-sample.md, data/2026-10-20-apex-live-vs-engine.json peak_measurement (0.00257). Backtest-only: selects the engine's peak model, no live gate, size or exit reads it.",
+      "engine": "none (live_trades.peak_price against the IS window's OHLC cache; backend/backtest/live_vs_engine_2026_10_20.py peak_measurement)",
+      "commit": "ff1ba73",
+      "sample": "57 closed trades, db.LIVE_SAMPLE since 2026-07-07"
     }
   }
 }

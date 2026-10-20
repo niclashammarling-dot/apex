@@ -41,6 +41,7 @@ import pandas as pd
 from backend.backtest import battery_2026_10 as b
 from backend.backtest import engine_fast as ef
 from backend.backtest import profit_metrics as pm
+from backend.backtest.exit_rules import POLLED_PEAK_GAP
 
 PICK = 0.65                         # live Lock 1 threshold; SECTOR_THRESHOLD_FLOORS is empty
 L0_HORIZONS = [1, 5, 10, 25]
@@ -52,6 +53,10 @@ NONE = 10.0                         # a TP/SL of 1,000 %: the leg never fires
 TP_GRID = (0.03, 0.04, 0.06, 0.08, 0.12, NONE)
 SL_GRID = (0.03, 0.04, 0.06, 0.08, 0.12, NONE)
 LIVE_EXIT = {"tp": 0.06, "sl": 0.06, "pl": [0.04, 0.01], "tdays": 25}
+# R9 peak model for every simulated exit (EXIT_PARITY.md R9; --peak): high = the engine default.
+PEAK_MODELS = {"close": {"peak_from_high": False}, "high": {"peak_from_high": True, "peak_haircut": 0.0},
+               "polled": {"peak_from_high": True, "peak_haircut": POLLED_PEAK_GAP}}
+PEAK: dict = PEAK_MODELS["high"]
 
 _R: "b.Runner | None" = None
 _SHARED: dict = {}
@@ -281,7 +286,7 @@ def _simulate(P: dict, pre: dict, i: int, j: int, cfg: dict) -> dict:
         closed = ef._check_exits_fast([trade], pre["price_cache"], date.fromisoformat(ds), ds,
                                       cfg["tp"], cfg["sl"], cfg["tdays"], None,
                                       pl[0] if pl else None, pl[1] if pl else None,
-                                      ohlc_cache=pre.get("ohlc_cache"))
+                                      ohlc_cache=pre.get("ohlc_cache"), **PEAK)
         if closed:
             rec = closed[0]["record"]
             return {"pnl": rec["pnl_pct"], "reason": rec["exit_reason"], "hold": rec["days_held"], "exit_idx": k}
@@ -554,9 +559,12 @@ def main() -> None:
     ap.add_argument("--seeds", type=int, default=100)
     ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--battery", type=Path, default=Path("/home/promenix/apex-battery/2026-10-19"))
+    ap.add_argument("--peak", choices=sorted(PEAK_MODELS), default="high")
     a = ap.parse_args()
     a.outdir.mkdir(parents=True, exist_ok=True)
     cards = a.cards.split(",")
+    global PEAK
+    PEAK = PEAK_MODELS[a.peak]
     t0 = time.time()
 
     def log(msg: str) -> None:

@@ -236,6 +236,13 @@ a bar that rallies and reverses inside one session books nothing from its own hi
 next bar's resting stop is priced off the high, which is what live's polls had reached by
 the close. Residual bias: optimistic by the median 0.26 pts that polls miss the exact high.
 
+**Three settings bracket live** (added 2026-10-20, ruling):
+- `peak_from_high=False`: the close, the floor;
+- `peak_haircut=0`: the high, the ceiling (the default);
+- `peak_haircut=POLLED_PEAK_GAP` (0.0026, measured): the high less the median distance live's polled peak fell short of it.
+
+If a verdict is the same under all three, the lock's modelling isn't driving it. `ladder_2026_10 --peak close|high|polled` selects the model for every simulated exit.
+
 `peak_from_high=False` is the pre-R9 model. The exit-parity fixture (41 stop exits, a
 legacy trailing stop) was certified on it and is replayed with it; the engine golden
 (`test_engine_flag_off_parity`) likewise. R9's own test is

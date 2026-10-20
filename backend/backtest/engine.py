@@ -138,6 +138,7 @@ def run(
     intraday_tp:        bool        = True,    # R8: the TP limit leg fills intraday, as live's bracket (False: targets on the close)
     tp_first:           bool        = False,   # R8 ceiling for a bar touching both legs; False books the stop (floor)
     peak_from_high:     bool        = True,    # R9: an open trade's peak carries the bar's high (False: the close, pre-2026-10-20)
+    peak_haircut:       float       = 0.0,     # R9: the carried high less this fraction of entry (exit_rules.POLLED_PEAK_GAP = polled)
     parity_stats:       ParityStats | None = None,
 ) -> BacktestResult:
     """
@@ -264,6 +265,7 @@ def run(
             intraday_tp=intraday_tp,
             tp_first=tp_first,
             peak_from_high=peak_from_high,
+            peak_haircut=peak_haircut,
         )
         for ct in closed_today:
             trade  = ct["_trade"]
@@ -532,6 +534,7 @@ def _check_exits(
     intraday_tp: bool = True,
     tp_first: bool = False,
     peak_from_high: bool = True,
+    peak_haircut: float = 0.0,
 ) -> list[dict]:
     # Malformed profit-lock config: one set without the other previously did
     # nothing silently (the old `if trigger and trail` guard swallowed it).
@@ -643,7 +646,7 @@ def _check_exits(
             reason, outcome = "TIME", "EXPIRED"
         else:
             if peak_from_high and ohlc_cache is not None:
-                lift_peak_to_high(trade, ohlc_cache.get((trade["ticker"], today_str)))
+                lift_peak_to_high(trade, ohlc_cache.get((trade["ticker"], today_str)), peak_haircut)
             continue
 
         pnl = trade["amount"] * pnl_pct

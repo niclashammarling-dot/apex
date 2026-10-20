@@ -55,3 +55,24 @@ def test_same_bar_high_does_not_fill_the_same_bar():
     closed = fast._check_exits_fast([trade], {("PKH", DAYS[1]): 102.0}, date.fromisoformat(DAYS[1]), DAYS[1],
                                     0.06, 0.06, 25, None, 0.04, 0.01, ohlc_cache=ohlc, stop_slip=(0.0, 0.0))
     assert closed == [] and trade["peak_price"] == 105.0
+
+
+def test_polled_setting_carries_the_high_less_the_measured_gap():
+    from backend.backtest.exit_rules import POLLED_PEAK_GAP, lift_peak_to_high
+    t = _trade()
+    lift_peak_to_high(t, BARS[DAYS[1]], POLLED_PEAK_GAP)
+    assert t["peak_price"] == pytest.approx(105.0 - POLLED_PEAK_GAP * 100.0)
+    lift_peak_to_high(t, Bar(open=100.0, high=100.1, low=99.0, close=100.0), POLLED_PEAK_GAP)
+    assert t["peak_price"] == pytest.approx(105.0 - POLLED_PEAK_GAP * 100.0)   # never lowered
+
+
+@pytest.mark.parametrize("engine", ["fast", "slow"])
+def test_haircut_reaches_both_engines(engine, monkeypatch):
+    # A haircut that puts the carried peak under the 4 % trigger leaves the lock unarmed: no exit.
+    import functools
+    fn = slow._check_exits if engine == "slow" else fast._check_exits_fast
+    mod = slow if engine == "slow" else fast
+    monkeypatch.setattr(mod, "_check_exits" if engine == "slow" else "_check_exits_fast",
+                        functools.partial(fn, peak_haircut=0.02))
+    d, _ = _run(engine, True)
+    assert d is None

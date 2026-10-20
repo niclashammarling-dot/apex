@@ -102,3 +102,21 @@ def test_engine_size_draw_takes_fractions_from_its_list_independent_of_score():
     again = ef.run(START.isoformat(), END.isoformat(), precomputed=pre,
                    **{**RUN_KW, "size_draw": {"seed": 4, "fractions": fr}})["trade_log"]
     assert [t["amount"] for t in again] == [t["amount"] for t in log]          # seeded
+
+
+def test_simulate_uses_the_selected_peak_model(monkeypatch):
+    # --peak close reproduces the pre-R9 engine trade for trade (the T4 attribution rests on it).
+    pre = synthetic_precomputed()
+    P = ld.panels(pre)
+    kw = {k: v for k, v in RUN_KW.items() if k not in ("stop_slip", "intraday_tp")}      # keeps peak_from_high=False
+    kw.update(take_profit_pct=0.06, stop_loss_pct=0.05, profit_lock_trigger_pct=0.04, profit_lock_trail_pct=0.01,
+              time_stop_days=10)
+    res = ef.run(START.isoformat(), END.isoformat(), precomputed=pre, **kw)
+    monkeypatch.setattr(ld, "PEAK", ld.PEAK_MODELS["close"])
+    cfg = {"tp": 0.06, "sl": 0.05, "pl": (0.04, 0.01), "tdays": 10}
+    trades = [x for x in res["trade_log"] if x["exit_reason"] != "END_OF_BACKTEST"]
+    assert trades
+    for t in trades:
+        i, j = P["days"].index(t["entry_date"]), P["tickers"].index(t["ticker"])
+        r = ld._simulate(P, pre, i, j, cfg)
+        assert (P["days"][r["exit_idx"]], r["reason"], r["pnl"]) == (t["exit_date"], t["exit_reason"], t["pnl_pct"])

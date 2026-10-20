@@ -356,12 +356,22 @@ def check_intraday_stop(trade: dict, bar: Bar | None, eff_sl: float, eff_tp: flo
     return check_intraday_bracket(trade, bar, eff_sl, eff_tp, *args, intraday_tp=False, **kwargs)
 
 
-def lift_peak_to_high(trade: dict, bar: "Bar | None") -> None:
+# R9's polled setting: the median distance of live's stored peak below the highest high
+# over the trade, as a fraction of entry, on the canonical live sample (57 trades, 2026-10-20).
+POLLED_PEAK_GAP = 0.0026
+
+
+def lift_peak_to_high(trade: dict, bar: "Bar | None", haircut: float = 0.0) -> None:
     """Bar end for a trade still open: carry the bar's high forward as its peak (R9,
     EXIT_PARITY.md). Live polls the price every 5 minutes and ratchets off the polled
     maximum; over the 57 trades of the canonical live sample its stored peak sat a median
     0.26 pts below the period's highest high and 1.6 pts above its highest close, and
     reached the 4 % profit-lock trigger on 60 % of trades (highs 61 %, closes 17.5 %).
-    Called after the bar's exit tests, so R4's test-first order holds for the same bar."""
-    if bar is not None and bar.high is not None and bar.high > trade.get("peak_price", trade["entry_price"]):
-        trade["peak_price"] = bar.high
+    Called after the bar's exit tests, so R4's test-first order holds for the same bar.
+    haircut (a fraction of entry) lowers the carried high to what polls reach:
+    0 is the high itself (the ceiling), POLLED_PEAK_GAP the measured polled peak."""
+    if bar is None or bar.high is None:
+        return
+    lifted = bar.high - haircut * trade["entry_price"]
+    if lifted > trade.get("peak_price", trade["entry_price"]):
+        trade["peak_price"] = lifted
