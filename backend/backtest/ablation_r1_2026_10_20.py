@@ -30,7 +30,13 @@ PIN     = {"peak_from_high": False}              # the 10-19 battery ran before 
 ARCHIVED_P = 3 / 201                             # rank 198/200 (experiment b) as a rank p: (2 + 1) / (200 + 1)
 ARMS = {"fixed": {}, **{name: kw for name, (_commit, kw) in b.FIXES.items()}}
 # Identical-arms explanations (archive_guard): a revert whose run equals another arm's needs one here.
-EXPLAINED_IDENTICAL: dict[frozenset, str] = {}
+EXPLAINED_IDENTICAL: dict[frozenset, str] = {
+    frozenset({"fixed", "vix_ge (7cfbb8b)"}):
+        "`>` and `>=` differ only on a day VIX closes exactly at the threshold (30). The flag is wired "
+        "(test_battery_2026_10::test_vix_revert_lets_the_threshold_day_through), and no IS session "
+        "2019-01-02..2026-10-16 closed at 30.00: 149 sessions >= 30, nearest 29.99 (2022-04-28) and "
+        "30.02 (2025-04-03). Read 2026-10-21 from precompute(IS) vix_cache.",
+}
 
 
 def arm_units(revert: dict) -> list[b.Unit]:

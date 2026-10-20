@@ -27,3 +27,9 @@ def test_read_arm_rank_p_matches_the_battery_formula():
     r = ab.read_arm(_Store(296.5, seeds), {})
     assert r["p"] == (3 + 1) / 301                        # 297, 298, 299 are >= 296.5
     assert r["rank"] == 298 and r["of"] == 301 and r["trades"] == 7
+
+
+def test_identical_explanations_name_real_arms():
+    # an explanation keyed on a misspelt arm would never match, and the guard would refuse the real pair
+    for pair in ab.EXPLAINED_IDENTICAL:
+        assert len(pair) == 2 and pair <= set(ab.ARMS)
