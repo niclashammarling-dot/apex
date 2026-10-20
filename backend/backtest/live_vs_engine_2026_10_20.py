@@ -94,10 +94,31 @@ def _read(D: pd.DataFrame, R: np.ndarray) -> dict:
             "sign_agreement": float((lw == ew).mean()), "corr": float(D.live.corr(D.eng))}
 
 
+def peak_measurement(P: dict, trades: list[dict]) -> dict:
+    """R9's evidence (EXIT_PARITY.md): live's stored peak against the highest high and the highest
+    close over the trade, and the share of trades each reaches the 4 % profit-lock trigger on."""
+    days, out = P["days"], []
+    for t in trades:
+        d0, d1 = t["timestamp"][:10], (t["exited_at"] or "")[:10]
+        if t["ticker"] not in P["tickers"] or d0 not in days or d1 not in days or not t["peak_price"]:
+            continue
+        i, k = days.index(d0), days.index(d1)
+        e = t["entry_price"]
+        out.append((t["peak_price"] / e - 1, P["high"][t["ticker"]].iloc[i:k + 1].max() / e - 1,
+                    P["close"][t["ticker"]].iloc[i:k].max() / e - 1 if k > i else np.nan))
+    a = np.array(out)
+    return {"n": len(a), "live_peak_minus_max_close_median": float(np.nanmedian(a[:, 0] - a[:, 2])),
+            "max_high_minus_live_peak_median": float(np.median(a[:, 1] - a[:, 0])),
+            "share_reaching_4pct_trigger": {"live_peak": float((a[:, 0] >= 0.04).mean()),
+                                            "max_high": float((a[:, 1] >= 0.04).mean()),
+                                            "max_close": float((a[:, 2] >= 0.04).mean())}}
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("out", type=Path)
     ap.add_argument("--battery", type=Path, default=Path("/home/promenix/apex-battery/2026-10-19"))
+    ap.add_argument("--peaks-only", action="store_true", help="only the R9 peak measurement")
     a = ap.parse_args(argv)
     import backend.db as db
     db.DB_PATH = LIVE_DB
@@ -109,7 +130,11 @@ def main(argv: list[str] | None = None) -> int:
     ef._trading_days_count = functools.lru_cache(maxsize=None)(ef._trading_days_count)   # pure; speed only
     pre = b.Runner(b.Store(a.battery), "live-vs-engine")._window("IS")
     P = ld.panels(pre)
-    out = {"since": since, "sets": {
+    if a.peaks_only:
+        a.out.write_text(json.dumps(peak_measurement(P, canonical), indent=1))
+        print(a.out.read_text(), flush=True)
+        return 0
+    out = {"since": since, "peak_measurement": peak_measurement(P, canonical), "sets": {
         "canonical": {"definition": db.LIVE_SAMPLE, "n_rows": len(canonical),
                       "pre_r9": compare(P, pre, canonical, False, np.random.default_rng(SEED)),
                       "r9": compare(P, pre, canonical, True, np.random.default_rng(SEED))},

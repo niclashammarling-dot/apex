@@ -18,3 +18,16 @@ def test_read_counts_divergence_and_ranks_against_the_draws():
     assert (r["live_win_eng_loss"], r["live_loss_eng_win"]) == (1, 0)
     assert r["rnd_wr"] == 0.25 and r["p_live_wr"] == 0.0                    # every draw wins 1 of 4
     assert r["sign_agreement"] == 0.75
+
+
+def test_peak_measurement_reads_live_peak_against_highs_and_closes():
+    days = ["d0", "d1", "d2"]
+    P = {"days": days, "tickers": ["X"],
+         "high": pd.DataFrame({"X": [101.0, 105.0, 103.0]}, index=days),
+         "close": pd.DataFrame({"X": [100.0, 102.0, 101.0]}, index=days)}
+    t = {"ticker": "X", "timestamp": "d0T", "exited_at": "d2T", "entry_price": 100.0, "peak_price": 104.5}
+    r = lv.peak_measurement(P, [t])
+    assert r["n"] == 1
+    assert abs(r["live_peak_minus_max_close_median"] - 0.025) < 1e-12        # 104.5 vs the best close before exit, 102
+    assert abs(r["max_high_minus_live_peak_median"] - 0.005) < 1e-12         # 105 vs 104.5
+    assert r["share_reaching_4pct_trigger"] == {"live_peak": 1.0, "max_high": 1.0, "max_close": 0.0}
