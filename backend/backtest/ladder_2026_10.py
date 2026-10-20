@@ -43,15 +43,15 @@ from backend.backtest import engine_fast as ef
 from backend.backtest import profit_metrics as pm
 
 PICK = 0.65                         # live Lock 1 threshold; SECTOR_THRESHOLD_FLOORS is empty
-L0_HORIZONS = (1, 5, 10, 25)
-HOLDS = (1, 2, 3, 5, 7, 10, 15, 20, 25)
-TOPK = (5, 9)
+L0_HORIZONS = [1, 5, 10, 25]
+HOLDS = [1, 2, 3, 5, 7, 10, 15, 20, 25]
+TOPK = [5, 9]
 SEED = 20261020
 N_SHUFFLE = 200
 NONE = 10.0                         # a TP/SL of 1,000 %: the leg never fires
 TP_GRID = (0.03, 0.04, 0.06, 0.08, 0.12, NONE)
 SL_GRID = (0.03, 0.04, 0.06, 0.08, 0.12, NONE)
-LIVE_EXIT = {"tp": 0.06, "sl": 0.06, "pl": (0.04, 0.01), "tdays": 25}
+LIVE_EXIT = {"tp": 0.06, "sl": 0.06, "pl": [0.04, 0.01], "tdays": 25}
 
 _R: "b.Runner | None" = None
 _SHARED: dict = {}

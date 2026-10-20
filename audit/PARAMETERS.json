@@ -250,6 +250,88 @@
       "tier": "ops",
       "source": "Vault raw/notes/2026-10/2026-10-19-apex-testmetodik-i-batteriet-kalldokument.md, ruled 2026-10-19 (Niclas: \"om du inte har invändningar mot fable så kör på det. Ruling\"): the 10-17 block length, reported beside the decisive PW length on |r|; a verdict that flips between them is undecided. Battery design only.",
       "date": "2026-10-19"
+    },
+    "backend/backtest/ladder_2026_10.py::PICK": {
+      "value": 0.65,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): live Lock 1 threshold (data/live_config.json lock1_threshold 0.65); SECTOR_THRESHOLD_FLOORS is empty, so a pick is score >= 0.65. Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
+      "date": "2026-10-20"
+    },
+    "backend/backtest/ladder_2026_10.py::L0_HORIZONS": {
+      "value": [
+        1,
+        5,
+        10,
+        25
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): T1/T2 forward-return horizons fixed on the card: one day, one week, two weeks, and the live 25-day time stop. Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
+      "date": "2026-10-20"
+    },
+    "backend/backtest/ladder_2026_10.py::HOLDS": {
+      "value": [
+        1,
+        2,
+        3,
+        5,
+        7,
+        10,
+        15,
+        20,
+        25
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): T3 hold lengths fixed on the card, up to the live 25-day time stop. Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
+      "date": "2026-10-20"
+    },
+    "backend/backtest/ladder_2026_10.py::TOPK": {
+      "value": [
+        5,
+        9
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): T3 cohort sizes fixed on the card: 9 is live max_positions, 5 a concentrated half. Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
+      "date": "2026-10-20"
+    },
+    "backend/backtest/ladder_2026_10.py::SEED": {
+      "value": 20261020,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): seed for shuffles, injections, the vol-matched set and the exit null, fixed on the card (the run date). Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
+      "date": "2026-10-20"
+    },
+    "backend/backtest/ladder_2026_10.py::N_SHUFFLE": {
+      "value": 200,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): T1 negative control: 200 within-day score shuffles, fixed on the card. Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
+      "date": "2026-10-20"
+    },
+    "backend/backtest/ladder_2026_10.py::NONE": {
+      "value": 10.0,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): a TP/SL of 1,000 % stands for 'no leg' in the T4 grid; it never fires on daily bars. Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
+      "date": "2026-10-20"
+    },
+    "backend/backtest/ladder_2026_10.py::LIVE_EXIT": {
+      "value": {
+        "tp": 0.06,
+        "sl": 0.06,
+        "pl": [
+          0.04,
+          0.01
+        ],
+        "tdays": 25
+      },
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): live exits (data/live_config.json: TP/SL 0.06/0.06, profit lock 0.04/0.01, time stop 25 d); T4's exit-null reference configuration. Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
+      "date": "2026-10-20"
     }
   }
 }
