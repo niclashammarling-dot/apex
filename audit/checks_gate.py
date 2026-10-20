@@ -1939,6 +1939,95 @@ def check92(fetch=None) -> None:
         flag(92, name, f["severity"], f"Alpaca:{f['ticker']}", f["what"])
 
 
+# ── CHECK 93 — live stop-fill slippage against the engine's model ────────────
+# Ruling Niclas 2026-10-20. Three consumers rest on how far live stops fill below their
+# level: the engine's R7 stop slip (EXIT_PARITY.md R7, measured once 10-17 on 44 legs),
+# Kelly's realised loss input (INDEX line 17), and go-criterion group 4 (slippage charged
+# as a cost before real money). CHECK 89 covers entries only.
+C93_MODEL = {"intraday": 0.0002, "gap": 0.005}   # R7 medians, adverse; port-regime exit_rules.STOP_SLIP_*
+C93_TOLERANCE = {"intraday": 0.0025, "gap": 0.005}   # WARNING when the live median is further from the model
+C93_GAP_WINDOW_MIN = 5    # a stop leg filled within this many minutes of the 09:30 ET open was gapped through
+C93_MIN_N = 5             # a class with fewer fills is reported, not judged
+_C93_STOP_TYPES = {"stop", "stop_limit", "trailing_stop"}
+
+
+def stop_fill_slip(order: dict) -> tuple[float, str] | None:
+    """(adverse slip, filled_at) of the order's filled stop leg: 1 - fill / stop, positive when the
+    fill came in below the stop. The leg's own stop_price, so a ratcheted stop is measured at its
+    ratcheted level, which live_trades.sl_price does not record."""
+    for leg in (order.get("legs") or []) + [order]:
+        if (str(leg.get("order_type") or "").lower() in _C93_STOP_TYPES and leg.get("stop_price")
+                and leg.get("filled_avg_price") and leg.get("filled_at")):
+            return 1.0 - leg["filled_avg_price"] / leg["stop_price"], leg["filled_at"]
+    return None
+
+
+def _c93_class(filled_at: str) -> str:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    t = datetime.fromisoformat(filled_at.replace("Z", "+00:00")).astimezone(ZoneInfo("America/New_York"))
+    minutes = (t.hour * 60 + t.minute) - (9 * 60 + 30)
+    return "gap" if 0 <= minutes <= C93_GAP_WINDOW_MIN else "intraday"
+
+
+def check93(fetch=None) -> None:
+    """
+    CHECK 93 — live stop-fill slippage against the engine's model (2026-10-20).
+
+    Population: the canonical live sample (db.live_sample_rows) exited SL or TSL. Each trade's
+    filled stop leg is read from Alpaca; its slip against its own stop price is classed gap
+    (filled within C93_GAP_WINDOW_MIN of the open) or intraday. Per class, the live median is
+    reported beside the model (INFO); a class with >= C93_MIN_N fills whose median is further
+    from the model than C93_TOLERANCE is a WARNING (the engine's R7, Kelly's loss input and
+    the go-criterion cost all drift with it). A broker failure, or stop exits with no
+    measurable leg, is a WARNING "did not evaluate", never a clean row.
+    `fetch`: (trades, fetch_order) for tests; None reads apex.db and Alpaca.
+    """
+    import statistics
+    name = "Live stop-fill slippage vs model"
+    db = REPO / "data/apex.db"
+    if fetch is None and not require_data_file(93, name, db):
+        return
+    try:
+        if fetch is None:
+            from backend import db as dbm
+            from backend.brokers import alpaca as broker
+            trades = [t for t in dbm.live_sample_rows() if t["exit_reason"] in ("SL", "TSL")]
+            fetch_order = broker.get_order_by_id
+        else:
+            trades, fetch_order = fetch
+        slips: dict[str, list[float]] = {"intraday": [], "gap": []}
+        missing = 0
+        for t in trades:
+            m = stop_fill_slip(fetch_order(t["alpaca_order_id"])) if t.get("alpaca_order_id") else None
+            if m is None:
+                missing += 1
+                continue
+            slips[_c93_class(m[1])].append(m[0])
+    except Exception as e:
+        flag(93, name, "WARNING", "backend/brokers/alpaca.py:get_order_by_id",
+             f"did not evaluate: {type(e).__name__}: {e}")
+        return
+    if trades and missing == len(trades):
+        flag(93, name, "WARNING", "audit/checks_gate.py:stop_fill_slip",
+             f"did not evaluate: none of {len(trades)} stop exits has a measurable filled stop leg")
+        return
+    parts = []
+    for c in ("intraday", "gap"):
+        xs = slips[c]
+        if not xs:
+            parts.append(f"{c}: no fills (model {C93_MODEL[c] * 100:.2f} %)")
+            continue
+        med = statistics.median(xs)
+        parts.append(f"{c}: n {len(xs)}, median {med * 100:+.2f} % adverse (model {C93_MODEL[c] * 100:.2f} %)")
+        if len(xs) >= C93_MIN_N and abs(med - C93_MODEL[c]) > C93_TOLERANCE[c]:
+            flag(93, name, "WARNING", "backend/backtest/exit_rules.py:STOP_SLIP (port-regime)",
+                 f"{c} stop fills drift from the model: live median {med * 100:+.2f} % against "
+                 f"{C93_MODEL[c] * 100:.2f} % (n {len(xs)}); re-measure R7, then Kelly's loss input")
+    flag(93, name, "INFO", "audit/checks_gate.py:check93",
+         "; ".join(parts) + (f"; {missing} stop exits without a measurable leg" if missing else ""))
+
+
 def run() -> None:
     check24()
     check25()
@@ -1964,3 +2053,4 @@ def run() -> None:
     check90()
     check91()
     check92()
+    check93()

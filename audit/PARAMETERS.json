@@ -46,6 +46,46 @@
       "source": "Claude 2026-10-17, CHECK 91: the same 60-day horizon as lock1_eligibility._check_calendar_expiry, so the bundle sees what the log warning saw; about two Friday bundles of lead time.",
       "date": "2026-10-17",
       "review": "2026-10-31"
+    },
+    "audit/checks_gate.py::C93_GAP_WINDOW_MIN": {
+      "value": 5,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-10-20",
+      "review": "2026-11-20",
+      "source": "CHECK 93 (audit/CHECKS.md row 93; ruling Niclas 2026-10-20). A stop leg filled within 5 min of the open is classed a gap through the stop; R7 (EXIT_PARITY.md) used the bar open plus 'the first minutes'. Time-only because the check reads no bars; it counts 18 gaps where R7 counted 7. Review at the first monthly read: take the open from bars if the classes mislead."
+    },
+    "audit/checks_gate.py::C93_MIN_N": {
+      "value": 5,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-10-20",
+      "review": "2026-11-20",
+      "source": "CHECK 93 (audit/CHECKS.md row 93; ruling Niclas 2026-10-20). A class needs 5 fills before its median is judged against the model; R7's gap class had 7. Reported, not judged, below it."
+    },
+    "audit/checks_gate.py::C93_MODEL": {
+      "value": {
+        "intraday": 0.0002,
+        "gap": 0.005
+      },
+      "kind": "measured",
+      "tier": "ops",
+      "date": "2026-10-20",
+      "source": "CHECK 93 (audit/CHECKS.md row 93; ruling Niclas 2026-10-20). The engine's modelled stop slip, adverse: R7 medians from 44 live stop legs (EXIT_PARITY.md R7, 2026-10-17). Same values as port-regime exit_rules.STOP_SLIP_INTRADAY_PCT / STOP_SLIP_GAP_PCT; imported from there once port-regime merges.",
+      "engine": "none (live Alpaca stop legs against the engine's bar model; EXIT_PARITY.md R7)",
+      "commit": "58916ea",
+      "sample": "44 filled sell-stop legs 2026-07-07..10-16 (37 intraday, 7 gap)"
+    },
+    "audit/checks_gate.py::C93_TOLERANCE": {
+      "value": {
+        "intraday": 0.0025,
+        "gap": 0.005
+      },
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-10-20",
+      "review": "2026-11-20",
+      "source": "CHECK 93 (audit/CHECKS.md row 93; ruling Niclas 2026-10-20). WARNING distance between the live median and the model: about the R7 intraday range half-width (-0.37..+1.13 %, so 0.25 pts) and the gap median itself (0.5 pts). Review at the first monthly read against the live spread."
     }
   }
 }
