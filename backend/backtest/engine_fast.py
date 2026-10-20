@@ -134,6 +134,10 @@ def run(
     # per-day book multiplier (missing day: 0, no exposure) capped at MAX_POSITION_SIZE.
     size_fixed:          float | None = None,
     exposure_factor:     dict[str, float] | None = None,
+    # Sizing without the score (T5, 2026-10-20): fixed dollars per entry with no compounding, and a
+    # per-entry fraction drawn at random from a list ({"seed": int, "fractions": [...]}), its own RNG.
+    size_usd:            float | None = None,
+    size_draw:           dict  | None = None,
 ) -> BacktestResult:
     tp       = take_profit_pct    if take_profit_pct    is not None else TAKE_PROFIT_PCT
     sl       = stop_loss_pct      if stop_loss_pct      is not None else STOP_LOSS_PCT
@@ -248,6 +252,7 @@ def run(
     import random as _random
     rnd = _random.Random(random_entries["seed"]) if random_entries else None
     rnd_open_cap: dict[str, int] = (random_entries or {}).get("open_cap", {})
+    size_rng = _random.Random(size_draw["seed"]) if size_draw else None
 
     # Pre-fetch earnings if needed
     earnings_dates: dict[str, set[date]] = {}
@@ -415,13 +420,15 @@ def run(
             alloc_pct = min(_kelly if _kelly > 0 else 0.10, MAX_POSITION_SIZE)
             if size_fixed is not None:
                 alloc_pct = size_fixed
+            if size_rng is not None:
+                alloc_pct = size_rng.choice(size_draw["fractions"])
             if exposure_factor is not None:
                 alloc_pct = min(alloc_pct * exposure_factor.get(today_str, 0.0), MAX_POSITION_SIZE)
             if day_regime:
                 _scale = size_mult.get(sig["ticker"], 1.0)
                 if _scale != 1.0:
                     alloc_pct = min(round(alloc_pct * _scale, 4), MAX_POSITION_SIZE)
-            amount    = balance * alloc_pct
+            amount    = balance * alloc_pct if size_usd is None else min(size_usd, balance)
             projected = sector_exposure.get(sector, 0.0) + (amount / balance)
             sector_cap = day_caps.get(sector, sector_max) if day_regime else sector_max
             if projected > sector_cap:

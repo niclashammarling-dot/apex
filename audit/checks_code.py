@@ -894,7 +894,9 @@ CHECK76_ACCEPTED_FAST_ONLY = {"precomputed", "regime_layer",   # regime_layer: r
                               # default True is the fixed engine, as engine.py (2026-10-19)
                               "vix_block_inclusive", "macro_blackout", "cooloff_per_exit",
                               # Size cell: fixed fraction and per-day book multiplier, off by default (2026-10-19)
-                              "size_fixed", "exposure_factor"}
+                              "size_fixed", "exposure_factor",
+                              # T5 sizing without the score: fixed dollars and a random fraction, off by default (2026-10-20)
+                              "size_usd", "size_draw"}
 
 # Layer 2 — production components documented ABSENT from engine_fast.py
 # (PRODUCTION_GAP.md rows). If a symbol appears, the row is stale, not wrong —
