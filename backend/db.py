@@ -1561,32 +1561,58 @@ def record_entry_fill(trade_id: int, fill_price: float, filled_at: str) -> int:
         conn.close()
 
 
+# The canonical live sample (Niclas ruling 2026-10-20). One set, defined here only: closed
+# rows (WIN/LOSS/EXPIRED) entered on or after live_config live_account_since (the 2026-07-07
+# paper reset; earlier rows are a different system with $15-30k positions and are never
+# pooled), minus exits never corroborated against a fill (exit_confidence 'unverified', the
+# 08-18 RECONCILIATION batch) and annotated non-samples. Found 2026-10-20: a probe with its
+# own filter pooled the pre-reset rows and read the live/engine comparison the opposite
+# way. Every statistic and analysis of live outcomes reads live_sample_rows() or this
+# predicate and names LIVE_SAMPLE in its output.
+LIVE_SAMPLE = ("live_sample: closed live_trades with timestamp >= live_account_since, "
+               "exit_confidence != 'unverified', not annotated")
+LIVE_VERIFIED_EXIT = "COALESCE(exit_confidence, 'confirmed') != 'unverified'"
+
+
+def live_sample_predicate() -> str:
+    """SQL predicate over live_trades for the canonical sample, without its date bound."""
+    return (f"outcome IN ('WIN', 'LOSS', 'EXPIRED') AND {LIVE_VERIFIED_EXIT} AND "
+            + not_annotated("live_trades"))
+
+
+def live_sample_since() -> str:
+    from backend.live_config import get_live_config
+    return get_live_config().get("live_account_since") or "0000"
+
+
+def live_sample_rows(since: str | None = None, until: str | None = None) -> list[dict]:
+    """The canonical live sample: rows entered in [since, until), since defaulting to the reset."""
+    since = since or live_sample_since()
+    sql = f"SELECT * FROM live_trades WHERE timestamp >= ? AND {live_sample_predicate()}"
+    args: tuple = (since,)
+    if until:
+        sql += " AND timestamp < ?"
+        args += (until,)
+    conn = get_db()
+    try:
+        return [dict(r) for r in conn.execute(sql + " ORDER BY timestamp", args).fetchall()]
+    finally:
+        conn.close()
+
+
 def live_trade_stats(since: str | None = None) -> dict:
     """
-    Closed live-trade statistics, overall and per signal_class (2026-10-10), the
-    one implementation the dashboard renders. since defaults to live_config
-    live_account_since (the 2026-07-07 paper reset; rows before it belong to the
-    old account and are excluded from every statistic, Niclas 2026-09-24).
-    exit_confidence 'unverified' rows are excluded (the 08-18 RECONCILIATION
-    batch), as in get_live_equity_curve and the weekly report.
+    Closed live-trade statistics over the canonical live sample (live_sample_rows),
+    overall and per signal_class (2026-10-10), the one implementation the dashboard
+    renders. since defaults to live_config live_account_since.
 
     by_class separates entries decided on in-session signals from the rest
     (Finding 1: 25 of 55 live entries since 07-07 were not): a win rate over all
     rows mixes three decision inputs, so the in-session figure is the one that
     describes the strategy as it now trades.
     """
-    if since is None:
-        from backend.live_config import get_live_config
-        since = get_live_config().get("live_account_since") or "0000"
-    conn = get_db()
-    try:
-        rows = [dict(r) for r in conn.execute(
-            "SELECT outcome, pnl, signal_class FROM live_trades "
-            "WHERE timestamp >= ? AND outcome IN ('WIN', 'LOSS', 'EXPIRED') "
-            "AND COALESCE(exit_confidence, 'confirmed') != 'unverified' AND "
-            + not_annotated("live_trades"), (since,)).fetchall()]
-    finally:
-        conn.close()
+    since = since or live_sample_since()
+    rows = live_sample_rows(since)
 
     def summarise(rs: list[dict]) -> dict:
         wins   = [r for r in rs if r["outcome"] == "WIN"]
@@ -1606,7 +1632,7 @@ def live_trade_stats(since: str | None = None) -> dict:
     classes: dict[str, list[dict]] = {}
     for r in rows:
         classes.setdefault(r["signal_class"] or "unclassified", []).append(r)
-    return {"since": since, "overall": summarise(rows),
+    return {"since": since, "sample": LIVE_SAMPLE, "overall": summarise(rows),
             "by_class": {k: summarise(v) for k, v in sorted(classes.items())}}
 
 

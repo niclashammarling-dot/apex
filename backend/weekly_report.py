@@ -19,6 +19,7 @@ from pathlib import Path
 from loguru import logger
 
 from backend.backtest.live_shape import describe_varied
+from backend.db import LIVE_VERIFIED_EXIT
 
 _SENT_MARKER = Path(__file__).parent.parent / "data" / "weekly_report_sent.txt"
 
@@ -106,10 +107,11 @@ BOOKS = ("demo", "live")
 # RECONCILIATION-tagged batch (exit_confidence='unverified', 2026-08-18; same
 # filter as get_live_equity_curve() and /live/compare). Both exclude annotated
 # non-samples (db.not_annotated, 2026-10-10); live had no annotations when it
-# joined that filter here (2026-10-15).
+# joined that filter here (2026-10-15). The live exclusions are db.LIVE_VERIFIED_EXIT,
+# the canonical sample's (2026-10-20); the window here is on exit, not entry.
 _CLOSED_TABLES = {
     "demo": ("trades", ""),
-    "live": ("live_trades", "AND exit_confidence != 'unverified'"),
+    "live": ("live_trades", "AND " + LIVE_VERIFIED_EXIT),
 }
 
 
