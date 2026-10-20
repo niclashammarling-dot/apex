@@ -219,6 +219,28 @@ Before/after on the CHECK 76 window 2026-03-02 → 05-29, `engine_fast.run` defa
 R8 also lowers a TP's fill where the close-only model booked a close above the limit:
 the limit fills at the limit.
 
+## R9 — An open trade's peak carries the bar's high (built 2026-10-20)
+
+Found 2026-10-20 comparing the live record with the engine on the same entries: the
+engine lifted `peak_price` only to the close, while live ratchets off its polled maximum
+(`EXIT_CHECK_INTERVAL = 5`, about 78 polls a session). Measured on the 57 trades of the
+canonical live sample (`db.live_sample_rows`): live's stored peak sat a median 0.26 pts
+below the highest high over the trade and 1.6 pts above the highest close; it reached the
+4 % profit-lock trigger on 60 % of trades, the highs on 61 %, the closes on 17.5 %. The
+close-based peak armed the lock on fewer than a third of the trades live armed it on.
+
+**Rule: test first, then carry the high.** After the bar's exit tests, a trade still open
+takes `max(peak, high)` as its peak (`exit_rules.lift_peak_to_high`). R4 is unchanged: the
+same bar's stop is still tested against the peak as it stood at the start of the bar, so
+a bar that rallies and reverses inside one session books nothing from its own high. The
+next bar's resting stop is priced off the high, which is what live's polls had reached by
+the close. Residual bias: optimistic by the median 0.26 pts that polls miss the exact high.
+
+`peak_from_high=False` is the pre-R9 model. The exit-parity fixture (41 stop exits, a
+legacy trailing stop) was certified on it and is replayed with it; the engine golden
+(`test_engine_flag_off_parity`) likewise. R9's own test is
+`tests/test_exit_rules_peak_high.py`.
+
 ## The model is one-sided — targets are still close-only (found 2026-09-25, after the port)
 
 Checking Niclas's "TP on close versus intraday" question before trusting the

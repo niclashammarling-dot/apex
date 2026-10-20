@@ -89,7 +89,7 @@ def synthetic_precomputed() -> dict:
 # slip) and the 2026-10-18 ones (R8 intraday take-profit, row 14 overflow slots) are passed
 # out here.
 RUN_KW = dict(sl_cooldown_days=5, tp_cooldown_days=0, lock1_threshold=0.45, max_positions=6,
-              daily_loss_cap=100.0, stop_slip=(0.0, 0.0), intraday_tp=False,
+              daily_loss_cap=100.0, stop_slip=(0.0, 0.0), intraday_tp=False, peak_from_high=False,
               overflow_quant_increment=math.inf)
 
 

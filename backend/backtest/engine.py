@@ -50,7 +50,7 @@ from backend.config import (
     TIME_STOP_DAYS,
     WIN_RATE_MIN_TRADES,
 )
-from backend.backtest.exit_rules import Bar, ParityStats, build_ohlc_cache, check_intraday_bracket
+from backend.backtest.exit_rules import Bar, ParityStats, build_ohlc_cache, check_intraday_bracket, lift_peak_to_high
 from backend.backtest.live_shape import (etf_penalty_fails, etf_return_as_live, live_overflow_increment,
                                           overflow_admits, reentry_cooloff_days)
 from backend.signals import aggregator, momentum, relative_strength, trend, volume
@@ -137,6 +137,7 @@ def run(
     stop_slip:          tuple[float, float] | None = None,   # None: exit_rules' measured R7 values (EXIT_PARITY.md)
     intraday_tp:        bool        = True,    # R8: the TP limit leg fills intraday, as live's bracket (False: targets on the close)
     tp_first:           bool        = False,   # R8 ceiling for a bar touching both legs; False books the stop (floor)
+    peak_from_high:     bool        = True,    # R9: an open trade's peak carries the bar's high (False: the close, pre-2026-10-20)
     parity_stats:       ParityStats | None = None,
 ) -> BacktestResult:
     """
@@ -262,6 +263,7 @@ def run(
             stop_slip=stop_slip,
             intraday_tp=intraday_tp,
             tp_first=tp_first,
+            peak_from_high=peak_from_high,
         )
         for ct in closed_today:
             trade  = ct["_trade"]
@@ -529,6 +531,7 @@ def _check_exits(
     stop_slip: tuple[float, float] | None = None,
     intraday_tp: bool = True,
     tp_first: bool = False,
+    peak_from_high: bool = True,
 ) -> list[dict]:
     # Malformed profit-lock config: one set without the other previously did
     # nothing silently (the old `if trigger and trail` guard swallowed it).
@@ -639,6 +642,8 @@ def _check_exits(
         elif days_held >= time_stop_days:
             reason, outcome = "TIME", "EXPIRED"
         else:
+            if peak_from_high and ohlc_cache is not None:
+                lift_peak_to_high(trade, ohlc_cache.get((trade["ticker"], today_str)))
             continue
 
         pnl = trade["amount"] * pnl_pct

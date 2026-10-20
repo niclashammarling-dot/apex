@@ -56,11 +56,11 @@ def test_injected_score_hits_its_target_ic():
 
 def test_simulate_reproduces_the_engines_exit_on_the_same_trade():
     # L2 parity: a trade simulated alone exits on the same day, reason and pnl as inside run().
-    # Live exit semantics (measured slip, intraday TP), as _simulate uses: RUN_KW's golden-test
-    # overrides of those two are dropped. Every closed trade is checked, with the profit lock on.
+    # Live exit semantics (measured slip, intraday TP, R9 peak from the high), as _simulate uses: RUN_KW's golden-test
+    # overrides of those three are dropped. Every closed trade is checked, with the profit lock on.
     pre = synthetic_precomputed()
     P = ld.panels(pre)
-    kw = {k: v for k, v in RUN_KW.items() if k not in ("stop_slip", "intraday_tp")}
+    kw = {k: v for k, v in RUN_KW.items() if k not in ("stop_slip", "intraday_tp", "peak_from_high")}
     kw.update(take_profit_pct=0.06, stop_loss_pct=0.05, profit_lock_trigger_pct=0.04, profit_lock_trail_pct=0.01,
               time_stop_days=10)
     res = ef.run(START.isoformat(), END.isoformat(), precomputed=pre, **kw)
