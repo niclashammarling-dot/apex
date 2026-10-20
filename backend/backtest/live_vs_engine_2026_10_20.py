@@ -42,15 +42,15 @@ def _cfg(t: dict) -> dict:
             "pl": [0.04, 0.01], "tdays": 25}
 
 
-def _with_peak(flag: bool):
-    """_simulate calls ef._check_exits_fast by name; bind its peak model for one pass."""
-    ef._check_exits_fast = functools.partial(_ORIG, peak_from_high=flag)
-
-
-_ORIG = ef._check_exits_fast
+def _with_peak(flag: bool) -> None:
+    """Select the simulator's peak model for one pass. ladder._simulate passes ld.PEAK explicitly
+    (since 1c159b1), so it is set there; patching ef._check_exits_fast with a partial is overridden
+    by that call-time keyword (found 2026-10-20: both passes of the 1,000-draw run ran R9)."""
+    ld.PEAK = ld.PEAK_MODELS["high" if flag else "close"]
 
 
 def compare(P: dict, pre: dict, trades: list[dict], peak_from_high: bool, rng: np.random.Generator) -> dict:
+    before = ld.PEAK
     _with_peak(peak_from_high)
     try:
         days, tick = P["days"], P["tickers"]
@@ -72,7 +72,7 @@ def compare(P: dict, pre: dict, trades: list[dict], peak_from_high: bool, rng: n
             rows.append({"id": t["id"], "ticker": t["ticker"], "d": d, "cls": t["signal_class"],
                          "live": t["pnl"] / t["notional"], "eng": e["pnl"], "eng_reason": e["reason"]})
     finally:
-        ef._check_exits_fast = _ORIG
+        ld.PEAK = before
     D, R = pd.DataFrame(rows), np.array(rnd)
     return {"n": len(D), "by": {k: _read(D[mask], R[mask.to_numpy()])
                                  for k, mask in [("all", D.cls.notna() | D.cls.isna())] +
