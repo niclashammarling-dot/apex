@@ -362,11 +362,11 @@
       "source": "Live-vs-engine comparison 2026-10-20 (vault raw/notes/2026-10/2026-10-20-apex-live-vs-engine-canonical-sample.md); archives the in-session probe that read two trade sets the opposite way. RNG seed of the in-session probe, so the archived numbers reproduce. Probe only: no live gate, size or exit reads it."
     },
     "backend/backtest/live_vs_engine_2026_10_20.py::N_RND": {
-      "value": 200,
+      "value": 1000,
       "kind": "structural",
       "tier": "ops",
       "date": "2026-10-20",
-      "source": "Live-vs-engine comparison 2026-10-20 (vault raw/notes/2026-10/2026-10-20-apex-live-vs-engine-canonical-sample.md); archives the in-session probe that read two trade sets the opposite way. 200 same-day same-ATR-quintile random entries per live trade, as the in-session probe. Probe only: no live gate, size or exit reads it."
+      "source": "Live-vs-engine comparison 2026-10-20 (vault raw/notes/2026-10/2026-10-20-apex-live-vs-engine-canonical-sample.md); archives the in-session probe that read two trade sets the opposite way. 1,000 same-day same-ATR-quintile random entries per live trade (ruling 2026-10-20 item 4: archived p-values use >= 1,000 draws; 200 moved p by about 0.04 between runs). Probe only: no live gate, size or exit reads it."
     },
     "backend/backtest/exit_rules.py::POLLED_PEAK_GAP": {
       "value": 0.0026,
@@ -377,6 +377,13 @@
       "engine": "none (live_trades.peak_price against the IS window's OHLC cache; backend/backtest/live_vs_engine_2026_10_20.py peak_measurement)",
       "commit": "ff1ba73",
       "sample": "57 closed trades, db.LIVE_SAMPLE since 2026-07-07"
+    },
+    "backend/backtest/ablation_r1_2026_10_20.py::ARCHIVED_P": {
+      "value": 0.014925373134328358,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-20",
+      "source": "Archived IS R1 edge, experiment b of raw/notes/2026-10/2026-10-16-apex-profit-read-preregistration.md: rank 198/200 written as the battery's rank p ((2 + 1) / (200 + 1)). Ablation probe only (ruling 2026-10-20 item 10): no live gate, size or exit reads it."
     }
   }
 }

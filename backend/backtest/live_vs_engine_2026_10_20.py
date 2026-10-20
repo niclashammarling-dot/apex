@@ -33,7 +33,7 @@ import backend.backtest.ladder_2026_10 as ld
 
 LIVE_DB = Path("/home/promenix/apex/data/apex.db")
 SEED    = 20261020
-N_RND   = 200
+N_RND   = 1000                     # archived p-values: >= 1,000 draws (ruling 2026-10-20); the count goes in the output
 CLASSES = ("in_session", "same_day_pre_open", "earlier_day")
 
 
@@ -134,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
         a.out.write_text(json.dumps(peak_measurement(P, canonical), indent=1))
         print(a.out.read_text(), flush=True)
         return 0
-    out = {"since": since, "peak_measurement": peak_measurement(P, canonical), "sets": {
+    out = {"since": since, "n_rnd": N_RND, "peak_measurement": peak_measurement(P, canonical), "sets": {
         "canonical": {"definition": db.LIVE_SAMPLE, "n_rows": len(canonical),
                       "pre_r9": compare(P, pre, canonical, False, np.random.default_rng(SEED)),
                       "r9": compare(P, pre, canonical, True, np.random.default_rng(SEED))},
