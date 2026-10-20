@@ -384,6 +384,13 @@
       "tier": "ops",
       "date": "2026-10-20",
       "source": "Archived IS R1 edge, experiment b of raw/notes/2026-10/2026-10-16-apex-profit-read-preregistration.md: rank 198/200 written as the battery's rank p ((2 + 1) / (200 + 1)). Ablation probe only (ruling 2026-10-20 item 10): no live gate, size or exit reads it."
+    },
+    "backend/backtest/rejected_candidates_2026_10.py::MIN_FORWARD": {
+      "value": 5,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-20",
+      "source": "T7 card (vault raw/notes/2026-10/2026-10-20-apex-rejected-candidate-card.md): a decision day needs at least five sessions of prices after it (v1 used 10-09 against a cache ending 10-16); the dated window's entry bound. Probe only: no live gate, size or exit reads it."
     }
   }
 }

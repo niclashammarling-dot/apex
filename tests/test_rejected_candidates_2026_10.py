@@ -63,3 +63,19 @@ def test_events_join_consecutive_sessions_of_one_ticker_and_label():
     got = sorted((r.ticker, r.d, r.layer, r.event_days) for r in ev.itertuples())
     assert got == [("AAPL", "2026-08-14", "sentiment", 1), ("MRNA", "2026-08-13", "sentiment", 3),
                    ("MRNA", "2026-08-18", "leading", 1), ("MRNA", "2026-08-20", "sentiment", 1)]
+
+
+def test_until_leaves_min_forward_sessions():
+    days = [f"2026-11-{d:02d}" for d in range(2, 21)]
+    u = rc.until_for(days)
+    assert u == days[-rc.MIN_FORWARD] and len([d for d in days if d >= u]) == rc.MIN_FORWARD
+
+
+def test_dated_window_builds_from_the_battery_start_to_end(monkeypatch):
+    seen = []
+    monkeypatch.setattr(rc.ef, "precompute", lambda a, b: seen.append((a, b)) or {"trading_days": [1, 2]})
+    rc.dated_window("2026-11-19")
+    rc.dated_window("latest")
+    assert seen[0] == (rc.WINDOW_START, "2026-11-19")
+    latest = pd.Timestamp(seen[1][1])
+    assert seen[1][0] == rc.WINDOW_START and latest.weekday() < 5 and latest < pd.Timestamp.now().normalize()

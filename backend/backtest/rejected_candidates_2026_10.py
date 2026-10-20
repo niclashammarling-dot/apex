@@ -32,6 +32,8 @@ import backend.backtest.ladder_2026_10 as ld
 LIVE_DB     = Path("/home/promenix/apex/data/apex.db")
 LIVE_CONFIG = Path("/home/promenix/apex/data/live_config.json")
 UNTIL       = "2026-10-10"          # exclusive: ≥ 5 sessions of prices before the cache ends 10-16
+WINDOW_START = "2019-01-02"         # a dated window (--end) starts where the battery's IS window does
+MIN_FORWARD = 5                     # sessions of prices a decision day needs after it
 SEED        = 20261020
 N_B5        = 50                    # vol-matched draws per ticker-day (10 for eligibility, report-only)
 SD_ASSUMED  = 0.045                 # the card's pre-run power assumption
@@ -65,6 +67,24 @@ def label_ticker_days(rows: list[tuple[str, str, str]]) -> pd.DataFrame:
             best[key] = STAGES[dec]
     return pd.DataFrame([{"ticker": t, "d": d, "layer": s[1]} for (t, d), s in sorted(best.items())],
                         columns=["ticker", "d", "layer"])
+
+
+def until_for(days: list[str], min_forward: int = MIN_FORWARD) -> str:
+    """Exclusive entry bound for a window ending at days[-1]: every decision day keeps
+    min_forward sessions of prices after it."""
+    return days[-min_forward]
+
+
+def dated_window(end: str) -> dict:
+    """The monthly shadow book's window (T7 v2 section): the battery IS window's start to `end`, built
+    with the engine's own precompute. 'latest' = the last weekday before today; the caches key on
+    the dates, so a new end builds new caches once."""
+    if end == "latest":
+        end = (pd.Timestamp.now(tz="America/New_York").normalize().tz_localize(None) - pd.offsets.BDay(1)).date().isoformat()
+    t0 = time.time()
+    pre = ef.precompute(WINDOW_START, end)
+    print(f"[{WINDOW_START}..{end}] precompute {time.time() - t0:.0f}s, {len(pre['trading_days'])} sessions", flush=True)
+    return pre
 
 
 def to_events(td: pd.DataFrame, sessions: list[str]) -> pd.DataFrame:
@@ -218,21 +238,23 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--perms", type=int, default=2000)
     ap.add_argument("--battery", type=Path, default=Path("/home/promenix/apex-battery/2026-10-19"))
     ap.add_argument("--unit", choices=("event", "day"), default="event", help="v2 event (default); v1 ticker-day")
+    ap.add_argument("--end", default="", help="dated window end (YYYY-MM-DD or 'latest'); default: the battery IS window")
     a = ap.parse_args(argv)
     t0 = time.time()
     since = json.loads(LIVE_CONFIG.read_text()).get("live_account_since")   # the canonical sample's start
+    ef._trading_days_count = functools.lru_cache(maxsize=None)(ef._trading_days_count)   # pure; speed only
+    pre = dated_window(a.end) if a.end else b.Runner(b.Store(a.battery), "t7")._window("IS")
+    P = ld.panels(pre)
+    until = until_for(P["days"]) if a.end else UNTIL
     con = sqlite3.connect(f"file:{LIVE_DB}?mode=ro", uri=True)
     rows = con.execute("SELECT ticker, timestamp, gate_decision FROM live_gate_history "
-                       "WHERE timestamp >= ? AND timestamp < ?", (since, UNTIL)).fetchall()
+                       "WHERE timestamp >= ? AND timestamp < ?", (since, until)).fetchall()
     import backend.db as db                          # canonical live sample, same DB, read only
     db.DB_PATH = LIVE_DB
     live = db.live_sample_rows(since=since)
     td = label_ticker_days(rows)
     print(f"[{time.time() - t0:5.0f}s] {len(rows)} gate rows -> {len(td)} ticker-days "
           f"{td.layer.value_counts().to_dict()}", flush=True)
-    ef._trading_days_count = functools.lru_cache(maxsize=None)(ef._trading_days_count)   # pure; speed only
-    pre = b.Runner(b.Store(a.battery), "t7")._window("IS")
-    P = ld.panels(pre)
     if a.unit == "event":
         td = to_events(td, P["days"])
         print(f"[{time.time() - t0:5.0f}s] -> {len(td)} events {td.layer.value_counts().to_dict()}", flush=True)
@@ -240,7 +262,7 @@ def main(argv: list[str] | None = None) -> int:
     M = measure(P, pre, td, rng)
     print(f"[{time.time() - t0:5.0f}s] measured", flush=True)
     out = {"card": "raw/notes/2026-10/2026-10-20-apex-rejected-candidate-card.md", "since": since,
-           "until_exclusive": UNTIL, "unit": a.unit, "live_sample": db.LIVE_SAMPLE, "exit": EXIT,
+           "until_exclusive": until, "window_end": P["days"][-1], "unit": a.unit, "live_sample": db.LIVE_SAMPLE, "exit": EXIT,
            "simulator_gate": simulator_gate(M, live), **read_card(M, rng, a.perms)}
     out["controls"] = controls(M, rng, a.perms)
     a.out.write_text(json.dumps(out, indent=1, default=str))
