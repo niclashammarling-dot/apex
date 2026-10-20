@@ -67,6 +67,18 @@ def label_ticker_days(rows: list[tuple[str, str, str]]) -> pd.DataFrame:
                         columns=["ticker", "d", "layer"])
 
 
+def to_events(td: pd.DataFrame, sessions: list[str]) -> pd.DataFrame:
+    """v2 unit (T7 card, v2 section): consecutive sessions of the same ticker with the same label are
+    one event, measured from its first day. v1 counted MRNA's 19 sentiment rejections as 19 units."""
+    pos = {d: k for k, d in enumerate(sessions)}
+    x = td[td.d.isin(pos)].assign(k=lambda f: f.d.map(pos)).sort_values(["ticker", "k"])
+    new = (x.ticker != x.ticker.shift()) | (x.layer != x.layer.shift()) | (x.k != x.k.shift() + 1)
+    x = x.assign(event=new.cumsum())
+    first = x.groupby("event").head(1).set_index("event")
+    first["event_days"] = x.groupby("event").size()
+    return first.drop(columns="k").reset_index(drop=True)
+
+
 def within_day_perm(df: pd.DataFrame, a: str, g: str, col: str, perms: int,
                     rng: np.random.Generator) -> dict:
     """mean(a) - mean(g) over ticker-days labelled a or g; one-sided p from shuffling the labels
@@ -192,6 +204,9 @@ def read_card(M: pd.DataFrame, rng: np.random.Generator, perms: int) -> dict:
     adj = holm({k: tests[k]["p"] for k in TESTED if k in tests})
     for k, v in adj.items():
         tests[k]["p_holm"] = v
+    if "leading" in tests:   # v2: leading's fixed holds are pre-registered secondaries, Holm over the two
+        sec = holm({h: tests["leading"][h]["p"] for h in ("fwd5", "fwd10")})
+        tests["leading"]["secondary_holm"] = sec
     pooled = cov.assign(layer=np.where(cov.layer == "entered", "entered", "rejected"))
     return {"sd_pnl": sd, "groups": groups, "tests": tests,
             "chain_pooled_context": within_day_perm(pooled, "entered", "rejected", "pnl", perms, rng)}
@@ -202,6 +217,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("out", type=Path)
     ap.add_argument("--perms", type=int, default=2000)
     ap.add_argument("--battery", type=Path, default=Path("/home/promenix/apex-battery/2026-10-19"))
+    ap.add_argument("--unit", choices=("event", "day"), default="event", help="v2 event (default); v1 ticker-day")
     a = ap.parse_args(argv)
     t0 = time.time()
     since = json.loads(LIVE_CONFIG.read_text()).get("live_account_since")   # the canonical sample's start
@@ -217,11 +233,14 @@ def main(argv: list[str] | None = None) -> int:
     ef._trading_days_count = functools.lru_cache(maxsize=None)(ef._trading_days_count)   # pure; speed only
     pre = b.Runner(b.Store(a.battery), "t7")._window("IS")
     P = ld.panels(pre)
+    if a.unit == "event":
+        td = to_events(td, P["days"])
+        print(f"[{time.time() - t0:5.0f}s] -> {len(td)} events {td.layer.value_counts().to_dict()}", flush=True)
     rng = np.random.default_rng(SEED)
     M = measure(P, pre, td, rng)
     print(f"[{time.time() - t0:5.0f}s] measured", flush=True)
     out = {"card": "raw/notes/2026-10/2026-10-20-apex-rejected-candidate-card.md", "since": since,
-           "until_exclusive": UNTIL, "live_sample": db.LIVE_SAMPLE, "exit": EXIT,
+           "until_exclusive": UNTIL, "unit": a.unit, "live_sample": db.LIVE_SAMPLE, "exit": EXIT,
            "simulator_gate": simulator_gate(M, live), **read_card(M, rng, a.perms)}
     out["controls"] = controls(M, rng, a.perms)
     a.out.write_text(json.dumps(out, indent=1, default=str))

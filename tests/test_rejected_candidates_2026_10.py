@@ -49,3 +49,17 @@ def test_holm_and_mde():
     adj = rc.holm({"a": 0.01, "b": 0.04, "c": 0.03})
     assert adj == {"a": 0.03, "c": 0.06, "b": 0.06}
     assert abs(rc.mde(0.045, 57, 44) - 2.487 * 0.045 * np.sqrt(1 / 57 + 1 / 44)) < 1e-12
+
+
+def test_events_join_consecutive_sessions_of_one_ticker_and_label():
+    sessions = ["2026-08-13", "2026-08-14", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20"]
+    td = pd.DataFrame([
+        ("MRNA", "2026-08-13", "sentiment"), ("MRNA", "2026-08-14", "sentiment"),
+        ("MRNA", "2026-08-17", "sentiment"),                      # next session after 08-14 (a weekend): same event
+        ("MRNA", "2026-08-18", "leading"),                        # label changes: new event
+        ("MRNA", "2026-08-20", "sentiment"),                      # a session skipped: new event
+        ("AAPL", "2026-08-14", "sentiment")], columns=["ticker", "d", "layer"])
+    ev = rc.to_events(td, sessions)
+    got = sorted((r.ticker, r.d, r.layer, r.event_days) for r in ev.itertuples())
+    assert got == [("AAPL", "2026-08-14", "sentiment", 1), ("MRNA", "2026-08-13", "sentiment", 3),
+                   ("MRNA", "2026-08-18", "leading", 1), ("MRNA", "2026-08-20", "sentiment", 1)]
