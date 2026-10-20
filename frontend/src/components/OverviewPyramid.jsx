@@ -60,6 +60,7 @@ const LAYERS = [
     status: [
       ["measured", "R9: the engine's profit-lock peak carries the day's high; the close model armed the lock on 17.5 % of trades against live's 60 %. Three settings (close / high / polled) bracket live (EXIT_PARITY.md R9, port-regime e753565, 1c159b1)"],
       ["measured", "Engine on live's own entries: sign agreement 0.91, correlation 0.86–0.87 on the canonical sample"],
+      ["measured", "7C ablation (2026-10-21): no single engine fix explains IS R1's move from rank 198/200 to p 0.076. Three fidelity reverts each restore p ≤ 0.05 (macro blackout 0.007, ETF penalty 0.020, overflow 0.027); the stop-slip model lowers expectancy from +6.16 to +5.47 USD a trade without changing a trade. R1's start-0 rank sits on the decision line, which is why 1C reads five starts (vault edge-probe note, ablation section)"],
     ]
   },
   {
@@ -123,7 +124,7 @@ function Detail({ layer }) {
           ))}
         </div>
       ))}
-      <div className="t-meta" style={{ color: "var(--t-text-3)", marginTop: 6 }}>Sketch text as of 2026-10-20 (LATEST added 10-20: each entry says measured, hypothesis or unanswered); to be derived from the register once the mapping is decided.</div>
+      <div className="t-meta" style={{ color: "var(--t-text-3)", marginTop: 6 }}>Sketch text as of 2026-10-20 (LATEST added 10-20, ablation 10-21: each entry says measured, hypothesis or unanswered); to be derived from the register once the mapping is decided.</div>
     </div>
   );
 }
