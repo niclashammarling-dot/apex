@@ -332,6 +332,27 @@
       "tier": "ops",
       "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): live exits (data/live_config.json: TP/SL 0.06/0.06, profit lock 0.04/0.01, time stop 25 d); T4's exit-null reference configuration. Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
       "date": "2026-10-20"
+    },
+    "backend/backtest/rejected_candidates_2026_10.py::SEED": {
+      "value": 20261020,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-20",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-rejected-candidate-card.md (card T7, vault de58ebf1, written before the run). RNG seed for the vol-matched draws and the permutations; the ladder's seed, so runs reproduce. T7 probe only (2026-10-20): no live gate, size or exit reads it."
+    },
+    "backend/backtest/rejected_candidates_2026_10.py::N_B5": {
+      "value": 50,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-20",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-rejected-candidate-card.md (card T7, vault de58ebf1, written before the run). Card item 5: 50 same-day same-ATR-quintile random draws per ticker-day for baseline B5 (10 for the report-only eligibility group). T7 probe only (2026-10-20): no live gate, size or exit reads it."
+    },
+    "backend/backtest/rejected_candidates_2026_10.py::SD_ASSUMED": {
+      "value": 0.045,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-20",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-rejected-candidate-card.md (card T7, vault de58ebf1, written before the run). Card item 8: per-trade sd assumed before reading for the stated MDE (about 4.5 % under a +-6 % bracket); the run also reports the MDE from the data's own sd. T7 probe only (2026-10-20): no live gate, size or exit reads it."
     }
   }
 }
