@@ -29,6 +29,8 @@ BATTERY = Path("/home/promenix/apex-battery/2026-10-19")
 PIN     = {"peak_from_high": False}              # the 10-19 battery ran before R9
 ARCHIVED_P = 3 / 201                             # rank 198/200 (experiment b) as a rank p: (2 + 1) / (200 + 1)
 ARMS = {"fixed": {}, **{name: kw for name, (_commit, kw) in b.FIXES.items()}}
+# Identical-arms explanations (archive_guard): a revert whose run equals another arm's needs one here.
+EXPLAINED_IDENTICAL: dict[frozenset, str] = {}
 
 
 def arm_units(revert: dict) -> list[b.Unit]:
@@ -81,6 +83,14 @@ def main(argv: list[str] | None = None) -> int:
     out["status"] = ("explained by " + restores[0] if len(restores) == 1 else
                      "unexplained: no single fix restores p <= 0.05 (interaction, 1C null design, or a bug)"
                      if not restores else "unexplained: several fixes restore it (" + ", ".join(restores) + ")")
+    from backend.backtest.archive_guard import IdenticalArms, refuse_identical
+    arms = {n: (kw, [read_arm(store, kw), store.get(arm_units(kw)[0])["trade_log"]]) for n, kw in ARMS.items()}
+    try:
+        out["identical_arms_explained"] = refuse_identical(arms, EXPLAINED_IDENTICAL)
+    except IdenticalArms as e:       # ruling 2026-10-20: a revert identical to another arm may never reach run()
+        (a.outdir / "ablation_r1.refused.json").write_text(json.dumps({"refused": str(e), **out}, indent=1, default=str))
+        print(f"refused: {e}", flush=True)
+        return 3
     (a.outdir / "ablation_r1.json").write_text(json.dumps(out, indent=1, default=str))
     print(json.dumps({k: v for k, v in out.items() if k != "arms"}, indent=1, default=str), flush=True)
     for n, r in out["arms"].items():

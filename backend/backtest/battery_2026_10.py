@@ -53,6 +53,8 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
+from backend.backtest.archive_guard import IdenticalArms
+
 WINDOWS = {"IS": ("2019-01-02", "2026-10-16"), "OOS": ("2015-01-02", "2018-12-31")}
 N_STARTS = 20
 RND_SEEDS = range(1, 301)   # ruled 2026-10-19: >= 300 so the edge test can reach p <= 0.0033 (1/301)
@@ -1229,6 +1231,32 @@ def producer(commit: str, argv: list[str], why: str) -> dict:
             "run": "python -u -m backend.backtest.battery_2026_10 " + " ".join(argv), "why": why}
 
 
+# ── Identical arms (ruling 2026-10-20) ────────────────────────────────────────
+# A cell whose reference units differ in settings but return identical records is refused,
+# naming the parameters, unless the pair is explained here with its evidence: "no effect in
+# this window" and "never reached the engine" look the same in the output.
+EXPLAINED_IDENTICAL = {
+    frozenset({unit("OOS", R2, vix9d_kelly=True).key(), unit("OOS", R2, vix9d_kelly=True, vix_threshold=None).key()}):
+        "H-V1 V1a/V1b, OOS start 0: the VIX block off (vix_threshold None) is wired, since the same arm moves IS "
+        "start 0 from 1,670 to 1,752 trades, and in OOS it had nothing to stop: the 9 days with VIX >= 30 "
+        "(2015-08-24..2018-12-26) carry no entry even with the block off (checked 2026-10-20).",
+}
+
+
+def identical_refs(cell: "Cell", store: "Store") -> list[dict]:
+    """The cell's stored reference units, grouped by window and start; IdenticalArms names any
+    unexplained identical pair."""
+    from backend.backtest.archive_guard import refuse_identical
+    refs = [u for u in ordered(cell.units) if u.rnd_ref is None and u.book_ref is None and store.has(u)]
+    out = []
+    for key in sorted({(u.window, u.start) for u in refs}):
+        group = [u for u in refs if (u.window, u.start) == key]
+        arms = {u.key(): ({**dict(u.kwargs), "_regime": u.regime, "_vix9d_kelly": u.vix9d_kelly},
+                          [store.get(u).get("trade_log"), store.get(u).get("summary")]) for u in group}
+        out += refuse_identical(arms, EXPLAINED_IDENTICAL)
+    return out
+
+
 def read_all(cells: dict[str, Cell], store: Store, outdir: Path, commit: str = "", argv: list[str] = ()) -> dict:
     verdicts: dict = {}
     for c in cells.values():
@@ -1236,9 +1264,14 @@ def read_all(cells: dict[str, Cell], store: Store, outdir: Path, commit: str = "
             v = {"blocked": c.blocked}
         else:
             try:
+                same = identical_refs(c, store)
                 v = c.read(store)
+                if same:
+                    v["identical_arms_explained"] = same
             except MissingUnit as e:
                 v = {"incomplete": f"unit {e.args[0].key()} ({e.args[0].window}) has not run"}
+            except IdenticalArms as e:
+                v = {"refused": f"identical arms: {e}"}
         v["note"] = c.note
         v["producer"] = producer(commit, list(argv), c.note.split(" ")[0])
         verdicts[c.name] = v

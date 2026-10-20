@@ -141,6 +141,15 @@ def main(argv: list[str] | None = None) -> int:
         "pooled": {"definition": "every closed live row (WIN/LOSS) since 2026-04-06, pre-reset included; "
                                  "the corrected first reading, never pooled again", "n_rows": len(pooled),
                    "pre_r9": compare(P, pre, pooled, False, np.random.default_rng(SEED))}}}
+    from backend.backtest.archive_guard import IdenticalArms, refuse_identical
+    c = out["sets"]["canonical"]
+    try:
+        refuse_identical({"pre_r9": ({"peak_from_high": False}, c["pre_r9"]),
+                          "r9": ({"peak_from_high": True}, c["r9"])})
+    except IdenticalArms as e:       # ruling 2026-10-20: kept for diagnosis under a name nothing archives
+        a.out.with_suffix(".refused.json").write_text(json.dumps({"refused": str(e), **out}, indent=1, default=str))
+        print(f"refused: {e}", flush=True)
+        return 3
     a.out.write_text(json.dumps(out, indent=1, default=str))
     for s, v in out["sets"].items():
         for k in ("pre_r9", "r9"):
