@@ -10,14 +10,15 @@ import { useState } from "react";
 const LAYERS = [
   {
     key: "profit", name: "PROFIT", q: "Does it earn, in reality?",
-    parts: ["Go criterion group 1 (90 % power, floor 3 mo)", "OUTCOMES O3 (hit rate > 72 %)", "Live months"],
+    parts: ["Go criterion group 1 (90 % power, floor 3 mo)", "OUTCOMES O3 (hit rate ≥ 72 %, held as entries and exits improve)", "Live months"],
     source: "OUTCOMES.md · go-criterion note",
     register: "Vault wiki/_index/OUTCOMES.md (O3) and the go-criterion note (raw/notes/2026-10/2026-10-19-apex-go-criterion-group1-and-signal-register-ruled.md)",
     writes: "Niclas's rulings in session: target, power, floor, population",
     reads: "Every INDEX commitment carries an outcome tag [→ O3]; the weekly report and its weekly read (bundle section weekly)",
-    together: "The layer asks whether APEX earns. The register says what 'earns' means before anyone looks: hit rate above 72 % on in-session entries, and live months by the formula max(3, n/rate) at 90 % power. Live failing means the model is wrong.",
+    together: "The layer asks whether APEX earns. The register says what 'earns' means before anyone looks: hit rate above 72 % on in-session entries, held at or above that as entries and exits improve (Niclas 10-21: exits are part of the strategy, one of the pair that sets win rate and win size), with the same-exit baseline and the return excess over it beside every read, and live months by the formula max(3, n/rate) at 90 % power. Live failing means the model is wrong.",
     status: [
       ["hypothesis", "Live beats same-day volatility-matched random entries on wins (p 0.01–0.04, 1,000 draws), not yet on the mean (p 0.07–0.08); 57 trades, one period, several looks. Population: the canonical live sample, db.live_sample_rows (07-07 reset, unverified and annotated rows out; master 62041b9). Vault 2026-10-20-apex-live-vs-engine-canonical-sample.md"],
+      ["measured", "On its own days live won 64.9 % against 54 % for random entries under the same exits (R9): the chain selects, though the score alone does not, so the selecting part sits after the score or in timing"],
       ["hypothesis", "Pre-open class (n 15) is the strongest contrast (p 0.003–0.03) and is excluded from live by Finding 1: signal-register S12"],
     ]
   },
@@ -66,14 +67,17 @@ const LAYERS = [
   },
   {
     key: "signals", name: "SIGNALS & LOCKS", q: "What does the model see?",
-    parts: ["L1–L5 lock chain", "Regime Bayes", "Signal register S1–S14"],
+    parts: ["L1–L5 lock chain", "Regime Bayes", "Signal register S1–S16"],
     source: "PRODUCTION_GAP.md (S-rows)",
-    register: "backend/backtest/PRODUCTION_GAP.md, S-rows S1–S14: signal hypotheses (on port-regime until the merge)",
+    register: "backend/backtest/PRODUCTION_GAP.md, S-rows S1–S16: signal hypotheses (on port-regime until the merge)",
     writes: "Every signal gap enters as an S-row (Niclas 2026-10-19)",
     reads: "The weekend bundle's SIGNAL REGISTER section lists every open S-row (apex 2a066af, live after the merge)",
     together: "S-row → battery cell with its rule written before the run → adopted into engine and live together, or discarded, with the verdict written into the row. The layer grows only through that path.",
     status: [
       ["measured", "S11 discarded: the score alone is a volatility selector, not a direction predictor (rank IC −0.003 to −0.035, picks earn what same-ATR peers earn; ladder T1/T2). A go-live case cannot rest on the score alone"],
+      ["hypothesis", "S15 the exit is half the strategy: the 6 % stop is the costly leg (TP 4 % with no stop wins 73 / 69 % at 0.069 / 0.055 %/capital-day against live's 60.5 / 61.6 % at 0.044 / 0.038; best of 45 after reading, tail and Calmar unmeasured). T8 judges entry × exit pairs 10-24; static or flexible exit is the next card"],
+      ["hypothesis", "S16 factor attribution (adopted 10-21): is APEX's return momentum or short-term-reversal exposure? Carhart plus ST_Rev on the R1 backtest and live"],
+      ["hypothesis", "S1 per-component IC (ruled 10-21, run 10-23): does any part of L1 rank direction when the combined score does not?"],
       ["unanswered", "The live chain after the score (sentiment, leading, L5) is untested until T7 reaches power; leading is the only layer with a consistent sign"],
       ["unanswered", "S13 macro blackout, L0 (2026-10-21): no calendar premium from the entry close at this power. All four IS estimates are negative. The pre-FOMC drift reading (excluded) was withdrawn: half of FOMC_PRE closes end before the pre-announcement window. Sources read 10-21: the pre-FOMC drift disappeared after 2015 (Kurov, Wolfe & Gilbert 2021), before the IS window starts. Next: the R1 card (L2 candidate ledger) for selection, after the exits card: FOMC_PRE split by hold, EVE split into CPI and NFP eves (CPI eve +0.02 bp, NFP +12.9 bp in the literature), risk beside the mean; the slot cascade stays with CHECK 71"],
       ["unanswered", "S14 heightened VIX, L0 (2026-10-21): the one-day premium after VIX jumps (Hu et al.) is not seen below VIX 30. After closes the VIX ≥ 30 gate blocks, the pool earned +1.6 % over 5 days and +2.4 % over 10 days more than after ordinary closes, with 2–3 times the spread (Holm 0.13); without the 2020 crash, +1.8 / +2.8 %, and SPY agrees (19 episodes, exploratory b294a11). Next (ruled): an R1 card on VIX ≥ 30 days, read before S13's, with alpha and Calmar, episodes as n, live exits, the COVID fold as its own row"],
