@@ -46,7 +46,8 @@ const LAYERS = [
     status: [
       ["measured", "Exits: fixed 5-day exit 0.103 %/capital-day against the live bracket 0.051–0.064 (IS), robust across three peak models and both windows; live loses to a random exit of the same length (t −2.1 to −3.1). The profit lock buys about 2 win-rate points with per-day return. Vault ladder note, T4 on R9"],
       ["hypothesis", "Exits card T8 (pre-registered 2026-10-20; code Thursday 10-22): does a fixed-time exit beat the bracket at L3, in both windows and in 2022 alone?"],
-      ["measured", "CHECK 93 stop-fill slippage, first run: intraday median +0.02 % (model 0.02 %); gap +0.21 % (model 0.50 %), the gap class defined by fill time, not R7's open-below-stop"],
+      ["measured", "CHECK 93 stop-fill slippage on R7's own definition (gap = open at or below the stop, measured against the open; 2026-10-21): intraday n 37, +0.02 % (model 0.02 %); gap n 7, +0.49 % (model 0.50 %). These are largely the fills R7 measured, so the definitions match; forward evidence is new stop fills"],
+      ["measured", "Stop ratchet log: every live stop move appended (stop_ratchet_log, UPDATE and DELETE refused); CHECK 93 warns when a TSL exit's moves are missing. Starts at the next backend start"],
     ]
   },
   {
@@ -65,15 +66,16 @@ const LAYERS = [
   },
   {
     key: "signals", name: "SIGNALS & LOCKS", q: "What does the model see?",
-    parts: ["L1–L5 lock chain", "Regime Bayes", "Signal register S1–S12"],
+    parts: ["L1–L5 lock chain", "Regime Bayes", "Signal register S1–S13"],
     source: "PRODUCTION_GAP.md (S-rows)",
-    register: "backend/backtest/PRODUCTION_GAP.md, S-rows S1–S12: signal hypotheses (on port-regime until the merge)",
+    register: "backend/backtest/PRODUCTION_GAP.md, S-rows S1–S13: signal hypotheses (on port-regime until the merge)",
     writes: "Every signal gap enters as an S-row (Niclas 2026-10-19)",
     reads: "The weekend bundle's SIGNAL REGISTER section lists every open S-row (apex 2a066af, live after the merge)",
     together: "S-row → battery cell with its rule written before the run → adopted into engine and live together, or discarded, with the verdict written into the row. The layer grows only through that path.",
     status: [
       ["measured", "S11 discarded: the score alone is a volatility selector, not a direction predictor (rank IC −0.003 to −0.035, picks earn what same-ATR peers earn; ladder T1/T2). A go-live case cannot rest on the score alone"],
       ["unanswered", "The live chain after the score (sentiment, leading, L5) is untested until T7 reaches power; leading is the only layer with a consistent sign"],
+      ["unanswered", "S13 macro blackout, L0 (2026-10-21): no calendar premium from the entry close at this power. All four IS estimates are negative, and a Lucca & Moench-sized pre-FOMC drift is excluded. Next: the R1 card (L2 candidate ledger) for selection; the slot cascade stays with CHECK 71"],
     ]
   },
   {
@@ -124,7 +126,7 @@ function Detail({ layer }) {
           ))}
         </div>
       ))}
-      <div className="t-meta" style={{ color: "var(--t-text-3)", marginTop: 6 }}>Sketch text as of 2026-10-20 (LATEST added 10-20, ablation 10-21: each entry says measured, hypothesis or unanswered); to be derived from the register once the mapping is decided.</div>
+      <div className="t-meta" style={{ color: "var(--t-text-3)", marginTop: 6 }}>Sketch text as of 2026-10-20 (LATEST added 10-20; ablation, CHECK 93, ratchet log and S13 10-21: each entry says measured, hypothesis or unanswered); to be derived from the register once the mapping is decided.</div>
     </div>
   );
 }
