@@ -538,6 +538,86 @@
       "date": "2026-10-21",
       "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card validity gate: counts must reproduce within +-2; the warm-up seed and the session calendar can move a day. S14 L0 probe only (2026-10-21): no live gate, size or exit reads it.",
       "review": "2026-11-04"
+    },
+    "backend/backtest/exits_t8_2026_10.py::SEED": {
+      "value": 20261022,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): seed for B5, LIVE57's draws, controls and power, fixed with the module (the run date, Thursday 2026-10-22). Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21"
+    },
+    "backend/backtest/exits_t8_2026_10.py::HOLD_MAX": {
+      "value": 25,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): item 2: the 25-business-day time limit of every arm (live max_hold_days); also the purge horizon (amendment F) and the MFE window (amendment B). Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21"
+    },
+    "backend/backtest/exits_t8_2026_10.py::N_LIVE_RND": {
+      "value": 1000,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): amendment A4: 1,000 same-day same-ATR-quintile draws per LIVE57 entry (ruling 2026-10-20 item 4: archived p-values use >= 1,000 draws). Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21"
+    },
+    "backend/backtest/exits_t8_2026_10.py::N_CONTROL": {
+      "value": 200,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): item 9 negative control: 200 random within-month A/B splits of LIVE, as the ladder's N_SHUFFLE. Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21"
+    },
+    "backend/backtest/exits_t8_2026_10.py::N_BOOT": {
+      "value": 1000,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): items 9/10 and amendment J: 1,000 month resamples per injected shift in the power read (>= 1,000, ruling 2026-10-20 item 4). Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21"
+    },
+    "backend/backtest/exits_t8_2026_10.py::COSTS_BP": {
+      "value": [
+        0,
+        5,
+        10,
+        20
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): amendment E: return per capital-day net of 0, 5, 10 and 20 bp per round trip. Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21"
+    },
+    "backend/backtest/exits_t8_2026_10.py::COST_GATE_BP": {
+      "value": 10,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): amendment E: 10 bp per round trip is the chosen cost gate of rule (d) (two half-spreads plus slippage in liquid US large caps, conservative). Chosen, not measured: review at the class-rule review 2026-11-04. Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21",
+      "review": "2026-11-04"
+    },
+    "backend/backtest/exits_t8_2026_10.py::RETENTION_BAR": {
+      "value": 0.5,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): amendment J (ruling Niclas 2026-10-21): an arm's OOS advantage must keep >= half its IS advantage, with p <= 0.05, to class as 'holds' (rule f). The 0.5 is chosen, not derived; T4's TIME5 retention is 0.19. Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21",
+      "review": "2026-11-04"
+    },
+    "backend/backtest/exits_t8_2026_10.py::POSITIVE_SHIFT": {
+      "value": 0.0002,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): item 9 positive control: +0.02 %/day added to one arm's capital-day series. Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21"
+    },
+    "backend/backtest/exits_t8_2026_10.py::PL": {
+      "value": [
+        0.04,
+        0.01
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): item 2: LIVE's profit lock, 4 % trigger / 1 % trail (data/live_config.json profit_lock_trigger_pct / profit_lock_trail_pct). Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21"
     }
   }
 }

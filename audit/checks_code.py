@@ -896,7 +896,10 @@ CHECK76_ACCEPTED_FAST_ONLY = {"precomputed", "regime_layer",   # regime_layer: r
                               # Size cell: fixed fraction and per-day book multiplier, off by default (2026-10-19)
                               "size_fixed", "exposure_factor",
                               # T5 sizing without the score: fixed dollars and a random fraction, off by default (2026-10-20)
-                              "size_usd", "size_draw"}
+                              "size_usd", "size_draw",
+                              # T8 ATRSYM: (TP, SL) multiples of atr_pct under atr_exits; default (2, 1) is
+                              # engine.py's fixed rule, inert unless atr_exits is set (2026-10-21)
+                              "atr_exit_mult"}
 
 # Layer 2 — production components documented ABSENT from engine_fast.py
 # (PRODUCTION_GAP.md rows). If a symbol appears, the row is stale, not wrong —

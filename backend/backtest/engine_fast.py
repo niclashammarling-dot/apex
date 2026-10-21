@@ -98,6 +98,7 @@ def run(
     profit_lock_trigger_pct: float | None = None,
     profit_lock_trail_pct:   float | None = None,
     atr_exits:          bool        = False,
+    atr_exit_mult:      tuple[float, float] = (2.0, 1.0),   # (TP, SL) x atr_pct under atr_exits; T8's ATRSYM uses (k, k)
     earnings_filter_days: int | None = None,
     time_stop_days:     int   | None = None,
     lock1_threshold:    float | None = None,
@@ -449,8 +450,8 @@ def run(
 
             if atr_exits and sig.get("atr_pct", 0) > 0:
                 atr = sig["atr_pct"]
-                trade_tp = atr * 2.0
-                trade_sl = atr * 1.0
+                trade_tp = atr * atr_exit_mult[0]
+                trade_sl = atr * atr_exit_mult[1]
             else:
                 trade_tp = tp
                 trade_sl = sl
