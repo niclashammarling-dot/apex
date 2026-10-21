@@ -75,7 +75,7 @@ const LAYERS = [
     status: [
       ["measured", "S11 discarded: the score alone is a volatility selector, not a direction predictor (rank IC −0.003 to −0.035, picks earn what same-ATR peers earn; ladder T1/T2). A go-live case cannot rest on the score alone"],
       ["unanswered", "The live chain after the score (sentiment, leading, L5) is untested until T7 reaches power; leading is the only layer with a consistent sign"],
-      ["unanswered", "S13 macro blackout, L0 (2026-10-21): no calendar premium from the entry close at this power. All four IS estimates are negative, and a Lucca & Moench-sized pre-FOMC drift is excluded. Next: the R1 card (L2 candidate ledger) for selection; the slot cascade stays with CHECK 71"],
+      ["unanswered", "S13 macro blackout, L0 (2026-10-21): no calendar premium from the entry close at this power. All four IS estimates are negative. The pre-FOMC drift reading (excluded) was withdrawn: half of FOMC_PRE closes end before the pre-announcement window. Next: the R1 card (L2 candidate ledger) for selection; the slot cascade stays with CHECK 71"],
     ]
   },
   {
