@@ -159,6 +159,8 @@ identical search.
 
 ## Signal gaps — hypotheses (Niclas 2026-10-19)
 
+**Frozen 2026-10-21: moved to master `backend/backtest/SIGNAL_REGISTER.md` (Niclas: option a). Edit S-rows there, never here; this copy is removed at the merge.**
+
 "Alla glapp måste in i production gap, testas och antingen slängas eller antas."
 These are not live components the engine lacks (the numbered rows above); they are
 information APEX does not use, or uses without a measured contribution. Ids are
