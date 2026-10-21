@@ -46,7 +46,7 @@ const LAYERS = [
     status: [
       ["measured", "Exits: fixed 5-day exit 0.103 %/capital-day against the live bracket 0.051–0.064 (IS), robust across three peak models and both windows; live loses to a random exit of the same length (t −2.1 to −3.1). The profit lock buys about 2 win-rate points with per-day return. Vault ladder note, T4 on R9"],
       ["hypothesis", "Exits card T8 (pre-registered 2026-10-20; code Thursday 10-22): does a fixed-time exit beat the bracket at L3, in both windows and in 2022 alone?"],
-      ["measured", "CHECK 93 stop-fill slippage on R7's own definition (gap = open at or below the stop, measured against the open; 2026-10-21): intraday n 37, +0.02 % (model 0.02 %); gap n 7, +0.49 % (model 0.50 %). These are largely the fills R7 measured, so the definitions match. Forward fills since 2026-10-21 13:30 UTC: 0 intraday, 0 gap; only those test the model (each INFO line carries the count)"],
+      ["measured", "CHECK 93 stop-fill slippage on R7's own definition (gap = open at or below the stop, measured against the open; 2026-10-21): intraday n 37, +0.02 % (model 0.02 %); gap n 7, +0.49 % (model 0.50 %). These are largely the fills R7 measured, so the definitions match. Only fills from 2026-10-21 13:30 UTC test the model; each INFO line counts them per class"],
       ["measured", "Stop ratchet log: every live stop move appended (stop_ratchet_log, UPDATE and DELETE refused); CHECK 93 warns when a TSL exit's moves are missing. Starts with the scheduled market window 2026-10-21 14:20 Stockholm"],
     ]
   },
