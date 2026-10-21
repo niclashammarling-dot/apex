@@ -431,7 +431,8 @@ def weekly_items(now: datetime) -> list[dict]:
 
 # ── signal register ───────────────────────────────────────────────────────────
 
-GAP_FILE_REL = "backend/backtest/PRODUCTION_GAP.md"
+# Its own file on master since 2026-10-21 (moved from PRODUCTION_GAP.md § Signal gaps on port-regime).
+GAP_FILE_REL = "backend/backtest/SIGNAL_REGISTER.md"
 _S_ROW = re.compile(r"^\|\s*(S\d+)\s*\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|")
 SIGNAL_SCOPE = ("weekend order (ruled 2026-10-19): open S-rows are hypotheses; take the next one whose data "
                 "exists, write its battery cell and rule before the run, run, then adopt (live and engine "
@@ -444,7 +445,7 @@ def signal_items() -> list[dict]:
     if not path.exists():
         return [_item("signals:register-missing", "signals", "WARNING", GAP_FILE_REL,
                       "signal register not found — the weekend list of signal hypotheses cannot be read",
-                      scope="restore the 'Signal gaps — hypotheses' section of PRODUCTION_GAP.md")]
+                      scope="restore backend/backtest/SIGNAL_REGISTER.md (the S-rows, moved there from PRODUCTION_GAP.md 2026-10-21)")]
     rows = [m.groups() for m in map(_S_ROW.match, path.read_text(encoding="utf-8").splitlines()) if m]
     if not rows:   # the file exists and holds S-rows: zero parsed means the reader broke, not "no gaps"
         return [_item("signals:register-unparsed", "signals", "WARNING", GAP_FILE_REL,

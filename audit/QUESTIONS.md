@@ -17,7 +17,7 @@ reported as such: that is the check against gathering for its own sake.
 the questions themselves, and each go group's threshold status, which changes only by Niclas's ruling.
 
 ## References
-- `S<n>`: a signal-register row (`backend/backtest/PRODUCTION_GAP.md` § Signal gaps). State from
+- `S<n>`: a signal-register row (`backend/backtest/SIGNAL_REGISTER.md`, on master since 2026-10-21). State from
   the status column's first word: `open`, `adopted`, `discarded`.
 - `GAP-<n>`: a numbered production-gap row (same file, § Live gate path). State from the parity
   column's first word: `yes` or `closed` (answered), `partial`, `no`, `off-both`, `engine-only`,

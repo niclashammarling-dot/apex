@@ -266,14 +266,15 @@ def test_signal_register_rows_reach_the_bundle(tmp_path, monkeypatch):
     real = bundle.signal_items()
     assert real and all(i["section"] == "signals" and i["scope"] for i in real)
     assert any(i["key"] == "signals:S1" for i in real)
+    assert not any(i["key"] == "signals:S11" for i in real)                  # S11 discarded 2026-10-20
     gap = tmp_path / "backend" / "backtest"
     gap.mkdir(parents=True)
-    (gap / "PRODUCTION_GAP.md").write_text(
+    (gap / "SIGNAL_REGISTER.md").write_text(
         "| Id | Hypothesis | Information | Data | Status |\n|---|---|---|---|---|\n"
         "| S1 | one | x | have | open — measure |\n| S2 | two | y | none | adopted 2026-11-01 |\n")
     monkeypatch.setattr(bundle, "REPO", tmp_path)
     assert [i["key"] for i in bundle.signal_items()] == ["signals:S1"]       # closed rows leave the list
-    (gap / "PRODUCTION_GAP.md").write_text("# no register here\n")
+    (gap / "SIGNAL_REGISTER.md").write_text("# no register here\n")
     assert bundle.signal_items()[0]["severity"] == "WARNING"                 # unreadable is never empty
-    (gap / "PRODUCTION_GAP.md").unlink()
+    (gap / "SIGNAL_REGISTER.md").unlink()
     assert bundle.signal_items()[0]["key"] == "signals:register-missing"
