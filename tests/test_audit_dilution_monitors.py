@@ -52,3 +52,24 @@ def test_no_recent_signals_keeps_the_severity_and_says_so(monkeypatch, tmp_path)
     _db(tmp_path, 0.30, {})
     out = _run(monkeypatch, tmp_path)
     assert [s for s, _ in out] == ["CRITICAL"] and "not computable" in out[0][1]
+
+
+def test_check63_uses_the_same_rule(monkeypatch, tmp_path):
+    # CHECK 63 (Healthcare, ISRG/TMO) shares _dilution_monitor since 2026-10-21.
+    (tmp_path / "data").mkdir()
+    con = sqlite3.connect(tmp_path / "data" / "apex.db")
+    con.execute("CREATE TABLE sector_snapshots (sector TEXT, avg_score REAL, timestamp TEXT)")
+    con.execute("CREATE TABLE signals (ticker TEXT, sector TEXT, signal_score REAL, timestamp TEXT)")
+    now = datetime.now(timezone.utc)
+    con.execute("INSERT INTO sector_snapshots VALUES ('Healthcare', 0.50, ?)", (now.isoformat(),))
+    ts = (now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+    con.executemany("INSERT INTO signals VALUES (?, 'Healthcare', ?, ?)",
+                    [(t, 0.50, ts) for t in ("LLY", "UNH", "JNJ", "ABT", "MRK")] + [("ISRG", 0.50, ts), ("TMO", 0.50, ts)])
+    con.commit(); con.close()
+    monkeypatch.setattr(cs, "REPO", tmp_path)
+    monkeypatch.setattr(core, "findings", [])
+    monkeypatch.setattr(cs, "flag", core.flag)
+    monkeypatch.setattr(cs, "_decline_cache", {"v": (False, "")})
+    cs.check63()
+    out = [(f[2], f[4]) for f in core.findings if f[0] == 63]
+    assert [s for s, _ in out] == ["INFO"] and "without ISRG/TMO" in out[0][1]

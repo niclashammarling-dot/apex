@@ -526,50 +526,12 @@ def check63():
     trading days.  SYK addition is gated on the same condition — if WARN_FLOOR changes,
     update the SYK/ABBV revisit trigger in CHECKS.md to match.
     """
-    BASELINE_VALUE = 0.6736
-    BASELINE_DATE  = "2026-07-01"
-    WARN_FLOOR     = 0.60
-    CRIT_FLOOR     = 0.55
-
-    db = REPO / "data/apex.db"
-    if not require_data_file(63, "Healthcare composite dilution monitor", db):
-        return
-
-    try:
-        conn = sqlite3.connect(db)
-        row = conn.execute("""
-            SELECT avg_score, timestamp
-            FROM sector_snapshots
-            WHERE sector = 'Healthcare'
-            ORDER BY timestamp DESC
-            LIMIT 1
-        """).fetchone()
-        conn.close()
-    except Exception as e:
-        flag(63, "Healthcare composite dilution monitor", "WARNING",
-             "data/apex.db:sector_snapshots",
-             f"could not query sector_snapshots: {e}")
-        return
-
-    if row is None:
-        return
-
-    avg_score, ts = row[0], row[1]
-
-    if avg_score < CRIT_FLOOR:
-        _dilution_flag(63, "Healthcare composite dilution monitor", "CRITICAL",
-             "data/apex.db:sector_snapshots",
-             f"Healthcare avg_score={avg_score:.4f} (at {ts}) is below critical floor {CRIT_FLOOR}; "
-             f"baseline was {BASELINE_VALUE} on {BASELINE_DATE} (pre-ISRG/TMO). "
-             f"At neutral posterior (~0.55), adjusted_score ≈ {avg_score * 0.55:.3f}, "
-             f"below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove ISRG and TMO via "
-             f"ticker_config.remove_ticker() and diagnose signal history before re-adding.")
-    elif avg_score < WARN_FLOOR:
-        _dilution_flag(63, "Healthcare composite dilution monitor", "WARNING",
-             "data/apex.db:sector_snapshots",
-             f"Healthcare avg_score={avg_score:.4f} (at {ts}) dropped below {WARN_FLOOR}; "
-             f"baseline was {BASELINE_VALUE} on {BASELINE_DATE} (pre-ISRG/TMO). "
-             f"Investigate ISRG/TMO signal quality in sector_snapshots before next gate cycle.")
+    # Ported 2026-10-21 onto _dilution_monitor: the same composite-without-the-additions rule as
+    # 67/68/69 (a copy of the old logic would keep CHECK 63's "remove ISRG and TMO" action on a
+    # level the additions did not cause; vault 2026-10-14 dilution-monitor article).
+    _dilution_monitor(63, "Healthcare", "ISRG/TMO", 0.6736, "2026-07-01",
+                      warn_floor=0.60, crit_floor=0.55,
+                      confirm_note="SYK addition is gated on this monitor staying clear.")
 
 
 # ── CHECKs 67/68/69 — 2026-08-08 sector-addition dilution monitors ───────────
@@ -582,7 +544,9 @@ def check63():
 def _without_added(db, sector: str, added: str, avg_score: float) -> float | None:
     """The sector composite with the added tickers taken out: the snapshot's avg_score plus the
     gap between the original tickers' and all tickers' latest signal_score (last 3 days). None
-    when either group has no recent signal."""
+    when either group has no recent signal. The latest row per ticker survives prune_signals
+    (it keeps each ticker's 10 most recent rows), so the read is not the pruned-history bias the
+    2026-10-14 measurement met."""
     names = [x.strip() for x in added.split("/")]
     try:
         conn = sqlite3.connect(db)
