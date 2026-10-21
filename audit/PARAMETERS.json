@@ -450,6 +450,94 @@
       "tier": "ops",
       "date": "2026-10-21",
       "source": "Vault raw/notes/2026-10/2026-10-21-apex-s13-macro-blackout-l0-preregistration.md (S13 L0, vault 5af7acb7 amended e1d7302b, written before the run). Card item 7 (amended before the run): accepted detection rate of a FOMC_PRE-MDE shift (about 80 %). S13 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s14_vix_l0_2026_10_21.py::JUMP_CUTOFF": {
+      "value": 3.0,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 2b: a jump is VIX(d) minus its exponential average to d-1 >= 3.0 points, Hu, Pan, Wang & Zhu (2019 draft) Section 3.3, the cutoff used throughout their paper. S14 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s14_vix_l0_2026_10_21.py::LAMBDA": {
+      "value": 0.3,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 2b: decay of the VIX average, Vbar(d-1) = 0.3 Vbar(d-2) + 0.7 VIX(d-1), Hu et al.'s main specification. S14 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s14_vix_l0_2026_10_21.py::LEVEL": {
+      "value": 30.0,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 2b: the level class is the live gate's own threshold (config.MACRO_VIX_THRESHOLD 30, live_config vix_threshold 30), inclusive as live (engine 7cfbb8b). S14 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s14_vix_l0_2026_10_21.py::WARMUP": {
+      "value": 60,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 2b: the average is seeded on the first close of a 60-session warm-up before the window; after 60 sessions at decay 0.3 the seed's weight is nil. S14 L0 probe only (2026-10-21): no live gate, size or exit reads it.",
+      "review": "2026-11-04"
+    },
+    "backend/backtest/s14_vix_l0_2026_10_21.py::HORIZONS": {
+      "value": [
+        1,
+        5,
+        10
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 2b: h 1 is the literature's quantity (next-day return); h 5 and 10 are APEX's hold, as in the S13 L0. S14 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s14_vix_l0_2026_10_21.py::DD_CUT": {
+      "value": -5.0,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 3: a window counts as a drawdown when the basket's worst close against the entry close is below -5 %; reported, not judged. S14 L0 probe only (2026-10-21): no live gate, size or exit reads it.",
+      "review": "2026-11-04"
+    },
+    "backend/backtest/s14_vix_l0_2026_10_21.py::LIT_SIZE": {
+      "value": [
+        0.48,
+        0.5,
+        0.5
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 9: 'unanswered' when the CI includes 0.48 % at h 1 (Hu et al., next-day return after a heightened-VIX close) or 0.5 % at h 5/10 (the card's APEX threshold). S14 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s14_vix_l0_2026_10_21.py::EXPECTED": {
+      "value": {
+        "IS": {
+          "jump": 88,
+          "level": 149,
+          "both": 36
+        },
+        "OOS": {
+          "jump": 34,
+          "level": 9,
+          "both": 5
+        }
+      },
+      "kind": "measured",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card validity gate: class counts measured 2026-10-21 on the engine's VIX closes before the card was written (scratch count). S14 L0 probe only (2026-10-21): no live gate, size or exit reads it.",
+      "engine": "engine_fast precompute raw_data ^VIX closes",
+      "commit": "b63b1da",
+      "sample": "IS 2019-01-02..2026-10-16 (1,961 VIX sessions), OOS 2015-01-02..2018-12-31 (1,006); recursion seeded at the window start"
+    },
+    "backend/backtest/s14_vix_l0_2026_10_21.py::COUNT_TOL": {
+      "value": 2,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card validity gate: counts must reproduce within +-2; the warm-up seed and the session calendar can move a day. S14 L0 probe only (2026-10-21): no live gate, size or exit reads it.",
+      "review": "2026-11-04"
     }
   }
 }
