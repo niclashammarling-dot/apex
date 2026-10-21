@@ -30,7 +30,7 @@ const LAYERS = [
     reads: "publish_audit_state runs the CHECKs nightly; non-INFO findings reach the weekend bundle (TEST tab); the pre-push hook runs the parameter ratchet",
     together: "This layer is the one that tells the others whether they hold. Its register is the list of what is checked; a part with no CHECK or test row is unverified, however well it runs.",
     status: [
-      ["measured", "Test ladder L0–L5: each card names its question, null, baseline, validity gates and defects D1–D6 before it runs (vault 2026-10-20-apex-test-ladder-and-cards.md)"],
+      ["measured", "Test ladder L0–L5: each card names its question, null, baseline, validity gates and defects D1–D7 before it runs (vault 2026-10-20-apex-test-ladder-and-cards.md). Since 2026-10-21 each class is defined by the window its effect occupies and states what else the return contains (item 2b, D7 mixed class): three mixed classes in two days, the third caught before code"],
       ["measured", "Identical-arms guard: differently configured arms with identical results are refused, naming the parameter (port-regime archive_guard.py, battery reader). Commit hook: no git commit after a piped test run without pipefail (~/.claude/hooks)"],
       ["unanswered", "T7 rejected-candidate shadow book: L5, sentiment and leading unanswered at this n (MDE 3.5–5.2 pts against 1 pt); read monthly, first 2026-11-20"],
     ]
@@ -127,7 +127,7 @@ function Detail({ layer }) {
           ))}
         </div>
       ))}
-      <div className="t-meta" style={{ color: "var(--t-text-3)", marginTop: 6 }}>Sketch text as of 2026-10-20 (LATEST added 10-20; ablation, CHECK 93 with forward count, ratchet log and S13 10-21: each entry says measured, hypothesis or unanswered); to be derived from the register once the mapping is decided.</div>
+      <div className="t-meta" style={{ color: "var(--t-text-3)", marginTop: 6 }}>Sketch text as of 2026-10-20 (LATEST added 10-20; ablation, CHECK 93 with forward count, ratchet log, S13, S14 and the class rule 10-21: each entry says measured, hypothesis or unanswered); to be derived from the register once the mapping is decided.</div>
     </div>
   );
 }
