@@ -579,6 +579,30 @@ def check63():
 # on those tickers is this monitor staying clear, mirroring the SYK/CHECK 63
 # gating precedent. Fixed baselines pinned immediately before addition.
 
+def _without_added(db, sector: str, added: str, avg_score: float) -> float | None:
+    """The sector composite with the added tickers taken out: the snapshot's avg_score plus the
+    gap between the original tickers' and all tickers' latest signal_score (last 3 days). None
+    when either group has no recent signal."""
+    names = [x.strip() for x in added.split("/")]
+    try:
+        conn = sqlite3.connect(db)
+        rows = conn.execute("""
+            SELECT ticker, signal_score FROM (
+                SELECT ticker, signal_score,
+                       ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY timestamp DESC) AS rn
+                FROM signals WHERE sector = ? AND timestamp >= datetime('now', '-3 days'))
+            WHERE rn = 1
+        """, (sector,)).fetchall()
+        conn.close()
+    except Exception:
+        return None
+    allv = [s for _, s in rows if s is not None]
+    orig = [s for t, s in rows if s is not None and t not in names]
+    if not orig or len(orig) == len(allv):
+        return None
+    return avg_score + (sum(orig) / len(orig) - sum(allv) / len(allv))
+
+
 def _dilution_monitor(check_num: int, sector: str, added: str, baseline: float,
                        baseline_date: str, warn_floor: float, crit_floor: float,
                        confirm_note: str) -> None:
@@ -603,6 +627,20 @@ def _dilution_monitor(check_num: int, sector: str, added: str, baseline: float,
     if row is None:
         return
     avg_score, ts = row[0], row[1]
+    without = _without_added(db, sector, added, avg_score)
+
+    floor = crit_floor if avg_score < crit_floor else warn_floor if avg_score < warn_floor else None
+    if floor is not None and without is not None and without < floor:
+        # Level, not dilution (2026-10-21): the composite without the additions breaches the same
+        # floor, so removing them (this monitor's action) would not clear it. On 10-20 all three
+        # monitors fired CRITICAL this way (Industrials: added 0.307 vs original 0.302).
+        flag(check_num, f"{sector} composite dilution monitor", "INFO",
+             "data/apex.db:sector_snapshots",
+             f"{sector} avg_score={avg_score:.4f} (at {ts}) below {floor}, and {without:.4f} without "
+             f"{added}: the breach does not come from the additions (they move it {avg_score - without:+.4f}); "
+             f"removing them would not clear it")
+        return
+    cf = f" Without {added}: {without:.4f}." if without is not None else f" Without {added}: not computable (no recent signals)."
 
     if avg_score < crit_floor:
         _dilution_flag(check_num, f"{sector} composite dilution monitor", "CRITICAL",
@@ -610,14 +648,14 @@ def _dilution_monitor(check_num: int, sector: str, added: str, baseline: float,
              f"{sector} avg_score={avg_score:.4f} (at {ts}) is below critical floor {crit_floor}; "
              f"baseline was {baseline} on {baseline_date} (pre-{added}). "
              f"At neutral posterior (~0.55), adjusted_score ≈ {avg_score * 0.55:.3f}, "
-             f"below ALLOCATION_ENTRY_THRESHOLD 0.37. Action: remove {added} via "
+             f"below ALLOCATION_ENTRY_THRESHOLD 0.37.{cf} Action: remove {added} via "
              f"ticker_config.remove_ticker() and diagnose signal history before re-adding.")
     elif avg_score < warn_floor:
         _dilution_flag(check_num, f"{sector} composite dilution monitor", "WARNING",
              "data/apex.db:sector_snapshots",
              f"{sector} avg_score={avg_score:.4f} (at {ts}) dropped below {warn_floor}; "
              f"baseline was {baseline} on {baseline_date} (pre-{added}). "
-             f"Investigate {added} signal quality in sector_snapshots before next gate cycle. "
+             f"Investigate {added} signal quality in sector_snapshots before next gate cycle.{cf} "
              f"{confirm_note}")
 
 
