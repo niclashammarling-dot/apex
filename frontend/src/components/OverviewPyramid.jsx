@@ -1,86 +1,74 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-// APEX overview pyramid (Niclas 2026-10-19 idea; reshaped 2026-10-21: "Meningen är att pyramiden ska
-// hjälpa med en överblick. Den ska inte absorbera någon tid och energi, bara klart och tydligt visa
-// hur vårt arbete hänger ihop mot målet på toppen").
-// Each layer states the one question it answers for the layer above, whether that is answered, and
-// what is open. No numbers by design (ruling 2026-10-21, option b): numbers live in the registers and
-// notes, and hand-typed numbers here drifted within two days. A line changes only when a state does.
-
-const GOAL = {
-  name: "GO LIVE · O3", q: "Is APEX trustworthy enough for real money?",
-  source: "Go criterion (vault raw/notes/2026-10/2026-10-16-apex-real-money-go-criterion-frame.md, group 1 ruled 10-19) · OUTCOMES O3",
-  groups: [
-    ["1 Edge", "not met", "Ruled. Needs an input with a shown direction edge (SIGNALS), then live months by the formula after the freeze"],
-    ["2 Risk", "open", "Thresholds not set; measured against the ported backtest (ENGINE ↔ LIVE)"],
-    ["3 Robustness", "open", "Plateau threshold not set; the 2022 fold and the plateau need the ported backtest"],
-    ["4 Live matches model", "open", "Scored only after the regime port is merged"],
-    ["5 Operations", "open", "Threshold not set; depends on nothing below, can be set now"],
-    ["6 Discipline", "open", "Evaluation window start not set (the freeze starts then)"],
-    ["7 Staging", "open", "Size step and stop rule not set; the stop rule depends on nothing below, can be set now"],
-  ],
-};
+// APEX pyramid, derived (Niclas 2026-10-21: "underhållas automatiskt utifrån det arbete vi gör …
+// en visuell representation av maskineriet i apex … siffrorna ska komma ur vårt arbete med att
+// kartlägga hur vi får svar på alla våra frågor").
+// Everything shown comes from /api/ops/pyramid: audit/QUESTIONS.md maps each question to the register
+// rows that answer it, and audit/question_map.py reads each row's state from its register. The only
+// thing written here is the order and the short name of the layers.
 
 const LAYERS = [
-  {
-    key: "verify", name: "VERIFICATION", state: "partial",
-    up: "Can each verdict below be trusted: rule written before the run, controlled, enough power?",
-    now: "Test ladder with pre-registered cards; identical-arms guard; audit CHECKs; parameter registry",
-    open: "The live chain after the score (T7) lacks the power to answer yet",
-  },
-  {
-    key: "exec", name: "EXECUTION & RISK", state: "open",
-    up: "Do exits and sizing deliver the expected value per trade that group 1 rests on?",
-    now: "Exits card T8: entry × exit pairs, IS decides, OOS must hold. Runs Thursday, read Saturday",
-    open: "Exit pair undecided; no size rule has passed (F15)",
-  },
-  {
-    key: "parity", name: "ENGINE ↔ LIVE", state: "partial",
-    up: "Can a backtest verdict be trusted for live?",
-    now: "Exit parity R1–R9; the engine tracks live's own trades closely",
-    open: "The regime port is not merged: blocks groups 2, 3 and 4",
-  },
-  {
-    key: "signals", name: "SIGNALS & LOCKS", state: "open",
-    up: "Which inputs carry a measured direction edge?",
-    now: "Signal register S-rows, one pre-registered cell each: per-component IC, VIX and macro cards, factor attribution",
-    open: "The score alone selects volatility, not direction (S11). No input has a shown edge yet: blocks group 1",
-  },
-  {
-    key: "data", name: "DATA & INPUTS", state: "partial",
-    up: "Are the inputs there and true, live and in the tested period?",
-    now: "Input CHECKs in live; a missing input is a finding",
-    open: "Backtest universe is today's tickers (survivorship); no historical earnings dates",
-  },
+  ["Q-VER", "VERIFICATION"],
+  ["Q-EXE", "EXECUTION & RISK"],
+  ["Q-PAR", "ENGINE ↔ LIVE"],
+  ["Q-SIG", "SIGNALS & LOCKS"],
+  ["Q-DAT", "DATA & INPUTS"],
+  ["Q-OPS", "OPERATIONS"],
 ];
+const GROUPS = ["G1", "G2", "G3", "G4", "G5", "G6", "G7"];
 
-const STATE_COLOR = { answered: "var(--t-accent)", partial: "var(--t-text-2)", open: "var(--t-text-3)", "not met": "var(--t-text-3)" };
+const STATE_COLOR = { answered: "var(--t-accent)", partial: "var(--t-text-2)", open: "var(--t-text-3)" };
 
-function Chip({ state }) {
+function Chip({ text, state }) {
   return (
     <span style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.06em", padding: "1px 6px",
       border: "1px solid var(--t-border)", color: STATE_COLOR[state] || "var(--t-text-3)", whiteSpace: "nowrap" }}>
-      {state.toUpperCase()}
+      {String(text).toUpperCase()}
     </span>
   );
 }
 
+// {"S:open": 13, "S:discarded": 1, "GAP:yes": 6} -> "S open 13 · discarded 1 | GAP yes 6"
+function countsLine(counts) {
+  const by = {};
+  Object.entries(counts || {}).forEach(([k, n]) => {
+    const [kind, st] = k.split(/:(.*)/s);
+    (by[kind] = by[kind] || []).push(`${st} ${n}`);
+  });
+  return Object.entries(by).map(([kind, xs]) => `${kind} ${xs.join(" · ")}`).join("  |  ");
+}
+
 function Row({ label, children }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "110px 1fr", gap: 12, padding: "6px 0", borderTop: "1px solid var(--t-border)" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "110px 1fr", gap: 12, padding: "5px 0", borderTop: "1px solid var(--t-border)" }}>
       <div className="t-meta" style={{ color: "var(--t-text-3)" }}>{label}</div>
       <div className="t-meta" style={{ color: "var(--t-text-1)", lineHeight: 1.5 }}>{children}</div>
     </div>
   );
 }
 
-function Band({ i, n, open, onToggle, title, sub, state, children }) {
+function Rows({ q }) {
+  if (!q.rows.length) return null;
+  return (
+    <Row label="ROWS">
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px" }}>
+        {q.rows.map((r) => (
+          <span key={r.ref} style={{ color: r.answered ? "var(--t-accent)" : "var(--t-text-2)" }}>
+            {r.ref.replace(/^PARAM:.*::/, "PARAM ")} <span style={{ color: "var(--t-text-3)" }}>{r.state}</span>
+          </span>
+        ))}
+      </div>
+    </Row>
+  );
+}
+
+function Band({ i, n, open, onToggle, title, q, children }) {
   // Width grows toward the base: top 40 %, base 100 %.
   const w = 40 + (60 * i) / (n - 1);
   const inset = (100 - w) / 2;
   return (
     <>
-      <div onClick={onToggle} title={open ? "close" : "open"} style={{ position: "relative", height: 76, marginBottom: 6, cursor: "pointer" }}>
+      <div onClick={onToggle} title={open ? "close" : "open"} style={{ position: "relative", height: 84, marginBottom: 6, cursor: "pointer" }}>
         <div style={{
           position: "absolute", inset: 0,
           clipPath: `polygon(${inset + 3}% 0, ${100 - inset - 3}% 0, ${100 - inset}% 100%, ${inset}% 100%)`,
@@ -93,9 +81,12 @@ function Band({ i, n, open, onToggle, title, sub, state, children }) {
             <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--t-text-1)", letterSpacing: "0.08em" }}>
               <span style={{ color: "var(--t-accent)", marginRight: 6 }}>{open ? "▾" : "▸"}</span>{title}
             </div>
-            <div className="t-meta" style={{ marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>
+            <div className="t-meta" style={{ marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{q.question}</div>
+            <div className="t-meta" style={{ marginTop: 2, color: "var(--t-text-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {countsLine(q.counts)}
+            </div>
           </div>
-          {state && <Chip state={state} />}
+          <Chip text={q.state} state={q.state} />
         </div>
       </div>
       {open && (
@@ -108,35 +99,53 @@ function Band({ i, n, open, onToggle, title, sub, state, children }) {
 }
 
 export default function OverviewPyramid() {
-  // ?layer=<key> opens one layer on load (deep link); "goal" opens the top.
+  // ?layer=<id> opens one layer on load (deep link), e.g. ?layer=Q-SIG or ?layer=O3.
   const [open, setOpen] = useState(() => new URLSearchParams(window.location.search).get("layer"));
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    fetch("/api/ops/pyramid")
+      .then(async (r) => (r.ok ? r.json() : Promise.reject((await r.json().catch(() => ({}))).detail || `HTTP ${r.status}`)))
+      .then(setData).catch((e) => setErr(String(e)));
+  }, []);
   const toggle = (k) => setOpen(open === k ? null : k);
+
+  if (err || !data) {
+    return (
+      <div className="t-card"><div className="t-card-head"><div className="t-card-title">APEX PYRAMID</div></div>
+        <div className="t-card-body t-meta">{err ? `not derived: ${err}` : "deriving…"}</div></div>
+    );
+  }
+  const Q = data.questions;
   const n = LAYERS.length + 1;
+  const openQs = LAYERS.map(([id, name]) => [name, Q[id]]).filter(([, q]) => q && q.state !== "answered");
   return (
     <div className="t-grid" style={{ gridTemplateColumns: "1fr 300px" }}>
       <div className="t-col-main">
         <div className="t-card">
           <div className="t-card-head">
             <div className="t-card-title">APEX PYRAMID</div>
-            <div className="t-meta">EACH LAYER ANSWERS ONE QUESTION FOR THE LAYER ABOVE</div>
+            <div className="t-meta">DERIVED FROM audit/QUESTIONS.md · CHECKS RUN {data.as_of.checks_run || "—"}</div>
           </div>
           <div className="t-card-body">
-            <Band i={0} n={n} open={open === "goal"} onToggle={() => toggle("goal")} title={GOAL.name} sub={GOAL.q}>
-              {GOAL.groups.map(([g, s, t]) => (
-                <Row key={g} label={g}><Chip state={s} /> <span style={{ marginLeft: 6 }}>{t}</span></Row>
+            <Band i={0} n={n} open={open === "O3"} onToggle={() => toggle("O3")} title="GO LIVE · O3" q={Q.O3}>
+              {GROUPS.filter((g) => Q[g]).map((g) => (
+                <Row key={g} label={g}>
+                  <Chip text={Q[g].scored ? Q[g].state : "unscored"} state={Q[g].scored ? Q[g].state : "open"} />
+                  <span style={{ marginLeft: 6 }}>{Q[g].question}</span>
+                  <div style={{ color: "var(--t-text-3)" }}>threshold: {Q[g].threshold} · {countsLine(Q[g].counts) || `via ${Q[g].children.join(", ")}`}</div>
+                </Row>
               ))}
-              <Row label="SOURCE">{GOAL.source}</Row>
             </Band>
-            {LAYERS.map((l, k) => (
-              <Band key={l.key} i={k + 1} n={n} open={open === l.key} onToggle={() => toggle(l.key)}
-                title={l.name} sub={l.up} state={l.state}>
-                <Row label="ANSWERS UP">{l.up}</Row>
-                <Row label="WORK ON IT">{l.now}</Row>
-                <Row label="OPEN">{l.open}</Row>
+            {LAYERS.map(([id, name], k) => Q[id] && (
+              <Band key={id} i={k + 1} n={n} open={open === id} onToggle={() => toggle(id)} title={name} q={Q[id]}>
+                <Row label="ANSWERS UP">{Q[id].answers.join(", ")}</Row>
+                {Q[id].children.length > 0 && <Row label="VIA">{Q[id].children.join(", ")}</Row>}
+                <Rows q={Q[id]} />
               </Band>
             ))}
             <div className="t-meta" style={{ textAlign: "center", marginTop: 8 }}>
-              a layer whose question is open blocks everything above it · numbers live in the registers, not here
+              a layer whose question is open blocks everything above it · every number is a count of register rows
             </div>
           </div>
         </div>
@@ -145,19 +154,15 @@ export default function OverviewPyramid() {
         <div className="t-card">
           <div className="t-card-head">
             <div className="t-card-title">WHERE THE CHAIN BREAKS</div>
-            <div className="t-meta">IN BLOCKING ORDER</div>
+            <div className="t-meta">ROWS NO REGISTER HOLDS YET</div>
           </div>
           <div className="t-card-body" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {[
-              ["Top", "Go criterion groups 2–7 cannot be scored yet; thresholds for 5 and 7 can be set now"],
-              ["Engine ↔ live", "Regime port not merged: groups 2, 3, 4"],
-              ["Signals", "No input with a shown direction edge: group 1"],
-              ["Data", "Survivorship in the backtest universe: absolute baselines"],
-            ].map(([w, t]) => (
-              <div key={w} className="t-meta"><span style={{ color: "var(--t-text-1)", marginRight: 6 }}>{w}</span>{t}</div>
+            {data.breaks.map((b) => (
+              <div key={b.id} className="t-meta"><span style={{ color: "var(--t-text-1)", marginRight: 6 }}>{b.id}</span>{b.what}
+                <span style={{ color: "var(--t-text-3)" }}> · {b.needed_by}</span></div>
             ))}
             <div className="t-meta" style={{ color: "var(--t-text-3)", marginTop: 6 }}>
-              Work counts toward the top when it closes one of these.
+              Open layers: {openQs.map(([name, q]) => `${name} (${q.state})`).join(", ") || "none"}
             </div>
           </div>
         </div>

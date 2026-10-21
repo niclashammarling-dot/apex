@@ -965,6 +965,21 @@ def get_job_runs_status():
     return {"jobs": out}
 
 
+@router.get("/ops/pyramid")
+def get_pyramid():
+    """
+    The APEX pyramid, derived (Niclas 2026-10-21): audit/QUESTIONS.md maps every question to the
+    register rows that answer it; audit/question_map.py reads each row's state from its register
+    and rolls the questions up. An unreadable register is a 503 with its cause, never a pyramid of
+    zeros.
+    """
+    from audit.question_map import RegisterUnread, build
+    try:
+        return build()
+    except RegisterUnread as e:
+        raise HTTPException(status_code=503, detail=f"pyramid: {e}")
+
+
 @router.get("/ops/entry-fills")
 def get_entry_fills(limit: int = 15):
     """
