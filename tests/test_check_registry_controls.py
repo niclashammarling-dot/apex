@@ -16,7 +16,7 @@ from pathlib import Path
 from audit.mechanical_checks import registry_cells
 
 REPO = Path(__file__).resolve().parent.parent
-UNCONTROLLED_BASELINE = 70
+UNCONTROLLED_BASELINE = 68
 
 
 def _rows():

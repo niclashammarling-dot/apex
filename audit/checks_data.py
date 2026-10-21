@@ -512,6 +512,12 @@ def check46():
 
     Severity: CRITICAL — a position in profit-lock territory without the
     bracket SL ratcheted is exposed to a wide-stop exit on a fast move.
+
+    Peak gain is measured from the exit anchor, as the ratchet measures it
+    (live_trades_tracker._exit_anchor: signal_price, else entry_price). Since the
+    2026-10-13 fill capture, entry_price is the fill and the exit rules stay on the
+    signal quote; measuring from the fill raised a false CRITICAL on COP 90 and
+    EOG 92 (2026-10-20: 4.3 / 4.1 % from the fill, 3.8 / 3.7 % from the anchor).
     """
     db = REPO / "data/apex.db"
     if not require_data_file(46, "Profit-lock ratchet wiring", db):
@@ -533,13 +539,14 @@ def check46():
                 pass
 
         rows = conn.execute("""
-            SELECT id, ticker, alpaca_order_id, entry_price, peak_price,
-                   profit_lock_activated, timestamp
+            SELECT id, ticker, alpaca_order_id, peak_price, profit_lock_activated, timestamp,
+                   COALESCE(NULLIF(signal_price, 0), entry_price) AS anchor
             FROM live_trades
             WHERE outcome = 'OPEN'
               AND profit_lock_activated = 0
               AND peak_price IS NOT NULL
-              AND (peak_price - entry_price) / entry_price >= :trigger
+              AND (peak_price - COALESCE(NULLIF(signal_price, 0), entry_price))
+                  / COALESCE(NULLIF(signal_price, 0), entry_price) >= :trigger
               AND datetime(timestamp) < datetime('now', '-10 minutes')
         """, {"trigger": trigger_pct}).fetchall()
         conn.close()
@@ -550,7 +557,7 @@ def check46():
         return
 
     for r in rows:
-        peak_gain = (r["peak_price"] - r["entry_price"]) / r["entry_price"]
+        peak_gain = (r["peak_price"] - r["anchor"]) / r["anchor"]
         flag(46, "Profit-lock ratchet wiring", "CRITICAL",
              "data/apex.db:live_trades",
              f"{r['ticker']} trade_id={r['id']} parent={r['alpaca_order_id']}: "
@@ -598,17 +605,19 @@ def check47():
 
         # Sub-check A: open trades where peak gain >> trigger but flag set >30 min ago
         open_rows = conn.execute("""
-            SELECT id, ticker, entry_price, peak_price, profit_lock_activated
+            SELECT id, ticker, peak_price, profit_lock_activated,
+                   COALESCE(NULLIF(signal_price, 0), entry_price) AS anchor
             FROM live_trades
             WHERE outcome = 'OPEN'
               AND profit_lock_activated = 1
               AND peak_price IS NOT NULL
-              AND (peak_price - entry_price) / entry_price >= :double_trigger
+              AND (peak_price - COALESCE(NULLIF(signal_price, 0), entry_price))
+                  / COALESCE(NULLIF(signal_price, 0), entry_price) >= :double_trigger
               AND datetime(timestamp) < datetime('now', '-30 minutes')
         """, {"double_trigger": trigger_pct * 2}).fetchall()
 
         for r in open_rows:
-            peak_gain    = (r["peak_price"] - r["entry_price"]) / r["entry_price"]
+            peak_gain    = (r["peak_price"] - r["anchor"]) / r["anchor"]   # the ratchet's anchor (CHECK 46)
             ratchet_floor = r["peak_price"] * (1 - trail_pct)
             flag(47, "Profit-lock SL trail vs peak", "WARNING",
                  "data/apex.db:live_trades",
