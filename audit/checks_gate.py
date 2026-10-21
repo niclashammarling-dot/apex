@@ -1948,6 +1948,7 @@ C93_MODEL = {"intraday": 0.0002, "gap": 0.005}   # R7 medians, adverse; port-reg
 C93_TOLERANCE = {"intraday": 0.0025, "gap": 0.005}   # WARNING when the live median is further from the model
 C93_GAP_WINDOW_MIN = 5    # a stop leg filled within this many minutes of the 09:30 ET open was gapped through
 C93_MIN_N = 5             # a class with fewer fills is reported, not judged
+C93_FORWARD_FROM = "2026-10-21T13:30:00+00:00"   # first open after R7's definition went live; earlier fills are largely R7's own
 _C93_STOP_TYPES = {"stop", "stop_limit", "trailing_stop"}
 
 
@@ -1975,6 +1976,12 @@ def _c93_fill_time(filled_at: str):
     return t.date(), (t.hour * 60 + t.minute) - (9 * 60 + 30)
 
 
+def _c93_is_forward(filled_at: str) -> bool:
+    """True when the fill came at or after C93_FORWARD_FROM, i.e. after R7's own sample."""
+    from datetime import datetime
+    return datetime.fromisoformat(filled_at.replace("Z", "+00:00")) >= datetime.fromisoformat(C93_FORWARD_FROM)
+
+
 def c93_measure(stop: float, fill: float, minutes: int, open_: float | None) -> tuple[str, float]:
     """R7's classes (EXIT_PARITY.md R7; ruling 2026-10-21): `gap` when the fill came within
     C93_GAP_WINDOW_MIN of the open AND the day's open was at or below the stop, measured against
@@ -1997,7 +2004,9 @@ def check93(fetch=None) -> None:
     too (ruling 2026-10-21): a TSL exit entered after the log's first row must have its moves in
     stop_ratchet_log, the last one at the filled leg's stop; a missing or different row is a
     WARNING, since the log is the only ratchet history that outlives the broker's. Per class, the live median is
-    reported beside the model (INFO); a class with >= C93_MIN_N fills whose median is further
+    reported beside the model (INFO), with the count of fills at or after C93_FORWARD_FROM (ruling
+    2026-10-21): the fills before it are largely the ones R7 was measured on, so agreement there is
+    a definition check, and only the forward count is evidence that the model holds; a class with >= C93_MIN_N fills whose median is further
     from the model than C93_TOLERANCE is a WARNING (the engine's R7, Kelly's loss input and
     the go-criterion cost all drift with it). A broker failure, or stop exits with no
     measurable leg, is a WARNING "did not evaluate", never a clean row.
@@ -2020,6 +2029,7 @@ def check93(fetch=None) -> None:
             trades, fetch_order, fetch_open, *log = fetch
             log_start, ratchets = log[0] if log else (None, {})
         slips: dict[str, list[float]] = {"intraday": [], "gap": []}
+        forward = {"intraday": 0, "gap": 0}
         missing, no_open, unlogged, logged = 0, [], [], 0
         for t in trades:
             leg = stop_fill_leg(fetch_order(t["alpaca_order_id"])) if t.get("alpaca_order_id") else None
@@ -2043,6 +2053,7 @@ def check93(fetch=None) -> None:
                     continue
             c, x = c93_measure(stop, fill, minutes, open_)
             slips[c].append(x)
+            forward[c] += _c93_is_forward(at)
     except Exception as e:
         flag(93, name, "WARNING", "backend/brokers/alpaca.py:get_order_by_id",
              f"did not evaluate: {type(e).__name__}: {e}")
@@ -2058,7 +2069,8 @@ def check93(fetch=None) -> None:
             parts.append(f"{c}: no fills (model {C93_MODEL[c] * 100:.2f} %)")
             continue
         med = statistics.median(xs)
-        parts.append(f"{c}: n {len(xs)}, median {med * 100:+.2f} % adverse (model {C93_MODEL[c] * 100:.2f} %)")
+        parts.append(f"{c}: n {len(xs)} ({forward[c]} forward since {C93_FORWARD_FROM[:10]}), "
+                     f"median {med * 100:+.2f} % adverse (model {C93_MODEL[c] * 100:.2f} %)")
         if len(xs) >= C93_MIN_N and abs(med - C93_MODEL[c]) > C93_TOLERANCE[c]:
             flag(93, name, "WARNING", "backend/backtest/exit_rules.py:STOP_SLIP (port-regime)",
                  f"{c} stop fills drift from the model: live median {med * 100:+.2f} % against "

@@ -53,7 +53,7 @@
       "tier": "ops",
       "date": "2026-10-20",
       "review": "2026-11-20",
-      "source": "CHECK 93 (audit/CHECKS.md row 93; ruling Niclas 2026-10-20). A stop leg filled within 5 min of the open is classed a gap through the stop; R7 (EXIT_PARITY.md) used the bar open plus 'the first minutes'. Time-only because the check reads no bars; it counts 18 gaps where R7 counted 7. Review at the first monthly read: take the open from bars if the classes mislead."
+      "source": "CHECK 93 (audit/CHECKS.md row 93; ruling Niclas 2026-10-20, classes amended 2026-10-21). A stop leg filled within 5 min of the 09:30 ET open is a gap only if that day's open was at or below the stop (alpaca.get_daily_open), as R7 (EXIT_PARITY.md) classed them; the 10-20 time-only version counted 18 gaps against R7's 7. Review at the first monthly read."
     },
     "audit/checks_gate.py::C93_MIN_N": {
       "value": 5,

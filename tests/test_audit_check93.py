@@ -46,7 +46,17 @@ def test_drift_beyond_tolerance_warns(monkeypatch):
 def test_fills_at_the_model_are_info_only(monkeypatch):
     orders = {f"o{i}": _order(100.0, 99.98) for i in range(6)}
     out = _run(monkeypatch, _trades(6), orders)
-    assert [f[0] for f in out] == ["INFO"] and "n 6, median +0.02 %" in out[0][1]
+    assert [f[0] for f in out] == ["INFO"] and "n 6 (0 forward since 2026-10-21), median +0.02 %" in out[0][1]
+
+
+def test_forward_count_starts_at_the_first_open_after_r7s_definition(monkeypatch):
+    # R7's own fills sit before C93_FORWARD_FROM; agreement on them is a definition check, so the
+    # INFO line counts the fills at or after it separately (ruling 2026-10-21).
+    orders = {"o0": _order(100.0, 99.98, at="2026-10-21T13:29:59+00:00"),
+              "o1": _order(100.0, 99.98, at="2026-10-21T13:30:00+00:00"),
+              "o2": _order(100.0, 99.98, at="2026-10-22T15:00:00Z")}
+    out = _run(monkeypatch, _trades(3), orders, opens={("XYZ", date(2026, 10, 21)): 101.0})   # 09:30 ET fill, open above the stop
+    assert [f[0] for f in out] == ["INFO"] and "intraday: n 3 (2 forward since 2026-10-21)" in out[0][1]
 
 
 def test_gap_needs_the_open_below_the_stop_and_is_measured_against_the_open(monkeypatch):
@@ -57,7 +67,7 @@ def test_gap_needs_the_open_below_the_stop_and_is_measured_against_the_open(monk
     trades = _trades(3) + [{"alpaca_order_id": "o3", "exit_reason": "TSL", "ticker": "ABC"}]
     out = _run(monkeypatch, trades, orders, opens={("XYZ", date(2026, 9, 10)): 98.0, ("ABC", date(2026, 9, 10)): 101.0})
     assert [f[0] for f in out] == ["INFO"]
-    assert "gap: n 3, median +0.50 %" in out[0][1] and "intraday: n 1, median +0.02 %" in out[0][1]
+    assert "gap: n 3 (0 forward since 2026-10-21), median +0.50 %" in out[0][1] and "intraday: n 1 (0 forward since 2026-10-21), median +0.02 %" in out[0][1]
 
 
 def test_open_read_only_for_opening_minutes_fills(monkeypatch):
