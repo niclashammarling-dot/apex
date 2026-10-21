@@ -419,7 +419,8 @@ def card_l2(w: str, P: dict, pre: dict, k: float, live_rows: list[dict] | None, 
                              "dropped_no_match": E0["dropped"]}}
     atr = P["atr"].to_numpy()
     tp_atr = np.array([ARMS["ATR"]["atr"][0] * atr[i, j] for i, j in picks])
-    # The ATR arm's lock can arm only where its 2 x ATR target sits above the 4 % trigger.
+    # The ATR arm's lock can arm only where its 2 x ATR target sits above the 4 % trigger: the
+    # precondition. Whether it did arm is pairs[...]["lock_armed_share"].
     out["entries"]["atr_tp_above_lock_trigger_share"] = float((tp_atr > PL[0]).mean()) if len(tp_atr) else None
     if L:
         out["entries"]["live57_skipped"] = L["skipped"]
@@ -477,6 +478,10 @@ def card_l2(w: str, P: dict, pre: dict, k: float, live_rows: list[dict] | None, 
                 s = ld.exit_stats(rs)
                 s.update(costs=costs(rs), capture=capture(P, E[pop], rs, mfe[pop]), tail=tail(rs, P, E[pop]),
                          post_stop=post_stop(P, E[pop], rs, rows("TIME25", DECIDING_PEAK, pop)))
+                if has_lock(cfg):
+                    # Share of trades whose lock armed. An arm whose lock rarely arms is read as partly
+                    # unarmed, not as a verdict on its exit rule (ruling 2026-10-21, the ATR arm).
+                    s["lock_armed_share"] = float(np.mean([r["peak_gain"] >= cfg["pl"][0] for r in rs])) if rs else None
                 if a in ARMS:
                     lv = rows("LIVE", pk, pop)
                     s["breakeven_bp_vs_live"] = breakeven_bp(rs, lv)
@@ -547,6 +552,7 @@ def save_rows(path: Path, R: dict) -> None:
         arr[key + "|hold"] = np.array([r["hold"] for r in res], dtype=np.int16)
         arr[key + "|exit_idx"] = np.array([r["exit_idx"] for r in res], dtype=np.int32)
         arr[key + "|reason"] = np.array([REASONS.index(r["reason"]) for r in res], dtype=np.int8)
+        arr[key + "|peak_gain"] = np.array([r["peak_gain"] for r in res], dtype=np.float32)
     np.savez_compressed(path, **arr)
 
 
@@ -574,6 +580,8 @@ def decide(l2: dict[str, dict], l3: dict | None) -> dict:
             r["holm_is_polled"] = bool(IS["holm_picks"][DECIDING_PEAK][a])
             # LIVE carries the lock, so every arm's verdict against it is read under all three peaks.
             r["lock_model_dependent"] = len({IS["vs_live"][f"{a}|{pk}|picks"]["mean"] > 0 for pk in PEAKS}) > 1
+            if has_lock(ARMS[a]):
+                r["lock_armed_share"] = {x: IS["pairs"][f"{x}|{DECIDING_PEAK}|picks"]["lock_armed_share"] for x in (a, "LIVE")}
         if l3 and a in l3.get("arms", {}):
             x = l3["arms"][a]
             r["b"] = bool(x["p"]["pnl_per_capital_day"] <= 0.05 and x["starts_above_live"] >= 4)

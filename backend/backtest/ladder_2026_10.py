@@ -289,9 +289,14 @@ def _simulate(P: dict, pre: dict, i: int, j: int, cfg: dict) -> dict:
                                       ohlc_cache=pre.get("ohlc_cache"), **PEAK)
         if closed:
             rec = closed[0]["record"]
-            return {"pnl": rec["pnl_pct"], "reason": rec["exit_reason"], "hold": rec["days_held"], "exit_idx": k}
+            return {"pnl": rec["pnl_pct"], "reason": rec["exit_reason"], "hold": rec["days_held"], "exit_idx": k,
+                    "peak_gain": trade["peak_price"] / entry - 1}
     k = len(days) - 1
-    return {"pnl": float(P["close"].iat[k, j] / entry - 1), "reason": "END", "hold": k - i, "exit_idx": k}
+    # peak_gain: the engine's peak as it stood at the exit, under the selected peak model. It only
+    # rises and the lock arms on peak_gain >= trigger, so the lock was armed during the trade iff the
+    # final peak_gain reached the trigger (T8's lock-armed share, ruling 2026-10-21).
+    return {"pnl": float(P["close"].iat[k, j] / entry - 1), "reason": "END", "hold": k - i, "exit_idx": k,
+            "peak_gain": trade["peak_price"] / entry - 1}
 
 
 def configs() -> dict[str, dict]:

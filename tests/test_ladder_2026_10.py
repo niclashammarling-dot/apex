@@ -116,7 +116,12 @@ def test_simulate_uses_the_selected_peak_model(monkeypatch):
     cfg = {"tp": 0.06, "sl": 0.05, "pl": (0.04, 0.01), "tdays": 10}
     trades = [x for x in res["trade_log"] if x["exit_reason"] != "END_OF_BACKTEST"]
     assert trades
+    reasons = []
     for t in trades:
         i, j = P["days"].index(t["entry_date"]), P["tickers"].index(t["ticker"])
         r = ld._simulate(P, pre, i, j, cfg)
         assert (P["days"][r["exit_idx"]], r["reason"], r["pnl"]) == (t["exit_date"], t["exit_reason"], t["pnl_pct"])
+        # peak_gain is the peak at the exit: a trailing-lock exit needs it at or above the trigger.
+        assert r["reason"] != "TSL" or r["peak_gain"] >= 0.04
+        reasons.append(r["reason"])
+    assert "TSL" in reasons

@@ -60,7 +60,9 @@ def test_lock_free_arms_are_peak_invariant_and_the_lock_arm_is_not(fx):
     E, _ = t8.purge(ld.entry_sets(P)["picks"], len(P["days"]))
     k = t8.atrsym_k(P)
     for arm in ("TIME5", "TIME25", "NOSTOP", "TP4NS"):
-        runs = [[t8.simulate(P, pre, i, j, arm, pk, k) for i, j in E] for pk in t8.PEAKS]
+        # The exit is invariant; peak_gain is not (it is the peak model's own trace) and is left out.
+        runs = [[{x: v for x, v in t8.simulate(P, pre, i, j, arm, pk, k).items() if x != "peak_gain"} for i, j in E]
+                for pk in t8.PEAKS]
         assert runs[0] == runs[1] == runs[2]
     live = [[t8.simulate(P, pre, i, j, "LIVE", pk, k)["pnl"] for i, j in E] for pk in ("close", "high")]
     assert live[0] != live[1]                                                      # positive control: the setting is wired
@@ -217,6 +219,11 @@ def test_l2_end_to_end_on_the_synthetic_fixture(fx, tmp_path, monkeypatch):
     t8.save_rows(tmp_path / "rows.npz", R)
     z = np.load(tmp_path / "rows.npz")
     assert len(z["LIVE|polled|picks|pnl"]) == out["entries"]["picks"]
+    # Lock-armed share (ruling 2026-10-21): read from each trade's final peak, lock arms only.
+    armed = out["pairs"]["LIVE|polled|picks"]["lock_armed_share"]
+    assert 0 < armed <= 1 and math.isclose(armed, float((z["LIVE|polled|picks|peak_gain"] >= t8.PL[0]).mean()), rel_tol=1e-6)
+    assert "lock_armed_share" not in out["pairs"]["TIME5|polled|picks"]
     d = t8.decide({"IS": out, "OOS": out}, None)
     assert set(d) == set(t8.NON_LIVE) and all(v["beats_live"] is None for v in d.values())   # (b) needs L3
+    assert set(d["ATR"]["lock_armed_share"]) == {"ATR", "LIVE"} and "lock_armed_share" not in d["TIME5"]
     json.dumps(out, default=str)
