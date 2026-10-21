@@ -1993,12 +1993,16 @@ def check93(fetch=None) -> None:
     that day's open (one bar read per such fill): it is a gap when the open was at or below the
     stop, measured against the open, as R7 measured it; every other fill is intraday, measured
     against its stop (c93_measure). An opening-minutes fill whose open cannot be read is left
-    unclassed and is a WARNING, never guessed into a class. Per class, the live median is
+    unclassed and is a WARNING, never guessed into a class. The stop ratchet log is read here
+    too (ruling 2026-10-21): a TSL exit entered after the log's first row must have its moves in
+    stop_ratchet_log, the last one at the filled leg's stop; a missing or different row is a
+    WARNING, since the log is the only ratchet history that outlives the broker's. Per class, the live median is
     reported beside the model (INFO); a class with >= C93_MIN_N fills whose median is further
     from the model than C93_TOLERANCE is a WARNING (the engine's R7, Kelly's loss input and
     the go-criterion cost all drift with it). A broker failure, or stop exits with no
     measurable leg, is a WARNING "did not evaluate", never a clean row.
-    `fetch`: (trades, fetch_order, fetch_open) for tests; None reads apex.db and Alpaca.
+    `fetch`: (trades, fetch_order, fetch_open[, (log_start, {trade_id: last new_stop})]) for
+    tests; None reads apex.db and Alpaca.
     """
     import statistics
     name = "Live stop-fill slippage vs model"
@@ -2011,16 +2015,25 @@ def check93(fetch=None) -> None:
             from backend.brokers import alpaca as broker
             trades = [t for t in dbm.live_sample_rows() if t["exit_reason"] in ("SL", "TSL")]
             fetch_order, fetch_open = broker.get_order_by_id, broker.get_daily_open
+            log_start, ratchets = dbm.stop_ratchet_summary()
         else:
-            trades, fetch_order, fetch_open = fetch
+            trades, fetch_order, fetch_open, *log = fetch
+            log_start, ratchets = log[0] if log else (None, {})
         slips: dict[str, list[float]] = {"intraday": [], "gap": []}
-        missing, no_open = 0, []
+        missing, no_open, unlogged, logged = 0, [], [], 0
         for t in trades:
             leg = stop_fill_leg(fetch_order(t["alpaca_order_id"])) if t.get("alpaca_order_id") else None
             if leg is None:
                 missing += 1
                 continue
             stop, fill, at = leg
+            if t.get("exit_reason") == "TSL" and log_start and (t.get("timestamp") or "") >= log_start:
+                last = ratchets.get(t.get("id"))
+                if last is None or abs(last - stop) > 0.005:
+                    unlogged.append(f"{t['ticker']} #{t.get('id')} leg {stop:.2f} log "
+                                    + ("none" if last is None else f"{last:.2f}"))
+                else:
+                    logged += 1
             day, minutes = _c93_fill_time(at)
             open_ = None
             if 0 <= minutes <= C93_GAP_WINDOW_MIN:
@@ -2050,13 +2063,18 @@ def check93(fetch=None) -> None:
             flag(93, name, "WARNING", "backend/backtest/exit_rules.py:STOP_SLIP (port-regime)",
                  f"{c} stop fills drift from the model: live median {med * 100:+.2f} % against "
                  f"{C93_MODEL[c] * 100:.2f} % (n {len(xs)}); re-measure R7, then Kelly's loss input")
+    if unlogged:
+        flag(93, name, "WARNING", "backend/live_trades_tracker.py:_maybe_ratchet_bracket_sl",
+             f"stop ratchet log incomplete for {len(unlogged)} TSL exits: " + ", ".join(unlogged[:5]))
     if no_open:
         flag(93, name, "WARNING", "backend/brokers/alpaca.py:get_daily_open",
              f"{len(no_open)} opening-minutes stop fills unclassed, the day's open could not be read: "
              + ", ".join(no_open[:5]))
     flag(93, name, "INFO", "audit/checks_gate.py:check93",
          "; ".join(parts) + (f"; {missing} stop exits without a measurable leg" if missing else "")
-         + (f"; {len(no_open)} unclassed (no open)" if no_open else ""))
+         + (f"; {len(no_open)} unclassed (no open)" if no_open else "")
+         + (f"; ratchet log since {log_start[:10]}: {logged} TSL exits matched, {len(unlogged)} not"
+            if log_start else "; ratchet log: no rows yet"))
 
 
 def run() -> None:

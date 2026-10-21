@@ -19,6 +19,7 @@ from loguru import logger
 from backend.brokers.alpaca import OrderTerminalError
 from backend.config import LIVE_ENABLED
 from backend.db import (
+    append_stop_ratchet,
     clear_alert_latch,
     close_live_trade,
     get_alert_latch_age_hours,
@@ -142,6 +143,7 @@ def _maybe_ratchet_bracket_sl(trade: dict, peak: float, cfg: dict, broker) -> No
        This is the idempotency gate — no broker call when SL is already current.
     5. Execute: PATCH the leg via replace_stop_leg; set profit_lock_activated on
        first confirmed success (used for audit/display only, not as a gate).
+    Every confirmed move appends a row to stop_ratchet_log (append-only, ruling 2026-10-21).
     """
     # Gate 1 — config guard
     trigger_pct = cfg.get("profit_lock_trigger_pct")
@@ -209,7 +211,7 @@ def _maybe_ratchet_bracket_sl(trade: dict, peak: float, cfg: dict, broker) -> No
     leg_id = sl_leg["id"]
     qty    = int(trade["qty"])
     try:
-        broker.replace_stop_leg(leg_id, new_sl, qty, ticker)
+        new_leg_id = broker.replace_stop_leg(leg_id, new_sl, qty, ticker)
     except OrderTerminalError as e:
         # Leg filled or cancelled between our fetch and the PATCH — exit check
         # will record the close on this cycle; nothing to ratchet.
@@ -226,6 +228,11 @@ def _maybe_ratchet_bracket_sl(trade: dict, peak: float, cfg: dict, broker) -> No
         return
 
     set_live_trade_profit_lock_activated(trade_id)
+    try:   # the record must never block the ratchet; a missed row is caught by CHECK 93
+        append_stop_ratchet(trade_id, ticker, current_sl or None, new_sl, peak, leg_id,
+                            str(new_leg_id) if new_leg_id else None)
+    except Exception as e:
+        logger.error(f"Profit-lock ratchet [{ticker}] trade_id={trade_id}: stop_ratchet_log insert failed — {e}")
     logger.info(
         f"Profit-lock ratchet [{ticker}] trade_id={trade_id}: "
         f"SL moved ${current_sl:.2f} → ${new_sl:.2f} "

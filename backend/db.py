@@ -338,6 +338,32 @@ def init_db() -> None:
                 payload     TEXT NOT NULL
             );
 
+            -- Append-only record of every live stop ratchet (ruling Niclas 2026-10-21). The broker
+            -- keeps replaced orders only for its retention window and live_trades.sl_price keeps
+            -- the original stop, so without this the ratchet history is lost. Written by
+            -- live_trades_tracker._maybe_ratchet_bracket_sl after a confirmed move; read by
+            -- audit CHECK 93 (every TSL exit entered after the first row has its moves here).
+            -- The triggers refuse UPDATE and DELETE.
+            CREATE TABLE IF NOT EXISTS stop_ratchet_log (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id    INTEGER NOT NULL,
+                ticker      TEXT    NOT NULL,
+                moved_at    TEXT    NOT NULL,    -- UTC ISO
+                old_stop    REAL,
+                new_stop    REAL    NOT NULL,
+                peak        REAL    NOT NULL,
+                old_leg_id  TEXT,
+                new_leg_id  TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_stop_ratchet_trade ON stop_ratchet_log(trade_id, moved_at);
+
+            CREATE TRIGGER IF NOT EXISTS stop_ratchet_log_no_update BEFORE UPDATE ON stop_ratchet_log
+            BEGIN SELECT RAISE(ABORT, 'stop_ratchet_log is append-only'); END;
+
+            CREATE TRIGGER IF NOT EXISTS stop_ratchet_log_no_delete BEFORE DELETE ON stop_ratchet_log
+            BEGIN SELECT RAISE(ABORT, 'stop_ratchet_log is append-only'); END;
+
             -- l5_token_usage: no writer since 2026-10-10 (no reader after CHECK 52's retirement);
             -- history kept.
             CREATE TABLE IF NOT EXISTS l5_token_usage (
@@ -827,6 +853,36 @@ def set_live_trade_profit_lock_activated(trade_id: int) -> None:
     try:
         conn.execute("UPDATE live_trades SET profit_lock_activated = 1 WHERE id = ?", (trade_id,))
         conn.commit()
+    finally:
+        conn.close()
+
+
+def append_stop_ratchet(trade_id: int, ticker: str, old_stop: float | None, new_stop: float,
+                        peak: float, old_leg_id: str | None, new_leg_id: str | None,
+                        moved_at: str | None = None) -> None:
+    """One row per confirmed live stop move; the table refuses UPDATE and DELETE."""
+    from datetime import datetime, timezone
+    conn = get_db()
+    try:
+        conn.execute(
+            "INSERT INTO stop_ratchet_log (trade_id, ticker, moved_at, old_stop, new_stop, peak,"
+            " old_leg_id, new_leg_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (trade_id, ticker, moved_at or datetime.now(timezone.utc).isoformat(), old_stop,
+             new_stop, peak, old_leg_id, new_leg_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def stop_ratchet_summary() -> tuple[str | None, dict[int, float]]:
+    """(first moved_at in the log or None, {trade_id: its last logged new_stop})."""
+    conn = get_db()
+    try:
+        first = conn.execute("SELECT MIN(moved_at) FROM stop_ratchet_log").fetchone()[0]
+        last = {r[0]: r[1] for r in conn.execute(
+            "SELECT trade_id, new_stop FROM stop_ratchet_log s WHERE id ="
+            " (SELECT MAX(id) FROM stop_ratchet_log WHERE trade_id = s.trade_id)")}
+        return first, last
     finally:
         conn.close()
 
