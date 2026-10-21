@@ -821,6 +821,7 @@ export default function App() {
       alerts:        adaptAlerts(driftAlerts),
       demoTrades,
       liveTrades,
+      liveStats,
       settings,
       auditReports,
       liveOrders,

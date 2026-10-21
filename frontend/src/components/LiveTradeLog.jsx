@@ -17,11 +17,14 @@ function fmtDate(iso) {
   return iso.slice(0, 10);
 }
 
+// live_trades stores open rows as outcome "OPEN" (db.py), not null; both mean open.
+const isOpenRow = t => !t.outcome || t.outcome === "OPEN";
+
 function TradeRow({ t }) {
   const [tip, setTip] = useState(null);
   const win    = t.outcome === "WIN";
   const loss   = t.outcome === "LOSS";
-  const isOpen = !t.outcome;
+  const isOpen = isOpenRow(t);
   const pnlColor = win ? WIN_COLOR : loss ? LOSS_COLOR : "#76766f";
   const pnlPct = t.exit_price && t.entry_price
     ? (t.exit_price - t.entry_price) / t.entry_price
@@ -83,31 +86,49 @@ function TradeRow({ t }) {
   );
 }
 
-export default function LiveTradeLog({ trades = [] }) {
+// Rows and counts cover the canonical live sample only (Niclas 2026-10-21: "go with
+// only after the reset"): rows from stats.since (live_account_since), and the W/L
+// header from live_trade_stats, the same set the WALLET card's win rate reads. Before
+// this the header counted every row since 2026-04-06 (54W 34L against the wallet's 37/57).
+export default function LiveTradeLog({ trades = [], stats = null }) {
   const [open, setOpen] = useState(false);
+  const since = stats?.since ?? null;
+
+  const shown = useMemo(
+    () => since ? trades.filter(t => isOpenRow(t) || (t.timestamp ?? "") >= since) : trades,
+    [trades, since],
+  );
 
   const sorted = useMemo(() => {
-    const openTrades   = trades.filter(t => !t.outcome);
-    const closedTrades = trades.filter(t =>  t.outcome)
-                               .sort((a, b) => (b.timestamp ?? "") < (a.timestamp ?? "") ? -1 : 1);
+    const openTrades   = shown.filter(isOpenRow);
+    const closedTrades = shown.filter(t => !isOpenRow(t))
+                              .sort((a, b) => (b.timestamp ?? "") < (a.timestamp ?? "") ? -1 : 1);
     return [...openTrades, ...closedTrades];
-  }, [trades]);
+  }, [shown]);
 
-  const wins   = trades.filter(t => t.outcome === "WIN").length;
-  const losses = trades.filter(t => t.outcome === "LOSS").length;
-  const openN  = trades.filter(t => !t.outcome).length;
+  const o      = stats?.overall;
+  const wins   = o ? o.wins : null;
+  const losses = o ? o.trades - o.wins : null;
+  const openN  = shown.filter(isOpenRow).length;
 
   return (
     <div className="t-card">
       <div className="t-card-head" style={{ cursor: "pointer", userSelect: "none" }} onClick={() => setOpen(v => !v)}>
         <div className="t-card-title">TRADE HISTORY · LIVE</div>
         <div className="t-row" style={{ gap: 10 }}>
-          {trades.length === 0 ? (
+          {shown.length === 0 ? (
             <span className="t-meta">NO TRADES YET</span>
           ) : (
             <>
-              <span className="t-pos" style={{ fontFamily: "var(--mono)", fontSize: 11 }}>{wins}W</span>
-              <span className="t-neg" style={{ fontFamily: "var(--mono)", fontSize: 11 }}>{losses}L</span>
+              {o ? (
+                <>
+                  <span className="t-pos" style={{ fontFamily: "var(--mono)", fontSize: 11 }}>{wins}W</span>
+                  <span className="t-neg" style={{ fontFamily: "var(--mono)", fontSize: 11 }}>{losses}L</span>
+                  <span className="t-meta">SINCE {since}</span>
+                </>
+              ) : (
+                <span className="t-meta">STATS UNAVAILABLE</span>
+              )}
               {openN > 0 && <span className="t-meta">{openN} OPEN</span>}
             </>
           )}
@@ -115,7 +136,7 @@ export default function LiveTradeLog({ trades = [] }) {
         </div>
       </div>
 
-      {open && trades.length === 0 && (
+      {open && shown.length === 0 && (
         <div className="t-card-body" style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--t-text-3)" }}>
           Trades will appear once live bracket orders are placed and filled.
         </div>

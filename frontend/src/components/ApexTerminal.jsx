@@ -896,7 +896,7 @@ export default function ApexTerminal({ tweaks = {}, data: D, onSettings, onPromo
               <GateFeed D={D} mode={mode} />
               <Watchlist />
               {mode === "live"
-                ? <LiveTradeLog trades={D.liveTrades || []} />
+                ? <LiveTradeLog trades={D.liveTrades || []} stats={D.liveStats} />
                 : <DemoTradeLog trades={D.demoTrades || []} />
               }
               {mode === "live" && <LiveOrderLog orders={D.liveOrders || []} />}
