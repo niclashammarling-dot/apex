@@ -66,16 +66,17 @@ const LAYERS = [
   },
   {
     key: "signals", name: "SIGNALS & LOCKS", q: "What does the model see?",
-    parts: ["L1–L5 lock chain", "Regime Bayes", "Signal register S1–S13"],
+    parts: ["L1–L5 lock chain", "Regime Bayes", "Signal register S1–S14"],
     source: "PRODUCTION_GAP.md (S-rows)",
-    register: "backend/backtest/PRODUCTION_GAP.md, S-rows S1–S13: signal hypotheses (on port-regime until the merge)",
+    register: "backend/backtest/PRODUCTION_GAP.md, S-rows S1–S14: signal hypotheses (on port-regime until the merge)",
     writes: "Every signal gap enters as an S-row (Niclas 2026-10-19)",
     reads: "The weekend bundle's SIGNAL REGISTER section lists every open S-row (apex 2a066af, live after the merge)",
     together: "S-row → battery cell with its rule written before the run → adopted into engine and live together, or discarded, with the verdict written into the row. The layer grows only through that path.",
     status: [
       ["measured", "S11 discarded: the score alone is a volatility selector, not a direction predictor (rank IC −0.003 to −0.035, picks earn what same-ATR peers earn; ladder T1/T2). A go-live case cannot rest on the score alone"],
       ["unanswered", "The live chain after the score (sentiment, leading, L5) is untested until T7 reaches power; leading is the only layer with a consistent sign"],
-      ["unanswered", "S13 macro blackout, L0 (2026-10-21): no calendar premium from the entry close at this power. All four IS estimates are negative. The pre-FOMC drift reading (excluded) was withdrawn: half of FOMC_PRE closes end before the pre-announcement window. Sources read 10-21: the pre-FOMC drift disappeared after 2015 (Kurov, Wolfe & Gilbert 2021), before the IS window starts. Next: the R1 card (L2 candidate ledger) for selection; the slot cascade stays with CHECK 71"],
+      ["unanswered", "S13 macro blackout, L0 (2026-10-21): no calendar premium from the entry close at this power. All four IS estimates are negative. The pre-FOMC drift reading (excluded) was withdrawn: half of FOMC_PRE closes end before the pre-announcement window. Sources read 10-21: the pre-FOMC drift disappeared after 2015 (Kurov, Wolfe & Gilbert 2021), before the IS window starts. Next: the R1 card (L2 candidate ledger) for selection, after the exits card: FOMC_PRE split by hold, EVE split into CPI and NFP eves (CPI eve +0.02 bp, NFP +12.9 bp in the literature), risk beside the mean; the slot cascade stays with CHECK 71"],
+      ["hypothesis", "S14 heightened VIX (2026-10-21): after a 3-point VIX jump the S&P earned 48 bp the next day (Hu et al., 1986–2018); the live gate blocks VIX ≥ 30, a different set of days (IS: 88 jump, 149 level, 36 both). L0 pre-registered with three classes and 1/5/10-day holds; expected unanswered at one day; run date not ruled"],
     ]
   },
   {
