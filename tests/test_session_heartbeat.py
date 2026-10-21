@@ -151,6 +151,10 @@ def _launch(tmp_path, remote, owner, timeout="20", with_remote=True):
            "APEX_LOG_DIR": str(tmp_path), "APEX_SESSION_DATE": "2026-11-27",
            "APEX_PORT": str(_free_port()), "APEX_READY_TIMEOUT": timeout,
            "APEX_UVICORN": str(REPO / "tests" / "fixtures" / "fake_uvicorn.sh"),
+           # Never the production lock (found 2026-10-21): with the default, these tests exited on
+           # "launcher lock held" whenever the real backend ran, and took the real lock otherwise,
+           # so a scheduled launch during the suite would have exited on the test's lock.
+           "APEX_LAUNCH_LOCK": str(tmp_path / "launcher.lock"),
            "MARKET_WINDOW_TEST_SECONDS": "1", "FAKE_DELAY": "1", "FAKE_OWNER": owner,
            "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@t"}
@@ -160,7 +164,9 @@ def _launch(tmp_path, remote, owner, timeout="20", with_remote=True):
         env["APEX_HEARTBEAT_REMOTE"] = str(remote)
     subprocess.run(["bash", str(REPO / "scripts" / "market_window.sh")], env=env,
                    capture_output=True, text=True, timeout=120)
-    return "".join(p.read_text() for p in tmp_path.glob("market_window_*.log"))
+    log = "".join(p.read_text() for p in tmp_path.glob("market_window_*.log"))
+    assert str(REPO / "data" / "launcher.lock") not in log                    # isolation, every launch
+    return log
 
 
 def _has_branch(remote):
@@ -188,3 +194,13 @@ def test_no_lock_pushes_nothing(tmp_path, remote):
 def test_test_hold_never_pushes_to_origin(tmp_path, remote):
     log = _launch(tmp_path, remote, owner="1", with_remote=False)
     assert "test hold — heartbeat not pushed" in log
+
+
+def test_launch_lock_is_isolated_from_production(tmp_path):
+    """Positive control: a held lock at the test's path makes the launcher exit, so the launcher
+    reads APEX_LAUNCH_LOCK and the production lock is not what the tests contend on."""
+    import fcntl
+    with open(tmp_path / "launcher.lock", "w") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        log = _launch(tmp_path, tmp_path / "none.git", "1", with_remote=False)
+    assert f"launcher lock held ({tmp_path / 'launcher.lock'})" in log
