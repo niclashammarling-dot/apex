@@ -46,8 +46,8 @@ const LAYERS = [
     status: [
       ["measured", "Exits: fixed 5-day exit 0.103 %/capital-day against the live bracket 0.051–0.064 (IS), robust across three peak models and both windows; live loses to a random exit of the same length (t −2.1 to −3.1). The profit lock buys about 2 win-rate points with per-day return. Vault ladder note, T4 on R9"],
       ["hypothesis", "Exits card T8 (pre-registered 2026-10-20; code Thursday 10-22): does a fixed-time exit beat the bracket at L3, in both windows and in 2022 alone?"],
-      ["measured", "CHECK 93 stop-fill slippage on R7's own definition (gap = open at or below the stop, measured against the open; 2026-10-21): intraday n 37, +0.02 % (model 0.02 %); gap n 7, +0.49 % (model 0.50 %). These are largely the fills R7 measured, so the definitions match; forward evidence is new stop fills"],
-      ["measured", "Stop ratchet log: every live stop move appended (stop_ratchet_log, UPDATE and DELETE refused); CHECK 93 warns when a TSL exit's moves are missing. Starts at the next backend start"],
+      ["measured", "CHECK 93 stop-fill slippage on R7's own definition (gap = open at or below the stop, measured against the open; 2026-10-21): intraday n 37, +0.02 % (model 0.02 %); gap n 7, +0.49 % (model 0.50 %). These are largely the fills R7 measured, so the definitions match. Forward fills since 2026-10-21 13:30 UTC: 0 intraday, 0 gap; only those test the model (each INFO line carries the count)"],
+      ["measured", "Stop ratchet log: every live stop move appended (stop_ratchet_log, UPDATE and DELETE refused); CHECK 93 warns when a TSL exit's moves are missing. Starts with the scheduled market window 2026-10-21 14:20 Stockholm"],
     ]
   },
   {
@@ -126,7 +126,7 @@ function Detail({ layer }) {
           ))}
         </div>
       ))}
-      <div className="t-meta" style={{ color: "var(--t-text-3)", marginTop: 6 }}>Sketch text as of 2026-10-20 (LATEST added 10-20; ablation, CHECK 93, ratchet log and S13 10-21: each entry says measured, hypothesis or unanswered); to be derived from the register once the mapping is decided.</div>
+      <div className="t-meta" style={{ color: "var(--t-text-3)", marginTop: 6 }}>Sketch text as of 2026-10-20 (LATEST added 10-20; ablation, CHECK 93 with forward count, ratchet log and S13 10-21: each entry says measured, hypothesis or unanswered); to be derived from the register once the mapping is decided.</div>
     </div>
   );
 }
