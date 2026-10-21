@@ -391,6 +391,65 @@
       "tier": "ops",
       "date": "2026-10-20",
       "source": "T7 card (vault raw/notes/2026-10/2026-10-20-apex-rejected-candidate-card.md): a decision day needs at least five sessions of prices after it (v1 used 10-09 against a cache ending 10-16); the dated window's entry bound. Probe only: no live gate, size or exit reads it."
+    },
+    "backend/backtest/s13_macro_l0_2026_10_21.py::ALPHA": {
+      "value": 0.05,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s13-macro-blackout-l0-preregistration.md (S13 L0, vault 5af7acb7 amended e1d7302b, written before the run). Card item 5: two-sided test level, Holm at 0.05 over the four classes. S13 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s13_macro_l0_2026_10_21.py::HORIZONS": {
+      "value": [
+        1,
+        5,
+        10
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s13-macro-blackout-l0-preregistration.md (S13 L0, vault 5af7acb7 amended e1d7302b, written before the run). Card item 2: forward horizons in sessions; h = 1 primary, 5 and 10 reported, not judged. S13 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s13_macro_l0_2026_10_21.py::PRIMARY_H": {
+      "value": 1,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s13-macro-blackout-l0-preregistration.md (S13 L0, vault 5af7acb7 amended e1d7302b, written before the run). Card item 5: the judged horizon, matching the literature's one-day effects. S13 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s13_macro_l0_2026_10_21.py::MDE_Z": {
+      "value": 2.8,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s13-macro-blackout-l0-preregistration.md (S13 L0, vault 5af7acb7 amended e1d7302b, written before the run). Card item 6: 1.96 + 0.84, MDE at 80 % power, two-sided 0.05. S13 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s13_macro_l0_2026_10_21.py::N_PLACEBO": {
+      "value": 1000,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s13-macro-blackout-l0-preregistration.md (S13 L0, vault 5af7acb7 amended e1d7302b, written before the run). Card item 7: placebo classes drawn from CLEAR sessions for both controls. S13 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s13_macro_l0_2026_10_21.py::NEG_RANGE": {
+      "value": [
+        0.03,
+        0.07
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s13-macro-blackout-l0-preregistration.md (S13 L0, vault 5af7acb7 amended e1d7302b, written before the run). Card item 7: accepted placebo rejection rate (about 5 %). S13 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s13_macro_l0_2026_10_21.py::POS_RANGE": {
+      "value": [
+        0.7,
+        0.9
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s13-macro-blackout-l0-preregistration.md (S13 L0, vault 5af7acb7 amended e1d7302b, written before the run). Card item 7 (amended before the run): accepted detection rate of a FOMC_PRE-MDE shift (about 80 %). S13 L0 probe only (2026-10-21): no live gate, size or exit reads it."
     }
   }
 }
