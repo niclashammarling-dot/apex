@@ -76,7 +76,10 @@ SYM_OF = {"LIVE": "SYM6", "NOSTOP": "SYM6", "TRAIL2": "SYM6", "TRAIL3": "SYM6", 
 LABELS = {"TP4NS": "selected from T4's grid after reading"}
 PEAKS = ("close", "high", "polled")
 DECIDING_PEAK = "polled"
-POPS = ("picks", "matched", "b5", "live57")
+# B5 struck 2026-10-21 (ruling, option c): ATR-matched it was population 2 with picks eligible, and
+# unmatched it measured the volatility tilt, archived from R1 vs RND (T5) and not this card's question.
+# "matched" takes both its jobs: the same-exit win-rate baseline and the arms against LIVE on non-pick entries.
+POPS = ("picks", "matched", "live57")
 REASONS = ("TP", "SL", "TSL", "TIME", "END")
 
 _SHARED: dict = {}
@@ -117,17 +120,6 @@ def purge(E: list, n_days: int) -> tuple[list, int]:
     OOS (2015-2018) precedes IS, so these are OOS's tail into IS and IS's tail into the present."""
     keep = [(i, j) for i, j in E if i + HOLD_MAX <= n_days - 1]
     return keep, len(E) - len(keep)
-
-
-def b5_random(P: dict, picks: list, rng: np.random.Generator) -> list:
-    """B5: per pick, one uniformly random other pool ticker on the same day (no ATR matching)."""
-    m = P["mask"].to_numpy()
-    out = []
-    for i, j in picks:
-        cand = np.flatnonzero(m[i])
-        cand = cand[cand != j]
-        out.append((i, int(rng.choice(cand))))
-    return out
 
 
 def live57(P: dict, rows: list[dict], rng: np.random.Generator) -> dict:
@@ -410,7 +402,7 @@ def card_l2(w: str, P: dict, pre: dict, k: float, live_rows: list[dict] | None, 
     E0 = ld.entry_sets(P)
     picks, n_pp = purge(E0["picks"], len(P["days"]))
     matched, n_pm = purge(E0["matched"], len(P["days"]))
-    E = {"picks": picks, "matched": matched, "b5": b5_random(P, picks, rng)}
+    E = {"picks": picks, "matched": matched}
     L = live57(P, live_rows, rng) if live_rows else None
     if L:
         E["live57"] = L["E"]
@@ -485,8 +477,9 @@ def card_l2(w: str, P: dict, pre: dict, k: float, live_rows: list[dict] | None, 
                 if a in ARMS:
                     lv = rows("LIVE", pk, pop)
                     s["breakeven_bp_vs_live"] = breakeven_bp(rs, lv)
-                    s["win_rate_same_exit_b5"] = ld.exit_stats(rows(a, pk, "b5"))["win_rate"]
-                    s["win_rate_excess_over_b5"] = s["win_rate"] - s["win_rate_same_exit_b5"]
+                    if pop == "picks":         # LIVE57's baseline is its own same-quintile draws (live57_read)
+                        s["win_rate_same_exit_matched"] = ld.exit_stats(rows(a, pk, "matched"))["win_rate"]
+                        s["win_rate_excess_over_matched"] = s["win_rate"] - s["win_rate_same_exit_matched"]
                     if a in SYM_OF:
                         s["win_rate_sym_ref"] = {SYM_OF[a]: ld.exit_stats(rows(SYM_OF[a], pk, pop))["win_rate"]}
                     if pop != "live57":
@@ -502,7 +495,7 @@ def card_l2(w: str, P: dict, pre: dict, k: float, live_rows: list[dict] | None, 
     prng = np.random.default_rng(SEED + 1)
     for pk in PEAKS:
         for a in NON_LIVE:
-            for pop in ("picks", "matched", "b5"):
+            for pop in ("picks", "matched"):
                 pm_ = paired_monthly(P, E[pop], rows(a, pk, pop), rows("LIVE", pk, pop))
                 out["power"][f"{a}|{pk}|{pop}"] = power(pm_["series"], prng)
                 out["vs_live"][f"{a}|{pk}|{pop}"] = pm_
@@ -728,7 +721,7 @@ def trial_count(windows: list[str], live57: bool, l3: bool) -> dict:
     """Amendment G: every arm x peak x level x window x population counts, reported or not, plus
     T4's 45 grid configs (TP4NS was picked from them)."""
     arm_peaks = sum(len(peaks_for(c)) for c in ARMS.values())
-    l2 = arm_peaks * len(windows) * 3 + (arm_peaks if live57 and "IS" in windows else 0)
+    l2 = arm_peaks * len(windows) * 2 + (arm_peaks if live57 and "IS" in windows else 0)
     l3n = len(ARMS) if l3 else 0
     return {"l2": l2, "l3": l3n, "t4_grid": 45, "total": l2 + l3n + 45,
             "family": "nine non-LIVE arms on the goal statistic, Holm 5 %"}

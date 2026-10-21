@@ -211,6 +211,12 @@ def test_l2_end_to_end_on_the_synthetic_fixture(fx, tmp_path, monkeypatch):
     out, R = t8.card_l2("IS", P, pre, k, live_rows, 1, lambda m: None)
     assert all(v["pass"] for v in out["identity_time25"].values())
     assert out["entries"]["live57"] == 2 and out["entries"]["live57_skipped"][0]["id"] == 3
+    # B5 struck 2026-10-21: matched is the same-exit win-rate baseline and the non-pick population.
+    assert set(t8.POPS) == {"picks", "matched", "live57"} and "b5" not in out["entries"]
+    s = out["pairs"]["TIME5|polled|picks"]
+    assert math.isclose(s["win_rate_excess_over_matched"], s["win_rate"] - out["pairs"]["TIME5|polled|matched"]["win_rate"])
+    assert set(out["vs_live"]) == {f"{a}|{pk}|{pop}" for a in t8.NON_LIVE for pk in t8.PEAKS for pop in ("picks", "matched")}
+    assert t8.trial_count(["IS", "OOS"], False, False)["l2"] == sum(len(t8.peaks_for(c)) for c in t8.ARMS.values()) * 2 * 2
     assert set(out["holm_picks"]["polled"]) == set(t8.NON_LIVE)
     for a in t8.NON_LIVE:
         assert f"{a}|polled|picks" in out["vs_live"] and f"{a}|close|picks" in out["vs_live"]
