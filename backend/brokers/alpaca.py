@@ -424,6 +424,35 @@ def get_prior_close(ticker: str) -> float | None:
         return None
 
 
+def get_daily_open(ticker: str, day) -> float | None:
+    """
+    Official open of `day`'s regular session (daily SIP bar). Read by audit CHECK 93 to class a
+    stop fill in the opening minutes as a gap (open at or below the stop) the way EXIT_PARITY R7
+    measured it. Returns None on any failure or when no bar is dated `day`; the caller reports
+    the missing open, never guesses a class.
+    """
+    from datetime import datetime, time as dtime, timedelta, timezone
+
+    from backend.config import ALPACA_API_KEY, ALPACA_SECRET_KEY
+
+    try:
+        client = StockHistoricalDataClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
+        start = datetime.combine(day, dtime(0), tzinfo=timezone.utc)
+        # The free plan rejects a SIP window touching the last 15 minutes (see get_prior_close).
+        end = min(start + timedelta(days=1), datetime.now(timezone.utc) - timedelta(minutes=16))
+        bars = client.get_stock_bars(StockBarsRequest(
+            symbol_or_symbols=ticker, timeframe=TimeFrame.Day, start=start, end=end))
+        rows = bars[ticker] if ticker in bars.data else []
+        for b in rows:
+            if b.timestamp.date() == day:
+                return float(b.open)
+        logger.warning(f"Alpaca get_daily_open [{ticker}]: no daily bar dated {day}")
+        return None
+    except Exception as e:
+        logger.error(f"Alpaca get_daily_open [{ticker}] {day} failed: {e}")
+        return None
+
+
 def cancel_open_orders(ticker: str) -> int:
     """Cancel all open orders for ticker. Returns count cancelled."""
     try:
