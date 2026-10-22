@@ -550,7 +550,12 @@ def save_rows(path: Path, R: dict) -> None:
 
 
 def decide(l2: dict[str, dict], l3: dict | None) -> dict:
-    """Card item 11 (a)-(f) per non-LIVE arm. (b) needs L3; (e) needs LIVE57 (IS only)."""
+    """Card item 11 (a)-(f) per non-LIVE arm. (b) needs L3; (e) needs LIVE57 (IS only).
+
+    (b) is reported twice (amendment 2026-10-22, written into the card before the read): `b_card`
+    applies item 8's matched-turnover gate (None when the gate failed or is missing), `b` reads the
+    capital-day statistic with the gate beside it; `beats_live_card` and `beats_live` follow each.
+    Until 2026-10-22 the gate was computed in card_l3 and read by nothing."""
     IS, OOS = l2.get("IS"), l2.get("OOS")
     out = {}
     for a in NON_LIVE:
@@ -577,10 +582,16 @@ def decide(l2: dict[str, dict], l3: dict | None) -> dict:
                 r["lock_armed_share"] = {x: IS["pairs"][f"{x}|{DECIDING_PEAK}|picks"]["lock_armed_share"] for x in (a, "LIVE")}
         if l3 and a in l3.get("arms", {}):
             x = l3["arms"][a]
-            r["b"] = bool(x["p"]["pnl_per_capital_day"] <= 0.05 and x["starts_above_live"] >= 4)
-        known = [r.get(k) for k in ("a", "b", "c", "d")] + [r.get("f", {}).get("class") == "holds" if "f" in r else None]
-        r["beats_live"] = None if None in known else bool(all(known) and r["holm_is_polled"] and not r.get("e_entry_dependent")
-                                                          and not r["lock_model_dependent"])
+            b = bool(x["p"]["pnl_per_capital_day"] <= 0.05 and x["starts_above_live"] >= 4)
+            # Item 8 gate (D1): RND's entry count within +-1 % of the reference's. Missing = unevaluable, never a pass.
+            gate = (x.get("turnover_gate") or {}).get("within_1pct")
+            r["turnover_gate"] = gate
+            r["b_card"] = b if gate is True else None   # the card as pre-registered: no L3 verdict on an unmatched null
+            r["b"] = b   # amendment 2026-10-22 (Niclas): read per capital-day, gate reported beside; both are shown
+        for key, b_key in (("beats_live", "b"), ("beats_live_card", "b_card")):
+            known = [r.get(k) for k in ("a", b_key, "c", "d")] + [r.get("f", {}).get("class") == "holds" if "f" in r else None]
+            r[key] = None if None in known else bool(all(known) and r["holm_is_polled"] and not r.get("e_entry_dependent")
+                                                     and not r["lock_model_dependent"])
         out[a] = r
     return out
 

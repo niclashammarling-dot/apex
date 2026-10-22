@@ -233,3 +233,22 @@ def test_l2_end_to_end_on_the_synthetic_fixture(fx, tmp_path, monkeypatch):
     assert set(d) == set(t8.NON_LIVE) and all(v["beats_live"] is None for v in d.values())   # (b) needs L3
     assert set(d["ATR"]["lock_armed_share"]) == {"ATR", "LIVE"} and "lock_armed_share" not in d["TIME5"]
     json.dumps(out, default=str)
+
+
+def test_decide_reads_the_turnover_gate_and_reports_both_readings():
+    """2026-10-22: card_l3 computed turnover_gate.within_1pct and decide() never read it. The card's
+    rule (b_card) refuses an L3 verdict on an unmatched null; the amendment's (b) reads per capital-day
+    with the gate beside. A missing gate is unevaluable, not a pass."""
+    def arm(p, starts, gate):
+        x = {"p": {"pnl_per_capital_day": p}, "starts_above_live": starts}
+        if gate is not None:
+            x["turnover_gate"] = {"within_1pct": gate}
+        return x
+    l3 = {"arms": {"TIME5": arm(0.01, 5, True), "ATR": arm(0.01, 5, False), "TRAIL2": arm(0.01, 5, None),
+                   "NOSTOP": arm(0.50, 1, True)}}
+    d = t8.decide({}, l3)
+    assert d["TIME5"]["b"] is True and d["TIME5"]["b_card"] is True, "control: a matched arm reads the same both ways"
+    assert d["ATR"]["b"] is True and d["ATR"]["b_card"] is None and d["ATR"]["turnover_gate"] is False
+    assert d["TRAIL2"]["b_card"] is None and d["TRAIL2"]["turnover_gate"] is None
+    assert d["NOSTOP"]["b"] is False and d["NOSTOP"]["b_card"] is False
+    assert all("beats_live_card" in v for v in d.values())
