@@ -51,8 +51,9 @@ logger.add(
     rotation="00:00",       # new file each midnight
     # Inert in production (2026-10-16): loguru applies retention only on an in-process
     # rotation, and the launched backend never runs across midnight. The retention that
-    # runs is scripts/prune_logs.py, called by scripts/market_window.sh at launch.
-    retention="14 days",
+    # runs is scripts/prune_logs.py, called by scripts/market_window.sh at launch
+    # (KEEP_DAYS 90 since 2026-10-22; kept equal here so the two never read differently).
+    retention="90 days",
     level="INFO",
     format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | {name}:{function}:{line} - {message}",
 )

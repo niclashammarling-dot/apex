@@ -7,10 +7,17 @@ applies retention only on an in-process rotation (`FileSink._terminate_file`,
 midnight, so nothing was pruned: 35 apex_*.log files 2026-09-02..10-15 on 10-16. The
 other dated logs (market_window_, eod_window_, cycle_watch_) never had a retention.
 
-14 days covers every reader with margin (2026-10-16 inventory): /api/ops/window reads
-10 calendar days, CHECK 82 the trailing 4 sessions, CHECK 75 the last 3 apex_*.log
-files, alert mails the same or next day. Evidence needed for longer belongs in a DB
-row (outcome_reason, b3804fb), not in a log.
+Keep 90 days (Niclas ruling 2026-10-22, was 14). 14 days covered every scheduled reader
+(2026-10-16 inventory: /api/ops/window 10 calendar days, CHECK 82 the trailing 4 sessions,
+CHECK 75 the last 3 apex_*.log files, alert mails the same or next day), but the readers
+that lost evidence this month were investigations, not schedules: three findings died or
+limped on logs already pruned (the vol slope read had nothing before 09-02, the 08-04
+incident could not be decided, the 09-26 cap-rejection baseline could not attribute 13
+TRADE_REJECTED rows). Ruling: "Förläng till 90 dagar, och fortsätt flytta det som ska bära
+beslut till databasen; det ena ersätter inte det andra." Evidence a decision rests on still
+belongs in a DB row (outcome_reason, b3804fb); the longer window is for the question nobody
+scheduled. Size: logs/ held 21 MB for about 15 days on 10-22, so about 130 MB at 90 days.
+Recovery path: set KEEP_DAYS back; nothing reads the number but this script.
 
 Only files named <prefix>_YYYY-MM-DD.log are touched; the date comes from the name,
 never from mtime. Anything else (backend.log, frontend.log, loguru rename files) is
@@ -26,7 +33,7 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-KEEP_DAYS = 14
+KEEP_DAYS = 90   # Niclas ruling 2026-10-22 (was 14 since 2026-10-16); see docstring
 _DATED = re.compile(r"^[A-Za-z_]+_(\d{4}-\d{2}-\d{2})\.log$")
 
 

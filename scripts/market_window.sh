@@ -121,7 +121,7 @@ if ! flock -n 9; then
 fi
 cd "$APEX" || exit 1
 # Log retention (2026-10-16): loguru prunes only on an in-process midnight rotation,
-# which this window never reaches. 14 days covers every reader; see the script.
+# which this window never reaches. 90 days since 2026-10-22 (ruling); see the script.
 log "$("$PY" scripts/prune_logs.py --log-dir "$LOG_DIR" 2>&1 | tail -1)"
 log "starting uvicorn (no --reload), ET now $et_hm"
 APEX_SERVE=1 "$UVICORN" backend.main:app --host 127.0.0.1 --port "$PORT" >> "$LOG" 2>&1 &
