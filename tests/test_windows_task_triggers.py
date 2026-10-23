@@ -33,21 +33,22 @@ def _fires(name, day):
     """ET times the task's calendar triggers fire on `day` (repetition end inclusive)."""
     text = (WIN / name).read_text(encoding="utf-8")
     root = ET.fromstring(re.sub(r"^<\?xml[^>]*\?>", "", text))
-    out = []
-    for trig in root.iterfind("t:Triggers/t:CalendarTrigger", NS):
-        start = datetime.fromisoformat(trig.findtext("t:StartBoundary", namespaces=NS))
-        assert start.tzinfo, f"{name}: StartBoundary without offset breaks the fixed-UTC model"
-        utc_t = start.astimezone(timezone.utc).time()
-        first = datetime.combine(day, utc_t, tzinfo=timezone.utc)
-        rep = trig.find("t:Repetition", NS)
-        step = _duration(rep.findtext("t:Interval", namespaces=NS)) if rep is not None else None
-        end = first + (_duration(rep.findtext("t:Duration", namespaces=NS)) if rep is not None else timedelta())
-        t = first
-        while t <= end:
-            out.append(t.astimezone(NY))
-            if step is None:
-                break
-            t += step
+    return [t for trig in root.iterfind("t:Triggers/t:CalendarTrigger", NS) for t in _trigger_fires(trig, day)]
+
+
+def _trigger_fires(trig, day):
+    start = datetime.fromisoformat(trig.findtext("t:StartBoundary", namespaces=NS))
+    assert start.tzinfo, "StartBoundary without offset breaks the fixed-UTC model"
+    first = datetime.combine(day, start.astimezone(timezone.utc).time(), tzinfo=timezone.utc)
+    rep = trig.find("t:Repetition", NS)
+    step = _duration(rep.findtext("t:Interval", namespaces=NS)) if rep is not None else None
+    end = first + (_duration(rep.findtext("t:Duration", namespaces=NS)) if rep is not None else timedelta())
+    out, t = [], first
+    while t <= end:
+        out.append(t.astimezone(NY))
+        if step is None:
+            break
+        t += step
     return out
 
 
@@ -76,3 +77,18 @@ def test_cycle_watch_covers_the_session_and_a_finalize_run(day):
     close = _et(day, 16, 0)
     assert any(close - timedelta(minutes=15) <= t <= close for t in f), "last 15 min of the session unwatched"
     assert any(close < t <= close + timedelta(minutes=CLOSE_FINALIZE_MIN) for t in f), "no finalize run"
+
+
+GUARDS = {"APEX-EOD-window.xml": ((16, 5), (16, 45)), "APEX-market-window.xml": ((8, 15), (15, 30))}
+
+
+@pytest.mark.parametrize("name", sorted(GUARDS))
+def test_every_trigger_fires_inside_its_guard_on_some_day(name):
+    """2026-10-23 (Niclas): a trigger that never fires inside the guard is removed, not described."""
+    (h0, m0), (h1, m1) = GUARDS[name]
+    text = (WIN / name).read_text(encoding="utf-8")
+    root = ET.fromstring(re.sub(r"^<\?xml[^>]*\?>", "", text))
+    for trig in root.iterfind("t:Triggers/t:CalendarTrigger", NS):
+        start = trig.findtext("t:StartBoundary", namespaces=NS)
+        hits = [d for d in DAYS for t in _trigger_fires(trig, d) if _et(d, h0, m0) <= t <= _et(d, h1, m1)]
+        assert hits, f"{name}: trigger {start} never fires inside {h0:02}:{m0:02}-{h1:02}:{m1:02} ET"
