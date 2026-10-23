@@ -78,7 +78,9 @@ BY_CHECK: dict[int, str] = {
          "live had 5 broker_unreachable cycles and demo evaluated without fresh data; the watch flagged 51 min "
          "without a live gate start. Scope: CHECK 85 counts a cycle covered only when it could act (exclude "
          "gate_cycles reason broker_unreachable; add live coverage beside demo), test with the 10-22 shape as a "
-         "positive control (flag kept, no WARNING) and 10-02 unchanged. Until built: 10-22 is a correct flag. ~1 h."),
+         "positive control (flag kept, no WARNING) and 10-02 unchanged. Until built: 10-22 is a correct flag. ~1 h. "
+         "Definition ruled 2026-10-23 (Niclas: \"en cykel bör vara något som går att agera på\"): apply the same "
+         "covered-cycle rule wherever coverage is counted (CHECK 80, the weekly report's partial-session line)."),
     89: ("Live entries without a captured fill (P&L booked on the quote). Scope: read each id's parent order "
          "(get_order_by_id); filled → scripts/backfill_entry_fills.py --apply --ids <ids> after a DB backup; "
          "partial or cancelled → decide the row (qty mismatch is a reconciliation item). If new entries keep "
