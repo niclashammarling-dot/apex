@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.3" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>APEX EOD window (apex-moc 2026-09-16 scheduler-not-a-service decision). Launches backend without --reload for eod_regime 16:15 ET + collect_pcr 16:30 ET; the script gates on the ET clock (16:05-16:45) so only one of the two triggers runs per day across DST-mismatch weeks. Recovery: delete this task, fall back to manual launch.</Description>
+    <Description>APEX EOD window (apex-moc 2026-09-16 scheduler-not-a-service decision). Launches backend without --reload for eod_regime 16:15 ET + collect_pcr 16:30 ET; the script gates on the ET clock (16:05-16:45). Offset-form triggers fire at a fixed UTC time (probed 2026-10-19), so 20:10 UTC (16:10 EDT) and 21:10 UTC (16:10 EST, added 2026-10-23) are the live ones; 19:10 UTC falls outside the guard in both and exits (tests/test_windows_task_triggers.py). Recovery: delete this task, fall back to manual launch.</Description>
     <URI>\APEX EOD window</URI>
   </RegistrationInfo>
   <Principals>
@@ -41,6 +41,19 @@
     </CalendarTrigger>
     <CalendarTrigger>
       <StartBoundary>2026-09-16T21:10:00+02:00</StartBoundary>
+      <ScheduleByWeek>
+        <WeeksInterval>1</WeeksInterval>
+        <DaysOfWeek>
+          <Monday />
+          <Tuesday />
+          <Wednesday />
+          <Thursday />
+          <Friday />
+        </DaysOfWeek>
+      </ScheduleByWeek>
+    </CalendarTrigger>
+    <CalendarTrigger>
+      <StartBoundary>2026-09-16T23:10:00+02:00</StartBoundary>
       <ScheduleByWeek>
         <WeeksInterval>1</WeeksInterval>
         <DaysOfWeek>
