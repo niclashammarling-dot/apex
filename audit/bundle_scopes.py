@@ -24,9 +24,11 @@ BY_CHECK: dict[int, str] = {
          "(check_live_exits → update_live_trade_peak_price) and the exit-check job's runs; if the tracker missed "
          "it, set peak from the max price since entry (snapshot first) and fix the path; if no feed, check the "
          "ticker's polls (universe, data gaps). Premise corrected 2026-10-10 (ADI false positive)."),
-    45: ("Static analysis. `with get_db() as conn` never closes the connection: replace with "
-         "`conn = get_db(); try: … finally: conn.close()` at each named line; remove the unused import. One commit, "
-         "suite. ~20 min."),
+    45: ("Static analysis (ruff and the `with get_db()` scan). Per finding: read the line and its references "
+         "before fixing. Never `ruff --fix` blind: an F401 on a re-exported name breaks its importers (10-23: "
+         "lock1_eligibility's calendar aliases are imported by tests/test_lock1_macro_blackout.py; kept with a "
+         "noqa and a reason). `with get_db() as conn` leaks: `conn = get_db(); try: … finally: conn.close()`. "
+         "One commit, ruff clean on the touched files, full suite. ~20 min."),
     54: ("Dashboard funnel labels use the old lock numbering (FILTERED_L1 = Lock 2 Quant shown as 'L1 · Score', "
          "FILTERED_L2 = Lock 3 Sentiment shown as 'L2 · Quant'; no L3 row). Scope (ruled: frontend reflects backend): "
          "serve the lock chain from the backend (number, name, decision strings, config keys) and render adaptFunnel, "
@@ -39,6 +41,12 @@ BY_CHECK: dict[int, str] = {
     64: ("BAYES_MARGIN_SIGNAL_THRESHOLD 0.1 never reached in 21 days (max gap 0.077). Scope: find what reads "
          "bayes_conviction_leader (chain.py); if it never fires, the feature is inert — test-decide the threshold on "
          "sector_posterior_history (tests decide, not choice) or drop the feature under the profit principle."),
+    65: ("Posterior ceiling pin (10-23 read: Healthcare clamped 10-19, 10-20 and 10-22, lr_ipo 4.0 → 2.4 the "
+         "dominant term; 10-21 just under). Scope: read the Healthcare IPO-cluster input on the pinned days "
+         "(ipo_share, which IPOs) — real IPO activity, or the 2ⁱ family amplifying a small count (apex-moc "
+         "\"LR amplification is a family\"); then decide with the port-regime merge (its regime_bayes changes "
+         "may move the term): no action if the merge bounds the family, else a bound on _lr_ipo_cluster with a "
+         "replay of the three pinned days. A third pin within 5 sessions before then = read first in the week. ~30 min."),
     67: ("Industrials composite below its critical floor after the ETN/PWR/TT additions. Scope: as CHECK 63; the "
          "sector currently has no allocation (all FILTERED_ELIGIBILITY 10-05..10-09), so no live exposure — decide "
          "ticker changes or event conversion."),
@@ -58,6 +66,19 @@ BY_CHECK: dict[int, str] = {
          "share and median notional before vs since; with about 18 L5 decisions a week (71 in the four weeks to 10-16) only a large move "
          "means anything. Read three or four L5 reasoning texts from W43 for whether they now cite the upstream "
          "allocation correctly. Decide at the 10-24 review: keep the check, re-evaluate, or retire it. ~15 min."),
+    82: ("Market window interrupted. 2026-10-22 read 10-23: cause external — ISP outage (Niclas: lost ISP "
+         "contact, likely weather); logs agree: NameResolutionError from 19:36 CEST, none before 19:30, yfinance "
+         "\"no price data\" until 21:53; window HUP 20:04:48, relaunched 20:06:25 (97 s), so the relaunch path "
+         "worked. Cost: 5 live cycles broker_unreachable (17:53–19:46 UTC), demo cycles on no fresh data; the "
+         "session is flagged partial (CHECK 85 row). Scope for a new date: read the market_window log for the "
+         "signal and a network-error spike in apex_<date>.log first; external cause + relaunch inside 5 min = "
+         "keep with the reason; no relaunch or an internal cause = root-cause (memory: self-clearing alarms)."),
+    85: ("Session flag vs coverage. 2026-10-22 read 10-23: the flag is right, the check's measure is short. "
+         "The ISP outage (CHECK 82 row) left the process cycling: demo coverage counts cycle starts (18/19), but "
+         "live had 5 broker_unreachable cycles and demo evaluated without fresh data; the watch flagged 51 min "
+         "without a live gate start. Scope: CHECK 85 counts a cycle covered only when it could act (exclude "
+         "gate_cycles reason broker_unreachable; add live coverage beside demo), test with the 10-22 shape as a "
+         "positive control (flag kept, no WARNING) and 10-02 unchanged. Until built: 10-22 is a correct flag. ~1 h."),
     89: ("Live entries without a captured fill (P&L booked on the quote). Scope: read each id's parent order "
          "(get_order_by_id); filled → scripts/backfill_entry_fills.py --apply --ids <ids> after a DB backup; "
          "partial or cancelled → decide the row (qty mismatch is a reconciliation item). If new entries keep "

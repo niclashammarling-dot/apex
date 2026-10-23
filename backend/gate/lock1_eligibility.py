@@ -27,12 +27,18 @@ from __future__ import annotations
 
 import threading
 import time
-from datetime import date, timedelta
+from datetime import date
 
 from loguru import logger
 
 from backend.config import EXCLUDED_SECTORS
 from backend.gate.types import LockResult
+# One calendar for Lock 1 and both backtest engines (2026-10-17, Niclas: "live måste ha
+# en enda kalender att gå efter"): backend/macro_calendar.py, official FOMC / BLS dates.
+# _CPI/_FOMC/_NFP_DATES are re-exported: tests/test_lock1_macro_blackout.py imports them from here.
+from backend.macro_calendar import (CPI_DATES as _CPI_DATES, FOMC_DATES as _FOMC_DATES,  # noqa: F401
+                                    MACRO_DATES as _MACRO_DATES, NFP_DATES as _NFP_DATES,  # noqa: F401
+                                    macro_status as _shared_macro_status)
 from backend.regime.regime_bayes import ALLOCATION_ENTRY_THRESHOLD, ALLOCATION_EXIT_THRESHOLD, LEADERBOARD_SIZE
 
 LOCK_ID = 1
@@ -43,11 +49,7 @@ _vix_lock  = threading.Lock()
 _VIX_TTL   = 30 * 60   # 30 minutes
 
 # ── Economic calendar ─────────────────────────────────────────────────────────
-# One calendar for Lock 1 and both backtest engines (2026-10-17, Niclas: "live måste ha
-# en enda kalender att gå efter"): backend/macro_calendar.py, official FOMC / BLS dates.
-from backend.macro_calendar import (CPI_DATES as _CPI_DATES, FOMC_DATES as _FOMC_DATES,
-                                    MACRO_DATES as _MACRO_DATES, NFP_DATES as _NFP_DATES,
-                                    macro_status as _shared_macro_status)
+# Imported at the top from backend/macro_calendar.py.
 
 # FOMC spans two meeting days; pre-event window is 2 to cover the full session.
 # CPI and NFP are single-day releases; their window comes from macro_event_blackout_days (cfg).

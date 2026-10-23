@@ -375,8 +375,8 @@ def _ref_book(ref: dict, book: str) -> dict:
         "pnl":      _spread([c["realized_pnl"] for c in closed]),
         "entered":  _spread([f["entered"] for f in funnels]),
         "locks":    [{"stage":   locks[0]["stage"],
-                      "reached": sum(l["reached"] for l in locks),
-                      "failed":  sum(l["failed"] for l in locks)}
+                      "reached": sum(lk["reached"] for lk in locks),
+                      "failed":  sum(lk["failed"] for lk in locks)}
                      for locks in zip(*stages)] if stages else [],
     }
 

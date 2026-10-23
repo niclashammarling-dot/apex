@@ -1041,7 +1041,10 @@ def get_signal_freshness(days: int = 10):
     ny = ZoneInfo("America/New_York")
     now = datetime.now(timezone.utc)
     since = (now - timedelta(days=days)).isoformat()
-    day = lambda ts: datetime.fromisoformat(ts).astimezone(ny).date().isoformat()
+
+    def day(ts: str) -> str:
+        return datetime.fromisoformat(ts).astimezone(ny).date().isoformat()
+
     out: dict[str, dict] = defaultdict(lambda: {
         "cycles": 0, "stale_cycles": 0, "stale_ticker_cycles": 0, "no_fresh": 0,
         "live": {"checked": 0, "unrecorded": 0, "violations": 0, "bar_mismatch": 0,
