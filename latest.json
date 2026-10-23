@@ -1,6 +1,6 @@
 {
- "generated_at": "2026-10-22T20:34:08+00:00",
- "host_commit": "a5cfadd",
+ "generated_at": "2026-10-23T20:35:14+00:00",
+ "host_commit": "336ca56",
  "findings": [
   [
    54,
@@ -21,7 +21,7 @@
    "Lock 4 PCR channel under per-ticker P25 (demo)",
    "INFO",
    "data/apex.db:demo_gate_history",
-   "Session coverage since build (cycles written / expected at 20m): 10-15 19/19, 10-16 19/19, 10-19 19/19, 10-20 19/19, 10-21 19/19; trailing-3 mean 100%. baseline (0.85, demo since 2026-05-21): 234/1049 PCR passes = 22.3%. per_ticker_p25: 42/475 = 8.8% [6.6%, 11.7%]. Composition of passes \u2014 blocked-under-0.85 names: 29% of passes vs 59% of evaluations (baseline 0% by construction); open-under-0.85 names: 36% of passes vs 33% of evaluations (baseline 87% of passes)."
+   "Session coverage since build (cycles written / expected at 20m): 10-16 19/19, 10-19 19/19, 10-20 19/19, 10-21 19/19, 10-22 18/19; trailing-3 mean 98%. baseline (0.85, demo since 2026-05-21): 234/1049 PCR passes = 22.3%. per_ticker_p25: 42/498 = 8.4% [6.3%, 11.2%]. Composition of passes \u2014 blocked-under-0.85 names: 26% of passes vs 60% of evaluations (baseline 0% by construction); open-under-0.85 names: 36% of passes vs 32% of evaluations (baseline 87% of passes)."
   ],
   [
    82,
@@ -35,21 +35,35 @@
    "Two schedulers on one book (off-phase gate cycles)",
    "INFO",
    "data/apex.db:live_gate_history",
-   "examined over the last 3 days: live 55 pair(s), 55 from gate_cycles, 0 between stamped row starts, 0 off-phase; demo 53 pair(s), 53 from gate_cycles, 0 between stamped row starts, 0 off-phase"
+   "examined over the last 3 days: live 54 pair(s), 54 from gate_cycles, 0 between stamped row starts, 0 off-phase; demo 53 pair(s), 53 from gate_cycles, 0 between stamped row starts, 0 off-phase"
+  ],
+  [
+   84,
+   "Lock 5 decided on a stale position count",
+   "INFO",
+   "backend/gate/lock5_claude.py",
+   "3-day tally: 0 stale-count execution(s) of 0 checked; 2 execution(s) cite no count"
+  ],
+  [
+   85,
+   "Session flags reconcile with coverage",
+   "WARNING",
+   "data/apex.db:session_flags",
+   "2026-10-22: flagged partial (no live gate start for 51 min at 20:45 CEST; /health answers (scheduler_owner=true)) but demo coverage is 18/19 (95%) \u2014 the flag is wrong, or the outage cost under 10% of the session"
   ],
   [
    87,
    "signal age at gate time",
    "INFO",
    "data/apex.db:gate_cycles",
-   "2026-10-22: live: 343 rows checked; demo: 519 rows checked; cycles 36, 31 with stale refusals (173 ticker-cycles)"
+   "2026-10-23: live: 465 rows checked; demo: 487 rows checked; cycles 38, 38 with stale refusals (281 ticker-cycles)"
   ],
   [
    87,
    "signal age at gate time",
    "INFO",
    "backend/gate/freshness.py:ENFORCE_BAR_DATE",
-   "2026-10-22 bar_date observed, not enforced (review 2026-10-17): live: 0 of 343 in-session rows on a non-session bar; demo: 0 of 519 in-session rows on a non-session bar"
+   "2026-10-23 bar_date observed, not enforced (review 2026-10-17): live: 0 of 465 in-session rows on a non-session bar; demo: 0 of 487 in-session rows on a non-session bar"
   ],
   [
    88,
@@ -70,63 +84,70 @@
    "Lock 5 output after the prompt change",
    "WARNING",
    "backend/gate/lock5_claude.py:SYSTEM_PROMPT",
-   "L5 approval 40/71 (56%) in the 4 weeks before 2026-10-19 vs 1/1 (100%) since; median entry notional $856 (n=29) vs $741 (n=1). Two changes in one window (rationale clause + enforced sector cap), not separable here. Small n \u2014 a direction, not a test. Review 2026-10-24 (Niclas 10-17): keep, re-evaluate or retire this check."
+   "L5 approval 40/71 (56%) in the 4 weeks before 2026-10-19 vs 3/3 (100%) since; median entry notional $856 (n=29) vs $1,146 (n=3). Two changes in one window (rationale clause + enforced sector cap), not separable here. Small n \u2014 a direction, not a test. Review 2026-10-24 (Niclas 10-17): keep, re-evaluate or retire this check."
   ],
   [
    93,
    "Live stop-fill slippage vs model",
    "INFO",
    "audit/checks_gate.py:check93",
-   "intraday: n 38 (1 forward since 2026-10-21), median +0.02 % adverse (model 0.02 %); gap: n 7 (0 forward since 2026-10-21), median +0.49 % adverse (model 0.50 %); ratchet log since 2026-10-22: 0 TSL exits matched, 0 not"
+   "intraday: n 40 (3 forward since 2026-10-21), median +0.02 % adverse (model 0.02 %); gap: n 7 (0 forward since 2026-10-21), median +0.49 % adverse (model 0.50 %); ratchet log since 2026-10-22: 0 TSL exits matched, 0 not"
   ],
   [
    77,
    "Posterior history provenance and gap count",
    "INFO",
    "data/apex.db:sector_posterior_history",
-   "13 of 101 NYSE sessions since 2026-05-29 have no posterior row (13%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-07-29, 2026-07-31, 2026-08-03, 2026-08-05, 2026-08-20, 2026-08-21, 2026-08-26, 2026-08-27. Standing level, not an event \u2014 the July\u2013August holes are unadjudicable (no written_at, logs rotated)."
+   "13 of 102 NYSE sessions since 2026-05-29 have no posterior row (13%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-07-29, 2026-07-31, 2026-08-03, 2026-08-05, 2026-08-20, 2026-08-21, 2026-08-26, 2026-08-27. Standing level, not an event \u2014 the July\u2013August holes are unadjudicable (no written_at, logs rotated)."
   ],
   [
    78,
    "PCR history gap count",
    "INFO",
    "data/apex.db:lock4_pcr_history",
-   "45 of 107 NYSE sessions since 2026-05-21 have no PCR rows (42%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-09-01, 2026-09-02, 2026-09-03, 2026-09-10, 2026-09-14, 2026-09-16, 2026-09-17, 2026-09-21. Standing level \u2014 the per-ticker P25 calibration reads a 58%-present sample."
+   "45 of 108 NYSE sessions since 2026-05-21 have no PCR rows (42%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-09-01, 2026-09-02, 2026-09-03, 2026-09-10, 2026-09-14, 2026-09-16, 2026-09-17, 2026-09-21. Standing level \u2014 the per-ticker P25 calibration reads a 58%-present sample."
   ],
   [
    89,
    "live entry recorded at the fill",
    "INFO",
    "data/apex.db:live_trades",
-   "62/63 entries at the fill; |slip| mean 0.38%, largest +2.80% (UNH 2026-07-17), 3 over 1%; excepted: id=43 HON 2026-08-04: recorded order id has no fills (orphan id; case dropped 2026-10-12, Niclas)"
+   "64/65 entries at the fill; |slip| mean 0.37%, largest +2.80% (UNH 2026-07-17), 3 over 1%; excepted: id=43 HON 2026-08-04: recorded order id has no fills (orphan id; case dropped 2026-10-12, Niclas)"
+  ],
+  [
+   65,
+   "posterior saturation monitor",
+   "WARNING",
+   "data/regime_signal_trace.jsonl",
+   "Healthcare: ceiling pin, session 1 \u2014 pre_clamp=0.9593 > 0.95 on 2026-10-22, aggregate=0.6735, allocation=0.6678. prior=0.8630 \u00d7 combined LR 3.74 (dominant lr_ipo=2.4). No term reached LR_WARN_CEIL 10.0: the lift is the product, not one formula. Single session; 2 consecutive escalates, because from a pinned prior only combined LR 2.99 is needed again."
   ],
   [
    67,
    "Industrials composite dilution monitor",
    "INFO",
    "data/apex.db:sector_snapshots",
-   "Industrials avg_score=0.2279 (at 2026-10-22T17:21:27.003668+00:00) below 0.48, and 0.2569 without ETN/PWR/TT: the breach does not come from the additions (they move it -0.0290); removing them would not clear it"
+   "Industrials avg_score=0.2517 (at 2026-10-23T19:51:42.482298+00:00) below 0.48, and 0.2964 without ETN/PWR/TT: the breach does not come from the additions (they move it -0.0447); removing them would not clear it"
   ],
   [
    68,
    "Defense composite dilution monitor",
    "INFO",
    "data/apex.db:sector_snapshots",
-   "Defense avg_score=0.4682 (at 2026-10-22T17:21:27.003668+00:00) below 0.6, and 0.5633 without AXON/HWM: the breach does not come from the additions (they move it -0.0951); removing them would not clear it"
+   "Defense avg_score=0.4778 (at 2026-10-23T19:51:42.482298+00:00) below 0.6, and 0.5636 without AXON/HWM: the breach does not come from the additions (they move it -0.0858); removing them would not clear it"
   ],
   [
    69,
    "Technology composite dilution monitor",
    "INFO",
    "data/apex.db:sector_snapshots",
-   "Technology avg_score=0.3784 (at 2026-10-22T17:21:27.003668+00:00) below 0.51, and 0.4042 without ANET: the breach does not come from the additions (they move it -0.0258); removing them would not clear it"
+   "Technology avg_score=0.3989 (at 2026-10-23T19:51:42.482298+00:00) below 0.51, and 0.4199 without ANET: the breach does not come from the additions (they move it -0.0210); removing them would not clear it"
   ],
   [
    71,
    "entry-floor ceiling sweep",
    "INFO",
    "data/regime_signal_trace.jsonl",
-   "2026-10-21: 3/11 eligible sectors cannot clear the 0.37 entry floor at any posterior (composite must be \u2265 0.3895 = floor/0.95); enterable: ConsumerDisc, Defense, Energy, Healthcare, Homebuilders, RealEstate, Technology, Transportation. Enterable by date (last 30): 3,5,4,4,3,4,5,4,5,5,4,5,4,4,3,4,3,4,4,3,6,8,7,6,5,7,7,5,8,8. Dark: Communication agg=0.3504 ceil_adj=0.3329 dark 10/30d; Industrials agg=0.3041 ceil_adj=0.2889 dark 19/30d; Semiconductors agg=0.2699 ceil_adj=0.2564 dark 11/30d."
+   "2026-10-22: 3/11 eligible sectors cannot clear the 0.37 entry floor at any posterior (composite must be \u2265 0.3895 = floor/0.95); enterable: Communication, ConsumerDisc, Defense, Energy, Healthcare, Homebuilders, RealEstate, Transportation. Enterable by date (last 30): 5,4,4,3,4,5,4,5,5,4,5,4,4,3,4,3,4,4,3,6,8,7,6,5,7,7,5,8,8,8. Dark: Industrials agg=0.2279 ceil_adj=0.2165 dark 19/30d; Semiconductors agg=0.1376 ceil_adj=0.1307 dark 11/30d; Technology agg=0.3784 ceil_adj=0.3595 dark 4/30d."
   ],
   [
    45,
@@ -271,6 +292,6 @@
  "alert_channel": {
   "ok": true,
   "detail": "SMTP login ok as niclas.hammarling@gmail.com via smtp.gmail.com",
-  "checked_at": "2026-10-22T20:34:09+00:00"
+  "checked_at": "2026-10-23T20:35:16+00:00"
  }
 }
