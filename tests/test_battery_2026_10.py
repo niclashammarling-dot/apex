@@ -456,6 +456,9 @@ def test_explain_names_the_one_fix_whose_revert_restores_the_archive(monkeypatch
     assert e["status"] == "explained" and e["fix"] == "A"
     assert e["tried"]["A"]["diff"][u.key()]["only_fixed"] == 1
     assert bt.flips({"toy": verdict}, res)[0]["use"] is True
+    assert bt.flips({"toy": verdict}, res)[0]["attribution_source"] is None
+    src = {"toy:toy rule": {**res["toy:toy rule"], "source": "ablation x.json"}}
+    assert bt.flips({"toy": verdict}, src)[0]["attribution_source"] == "ablation x.json"
     # B also restoring makes it ambiguous; a fix already in the archive commit is not tried
     s.put(bt._ablate(u, {"fb": False}), {"v": False, "trade_log": t(1)})
     assert bt.explain(cell, s, verdict, lambda a, b: False)["toy:toy rule"]["status"].startswith("unexplained: several")
@@ -597,8 +600,23 @@ def test_family_read_applies_holm_to_family_rules_only():
                          bt._rule("e", True, rid="e", kind="primary", p=0.001)]},
          "b": {"IS": {"rules": [bt._rule("u", None, rid="u", kind="family", p=None)]}}}
     f = bt.family_read(v)
-    assert f["m"] == 2 and f["members"]["a:x"]["counts"] and not f["members"]["a:y"]["holm_rejects"]
+    assert f["m"] == 2 and f["members"]["a:x"]["family_test_passes"] and not f["members"]["a:y"]["holm_rejects"]
     assert f["undecided_or_no_p"] == ["b:IS.u"]
+
+
+def test_family_test_passes_is_not_the_hypothesis_verdict():
+    # V1a 2026-10-19: (b) rejected under Holm, (c) failed on the 2022 drawdown. The member must say
+    # which other rules of the arm failed, and must not carry a field that reads as "supported".
+    v = {"h": {"V1a": {"rules": [bt._rule("a", True, rid="a"),
+                                 bt._rule("b", True, rid="b", kind="family", p=0.012),
+                                 bt._rule("c", False, rid="c"),
+                                 bt._rule("r", None, rid="r", kind="reading")]},
+               "V1b": {"rules": [bt._rule("b", True, rid="b", kind="family", p=0.001),
+                                 bt._rule("c", True, rid="c")]}}}
+    m = bt.family_read(v)["members"]
+    assert m["h:V1a.b"]["family_test_passes"] and m["h:V1a.b"]["other_rules_failed"] == ["c"]
+    assert m["h:V1b.b"]["other_rules_failed"] == []
+    assert not {"counts", "own_conditions"} & set(m["h:V1a.b"])
 
 
 def test_bootstrap_circular_p_and_block_length_split():

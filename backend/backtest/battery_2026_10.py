@@ -913,6 +913,7 @@ def flips(verdicts: dict, explained: dict | None = None) -> list[dict]:
         out.append({"cell": cell, "rule": what, "archived": then, "now": now, "archive_commit": commit, "source": src,
                     "explained_by": e["fix"] if e and e["status"] == "explained" else None,
                     "status": e["status"] if e else "unexplained: run --explain " + cell,
+                    "attribution_source": e.get("source") if e else None,
                     "use": bool(e and e["status"] == "explained")})
     return out
 
@@ -1287,35 +1288,42 @@ def read_all(cells: dict[str, Cell], store: Store, outdir: Path, commit: str = "
     return verdicts
 
 
-def _walk_rules(v, path=""):
+def _rule_lists(v, path=""):
+    """(path, rules) for every `rules` list in a verdict: the rules one hypothesis arm is read by."""
     if isinstance(v, dict):
-        if "rule" in v and "kind" in v:
-            yield path, v
+        if isinstance(v.get("rules"), list):
+            yield path, v["rules"]
         for k, x in v.items():
             if k != "rules":
-                yield from _walk_rules(x, f"{path}.{k}" if path else k)
-        for r in v.get("rules", []) if isinstance(v.get("rules"), list) else []:
-            yield from _walk_rules(r, path)
+                yield from _rule_lists(x, f"{path}.{k}" if path else k)
 
 
 def family_read(verdicts: dict) -> dict:
     """Holm over every rule of kind "family" that has a p (an undecided rule has none and is listed
-    apart). A family rule counts only if its own conditions pass and Holm rejects its null."""
+    apart). `family_test_passes` is the family rule alone: its own condition holds and Holm rejects
+    its null. It is not the hypothesis verdict, which also needs the arm's other rules; those that
+    failed are listed beside it (`other_rules_failed`). Renamed 2026-10-24 from `counts` /
+    `own_conditions` (Niclas: a name that promises what the code does not do)."""
     members, undecided = {}, []
     for cell, v in verdicts.items():
         if cell.startswith("_") or not isinstance(v, dict) or "blocked" in v or "incomplete" in v:
             continue
-        for path, r in _walk_rules(v):
-            if r["kind"] != "family":
-                continue
-            key = f"{cell}:{path}.{r['id']}".replace(":.", ":")
-            (members.__setitem__(key, r) if r.get("p") is not None else undecided.append(key))
-    rej = holm({k: r["p"] for k, r in members.items()}) if members else {}
+        for path, rules in _rule_lists(v):
+            for r in rules:
+                if r["kind"] != "family":
+                    continue
+                key = f"{cell}:{path}.{r['id']}".replace(":.", ":")
+                failed = [o["id"] for o in rules if o is not r and o["kind"] != "reading" and o["passed"] is False]
+                (members.__setitem__(key, (r, failed)) if r.get("p") is not None else undecided.append(key))
+    rej = holm({k: r["p"] for k, (r, _) in members.items()}) if members else {}
     return {"alpha": FAMILY_ALPHA, "m": len(members),
-            "members": {k: {"p": r["p"], "holm_rejects": rej[k], "own_conditions": r["passed"],
-                            "counts": bool(rej[k] and r["passed"])} for k, r in members.items()},
+            "members": {k: {"p": r["p"], "holm_rejects": rej[k], "family_rule_passed": r["passed"],
+                            "family_test_passes": bool(rej[k] and r["passed"]),
+                            "other_rules_failed": failed} for k, (r, failed) in members.items()},
             "undecided_or_no_p": undecided,
-            "read": "Holm (FWER <= alpha under any dependence). Edge is primary and outside; robustness gates outside."}
+            "read": ("Holm (FWER <= alpha under any dependence). Edge is primary and outside; robustness gates "
+                     "outside. family_test_passes is not the hypothesis verdict: an arm with other_rules_failed "
+                     "is not supported.")}
 
 
 def git_is_ancestor(a: str, b: str) -> bool:
