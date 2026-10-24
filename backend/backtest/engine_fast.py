@@ -98,7 +98,9 @@ def run(
     profit_lock_trigger_pct: float | None = None,
     profit_lock_trail_pct:   float | None = None,
     atr_exits:          bool        = False,
-    atr_exit_mult:      tuple[float, float] = (2.0, 1.0),   # (TP, SL) x atr_pct under atr_exits; T8's ATRSYM uses (k, k)
+    atr_exit_mult:      tuple[float | None, float | None] = (2.0, 1.0),   # (TP, SL) x atr_pct under atr_exits; T8's ATRSYM uses (k, k); None = that leg stays fixed (2026-10-24)
+    atr_lock_mult:      tuple[float, float] | None = None,   # (trigger, trail) x atr_pct per trade under atr_exits; None = the global lock (2026-10-24, L3+M4 card)
+    atr_sl_cap:         float | None = None,                 # ceiling on the ATR-scaled stop; None = no ceiling (2026-10-24)
     earnings_filter_days: int | None = None,
     time_stop_days:     int   | None = None,
     lock1_threshold:    float | None = None,
@@ -448,10 +450,15 @@ def run(
             shares = amount / entry_price
             balance -= amount
 
+            trade_lock: dict = {}
             if atr_exits and sig.get("atr_pct", 0) > 0:
                 atr = sig["atr_pct"]
-                trade_tp = atr * atr_exit_mult[0]
-                trade_sl = atr * atr_exit_mult[1]
+                trade_tp = tp if atr_exit_mult[0] is None else atr * atr_exit_mult[0]
+                trade_sl = sl if atr_exit_mult[1] is None else atr * atr_exit_mult[1]
+                if atr_sl_cap is not None and atr_exit_mult[1] is not None:
+                    trade_sl = min(trade_sl, atr_sl_cap)
+                if atr_lock_mult is not None:
+                    trade_lock = {"pl_trig": atr * atr_lock_mult[0], "pl_trail": atr * atr_lock_mult[1]}
             else:
                 trade_tp = tp
                 trade_sl = sl
@@ -467,6 +474,7 @@ def run(
                 "signal_score": sig["signal_score"],
                 "tp":           trade_tp,
                 "sl":           trade_sl,
+                **trade_lock,
             }
             open_trades.append(trade)
             open_tickers.add(sig["ticker"])
@@ -1096,6 +1104,9 @@ def _check_exits_fast(
 
         eff_tp = trade.get("tp", take_profit_pct)
         eff_sl = trade.get("sl", stop_loss_pct)
+        # Per-trade lock (atr_lock_mult, 2026-10-24); a trade without one uses the call's lock.
+        pl_trig = trade.get("pl_trig", profit_lock_trigger_pct)
+        pl_trail = trade.get("pl_trail", profit_lock_trail_pct)
 
         # ── Intraday bracket: stop leg R1-R7, take-profit leg R8 (EXIT_PARITY.md)
         # Tested BEFORE the close-based peak update on purpose: R4 measures the
@@ -1107,7 +1118,7 @@ def _check_exits_fast(
             hit = check_intraday_bracket(
                 trade, ohlc_cache.get((trade["ticker"], today_str)),
                 eff_sl, eff_tp, trailing_stop_pct,
-                profit_lock_trigger_pct, profit_lock_trail_pct,
+                pl_trig, pl_trail,
                 today_str=today_str, stats=parity_stats,
                 ratchet_from_high=ratchet_from_high,
                 **({} if stop_slip is None else {"stop_slip": stop_slip}),
@@ -1143,8 +1154,8 @@ def _check_exits_fast(
         # the pre-fix trailing_stop_pct-replaces-SL behaviour this function
         # carried until 2026-08-18.
         ratchet_active = bool(
-            profit_lock_trigger_pct and profit_lock_trail_pct
-            and peak_gain >= profit_lock_trigger_pct
+            pl_trig and pl_trail
+            and peak_gain >= pl_trig
         )
 
         # Live order — wallet.py::check_exits is TP -> SL -> profit-lock trail
@@ -1156,13 +1167,13 @@ def _check_exits_fast(
         # shape as CHECK 65's pin/divergence arms.
         legacy_tsl = (
             trailing_stop_pct is not None
-            and not (profit_lock_trigger_pct and profit_lock_trail_pct)
+            and not (pl_trig and pl_trail)
         )
         if pnl_pct >= eff_tp:
             reason, outcome = "TP", "WIN"
         elif pnl_pct <= -eff_sl:
             reason, outcome = "SL", "LOSS"
-        elif ratchet_active and (peak - current) / peak >= profit_lock_trail_pct:
+        elif ratchet_active and (peak - current) / peak >= pl_trail:
             reason, outcome = "TSL", "WIN" if pnl_pct >= 0 else "LOSS"
         elif legacy_tsl and (peak - current) / peak >= trailing_stop_pct:
             reason, outcome = "TSL", "WIN" if pnl_pct >= 0 else "LOSS"
