@@ -15,6 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history: tests/test_battery_2026_10.py checks that every FIXES commit is an
+          # ancestor of HEAD and not of the archive commit. The default depth-1 checkout has
+          # neither, and the test came with the port-regime merge (0964e7e); runs 187-189 red
+          # (2026-10-24).
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
