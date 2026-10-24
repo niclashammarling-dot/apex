@@ -98,6 +98,27 @@ def _summary(res: dict) -> dict:
     return json.loads(json.dumps({**{k: res[k] for k in keep}, "trade_log": res["trade_log"]}))
 
 
+# The golden was written on one machine; the CI runner computes some prices and share counts
+# one ulp apart (2026-10-24, runs 187-190: 53.43803360546153 against ...52, same 49 trades).
+# Every key, string, int and trade must match exactly; a float may differ by rounding only.
+GOLDEN_REL = 1e-9
+
+
+def matches_golden(got, want, path="") -> list[str]:
+    """Paths where got differs from want beyond float rounding (empty = a match)."""
+    if isinstance(want, dict):
+        if not isinstance(got, dict) or set(got) != set(want):
+            return [f"{path}: keys {sorted(got) if isinstance(got, dict) else type(got)} != {sorted(want)}"]
+        return [d for k in want for d in matches_golden(got[k], want[k], f"{path}.{k}")]
+    if isinstance(want, list):
+        if not isinstance(got, list) or len(got) != len(want):
+            return [f"{path}: length {len(got) if isinstance(got, list) else type(got)} != {len(want)}"]
+        return [d for i, (g, w) in enumerate(zip(got, want)) for d in matches_golden(g, w, f"{path}[{i}]")]
+    if isinstance(want, float) and isinstance(got, (int, float)) and not isinstance(got, bool):
+        return [] if math.isclose(got, want, rel_tol=GOLDEN_REL, abs_tol=1e-12) else [f"{path}: {got} != {want}"]
+    return [] if got == want and type(got) is type(want) else [f"{path}: {got!r} != {want!r}"]
+
+
 def test_flag_off_reproduces_the_parent_engine(monkeypatch):
     # The parent had no macro blackout (rows 7/10 arrived 2026-10-17); clear it here.
     monkeypatch.setattr(ef, "macro_status", lambda _d: ("clear", None))
@@ -108,4 +129,13 @@ def test_flag_off_reproduces_the_parent_engine(monkeypatch):
         pytest.skip("golden written")
     golden = json.loads(GOLDEN.read_text())
     assert out["total_trades"] == golden["total_trades"] > 10      # the window trades
-    assert out == golden
+    assert matches_golden(out, golden) == []
+
+
+def test_matches_golden_tolerates_rounding_only():
+    want = {"n": 3, "r": "TP", "log": [{"p": 53.43803360546152, "q": 8.648190032897801}]}
+    ulp = {"n": 3, "r": "TP", "log": [{"p": 53.43803360546153, "q": 8.6481900328978}]}   # the CI values
+    assert matches_golden(ulp, want) == []
+    assert matches_golden({**ulp, "log": [{"p": 53.4381, "q": 8.648190032897801}]}, want)    # a real move
+    assert matches_golden({**ulp, "n": 4}, want) and matches_golden({**ulp, "r": "SL"}, want)
+    assert matches_golden({**ulp, "log": []}, want) and matches_golden({"n": 3, "r": "TP"}, want)

@@ -292,7 +292,7 @@ def test_engine_sharpe_slices_the_same_way():
 
 # ── Fix reverts (7C attribution; 2026-10-19) ──────────────────────────────────
 
-from tests.test_engine_flag_off_parity import GOLDEN, END, START, _summary   # noqa: E402
+from tests.test_engine_flag_off_parity import GOLDEN, END, START, _summary, matches_golden   # noqa: E402
 
 
 def _ef(pre, **kw):
@@ -304,7 +304,7 @@ def test_every_fix_reverted_is_the_parent_engine():
     # the cf3db17 golden, without the macro monkeypatch the golden test needs.
     import json
     revert = {k: v for _, kw in bt.FIXES.values() for k, v in kw.items()}
-    assert _summary(_ef(synthetic_precomputed(), **revert)) == json.loads(GOLDEN.read_text())
+    assert matches_golden(_summary(_ef(synthetic_precomputed(), **revert)), json.loads(GOLDEN.read_text())) == []
 
 
 def test_macro_revert_enters_on_hard_block_days():
