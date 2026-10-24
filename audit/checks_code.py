@@ -902,7 +902,9 @@ CHECK76_ACCEPTED_FAST_ONLY = {"precomputed", "regime_layer",   # regime_layer: r
                               # engine.py's fixed rule, inert unless atr_exits is set (2026-10-21)
                               "atr_exit_mult",
                               # L3+M4 card: per-trade ATR lock and an ATR stop ceiling, off by default (2026-10-24)
-                              "atr_lock_mult", "atr_sl_cap"}
+                              "atr_lock_mult", "atr_sl_cap",
+                              # Candidate ledger: rows per Lock 1 candidate before penalties, off by default (2026-10-24)
+                              "candidate_ledger"}
 
 # Layer 2 — production components documented ABSENT from engine_fast.py
 # (PRODUCTION_GAP.md rows). If a symbol appears, the row is stale, not wrong —

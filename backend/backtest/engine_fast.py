@@ -130,6 +130,7 @@ def run(
     regime_layer:       bool        = False,
     row2_neutral:       bool        = False,   # 3B: L2 scored with neutral weights; allocation, caps, multiplier unchanged
     random_entries:     dict  | None = None,
+    candidate_ledger:   list  | None = None,   # candidate ledger (2026-10-24): one row per Lock 1 candidate, before penalties; the caller's list is filled
     # Reverts of the fixes since the 10-17 archive, for the battery's flip attribution (7C,
     # 2026-10-19); the defaults are the fixed engine, False the code before the fix.
     vix_block_inclusive: bool       = True,    # False: `vix > threshold`, before 7cfbb8b
@@ -216,7 +217,7 @@ def run(
 
     # Row 11 (2026-10-18): the sector ETF return live's Lock 4 reads, per ETF and day.
     etf_ret_live: dict[tuple[str, str], float | None] = {}
-    if etf_negative_penalty:
+    if etf_negative_penalty or candidate_ledger is not None:
         for _etf in set(sector_etf.values()):
             if _etf and _etf in raw_data.columns.get_level_values(0):
                 _closes = raw_data[_etf]["Close"]
@@ -329,6 +330,25 @@ def run(
         )
         if rnd is not None:
             rnd.shuffle(candidates)
+        # Candidate ledger (2026-10-24, INDEX ledger line): every candidate that passed Lock 1's
+        # threshold and allocation, before the macro, VIX, ETF and earnings rules act on it.
+        if candidate_ledger is not None and rnd is None:
+            _md = macro_status(today)[0]
+            _vx = vix_cache.get(today_str)
+            _held = {t["ticker"] for t in open_trades}
+            for sig in candidates:
+                _etf = sector_etf.get(sig["sector"], "")
+                candidate_ledger.append({
+                    "date": today_str, "ticker": sig["ticker"], "sector": sig["sector"],
+                    "score": round(sig["signal_score"], 4),
+                    "threshold": max(l1, SECTOR_THRESHOLD_FLOORS.get(sig["sector"], 0.0)),
+                    "macro_day": _md, "vix": _vx, "etf_ret": etf_ret_live.get((_etf, today_str)),
+                    "earnings_near": (any(today <= ed <= today + timedelta(days=earnings_filter_days)
+                                          for ed in earnings_dates.get(sig["ticker"], set()))
+                                      if earnings_filter_days is not None else None),
+                    "held": sig["ticker"] in _held,
+                    "cooloff": sl_cooldown.get(sig["ticker"], date.min) > today,
+                })
         # Rows 7 / 10 (2026-10-17): Lock 1 B2's macro blackout, as engine.py and live —
         # FOMC −2 days through the decision day and CPI/NFP release days block entries;
         # the eve of CPI/NFP takes the pre-event penalty and must clear the threshold again.

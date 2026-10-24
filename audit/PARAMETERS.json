@@ -1024,6 +1024,35 @@
       "tier": "ops",
       "source": "Vault raw/notes/2026-10/2026-10-24-apex-exits-l3-m4-card.md (L3+M4 card, vault 0d5d64ff, written before the code): ladder._engine's initial_balance (10,000), the base of realised equity. L3 probe only (2026-10-24): no live gate, size or exit reads it.",
       "date": "2026-10-24"
+    },
+    "backend/backtest/candidate_ledger_2026_10.py::LIVE_EXIT": {
+      "value": {
+        "tp": 0.06,
+        "sl": 0.06,
+        "pl": [
+          0.04,
+          0.01
+        ],
+        "tdays": 25
+      },
+      "kind": "structural",
+      "tier": "ops",
+      "source": "INDEX 'APEX candidate ledger' (scoped 2026-10-11; built 2026-10-24 in engine_fast, Niclas: \"placeringen måste bli engine fast\"). Ledger builder only: no live gate, size or exit reads it. Live's exit (data/live_config.json: TP/SL 6 %, lock 4/1 %, 25 days), the outcome every ledger row is simulated under.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/candidate_ledger_2026_10.py::MACRO_P": {
+      "value": 0.05,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "INDEX 'APEX candidate ledger' (scoped 2026-10-11; built 2026-10-24 in engine_fast, Niclas: \"placeringen måste bli engine fast\"). Ledger builder only: no live gate, size or exit reads it. Live's macro_pre_event_penalty (0.05); the band read is score in [threshold, threshold / (1 - p)) on pre-event days.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/candidate_ledger_2026_10.py::VIX_LEVEL": {
+      "value": 30.0,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "INDEX 'APEX candidate ledger' (scoped 2026-10-11; built 2026-10-24 in engine_fast, Niclas: \"placeringen måste bli engine fast\"). Ledger builder only: no live gate, size or exit reads it. Live's vix_threshold (30); the class split for the S14 R1 card.",
+      "date": "2026-10-24"
     }
   }
 }
