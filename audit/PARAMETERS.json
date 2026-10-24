@@ -719,6 +719,48 @@
       "tier": "ops",
       "source": "Vault raw/notes/2026-10/2026-10-24-apex-s20-volatility-l0-card.md (S20 L0 card, vault 0123140a, written before the code): reproducibility: the RNG seed, the card's date (T1 used its own date the same way). S20 probe only (2026-10-24): no live gate, size or exit reads it.",
       "date": "2026-10-24"
+    },
+    "backend/backtest/exits_atr_2026_10.py::MEDIAN_ATR_IS_PICKS": {
+      "value": 0.023778385447628107,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-atr-scaled-exits-card.md (ATR exits card, vault 1b087dd0, amendment f5021a66, written before the code): card item 3: the IS picks' median atr_pct, from T8's logged ATRSYM k 2.5233 (= 6 % / median), computed by T8 before any of its arms were read; every twin multiple is leg / this. ATR exits probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/exits_atr_2026_10.py::COST_GATE_BP": {
+      "value": 10,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-atr-scaled-exits-card.md (ATR exits card, vault 1b087dd0, amendment f5021a66, written before the code): card item 9(d): T8 amendment E's 10 bp per round trip. ATR exits probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/exits_atr_2026_10.py::CONTROL_NOISE": {
+      "value": 0.5,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-atr-scaled-exits-card.md (ATR exits card, vault 1b087dd0, amendment f5021a66, written before the code): card amendment: synthetic-twin noise sd = 0.5 x the static twin's per-trade sd, chosen (larger than a paired exit difference usually is). ATR exits probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/exits_atr_2026_10.py::CONTROL_MULT": {
+      "value": 4.0,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-atr-scaled-exits-card.md (ATR exits card, vault 1b087dd0, amendment f5021a66, written before the code): card amendment: delta+ = 4 x the delta=0 arm's monthly SE, chosen so the positive control is expected to pass. ATR exits probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/exits_atr_2026_10.py::N_ZERO": {
+      "value": 20,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-atr-scaled-exits-card.md (ATR exits card, vault 1b087dd0, amendment f5021a66, written before the code): card item 7: the delta=0 synthetic twin is drawn 20 times for its pass rate. ATR exits probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/exits_atr_2026_10.py::SEED": {
+      "value": 20261024,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-atr-scaled-exits-card.md (ATR exits card, vault 1b087dd0, amendment f5021a66, written before the code): reproducibility: RNG seed, the card's date. ATR exits probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
     }
   }
 }
