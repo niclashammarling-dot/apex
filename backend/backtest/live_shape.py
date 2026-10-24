@@ -134,3 +134,90 @@ def describe_varied(entry: dict) -> str:
         return "off" if v is None or v is False else "on" if v is True else str(v)
     axes = ", ".join(f"{a} {'/'.join(fmt(v) for v in vals)}" for a, vals in entry["varied"].items())
     return f"same trades for {entry['combos']} combos: {axes}"
+
+
+# Daily loss cap as a fraction of the starting balance: live $500 / $10,000 and demo
+# $100 / $2,000 are both 5 % (Niclas 2026-10-17). Equity-based is next Saturday's question.
+DAILY_LOSS_CAP_PCT = 0.05
+
+
+def live_cooloff_days() -> tuple[int, int]:
+    """(sl_cooldown_days, tp_cooldown_days) for both engines, from live config
+    (2026-10-17, PRODUCTION_GAP row 23). Live blocks re-entry by hours
+    (`exit_cooloff_hours` after SL/loss/expiry, `tp_cooloff_hours` after a TP/TSL
+    win); the engines block by calendar day, so hours round UP to whole days
+    (24 → 1, 168 → 7). Until this, both engines defaulted to 5 / 0 — every
+    optimizer and walk-forward run since June used those."""
+    import math
+    from backend.live_config import get_live_config
+    cfg = get_live_config()
+    return (math.ceil(cfg["exit_cooloff_hours"] / 24), math.ceil(cfg["tp_cooloff_hours"] / 24))
+
+
+def reentry_cooloff_days(exit_reason: str, outcome: str, sl_days: int, tp_days: int) -> int:
+    """Days a ticker is blocked from re-entry after this exit, as live picks the window
+    (`db.get_recently_exited_live_tickers`, 2026-10-18, PRODUCTION_GAP row 23): only a
+    TP or TSL *win* gets `tp_cooloff_hours`; every other exit (SL, a TSL loss, TIME /
+    EXPIRED, REGIME) gets `exit_cooloff_hours`. Until this, both engines set no cooloff
+    after a TIME exit, and gave a TSL win the SL window when tp_days was 0.
+    END_OF_BACKTEST is not an exit live has: 0."""
+    if exit_reason == "END_OF_BACKTEST":
+        return 0
+    return tp_days if (exit_reason in ("TP", "TSL") and outcome == "WIN") else sl_days
+
+
+def reentry_cooloff_days_before_row23(exit_reason: str, outcome: str, sl_days: int, tp_days: int) -> int:
+    """The window both engines set before 2026-10-18 (6f3921d), kept only so the battery can
+    revert row 23 for flip attribution: a TP or TSL win gets tp_days when that is > 0; any
+    other SL or TSL exit, and a TSL win when tp_days is 0, gets sl_days; TIME gets none."""
+    if (exit_reason == "TP" or (exit_reason == "TSL" and outcome == "WIN")) and tp_days > 0:
+        return tp_days
+    return sl_days if exit_reason in ("SL", "TSL") else 0
+
+
+def etf_return_as_live(closes, today) -> float | None:
+    """The sector ETF return live's Lock 4 reads (2026-10-18, PRODUCTION_GAP row 11):
+    `lock4_leading` downloads `period="8d"` (8 daily rows, measured 10-18) and takes
+    last / first - 1, so its "5d" return spans 7 trading-day intervals; fewer than 5
+    rows is an error there (no penalty). `closes` is the ETF's Close series; the
+    engine evaluates at today's close where live reads today's bar in progress.
+    engine.py used 5 intervals until this."""
+    import pandas as pd
+    s = closes.dropna()
+    s = s[s.index <= pd.Timestamp(today)].tail(8)
+    if len(s) < 5:
+        return None
+    return float(s.iloc[-1] / s.iloc[0]) - 1
+
+
+def etf_penalty_fails(score: float, etf_ret: float | None, penalty: float | None,
+                      floor_pct: float, threshold: float) -> bool:
+    """Live's ETF negative penalty (`chain.py:156-187`): when the sector ETF return,
+    in percent rounded to 2 decimals as Lock 4 reports it, is below `floor_pct`
+    (live -1.0), the score times (1 - penalty) must still clear the sector threshold
+    or the ticker is filtered. It gates only: live's final_score is Lock 4's or
+    Lock 5's, so the penalised score is not carried on. None or 0 is off (live:
+    `if etf_negative_penalty > 0`)."""
+    if not penalty or etf_ret is None or round(etf_ret * 100, 2) >= floor_pct:
+        return False
+    return score * (1.0 - penalty) < threshold
+
+
+def overflow_admits(score: float, open_count: int, max_positions: int,
+                    base_threshold: float, increment: float) -> bool:
+    """Live's portfolio roof (2026-10-18, PRODUCTION_GAP row 14; `gate_runner_live.py`
+    566-627, `config.py` 115-118 "No hard cap"): below `max_positions` every candidate
+    is admitted; at or above it, slot n over the roof needs the raw signal score to
+    clear base_threshold x (1 + n x increment), rounded to 4 places as live does. A
+    rejected candidate does not stop the cycle; the next one is tried. increment
+    math.inf is the engines' hard stop at max_positions (before 2026-10-18)."""
+    if open_count < max_positions:
+        return True
+    level = open_count - max_positions + 1
+    return score >= round(base_threshold * (1 + level * increment), 4)
+
+
+def live_overflow_increment() -> float:
+    """`overflow_quant_increment` from live config (live 0.05)."""
+    from backend.live_config import get_live_config
+    return float(get_live_config()["overflow_quant_increment"])

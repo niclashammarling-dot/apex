@@ -11,39 +11,7 @@ import pandas as pd
 
 import backend.backtest.engine as se
 import backend.backtest.engine_fast as ef
-
-# Master copy of port-regime's tests/test_engine_flag_off_parity.py helpers (cherry-pick of b28f509,
-# 2026-10-21; that module is port-regime only). Drop this copy at the merge.
-UNIVERSE = {
-    "Technology": (["AAA", "AAB", "AAC", "AAD"], "XTK", 0.0012),
-    "Energy":     (["BBA", "BBB", "BBC", "BBD"], "XEN", -0.0004),
-    "Healthcare": (["CCA", "CCB", "CCC", "CCD"], "XHC", 0.0004),
-}
-START, END = date(2025, 3, 3), date(2025, 6, 27)
-
-
-def synthetic_raw(seed: int = 17) -> pd.DataFrame:
-    rng   = np.random.default_rng(seed)
-    index = pd.bdate_range("2024-09-02", END.isoformat())
-    cols  = {}
-
-    def bars(drift, vol, base):
-        ret   = rng.normal(drift, vol, len(index))
-        close = base * np.exp(np.cumsum(ret))
-        opn   = close * np.exp(rng.normal(0, vol / 3, len(index)))
-        high  = np.maximum(opn, close) * (1 + np.abs(rng.normal(0, vol / 2, len(index))))
-        low   = np.minimum(opn, close) * (1 - np.abs(rng.normal(0, vol / 2, len(index))))
-        volu  = rng.integers(800_000, 1_600_000, len(index)).astype(float)
-        return {"Open": opn, "High": high, "Low": low, "Close": close, "Volume": volu}
-
-    for sector, (tickers, etf, drift) in UNIVERSE.items():
-        for t in tickers + [etf]:
-            for k, v in bars(drift, 0.018, 50 + 10 * rng.random()).items():
-                cols[(t, k)] = v
-    for t, drift, vol, base in (("SPY", 0.0004, 0.010, 400.0), ("^VIX", 0.0, 0.04, 18.0)):
-        for k, v in bars(drift, vol, base).items():
-            cols[(t, k)] = v
-    return pd.DataFrame(cols, index=index)
+from tests.test_engine_flag_off_parity import UNIVERSE, synthetic_raw
 
 HOLIDAY = pd.Timestamp("2025-05-26")     # Memorial Day 2025, not in the bdate index… yet
 

@@ -883,19 +883,29 @@ def check74():
 # Layer 1 — run() parameters present in exactly one engine. Adding a parameter to
 # one engine without the other is a new divergence and must be recorded here
 # and in PRODUCTION_GAP.md before this list is extended.
-CHECK76_ACCEPTED_SLOW_ONLY = {"etf_negative_floor", "etf_negative_penalty",
-                             "macro_hard_block", "macro_pre_event_penalty"}
-CHECK76_ACCEPTED_FAST_ONLY = {"precomputed"}
+CHECK76_ACCEPTED_SLOW_ONLY: set[str] = set()
+# etf_negative_floor / etf_negative_penalty left this list 2026-10-18: engine_fast has row 11.
+# macro_hard_block / macro_pre_event_penalty left this list 2026-10-17: engine_fast has rows 7/10.
+CHECK76_ACCEPTED_FAST_ONLY = {"precomputed", "regime_layer",   # regime_layer: rows 2/5/20/21, off by default (2026-10-17)
+                              "random_entries",                  # RND placebo for the profit read, off by default (2026-10-17)
+                              "kelly_factor",                    # H-V1 VIX sizing experiment, off by default (2026-10-17)
+                              "row2_neutral",                    # 3B: L2 on neutral weights under the layer, off by default (2026-10-19)
+                              # Reverts of fixes since the 10-17 archive for the battery's flip attribution (7C);
+                              # default True is the fixed engine, as engine.py (2026-10-19)
+                              "vix_block_inclusive", "macro_blackout", "cooloff_per_exit",
+                              # Size cell: fixed fraction and per-day book multiplier, off by default (2026-10-19)
+                              "size_fixed", "exposure_factor",
+                              # T5 sizing without the score: fixed dollars and a random fraction, off by default (2026-10-20)
+                              "size_usd", "size_draw",
+                              # T8 ATRSYM: (TP, SL) multiples of atr_pct under atr_exits; default (2, 1) is
+                              # engine.py's fixed rule, inert unless atr_exits is set (2026-10-21)
+                              "atr_exit_mult"}
 
 # Layer 2 — production components documented ABSENT from engine_fast.py
 # (PRODUCTION_GAP.md rows). If a symbol appears, the row is stale, not wrong —
 # update the inventory, then this list.
 CHECK76_ABSENT_FROM_FAST = {
-    "row 2/5/20/21 RegimeBayes":  r"regime_bayes|RegimeBayes",
-    "row 7/10 macro calendar":    r"_macro_status|_FOMC_DATES|macro_hard_block",
-    "row 11 ETF negative penalty": r"etf_negative_penalty",
     "row 13 watchlist discount":  r"watchlist",
-    "row 14 overflow slots":      r"overflow",
 }
 
 # Layer 3 — behavioural: both engines over one fixed window with the documented
@@ -971,16 +981,19 @@ def check76():
         # this layer. The slow engine's downloader is patched to return the
         # fast engine's frame so the comparison is code-only.
         pre = fast_e.precompute(*CHECK76_WINDOW)
-        _orig_dl, _orig_macro = slow_e._download_all, slow_e._macro_status
+        _orig_dl = slow_e._download_all
         slow_e._download_all = lambda *_a, **_k: pre["raw_data"]
-        # Neutralise the documented, unconditional slow-only divergence (row 7):
-        # macro calendar returns "clear" for every day of the parity run.
-        slow_e._macro_status = lambda _d: "clear"
+        # Row 11 is compared at live's values (2026-10-18); off by default in both engines.
+        from backend.live_config import get_live_config
+        _lc = get_live_config()
+        etf_kw = dict(etf_negative_penalty=_lc["etf_negative_penalty"], etf_negative_floor=_lc["etf_negative_floor"])
+        # Row 7 is no longer neutralised (2026-10-17): both engines read
+        # backend/macro_calendar.py, so the macro blackout is compared, not removed.
         try:
-            rs = slow_e.run(*CHECK76_WINDOW)
+            rs = slow_e.run(*CHECK76_WINDOW, **etf_kw)
         finally:
-            slow_e._download_all, slow_e._macro_status = _orig_dl, _orig_macro
-        rf = fast_e.run(*CHECK76_WINDOW, precomputed=pre)
+            slow_e._download_all = _orig_dl
+        rf = fast_e.run(*CHECK76_WINDOW, precomputed=pre, **etf_kw)
     except Exception as e:
         flag(76, name, "WARNING", "backend/backtest/engine.py", f"parity run failed: {e} — layer 3 did not evaluate")
         return

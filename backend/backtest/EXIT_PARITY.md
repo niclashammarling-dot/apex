@@ -167,6 +167,87 @@ but any later sweep writing a cache file would silently swap the OHLC source.
 High is already present in the cache (all five OHLCV fields are), so the R4
 ratchet needs no new download.
 
+## R7 — Stop slippage, measured on live fills (2026-10-17)
+
+A live stop leg is a market order once triggered, so it fills below the price R2
+models. Measured on the Alpaca paper account, 44 filled sell-stop legs
+2026-07-07..10-16 (`GET /v2/orders`, status closed, nested), each fill against the
+engine's model for the same bar: the stop price, or the open when the open was at or
+below the stop and the fill came in the first minutes (a gap through the resting
+stop). Fills later in a day whose open was below the stop are intraday triggers: the
+stop was placed or ratcheted after the open, which the engine's bar-start model does
+not see.
+
+    intraday trigger   n 37   median -0.02 %   mean +0.05 %   min -0.37 %   max +1.13 %
+    gap at the open    n  7   median -0.50 %   mean -0.13 %   min -0.74 %   max +1.08 %
+
+Modelled as the median, adverse side only: `STOP_SLIP_INTRADAY_PCT` 0.0002,
+`STOP_SLIP_GAP_PCT` 0.005 (`exit_rules.py`), applied to the R2 fill. `stop_slip=(0, 0)`
+in either engine's `run()` is the earlier behaviour. n is thin (7 gaps); review
+2026-10-31. Fees and commission are not modelled (Niclas 10-17: negligible; $1.19
+measured since 07-07). Targets are out of scope here, see the next section: R7 is a
+per-leg measurement, so it does not carry the one-sided asymmetry into a calibration.
+
+## R8 — The take-profit leg, intraday (built 2026-10-18)
+
+PRODUCTION_GAP row 24b; the rules are the ones written below in "Rules for symmetric
+TP, when it is built", implemented in `exit_rules.check_intraday_bracket` for both
+engines:
+
+- The limit at `entry × (1 + tp)` fills when `high >= limit`, at the limit. A gap up
+  (`open >= limit`) fills at the open. No slippage: R7 is a market-order effect, and a
+  limit fills at the limit or better. Live never moves the TP leg
+  (`_maybe_ratchet_bracket_sl` PATCHes the stop only).
+- The open decides a bar when it lies beyond either leg. A bar that touches both legs
+  from an open between them is the ambiguous case: `tp_first=False` (shipped) books the
+  stop, the floor; `tp_first=True` the TP, the ceiling. `ParityStats.both_touched_ambiguous`
+  counts it; `tp_missed_by_close` counts TP fills on bars that closed below the limit.
+- `intraday_tp=False` is the pre-R8 model. The exit-parity fixture (41 stop exits,
+  certified 09-25) is the stop-only reference and is replayed with it; under R8, 3 of
+  the 41 become earlier TP fills (COP 03-23, HAL 03-26, QCOM 05-22). R8's own test is
+  `tests/test_exit_rules_take_profit.py`; the engine-level case fails on the parent
+  (`c2317cc`, no exit in either engine).
+
+Before/after on the CHECK 76 window 2026-03-02 → 05-29, `engine_fast.run` defaults
+(one run each, a compounding counterfactual, below any noise floor; recorded, not read):
+
+    stop-only (pre-R8)  40 trades  final 10610.22  return 6.1 %  maxDD 2.7 %  win 57.5 %  TP 20  SL 16  EOB 4
+    R8 floor (shipped)  44 trades  final 10339.85  return 3.4 %  maxDD 3.5 %  win 54.5 %  TP 21  SL 19  EOB 4
+      TP 17 intraday + 4 gap, 6 invisible to the close-only model; both-touched 0
+    R8 ceiling          identical to the floor (no bar touched both legs on this window)
+
+R8 also lowers a TP's fill where the close-only model booked a close above the limit:
+the limit fills at the limit.
+
+## R9 — An open trade's peak carries the bar's high (built 2026-10-20)
+
+Found 2026-10-20 comparing the live record with the engine on the same entries: the
+engine lifted `peak_price` only to the close, while live ratchets off its polled maximum
+(`EXIT_CHECK_INTERVAL = 5`, about 78 polls a session). Measured on the 57 trades of the
+canonical live sample (`db.live_sample_rows`): live's stored peak sat a median 0.26 pts
+below the highest high over the trade and 1.6 pts above the highest close; it reached the
+4 % profit-lock trigger on 60 % of trades, the highs on 61 %, the closes on 17.5 %. The
+close-based peak armed the lock on fewer than a third of the trades live armed it on.
+
+**Rule: test first, then carry the high.** After the bar's exit tests, a trade still open
+takes `max(peak, high)` as its peak (`exit_rules.lift_peak_to_high`). R4 is unchanged: the
+same bar's stop is still tested against the peak as it stood at the start of the bar, so
+a bar that rallies and reverses inside one session books nothing from its own high. The
+next bar's resting stop is priced off the high, which is what live's polls had reached by
+the close. Residual bias: optimistic by the median 0.26 pts that polls miss the exact high.
+
+**Three settings bracket live** (added 2026-10-20, ruling):
+- `peak_from_high=False`: the close, the floor;
+- `peak_haircut=0`: the high, the ceiling (the default);
+- `peak_haircut=POLLED_PEAK_GAP` (0.0026, measured): the high less the median distance live's polled peak fell short of it.
+
+If a verdict is the same under all three, the lock's modelling isn't driving it. `ladder_2026_10 --peak close|high|polled` selects the model for every simulated exit.
+
+`peak_from_high=False` is the pre-R9 model. The exit-parity fixture (41 stop exits, a
+legacy trailing stop) was certified on it and is replayed with it; the engine golden
+(`test_engine_flag_off_parity`) likewise. R9's own test is
+`tests/test_exit_rules_peak_high.py`.
+
 ## The model is one-sided — targets are still close-only (found 2026-09-25, after the port)
 
 Checking Niclas's "TP on close versus intraday" question before trusting the

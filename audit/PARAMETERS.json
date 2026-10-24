@@ -86,6 +86,594 @@
       "date": "2026-10-20",
       "review": "2026-11-20",
       "source": "CHECK 93 (audit/CHECKS.md row 93; ruling Niclas 2026-10-20). WARNING distance between the live median and the model: about the R7 intraday range half-width (-0.37..+1.13 %, so 0.25 pts) and the gap median itself (0.5 pts). Review at the first monthly read against the live spread."
+    },
+    "backend/backtest/engine_fast.py::REGIME_IPO_NEUTRAL_SHARE": {
+      "value": 0.05,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Any share in (0, 0.1) gives LR 1.0 under _lr_ipo_cluster's int(share * 10) step, for every sector count; 1/n does not (n <= 10 gives 1.2). The engine has no historical EDGAR feed, so IPO is neutral (floor_reconstruction.py precedent). Backtest-only: no live path reads it.",
+      "date": "2026-10-17"
+    },
+    "backend/backtest/engine_fast.py::REGIME_WARMUP_MIN_SESSIONS": {
+      "value": 30,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "Ruled 2026-10-16 (engine port pre-work, design B): warm-up >= 30 sessions at decay 0.90, cold-start residual 0.9^30 ~ 4 %. A refusal floor: the timeline raises below it rather than run cold. Backtest-only.",
+      "date": "2026-10-17",
+      "review": "2026-10-31"
+    },
+    "backend/backtest/profit_metrics.py::TRADING_DAYS": {
+      "value": 252,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Annualisation convention for daily returns (NYSE sessions per year, the factor engine_fast._compute_metrics already uses as sqrt(252)). Report-only: no gate, size or exit reads it.",
+      "date": "2026-10-17"
+    },
+    "backend/backtest/live_shape.py::DAILY_LOSS_CAP_PCT": {
+      "value": 0.05,
+      "kind": "chosen",
+      "tier": "money",
+      "source": "Niclas 2026-10-17: the engines' daily loss cap as live has it, 5 % of the starting balance (live $500 / $10,000, demo $100 / $2,000). Replaces config's $100 on a $10,000 simulation (1 %). Equity-based (5 % of current capital, Niclas's preference) is next Saturday's question.",
+      "date": "2026-10-17",
+      "review": "2026-10-24"
+    },
+    "backend/backtest/exit_rules.py::STOP_SLIP_INTRADAY_PCT": {
+      "value": 0.0002,
+      "kind": "measured",
+      "tier": "money",
+      "source": "Measured 2026-10-17 on 44 filled sell-stop legs of the Alpaca paper account (2026-07-07..10-16): fill vs the engine's modelled price (stop, or the open on a gap through it). Intraday n 37 median -0.02 % mean +0.05 %; gap at the open n 7 median -0.50 % mean -0.13 %. Median, adverse side. Niclas 10-17: 'stop slip, modellera den från mätningen'; fees ignored.",
+      "engine": "engine_fast + engine (exit_rules.check_intraday_stop)",
+      "date": "2026-10-17",
+      "review": "2026-10-31",
+      "commit": "58916ea",
+      "sample": "44 filled Alpaca paper sell-stop legs 2026-07-07..2026-10-16 (37 intraday, 7 gap at the open)"
+    },
+    "backend/backtest/exit_rules.py::STOP_SLIP_GAP_PCT": {
+      "value": 0.005,
+      "kind": "measured",
+      "tier": "money",
+      "source": "Measured 2026-10-17 on 44 filled sell-stop legs of the Alpaca paper account (2026-07-07..10-16): fill vs the engine's modelled price (stop, or the open on a gap through it). Intraday n 37 median -0.02 % mean +0.05 %; gap at the open n 7 median -0.50 % mean -0.13 %. Median, adverse side. Niclas 10-17: 'stop slip, modellera den från mätningen'; fees ignored.",
+      "engine": "engine_fast + engine (exit_rules.check_intraday_stop)",
+      "date": "2026-10-17",
+      "review": "2026-10-31",
+      "commit": "58916ea",
+      "sample": "44 filled Alpaca paper sell-stop legs 2026-07-07..2026-10-16 (37 intraday, 7 gap at the open)"
+    },
+    "backend/backtest/battery_2026_10.py::N_STARTS": {
+      "value": 20,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-17-apex-noise-floor-start-shift-and-vix-without-the-cut.md: the run started on each of the first 20 sessions of the window; regime-recovery and H-V1 rules read the same 20 paired starts. Battery design only (2026-10-19): no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::VIX9D_WINDOW": {
+      "value": 63,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-17-apex-vix-sizing-and-holdings-hypotheses.md: H-V1 rank window locked at 63 sessions before the run (no search). Battery design only (2026-10-19): no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::CAP_GRID": {
+      "value": [
+        0.15,
+        0.2,
+        0.25,
+        0.26,
+        0.27,
+        0.28,
+        0.29,
+        0.3,
+        0.35,
+        0.4,
+        0.5
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-17-apex-sector-cap-sweep-preregistration.md: the 10-17 grid plus the 0.26-0.29 extension (Niclas 10-17), rerun unchanged. Battery design only (2026-10-19): no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::ETF_RATES": {
+      "value": [
+        0.05,
+        0.1,
+        0.15,
+        0.2,
+        0.25,
+        0.3
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "backend/backtest/etf_penalty_sweep.py RATES: the 07-17 sweep's grid, rerun on engine_fast (10-18 scope ruling). Battery design only (2026-10-19): no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::ETF_FLOORS": {
+      "value": [
+        -0.5,
+        -1.0,
+        -1.5,
+        -2.0
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "backend/backtest/etf_penalty_sweep.py FLOORS: the 07-17 sweep's grid, rerun on engine_fast (10-18 scope ruling). Battery design only (2026-10-19): no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::COOLOFF_00": {
+      "value": {
+        "sl_cooldown_days": 0,
+        "tp_cooldown_days": 0
+      },
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-17-apex-cooloff-mechanism-and-exits-baseline-hypotheses.md: cooloffs 0/0 so every re-entry the signal wants happens. Battery design only (2026-10-19): no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::RND_STARTS": {
+      "value": [
+        0,
+        4,
+        8,
+        12,
+        16
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-rerun-battery-written-and-the-runners-that-were-lost.md, choice 1 ruled 1C 2026-10-19 (Niclas: \"Ja på alla\"): the signal-edge rule reads RND at five of the 20 starts, every fourth from 0 (4,000 RND runs, about 5.5 h estimated) so one start's path cannot carry go/no-go. Battery design only: no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::RND_PASS_STARTS": {
+      "value": 4,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-rerun-battery-written-and-the-runners-that-were-lost.md, choice 1 ruled 1C 2026-10-19 (Niclas: \"Ja på alla\"): R's expectancy must clear RND's 95th percentile at >= 4 of the 5 starts (tightened before the run). Battery design only: no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::MACRO_GATE_STARTS": {
+      "value": 16,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-macro-blackout-gate-preregistration.md (pushed 8faaf14c before the run; Niclas 2026-10-19 \"Ruling\"): the off/on arm must win at >= 16 of 20 paired starts; a consistency choice across start paths, not a p-value. Battery design only: no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::SIZE_FIXED": {
+      "value": {
+        "F15": 0.15,
+        "F10": 0.1
+      },
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-kelly-och-positionsstorlek-kalldokument.md, size cell ruled 2026-10-19 (Niclas: \"Ruling\" on Fable's three changes): two fixed fractions; F15 stands for live, where Lock 5 sits on the cap and cannot be backtested (LLM look-ahead). Battery design only: no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::SIZE_BOOK_C": {
+      "value": [
+        0.25,
+        0.5
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-kelly-och-positionsstorlek-kalldokument.md, size cell ruled 2026-10-19 (Niclas: \"Ruling\" on Fable's three changes): fractional Kelly on the book; Thorp 2006 7.3: half Kelly keeps 3/4 of growth with far less drawdown risk. Battery design only: no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::SIZE_BOOK_WINDOWS": {
+      "value": [
+        252,
+        0
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-kelly-och-positionsstorlek-kalldokument.md, size cell ruled 2026-10-19 (Niclas: \"Ruling\" on Fable's three changes): rule 4 at two windows (252 sessions and all prior history) so a zero multiplier can be told apart as window or edge. Battery design only: no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::SIZE_MIN_OBS": {
+      "value": 252,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-kelly-och-positionsstorlek-kalldokument.md, size cell ruled 2026-10-19 (Niclas: \"Ruling\" on Fable's three changes): sessions before rule 4's multiplier can be non-zero; matches the shorter window. Battery design only: no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::SIZE_Z": {
+      "value": 1.645,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-kelly-och-positionsstorlek-kalldokument.md, size cell ruled 2026-10-19 (Niclas: \"Ruling\" on Fable's three changes): one-sided 95 % lower bound on the mean; Thorp 2006 7.3 / MacLean-Thorp-Ziemba 2010: size on m_t < m_e. Battery design only: no live gate, size or exit reads it.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::SIZE_GATE_STARTS": {
+      "value": 16,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-size-gate-preregistration.md (pushed 9c9ebe84 before the run; Niclas 2026-10-19 \"Ruling\"): a size rule must beat F15 on log growth at >= 16 of 20 paired starts; a consistency choice across start paths, not a p-value. Battery design only.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::EDGE_ALPHA": {
+      "value": 0.05,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-testmetodik-i-batteriet-kalldokument.md, ruled 2026-10-19 (Niclas: \"om du inte har invändningar mot fable så kör på det. Ruling\"): edge vs RND is the primary hypothesis, tested alone at 5 % before the family (hierarchical: go/no-go for real money does not share its alpha). Battery design only.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::FAMILY_ALPHA": {
+      "value": 0.05,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-testmetodik-i-batteriet-kalldokument.md, ruled 2026-10-19 (Niclas: \"om du inte har invändningar mot fable så kör på det. Ruling\"): Holm FWER over the configuration questions that are significance tests (Harvey, Liu & Zhu 2014 sec. 4.4: FWER for few tests, valid under any dependence). Battery design only.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/battery_2026_10.py::BLOCK_FIXED": {
+      "value": 21,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-19-apex-testmetodik-i-batteriet-kalldokument.md, ruled 2026-10-19 (Niclas: \"om du inte har invändningar mot fable så kör på det. Ruling\"): the 10-17 block length, reported beside the decisive PW length on |r|; a verdict that flips between them is undecided. Battery design only.",
+      "date": "2026-10-19"
+    },
+    "backend/backtest/ladder_2026_10.py::PICK": {
+      "value": 0.65,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): live Lock 1 threshold (data/live_config.json lock1_threshold 0.65); SECTOR_THRESHOLD_FLOORS is empty, so a pick is score >= 0.65. Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
+      "date": "2026-10-20"
+    },
+    "backend/backtest/ladder_2026_10.py::L0_HORIZONS": {
+      "value": [
+        1,
+        5,
+        10,
+        25
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): T1/T2 forward-return horizons fixed on the card: one day, one week, two weeks, and the live 25-day time stop. Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
+      "date": "2026-10-20"
+    },
+    "backend/backtest/ladder_2026_10.py::HOLDS": {
+      "value": [
+        1,
+        2,
+        3,
+        5,
+        7,
+        10,
+        15,
+        20,
+        25
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): T3 hold lengths fixed on the card, up to the live 25-day time stop. Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
+      "date": "2026-10-20"
+    },
+    "backend/backtest/ladder_2026_10.py::TOPK": {
+      "value": [
+        5,
+        9
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): T3 cohort sizes fixed on the card: 9 is live max_positions, 5 a concentrated half. Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
+      "date": "2026-10-20"
+    },
+    "backend/backtest/ladder_2026_10.py::SEED": {
+      "value": 20261020,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): seed for shuffles, injections, the vol-matched set and the exit null, fixed on the card (the run date). Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
+      "date": "2026-10-20"
+    },
+    "backend/backtest/ladder_2026_10.py::N_SHUFFLE": {
+      "value": 200,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): T1 negative control: 200 within-day score shuffles, fixed on the card. Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
+      "date": "2026-10-20"
+    },
+    "backend/backtest/ladder_2026_10.py::NONE": {
+      "value": 10.0,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): a TP/SL of 1,000 % stands for 'no leg' in the T4 grid; it never fires on daily bars. Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
+      "date": "2026-10-20"
+    },
+    "backend/backtest/ladder_2026_10.py::LIVE_EXIT": {
+      "value": {
+        "tp": 0.06,
+        "sl": 0.06,
+        "pl": [
+          0.04,
+          0.01
+        ],
+        "tdays": 25
+      },
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): live exits (data/live_config.json: TP/SL 0.06/0.06, profit lock 0.04/0.01, time stop 25 d); T4's exit-null reference configuration. Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
+      "date": "2026-10-20"
+    },
+    "backend/backtest/rejected_candidates_2026_10.py::SEED": {
+      "value": 20261020,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-20",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-rejected-candidate-card.md (card T7, vault de58ebf1, written before the run). RNG seed for the vol-matched draws and the permutations; the ladder's seed, so runs reproduce. T7 probe only (2026-10-20): no live gate, size or exit reads it."
+    },
+    "backend/backtest/rejected_candidates_2026_10.py::N_B5": {
+      "value": 50,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-20",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-rejected-candidate-card.md (card T7, vault de58ebf1, written before the run). Card item 5: 50 same-day same-ATR-quintile random draws per ticker-day for baseline B5 (10 for the report-only eligibility group). T7 probe only (2026-10-20): no live gate, size or exit reads it."
+    },
+    "backend/backtest/rejected_candidates_2026_10.py::SD_ASSUMED": {
+      "value": 0.045,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-20",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-rejected-candidate-card.md (card T7, vault de58ebf1, written before the run). Card item 8: per-trade sd assumed before reading for the stated MDE (about 4.5 % under a +-6 % bracket); the run also reports the MDE from the data's own sd. T7 probe only (2026-10-20): no live gate, size or exit reads it."
+    },
+    "backend/backtest/live_vs_engine_2026_10_20.py::SEED": {
+      "value": 20261020,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-20",
+      "source": "Live-vs-engine comparison 2026-10-20 (vault raw/notes/2026-10/2026-10-20-apex-live-vs-engine-canonical-sample.md); archives the in-session probe that read two trade sets the opposite way. RNG seed of the in-session probe, so the archived numbers reproduce. Probe only: no live gate, size or exit reads it."
+    },
+    "backend/backtest/live_vs_engine_2026_10_20.py::N_RND": {
+      "value": 1000,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-20",
+      "source": "Live-vs-engine comparison 2026-10-20 (vault raw/notes/2026-10/2026-10-20-apex-live-vs-engine-canonical-sample.md); archives the in-session probe that read two trade sets the opposite way. 1,000 same-day same-ATR-quintile random entries per live trade (ruling 2026-10-20 item 4: archived p-values use >= 1,000 draws; 200 moved p by about 0.04 between runs). Probe only: no live gate, size or exit reads it."
+    },
+    "backend/backtest/exit_rules.py::POLLED_PEAK_GAP": {
+      "value": 0.0026,
+      "kind": "measured",
+      "tier": "ops",
+      "date": "2026-10-20",
+      "source": "Median of (highest high over the trade - live's stored peak_price) / entry on the canonical live sample; R9's polled setting (EXIT_PARITY.md R9). Vault raw/notes/2026-10/2026-10-20-apex-live-vs-engine-canonical-sample.md, data/2026-10-20-apex-live-vs-engine.json peak_measurement (0.00257). Backtest-only: selects the engine's peak model, no live gate, size or exit reads it.",
+      "engine": "none (live_trades.peak_price against the IS window's OHLC cache; backend/backtest/live_vs_engine_2026_10_20.py peak_measurement)",
+      "commit": "ff1ba73",
+      "sample": "57 closed trades, db.LIVE_SAMPLE since 2026-07-07"
+    },
+    "backend/backtest/ablation_r1_2026_10_20.py::ARCHIVED_P": {
+      "value": 0.014925373134328358,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-20",
+      "source": "Archived IS R1 edge, experiment b of raw/notes/2026-10/2026-10-16-apex-profit-read-preregistration.md: rank 198/200 written as the battery's rank p ((2 + 1) / (200 + 1)). Ablation probe only (ruling 2026-10-20 item 10): no live gate, size or exit reads it."
+    },
+    "backend/backtest/rejected_candidates_2026_10.py::MIN_FORWARD": {
+      "value": 5,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-20",
+      "source": "T7 card (vault raw/notes/2026-10/2026-10-20-apex-rejected-candidate-card.md): a decision day needs at least five sessions of prices after it (v1 used 10-09 against a cache ending 10-16); the dated window's entry bound. Probe only: no live gate, size or exit reads it."
+    },
+    "backend/backtest/s13_macro_l0_2026_10_21.py::ALPHA": {
+      "value": 0.05,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s13-macro-blackout-l0-preregistration.md (S13 L0, vault 5af7acb7 amended e1d7302b, written before the run). Card item 5: two-sided test level, Holm at 0.05 over the four classes. S13 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s13_macro_l0_2026_10_21.py::HORIZONS": {
+      "value": [
+        1,
+        5,
+        10
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s13-macro-blackout-l0-preregistration.md (S13 L0, vault 5af7acb7 amended e1d7302b, written before the run). Card item 2: forward horizons in sessions; h = 1 primary, 5 and 10 reported, not judged. S13 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s13_macro_l0_2026_10_21.py::PRIMARY_H": {
+      "value": 1,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s13-macro-blackout-l0-preregistration.md (S13 L0, vault 5af7acb7 amended e1d7302b, written before the run). Card item 5: the judged horizon, matching the literature's one-day effects. S13 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s13_macro_l0_2026_10_21.py::MDE_Z": {
+      "value": 2.8,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s13-macro-blackout-l0-preregistration.md (S13 L0, vault 5af7acb7 amended e1d7302b, written before the run). Card item 6: 1.96 + 0.84, MDE at 80 % power, two-sided 0.05. S13 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s13_macro_l0_2026_10_21.py::N_PLACEBO": {
+      "value": 1000,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s13-macro-blackout-l0-preregistration.md (S13 L0, vault 5af7acb7 amended e1d7302b, written before the run). Card item 7: placebo classes drawn from CLEAR sessions for both controls. S13 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s13_macro_l0_2026_10_21.py::NEG_RANGE": {
+      "value": [
+        0.03,
+        0.07
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s13-macro-blackout-l0-preregistration.md (S13 L0, vault 5af7acb7 amended e1d7302b, written before the run). Card item 7: accepted placebo rejection rate (about 5 %). S13 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s13_macro_l0_2026_10_21.py::POS_RANGE": {
+      "value": [
+        0.7,
+        0.9
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s13-macro-blackout-l0-preregistration.md (S13 L0, vault 5af7acb7 amended e1d7302b, written before the run). Card item 7 (amended before the run): accepted detection rate of a FOMC_PRE-MDE shift (about 80 %). S13 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s14_vix_l0_2026_10_21.py::JUMP_CUTOFF": {
+      "value": 3.0,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 2b: a jump is VIX(d) minus its exponential average to d-1 >= 3.0 points, Hu, Pan, Wang & Zhu (2019 draft) Section 3.3, the cutoff used throughout their paper. S14 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s14_vix_l0_2026_10_21.py::LAMBDA": {
+      "value": 0.3,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 2b: decay of the VIX average, Vbar(d-1) = 0.3 Vbar(d-2) + 0.7 VIX(d-1), Hu et al.'s main specification. S14 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s14_vix_l0_2026_10_21.py::LEVEL": {
+      "value": 30.0,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 2b: the level class is the live gate's own threshold (config.MACRO_VIX_THRESHOLD 30, live_config vix_threshold 30), inclusive as live (engine 7cfbb8b). S14 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s14_vix_l0_2026_10_21.py::WARMUP": {
+      "value": 60,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 2b: the average is seeded on the first close of a 60-session warm-up before the window; after 60 sessions at decay 0.3 the seed's weight is nil. S14 L0 probe only (2026-10-21): no live gate, size or exit reads it.",
+      "review": "2026-11-04"
+    },
+    "backend/backtest/s14_vix_l0_2026_10_21.py::HORIZONS": {
+      "value": [
+        1,
+        5,
+        10
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 2b: h 1 is the literature's quantity (next-day return); h 5 and 10 are APEX's hold, as in the S13 L0. S14 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s14_vix_l0_2026_10_21.py::DD_CUT": {
+      "value": -5.0,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 3: a window counts as a drawdown when the basket's worst close against the entry close is below -5 %; reported, not judged. S14 L0 probe only (2026-10-21): no live gate, size or exit reads it.",
+      "review": "2026-11-04"
+    },
+    "backend/backtest/s14_vix_l0_2026_10_21.py::LIT_SIZE": {
+      "value": [
+        0.48,
+        0.5,
+        0.5
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 9: 'unanswered' when the CI includes 0.48 % at h 1 (Hu et al., next-day return after a heightened-VIX close) or 0.5 % at h 5/10 (the card's APEX threshold). S14 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+    },
+    "backend/backtest/s14_vix_l0_2026_10_21.py::EXPECTED": {
+      "value": {
+        "IS": {
+          "jump": 88,
+          "level": 149,
+          "both": 36
+        },
+        "OOS": {
+          "jump": 34,
+          "level": 9,
+          "both": 5
+        }
+      },
+      "kind": "measured",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card validity gate: class counts measured 2026-10-21 on the engine's VIX closes before the card was written (scratch count). S14 L0 probe only (2026-10-21): no live gate, size or exit reads it.",
+      "engine": "engine_fast precompute raw_data ^VIX closes",
+      "commit": "b63b1da",
+      "sample": "IS 2019-01-02..2026-10-16 (1,961 VIX sessions), OOS 2015-01-02..2018-12-31 (1,006); recursion seeded at the window start"
+    },
+    "backend/backtest/s14_vix_l0_2026_10_21.py::COUNT_TOL": {
+      "value": 2,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-10-21",
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card validity gate: counts must reproduce within +-2; the warm-up seed and the session calendar can move a day. S14 L0 probe only (2026-10-21): no live gate, size or exit reads it.",
+      "review": "2026-11-04"
+    },
+    "backend/backtest/exits_t8_2026_10.py::SEED": {
+      "value": 20261022,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): seed for B5, LIVE57's draws, controls and power, fixed with the module (the run date, Thursday 2026-10-22). Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21"
+    },
+    "backend/backtest/exits_t8_2026_10.py::HOLD_MAX": {
+      "value": 25,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): item 2: the 25-business-day time limit of every arm (live max_hold_days); also the purge horizon (amendment F) and the MFE window (amendment B). Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21"
+    },
+    "backend/backtest/exits_t8_2026_10.py::N_LIVE_RND": {
+      "value": 1000,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): amendment A4: 1,000 same-day same-ATR-quintile draws per LIVE57 entry (ruling 2026-10-20 item 4: archived p-values use >= 1,000 draws). Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21"
+    },
+    "backend/backtest/exits_t8_2026_10.py::N_CONTROL": {
+      "value": 200,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): item 9 negative control: 200 random within-month A/B splits of LIVE, as the ladder's N_SHUFFLE. Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21"
+    },
+    "backend/backtest/exits_t8_2026_10.py::N_BOOT": {
+      "value": 1000,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): items 9/10 and amendment J: 1,000 month resamples per injected shift in the power read (>= 1,000, ruling 2026-10-20 item 4). Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21"
+    },
+    "backend/backtest/exits_t8_2026_10.py::COSTS_BP": {
+      "value": [
+        0,
+        5,
+        10,
+        20
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): amendment E: return per capital-day net of 0, 5, 10 and 20 bp per round trip. Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21"
+    },
+    "backend/backtest/exits_t8_2026_10.py::COST_GATE_BP": {
+      "value": 10,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): amendment E: 10 bp per round trip is the chosen cost gate of rule (d) (two half-spreads plus slippage in liquid US large caps, conservative). Chosen, not measured: review at the class-rule review 2026-11-04. Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21",
+      "review": "2026-11-04"
+    },
+    "backend/backtest/exits_t8_2026_10.py::RETENTION_BAR": {
+      "value": 0.5,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): amendment J (ruling Niclas 2026-10-21): an arm's OOS advantage must keep >= half its IS advantage, with p <= 0.05, to class as 'holds' (rule f). The 0.5 is chosen, not derived; T4's TIME5 retention is 0.19. Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21",
+      "review": "2026-11-04"
+    },
+    "backend/backtest/exits_t8_2026_10.py::POSITIVE_SHIFT": {
+      "value": 0.0002,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): item 9 positive control: +0.02 %/day added to one arm's capital-day series. Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21"
+    },
+    "backend/backtest/exits_t8_2026_10.py::PL": {
+      "value": [
+        0.04,
+        0.01
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): item 2: LIVE's profit lock, 4 % trigger / 1 % trail (data/live_config.json profit_lock_trigger_pct / profit_lock_trail_pct). Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
+      "date": "2026-10-21"
     }
   }
 }

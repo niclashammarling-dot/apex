@@ -7,7 +7,7 @@ Lock 1 as the sole entry filter. This lets you validate whether the quant
 signal engine has genuine predictive value before attributing edge to the LLMs.
 
 Two additional lock proxies CAN be backtested from historical data:
-  - vix_threshold: skip new entries when VIX > N (Macro lock proxy)
+  - vix_threshold: skip new entries when VIX >= N (Lock 1 B1, as live)
   - use_leading_rs: only enter if ticker outperforms its sector ETF over 5d (Leading lock RS proxy)
 
 Usage:
@@ -21,75 +21,15 @@ from datetime import date, timedelta
 from typing import TypedDict
 
 # ── Macro event calendar (mirrors lock1_eligibility) ──────────────────────────
-_FOMC_DATES: set[date] = {
-    date(2021, 1, 27), date(2021, 3, 17), date(2021, 4, 28), date(2021, 6, 16),
-    date(2021, 7, 28), date(2021, 9, 22), date(2021, 11, 3), date(2021, 12, 15),
-    date(2022, 1, 26), date(2022, 3, 16), date(2022, 5, 4),  date(2022, 6, 15),
-    date(2022, 7, 27), date(2022, 9, 21), date(2022, 11, 2), date(2022, 12, 14),
-    date(2023, 2, 1),  date(2023, 3, 22), date(2023, 5, 3),  date(2023, 6, 14),
-    date(2023, 7, 26), date(2023, 9, 20), date(2023, 11, 1), date(2023, 12, 13),
-    date(2024, 1, 31), date(2024, 3, 20), date(2024, 5, 1),  date(2024, 6, 12),
-    date(2024, 7, 31), date(2024, 9, 18), date(2024, 11, 7), date(2024, 12, 18),
-    date(2025, 1, 29), date(2025, 3, 19), date(2025, 5, 7),  date(2025, 6, 18),
-    date(2025, 7, 30), date(2025, 9, 17), date(2025, 10, 29), date(2025, 12, 10),
-    date(2026, 1, 28), date(2026, 3, 18), date(2026, 4, 29), date(2026, 6, 17),
-    date(2026, 7, 29), date(2026, 9, 16), date(2026, 10, 28), date(2026, 12, 9),
-}
-_CPI_DATES: set[date] = {
-    date(2021, 1, 13), date(2021, 2, 10), date(2021, 3, 10), date(2021, 4, 13),
-    date(2021, 5, 12), date(2021, 6, 10), date(2021, 7, 13), date(2021, 8, 11),
-    date(2021, 9, 14), date(2021, 10, 13), date(2021, 11, 10), date(2021, 12, 10),
-    date(2022, 1, 12), date(2022, 2, 10), date(2022, 3, 10), date(2022, 4, 12),
-    date(2022, 5, 11), date(2022, 6, 10), date(2022, 7, 13), date(2022, 8, 10),
-    date(2022, 9, 13), date(2022, 10, 13), date(2022, 11, 10), date(2022, 12, 13),
-    date(2023, 1, 12), date(2023, 2, 14), date(2023, 3, 14), date(2023, 4, 12),
-    date(2023, 5, 10), date(2023, 6, 13), date(2023, 7, 12), date(2023, 8, 10),
-    date(2023, 9, 13), date(2023, 10, 12), date(2023, 11, 14), date(2023, 12, 12),
-    date(2024, 1, 11), date(2024, 2, 13), date(2024, 3, 12), date(2024, 4, 10),
-    date(2024, 5, 15), date(2024, 6, 12), date(2024, 7, 11), date(2024, 8, 14),
-    date(2024, 9, 11), date(2024, 10, 10), date(2024, 11, 13), date(2024, 12, 11),
-    date(2025, 1, 15), date(2025, 2, 12), date(2025, 3, 12), date(2025, 4, 10),
-    date(2025, 5, 13), date(2025, 6, 11), date(2025, 7, 15), date(2025, 8, 12),
-    date(2025, 9, 10), date(2025, 10, 15), date(2025, 11, 13), date(2025, 12, 10),
-    date(2026, 1, 14), date(2026, 2, 11), date(2026, 3, 11), date(2026, 4, 8),
-    date(2026, 5, 13), date(2026, 6, 10), date(2026, 7, 15), date(2026, 8, 12),
-    date(2026, 9, 9),  date(2026, 10, 14), date(2026, 11, 12), date(2026, 12, 9),
-}
-
-
-def _build_nfp_dates(start_year: int = 2021, end_year: int = 2026) -> set[date]:
-    dates = set()
-    for year in range(start_year, end_year + 1):
-        for month in range(1, 13):
-            d = date(year, month, 1)
-            days_ahead = (4 - d.weekday()) % 7
-            dates.add(d + timedelta(days=days_ahead))
-    return dates
-
-
-_NFP_DATES: set[date] = _build_nfp_dates()
-_FOMC_PRE_DAYS = 2   # days before FOMC date that are hard-blocked
-_CPI_NFP_EVENT_DAY_ONLY = 0  # day-of is always hard-blocked
+# Macro calendar and rule: backend/macro_calendar.py, shared with engine_fast and
+# Lock 1 (2026-10-17). This file kept its own 2021-2026 copy until then: CPI wrong
+# on 10 dates, NFP (first-Friday rule) on 15, nothing before 2021.
+from backend.macro_calendar import macro_status as _shared_macro_status
 
 
 def _macro_status(today: date) -> str:
-    """
-    Return the macro status for today:
-      "hard_block"   — event day (all types) or within FOMC pre-window
-      "pre_event"    — day before CPI or NFP (candidates for penalty instead of block)
-      "clear"        — no relevant macro event nearby
-    """
-    for d in _FOMC_DATES:
-        delta = (d - today).days
-        if 0 <= delta <= _FOMC_PRE_DAYS:
-            return "hard_block"
-    for d in _CPI_DATES | _NFP_DATES:
-        delta = (d - today).days
-        if delta == 0:
-            return "hard_block"
-        if delta == 1:
-            return "pre_event"
-    return "clear"
+    """"hard_block" / "pre_event" / "clear" for today (Lock 1 B2, live defaults)."""
+    return _shared_macro_status(today)[0]
 
 import pandas as pd
 import yfinance as yf
@@ -110,7 +50,9 @@ from backend.config import (
     TIME_STOP_DAYS,
     WIN_RATE_MIN_TRADES,
 )
-from backend.backtest.exit_rules import Bar, ParityStats, build_ohlc_cache, check_intraday_stop
+from backend.backtest.exit_rules import Bar, ParityStats, build_ohlc_cache, check_intraday_bracket, lift_peak_to_high
+from backend.backtest.live_shape import (etf_penalty_fails, etf_return_as_live, live_overflow_increment,
+                                          overflow_admits, reentry_cooloff_days)
 from backend.signals import aggregator, momentum, relative_strength, trend, volume
 from backend.signals.ev_kelly import compute as ev_kelly_compute
 
@@ -181,14 +123,22 @@ def run(
     vix_threshold:      float | None = None,
     use_leading_rs:     bool        = False,
     max_positions:      int   | None = None,
-    sl_cooldown_days:   int         = 5,
-    tp_cooldown_days:   int         = 0,
+    sl_cooldown_days:   int   | None = None,   # None: live config (live_shape.live_cooloff_days)
+    tp_cooldown_days:   int   | None = None,
+    max_sector_exposure: float | None = None,   # None: config MAX_SECTOR_EXPOSURE
+    daily_loss_cap:     float | None = None,   # None: DAILY_LOSS_CAP_PCT × initial_balance
     macro_hard_block:   bool        = False,
     macro_pre_event_penalty: float | None = None,
     etf_negative_penalty: float | None = None,
     etf_negative_floor:   float        = -1.0,
+    overflow_quant_increment: float | None = None,  # row 14: None = live (0.05); math.inf = hard stop at max_positions
     intraday_stops:     bool        = True,
     ratchet_from_high:  bool        = False,
+    stop_slip:          tuple[float, float] | None = None,   # None: exit_rules' measured R7 values (EXIT_PARITY.md)
+    intraday_tp:        bool        = True,    # R8: the TP limit leg fills intraday, as live's bracket (False: targets on the close)
+    tp_first:           bool        = False,   # R8 ceiling for a bar touching both legs; False books the stop (floor)
+    peak_from_high:     bool        = True,    # R9: an open trade's peak carries the bar's high (False: the close, pre-2026-10-20)
+    peak_haircut:       float       = 0.0,     # R9: the carried high less this fraction of entry (exit_rules.POLLED_PEAK_GAP = polled)
     parity_stats:       ParityStats | None = None,
 ) -> BacktestResult:
     """
@@ -206,7 +156,7 @@ def run(
         time_stop_days:      Override TIME_STOP_DAYS (e.g. 15)
         lock1_threshold:     Override LOCK1_THRESHOLD (e.g. 0.72)
         max_entries_per_day: Cap new positions opened on a single day (e.g. 2)
-        vix_threshold:       Skip new entries when VIX exceeds this level (e.g. 25). None disables.
+        vix_threshold:       Skip new entries when VIX is at or above this level (live's `>=`). None disables.
         use_leading_rs:      Only enter if ticker's 5d return > its sector ETF's 5d return.
         max_positions:       Override MAX_POSITIONS (e.g. 3). Lower = more concentrated portfolio.
 
@@ -222,6 +172,7 @@ def run(
     l1       = lock1_threshold    if lock1_threshold    is not None else LOCK1_THRESHOLD
     max_epd  = max_entries_per_day  # None means unlimited
     max_pos  = max_positions      if max_positions      is not None else MAX_POSITIONS
+    overflow_inc = overflow_quant_increment if overflow_quant_increment is not None else live_overflow_increment()
 
     start = date.fromisoformat(start_date)
     end   = date.fromisoformat(end_date)
@@ -278,8 +229,19 @@ def run(
         earnings_dates = _fetch_earnings_dates(stock_tickers, start, end)
         logger.info(f"Backtest: loaded earnings dates for {len(earnings_dates)} tickers")
 
+    if sl_cooldown_days is None or tp_cooldown_days is None:
+        from backend.backtest.live_shape import live_cooloff_days
+        _live_sl, _live_tp = live_cooloff_days()
+        sl_cooldown_days = _live_sl if sl_cooldown_days is None else sl_cooldown_days
+        tp_cooldown_days = _live_tp if tp_cooldown_days is None else tp_cooldown_days
     SL_COOLDOWN_DAYS = sl_cooldown_days
     TP_COOLDOWN_DAYS = tp_cooldown_days
+    # Daily loss cap as live has it: 5 % of the starting balance (live $500 on $10,000,
+    # demo $100 on $2,000). Until 2026-10-17 the engines used config's $100 on a
+    # $10,000 simulation: 1 %, five times stricter than live.
+    from backend.backtest.live_shape import DAILY_LOSS_CAP_PCT
+    loss_cap   = daily_loss_cap if daily_loss_cap is not None else DAILY_LOSS_CAP_PCT * initial_balance
+    sector_max = max_sector_exposure if max_sector_exposure is not None else MAX_SECTOR_EXPOSURE
 
     # Simulate day by day
     balance      = initial_balance
@@ -299,6 +261,11 @@ def run(
             ohlc_cache=ohlc_cache if intraday_stops else None,
             parity_stats=parity_stats,
             ratchet_from_high=ratchet_from_high,
+            stop_slip=stop_slip,
+            intraday_tp=intraday_tp,
+            tp_first=tp_first,
+            peak_from_high=peak_from_high,
+            peak_haircut=peak_haircut,
         )
         for ct in closed_today:
             trade  = ct["_trade"]
@@ -309,12 +276,10 @@ def run(
             balance += trade["amount"] + (record["pnl"] or 0)
             if record["outcome"] in ("LOSS", "EXPIRED") and (record["pnl"] or 0) < 0:
                 daily_losses[today_str] = daily_losses.get(today_str, 0) + abs(record["pnl"] or 0)
-            _er  = record["exit_reason"]
-            _win = record["outcome"] == "WIN"
-            if (_er == "TP" or (_er == "TSL" and _win)) and TP_COOLDOWN_DAYS > 0:
-                sl_cooldown[trade["ticker"]] = today + timedelta(days=TP_COOLDOWN_DAYS)
-            elif _er in ("SL", "TSL") and SL_COOLDOWN_DAYS > 0:
-                sl_cooldown[trade["ticker"]] = today + timedelta(days=SL_COOLDOWN_DAYS)
+            _cool = reentry_cooloff_days(record["exit_reason"], record["outcome"],
+                                         SL_COOLDOWN_DAYS, TP_COOLDOWN_DAYS)
+            if _cool > 0:
+                sl_cooldown[trade["ticker"]] = today + timedelta(days=_cool)
 
         # 2. Generate signals for today
         spy       = _spy_data_on(raw_data, today)
@@ -334,7 +299,7 @@ def run(
         entries_today    = 0
 
         # Macro lock proxy: skip new entries on high-VIX days
-        vix_blocked = vix_threshold is not None and _vix_on(raw_data, today) > vix_threshold
+        vix_blocked = vix_threshold is not None and _vix_on(raw_data, today) >= vix_threshold  # live: `>=`
 
         # Macro calendar filter
         macro_day = _macro_status(today)
@@ -348,19 +313,21 @@ def run(
                 new_score = sig["signal_score"] * (1.0 - macro_pre_event_penalty)
                 floor = SECTOR_THRESHOLD_FLOORS.get(sig["sector"], 0.0)
                 if new_score >= max(l1, floor):
-                    penalized.append({**sig, "signal_score": round(new_score, 4)})
+                    penalized.append({**sig, "signal_score": round(new_score, 4), "raw_score": sig["signal_score"]})
             candidates = penalized
 
         for sig in ([] if vix_blocked else sorted(candidates, key=lambda s: s["signal_score"], reverse=True)):
-            if len(open_trades) >= max_pos:
-                break
+            # Row 14: live has no hard cap; each slot over the roof raises the bar (live_shape).
+            if not overflow_admits(sig.get("raw_score", sig["signal_score"]), len(open_trades), max_pos,
+                                   max(l1, SECTOR_THRESHOLD_FLOORS.get(sig["sector"], 0.0)), overflow_inc):
+                continue
             if max_epd is not None and entries_today >= max_epd:
                 break
             if sig["ticker"] in open_tickers:
                 continue
             if sl_cooldown.get(sig["ticker"], date.min) > today:
                 continue
-            if daily_loss_today >= DAILY_LOSS_CAP:
+            if daily_loss_today >= loss_cap:
                 break
 
             # Earnings date filter — skip if earnings within N days
@@ -373,30 +340,31 @@ def run(
             if use_leading_rs and not _leading_rs_pass(raw_data, sig["ticker"], sector_etf.get(sig["sector"], ""), today):
                 continue
 
-            # ETF negative penalty: penalise signal_score when sector ETF 5d return < floor
-            if etf_negative_penalty is not None:
-                etf_ret = _etf_5d_return(raw_data, sector_etf.get(sig["sector"], ""), today)
-                if etf_ret is not None and etf_ret < etf_negative_floor / 100:
-                    new_score = sig["signal_score"] * (1.0 - etf_negative_penalty)
-                    sec_floor = SECTOR_THRESHOLD_FLOORS.get(sig["sector"], 0.0)
-                    if new_score < max(l1, sec_floor):
-                        etf_penalty_blocked.append({
-                            "date":             today_str,
-                            "ticker":           sig["ticker"],
-                            "sector":           sig["sector"],
-                            "original_score":   round(sig["signal_score"], 4),
-                            "penalized_score":  round(new_score, 4),
-                            "etf_ret_pct":      round(etf_ret * 100, 2),
-                        })
-                        continue
-                    sig = {**sig, "signal_score": round(new_score, 4)}
+            # Row 11: live's ETF negative penalty, after Lock 4 (chain.py:156-187), on the
+            # return live's Lock 4 reads (7 intervals; 5 until 2026-10-18). Gates only, as
+            # live: the penalised score is not carried on (it replaced sig's until 10-18).
+            if etf_negative_penalty:
+                _etf    = sector_etf.get(sig["sector"], "")
+                etf_ret = (etf_return_as_live(raw_data[_etf]["Close"], today)
+                           if _etf and _etf in raw_data.columns.get_level_values(0) else None)
+                if etf_penalty_fails(sig["signal_score"], etf_ret, etf_negative_penalty, etf_negative_floor,
+                                     max(l1, SECTOR_THRESHOLD_FLOORS.get(sig["sector"], 0.0))):
+                    etf_penalty_blocked.append({
+                        "date":             today_str,
+                        "ticker":           sig["ticker"],
+                        "sector":           sig["sector"],
+                        "original_score":   round(sig["signal_score"], 4),
+                        "penalized_score":  round(sig["signal_score"] * (1.0 - etf_negative_penalty), 4),
+                        "etf_ret_pct":      round(etf_ret * 100, 2),
+                    })
+                    continue
 
             # Sector exposure check
             sector    = sig["sector"]
             alloc_pct = min(sig["kelly_size"] if sig["kelly_size"] > 0 else 0.10, MAX_POSITION_SIZE)
             amount    = balance * alloc_pct
             projected = sector_exposure.get(sector, 0.0) + (amount / balance)
-            if projected > MAX_SECTOR_EXPOSURE:
+            if projected > sector_max:
                 continue
 
             entry_price = _price_on(raw_data, sig["ticker"], today)
@@ -562,6 +530,11 @@ def _check_exits(
     ohlc_cache: dict[tuple[str, str], Bar] | None = None,
     parity_stats: ParityStats | None = None,
     ratchet_from_high: bool = False,
+    stop_slip: tuple[float, float] | None = None,
+    intraday_tp: bool = True,
+    tp_first: bool = False,
+    peak_from_high: bool = True,
+    peak_haircut: float = 0.0,
 ) -> list[dict]:
     # Malformed profit-lock config: one set without the other previously did
     # nothing silently (the old `if trigger and trail` guard swallowed it).
@@ -583,18 +556,20 @@ def _check_exits(
         eff_tp = trade.get("tp", take_profit_pct)
         eff_sl = trade.get("sl", stop_loss_pct)
 
-        # ── Intraday stop (EXIT_PARITY.md R1-R4) ────────────────────────────
+        # ── Intraday bracket: stop leg R1-R7, take-profit leg R8 (EXIT_PARITY.md)
         # Tested BEFORE the peak update on purpose: R4 measures the trail
         # against the peak as it stood at the START of the bar, because live's
         # ratchet is a 5-minute poll that usually never sees the bar's high.
         # engine_fast.py carries the identical block against its own cache.
         if ohlc_cache is not None:
-            hit = check_intraday_stop(
+            hit = check_intraday_bracket(
                 trade, ohlc_cache.get((trade["ticker"], today_str)),
                 eff_sl, eff_tp, trailing_stop_pct,
                 profit_lock_trigger_pct, profit_lock_trail_pct,
                 today_str=today_str, stats=parity_stats,
                 ratchet_from_high=ratchet_from_high,
+                **({} if stop_slip is None else {"stop_slip": stop_slip}),
+                intraday_tp=intraday_tp, tp_first=tp_first,
             )
             if hit is not None:
                 fill, reason, outcome = hit
@@ -670,6 +645,8 @@ def _check_exits(
         elif days_held >= time_stop_days:
             reason, outcome = "TIME", "EXPIRED"
         else:
+            if peak_from_high and ohlc_cache is not None:
+                lift_peak_to_high(trade, ohlc_cache.get((trade["ticker"], today_str)), peak_haircut)
             continue
 
         pnl = trade["amount"] * pnl_pct
@@ -849,19 +826,6 @@ def _vix_on(raw_data: pd.DataFrame, today: date) -> float:
         return float(df["Close"].iloc[-1])
     except Exception:
         return 0.0
-
-
-def _etf_5d_return(raw_data: pd.DataFrame, etf: str, today: date) -> float | None:
-    """Return sector ETF 5-day return as a fraction, or None if data unavailable."""
-    if not etf:
-        return None
-    df = _slice_history(raw_data, etf, today, lookback_days=6)
-    if df is None or len(df) < 2:
-        return None
-    try:
-        return float(df["Close"].iloc[-1] / df["Close"].iloc[0]) - 1
-    except Exception:
-        return None
 
 
 def _leading_rs_pass(raw_data: pd.DataFrame, ticker: str, etf: str, today: date) -> bool:

@@ -53,6 +53,7 @@ from backend.backtest.engine_fast import (
     _mark_to_market_fast,
     _sector_exposure,
     _trading_days_count,
+    window_days,
 )
 from backend.config import (
     DAILY_LOSS_CAP,
@@ -189,7 +190,7 @@ def run(
     # Unpack precomputed caches (identical structure to engine_fast)
     raw_data      = precomputed["raw_data"]
     ticker_sector = precomputed["ticker_sector"]
-    trading_days  = precomputed["trading_days"]
+    trading_days  = window_days(precomputed, date.fromisoformat(start_date), date.fromisoformat(end_date))
     price_cache   = precomputed["price_cache"]
     spy_cache     = precomputed["spy_cache"]
     vix_cache     = precomputed["vix_cache"]
