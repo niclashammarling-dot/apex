@@ -74,7 +74,7 @@ def episode_ci(diff: dict[int, float], eps: list[list[int]], rng: np.random.Gene
         pick = rng.integers(0, len(vals), len(vals))
         boot.append(np.concatenate([vals[p] for p in pick]).mean())
     return {"mean": float(allv.mean()), "lo": float(np.percentile(boot, 2.5)), "hi": float(np.percentile(boot, 97.5)),
-            "n_days": int(len(allv)), "n_episodes": len(vals)}
+            "n_days": len(allv), "n_episodes": len(vals)}
 
 
 def picks_for_day(i: int, r2: np.ndarray, score: np.ndarray, mask: np.ndarray, q: np.ndarray,
