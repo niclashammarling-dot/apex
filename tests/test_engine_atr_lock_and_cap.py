@@ -25,7 +25,7 @@ def test_a_none_leg_stays_fixed():
 
 def test_per_trade_lock_reaches_the_exits_and_is_read_per_trade():
     pre = synthetic_precomputed()
-    kw = dict(atr_exits=True, profit_lock_trigger_pct=0.04, profit_lock_trail_pct=0.01)
+    kw = {"atr_exits": True, "profit_lock_trigger_pct": 0.04, "profit_lock_trail_pct": 0.01}
     base = _run(pre, **kw)["trade_log"]
     seen = []
     real = engine_fast._check_exits_fast
@@ -41,7 +41,7 @@ def test_per_trade_lock_reaches_the_exits_and_is_read_per_trade():
 
 def test_a_ceiling_above_every_stop_is_inert_and_a_low_one_binds():
     pre = synthetic_precomputed()
-    kw = dict(atr_exits=True, atr_exit_mult=(2.0, 3.0))
+    kw = {"atr_exits": True, "atr_exit_mult": (2.0, 3.0)}
     base = _run(pre, **kw)["trade_log"]
     assert _run(pre, atr_sl_cap=10.0, **kw)["trade_log"] == base
     assert _run(pre, atr_sl_cap=0.001, **kw)["trade_log"] != base
