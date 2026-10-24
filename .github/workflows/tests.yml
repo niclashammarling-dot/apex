@@ -6,7 +6,10 @@ on:
     # failing without opening a PR. A workflow nobody has watched fail is the
     # "exists therefore runs" premise the audit loop was falsified on three
     # times in one summer; one observed red run is the affirmative evidence.
-    branches: [master, 'ci-verify/**']
+    # Every branch (Niclas 2026-10-24: "i framtiden kör vi test på alla grenar"). port-regime
+    # carried 77 commits CI never saw; its first CI run was the merge, red on two tests
+    # (runs 187-190).
+    branches: ['**']
   pull_request:
   workflow_dispatch:
 
