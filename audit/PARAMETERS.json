@@ -761,6 +761,77 @@
       "tier": "ops",
       "source": "Vault raw/notes/2026-10/2026-10-24-apex-atr-scaled-exits-card.md (ATR exits card, vault 1b087dd0, amendment f5021a66, written before the code): reproducibility: RNG seed, the card's date. ATR exits probe only (2026-10-24): no live gate, size or exit reads it.",
       "date": "2026-10-24"
+    },
+    "backend/backtest/s20b_vol_state_2026_10.py::BLOCK": {
+      "value": 21,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s20b-vol-state-l0-card.md (S20b L0 card, vault 188e49c4, written before the code): card item 4: STRESSED labels permuted in 21-day blocks (about one month) so episodes stay together. S20b probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s20b_vol_state_2026_10.py::HORIZONS": {
+      "value": [
+        1,
+        5,
+        10,
+        25
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s20b-vol-state-l0-card.md (S20b L0 card, vault 188e49c4, written before the code): card item 3: S20's horizons (the ladder's L0 set). S20b probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s20b_vol_state_2026_10.py::MIN_OOS_STRESSED": {
+      "value": 30,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s20b-vol-state-l0-card.md (S20b L0 card, vault 188e49c4, written before the code): card item 9: OOS sign check counts only with >= 30 STRESSED days; fewer gives 'IS-supported, OOS unpowered'. S20b probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s20b_vol_state_2026_10.py::MIN_STRESSED": {
+      "value": 20,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s20b-vol-state-l0-card.md (S20b L0 card, vault 188e49c4, written before the code): card item 6: a window with < 20 STRESSED days is unpowered. S20b probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s20b_vol_state_2026_10.py::N_LEVEL_DRAWS": {
+      "value": 20,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s20b-vol-state-l0-card.md (S20b L0 card, vault 188e49c4, written before the code): card item 7: the level-IC synthetic arm drawn 20 times for its rejection rate. S20b probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s20b_vol_state_2026_10.py::N_PERM": {
+      "value": 200,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s20b-vol-state-l0-card.md (S20b L0 card, vault 188e49c4, written before the code): card item 4: 200 block permutations (negative control). S20b probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s20b_vol_state_2026_10.py::PREDICTED": {
+      "value": {
+        "V4": 1,
+        "score": 0
+      },
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s20b-vol-state-l0-card.md (S20b L0 card, vault 188e49c4, written before the code): card item 3: V4 effect predicted positive; score two-sided (0). S20b probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s20b_vol_state_2026_10.py::SEED": {
+      "value": 20261025,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s20b-vol-state-l0-card.md (S20b L0 card, vault 188e49c4, written before the code): reproducibility: RNG seed (S20's + 1). S20b probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s20b_vol_state_2026_10.py::TARGET": {
+      "value": 0.03,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s20b-vol-state-l0-card.md (S20b L0 card, vault 188e49c4, written before the code): card item 7: synthetic IC at IC_econ 0.030 (v2 card). S20b probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
     }
   }
 }
