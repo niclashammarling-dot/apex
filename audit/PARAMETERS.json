@@ -933,6 +933,76 @@
       "tier": "ops",
       "source": "Vault raw/notes/2026-10/2026-10-24-apex-s21-reversal-l0-card.md (S21 L0 card, vault c5a3c881, written before the code): card item 7: synthetic IC at IC_econ 0.030. S21 probe only (2026-10-24): no live gate, size or exit reads it.",
       "date": "2026-10-24"
+    },
+    "backend/backtest/s21b_stressed_reversal_2026_10.py::BLOCK": {
+      "value": 21,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s21b-stressed-reversal-entries-card.md (S21b card, vault 6ed44226, written before the code): card item 6: stressed labels shifted by whole 21-day blocks (negative control). S21b probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s21b_stressed_reversal_2026_10.py::COST_BP": {
+      "value": 10,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s21b-stressed-reversal-entries-card.md (S21b card, vault 6ed44226, written before the code): card item 4: 10 bp per round trip on every simulated trade (T8 amendment E). S21b probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s21b_stressed_reversal_2026_10.py::HOLD_MAX": {
+      "value": 25,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s21b-stressed-reversal-entries-card.md (S21b card, vault 6ed44226, written before the code): purge: an entry day needs 25 later days, live's time limit. S21b probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s21b_stressed_reversal_2026_10.py::MIN_OOS_DAYS": {
+      "value": 30,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s21b-stressed-reversal-entries-card.md (S21b card, vault 6ed44226, written before the code): card item 5: fewer OOS stressed days than 30 labels the OOS check unpowered (as S20b). S21b probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s21b_stressed_reversal_2026_10.py::N_BOOT": {
+      "value": 2000,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s21b-stressed-reversal-entries-card.md (S21b card, vault 6ed44226, written before the code): card item 4: episode-bootstrap draws. S21b probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s21b_stressed_reversal_2026_10.py::N_RND": {
+      "value": 200,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s21b-stressed-reversal-entries-card.md (S21b card, vault 6ed44226, written before the code): card item 3: same-day same-ATR-quintile random entries per REV entry on stressed days. S21b probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s21b_stressed_reversal_2026_10.py::N_RND_ALL": {
+      "value": 20,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s21b-stressed-reversal-entries-card.md (S21b card, vault 6ed44226, written before the code): implementation: random entries per REV entry on non-stressed days, for REV_CALM and the block-shift control (cost; the decision uses N_RND). S21b probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s21b_stressed_reversal_2026_10.py::N_SHIFT": {
+      "value": 200,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s21b-stressed-reversal-entries-card.md (S21b card, vault 6ed44226, written before the code): card item 6: block shifts of the stressed labels. S21b probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s21b_stressed_reversal_2026_10.py::N_ZERO": {
+      "value": 20,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s21b-stressed-reversal-entries-card.md (S21b card, vault 6ed44226, written before the code): card item 6: delta=0 control draws. S21b probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s21b_stressed_reversal_2026_10.py::SEED": {
+      "value": 20261028,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s21b-stressed-reversal-entries-card.md (S21b card, vault 6ed44226, written before the code): reproducibility: RNG seed. S21b probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
     }
   }
 }
