@@ -61,7 +61,7 @@ the questions themselves, and each go group's threshold status, which changes on
 | Q-VER | Can each verdict below be trusted: rule written before the run, controls passed, enough power? | G1, G2, G3 | CHECK-76, S9, S10, M1 |
 | Q-EXE | Do exits and sizing deliver the expected value per trade that group 1 rests on? | G1, G2, G7 | S15, GAP-4, GAP-24, GAP-24b, GAP-25, GAP-31, CHECK-31, CHECK-39, CHECK-46, CHECK-47, CHECK-92, CHECK-93, PARAM-money |
 | Q-PAR | Can a backtest verdict be trusted for live? | G2, G3, G4 | GAP-1, GAP-2, GAP-3, GAP-5, GAP-6, GAP-7, GAP-10, GAP-11, GAP-12, GAP-13, GAP-14, GAP-15, GAP-16, GAP-17, GAP-18, GAP-19, GAP-20, GAP-21, GAP-22, GAP-22b, GAP-23, GAP-26, GAP-27, GAP-30, GAP-32, CHECK-7, CHECK-12, CHECK-25, CHECK-26, CHECK-54, CHECK-76, M6 |
-| Q-SIG | Which inputs carry a measured direction edge? | G1 | S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12, S13, S14, S17, S18, S19, S20 |
+| Q-SIG | Which inputs carry a measured direction edge? | G1 | S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12, S13, S14, S17, S18, S19, S20, S21 |
 | Q-DAT | Are the inputs there and true, live and in the tested period? | Q-SIG, Q-PAR | GAP-8, GAP-9, GAP-28, GAP-29, CHECK-10, CHECK-14, CHECK-15, CHECK-17, CHECK-22, CHECK-35, CHECK-55, CHECK-56, CHECK-75, CHECK-77, CHECK-78, CHECK-86, CHECK-87, CHECK-91, M5 |
 | Q-OPS | Does the machinery run as built, every session? | G5 | CHECK-*, PARAM-ops |
 
@@ -81,5 +81,5 @@ when its own register row exists; the reference above is replaced in the same co
 | M6 | The regime port merged into master (criterion ruled 10-19) | Q-PAR | INDEX merge line |
 
 ## Rows that answer no question
-None at the time of writing: every S-row S1–S20 and every GAP row 1–32 (with 22b, 24b) is named
+None at the time of writing: every S-row S1–S21 and every GAP row 1–32 (with 22b, 24b) is named
 above. S15 answers Q-EXE and S16 answers G1 directly. The test keeps it that way.
