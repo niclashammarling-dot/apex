@@ -1003,6 +1003,27 @@
       "tier": "ops",
       "source": "Vault raw/notes/2026-10/2026-10-24-apex-s21b-stressed-reversal-entries-card.md (S21b card, vault 6ed44226, written before the code): reproducibility: RNG seed. S21b probe only (2026-10-24): no live gate, size or exit reads it.",
       "date": "2026-10-24"
+    },
+    "backend/backtest/exits_l3_m4_2026_10.py::DD_TOL": {
+      "value": 0.01,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-exits-l3-m4-card.md (L3+M4 card, vault 0d5d64ff, written before the code): card item 5: an arm's realised drawdown may be at most 1 point deeper than live's (chosen, as the L2 tail criterion). L3 probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/exits_l3_m4_2026_10.py::SHIFT": {
+      "value": 0.002,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-exits-l3-m4-card.md (L3+M4 card, vault 0d5d64ff, written before the code): card item 6: the synthetic 'better' arm raises every trade's P&L by 0.2 % of its amount (chosen). L3 probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/exits_l3_m4_2026_10.py::START_BALANCE": {
+      "value": 10000.0,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-exits-l3-m4-card.md (L3+M4 card, vault 0d5d64ff, written before the code): ladder._engine's initial_balance (10,000), the base of realised equity. L3 probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
     }
   }
 }
