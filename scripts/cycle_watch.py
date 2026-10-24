@@ -127,8 +127,9 @@ def process_state(port: int = PORT) -> str:
 
 
 def session_cycles(db: Path, day: str, bounds: tuple[datetime, datetime]) -> tuple[int, int, int, int]:
-    """(demo cycles, demo expected, live cycles, live expected) for one session — the
-    same count CHECK 80 and /api/ops/window use (audit/gate_cycles.py)."""
+    """(demo cycles, demo expected, live cycles, live expected) for one session, counting
+    actionable cycles only (audit/gate_cycles.NOT_ACTIONABLE; the CHECK 80/85 count,
+    2026-10-24). /api/ops/window shows every cycle with its reason."""
     from audit.gate_cycles import cycle_starts, expected_cycles
     interval = 20
     try:
@@ -138,8 +139,8 @@ def session_cycles(db: Path, day: str, bounds: tuple[datetime, datetime]) -> tup
         pass
     conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=10)
     try:
-        demo = cycle_starts(conn, "demo_gate_history", day).get(day, [])
-        live = cycle_starts(conn, "live_gate_history", day).get(day, [])
+        demo = cycle_starts(conn, "demo_gate_history", day, actionable=True).get(day, [])
+        live = cycle_starts(conn, "live_gate_history", day, actionable=True).get(day, [])
     finally:
         conn.close()
     return (len(demo), expected_cycles(bounds[0], bounds[1], demo, interval),

@@ -2,13 +2,18 @@
 import sqlite3
 
 
-def _run85(tmp_path, monkeypatch, demo_cycles: int, flag: tuple | None, day="2026-10-02"):
+def _run85(tmp_path, monkeypatch, demo_cycles: int, flag: tuple | None, day="2026-10-02", live_cycles=None):
     from audit import _audit_core as core
     from audit import checks_gate as cg
     repo = tmp_path / "repo"
     (repo / "data").mkdir(parents=True)
     conn = sqlite3.connect(repo / "data/apex.db")
     conn.execute("CREATE TABLE demo_gate_history (timestamp TEXT, cycle_started_at TEXT)")
+    conn.execute("CREATE TABLE live_gate_history (timestamp TEXT, cycle_started_at TEXT)")
+    for k in range(demo_cycles + 1 if live_cycles is None else live_cycles):   # live grid :33/:53/:13 from 13:33 UTC
+        m = 13 * 60 + 33 + 20 * k
+        ts = f"{day}T{m // 60:02d}:{m % 60:02d}:05+00:00"
+        conn.execute("INSERT INTO live_gate_history VALUES (?, ?)", (ts, ts))
     conn.execute("CREATE TABLE session_flags (date TEXT, kind TEXT, status TEXT, cause TEXT, source TEXT, "
                  "cycles INT, expected INT, live_cycles INT, live_expected INT, first_seen_at TEXT, finalized_at TEXT)")
     for k in range(demo_cycles):                       # demo grid :41/:01/:21 from 13:41 UTC

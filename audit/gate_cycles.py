@@ -46,8 +46,17 @@ def has_cycle_table(conn) -> bool:
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'gate_cycles'").fetchone() is not None
 
 
-def cycle_starts(conn, table: str, since: str) -> dict[str, list[str]]:
-    """{UTC date: sorted distinct cycle start minutes 'YYYY-MM-DDTHH:MM'} for table."""
+# A cycle that could not act is not coverage (Niclas 2026-10-23: "en cykel bör vara
+# något som går att agera på"). Found on 10-22: the ISP outage left the process
+# cycling, so demo read 18/19 while live ran 5 broker_unreachable cycles; CHECK 85
+# called a correct partial flag wrong. Recorded reasons only (gate_cycles, from
+# GATE_CYCLES_FROM); gate rows before it carry no reason.
+NOT_ACTIONABLE = ("broker_unreachable",)
+
+
+def cycle_starts(conn, table: str, since: str, actionable: bool = False) -> dict[str, list[str]]:
+    """{UTC date: sorted distinct cycle start minutes 'YYYY-MM-DDTHH:MM'} for table.
+    actionable=True leaves out recorded cycles whose reason is in NOT_ACTIONABLE."""
     out: dict[str, list[str]] = {}
     recorded = has_cycle_table(conn)
     cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
@@ -61,8 +70,9 @@ def cycle_starts(conn, table: str, since: str) -> dict[str, list[str]]:
     if recorded:
         minutes += [m for (m,) in conn.execute(
             "SELECT DISTINCT substr(started_at, 1, 16) FROM gate_cycles "
-            "WHERE job = ? AND trigger = 'scheduler' AND started_at >= ?",
-            (GATE_JOB[table], max(since, GATE_CYCLES_FROM))).fetchall()]
+            "WHERE job = ? AND trigger = 'scheduler' AND started_at >= ?"
+            + (f" AND COALESCE(reason, '') NOT IN ({', '.join('?' * len(NOT_ACTIONABLE))})" if actionable else ""),
+            (GATE_JOB[table], max(since, GATE_CYCLES_FROM)) + (NOT_ACTIONABLE if actionable else ())).fetchall()]
     for m in sorted(set(minutes)):
         out.setdefault(m[:10], []).append(m)
     return out

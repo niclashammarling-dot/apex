@@ -234,8 +234,8 @@ def _audit_repo(tmp_path, monkeypatch, cycles, rows=()):
     conn = sqlite3.connect(repo / "data/apex.db")
     for t in ("live_gate_history", "demo_gate_history"):
         conn.execute(f"CREATE TABLE {t} (timestamp TEXT, ticker TEXT, cycle_started_at TEXT)")
-    conn.execute("CREATE TABLE gate_cycles (job TEXT, trigger TEXT, started_at TEXT)")
-    conn.executemany("INSERT INTO gate_cycles VALUES (?, ?, ?)", cycles)
+    conn.execute("CREATE TABLE gate_cycles (job TEXT, trigger TEXT, started_at TEXT, reason TEXT)")   # as backend/db.py
+    conn.executemany("INSERT INTO gate_cycles VALUES (?, ?, ?, ?)", [tuple(c) + (None,) * (4 - len(c)) for c in cycles])
     for t, ts in rows:
         conn.execute(f"INSERT INTO {t} VALUES (?, 'X', ?)", (ts, ts))
     conn.commit(); conn.close()
@@ -289,6 +289,60 @@ def test_check85_drops_the_quiet_cycle_clause_from_the_cutover(tmp_path, monkeyp
     monkeypatch.setattr(core, "findings", [])
     cg.check85()
     assert "quiet cycles undercounted" in next(f[4] for f in core.findings if f[0] == 85)
+
+
+def _c85_day(tmp_path, monkeypatch, demo, live, flag=None, day="2026-10-22"):
+    """demo/live: lists of reasons, one per scheduled cycle on that book's grid
+    (demo :41/:01/:21 from 13:41 UTC, live :33/:53/:13 from 13:33 UTC; EDT session)."""
+    from audit import gate_cycles as gc
+    grid = lambda first, n: [f"{day}T{(first + 20 * k) // 60:02d}:{(first + 20 * k) % 60:02d}:00+00:00" for k in range(n)]
+    cycles = ([("run_gate", "scheduler", t, r) for t, r in zip(grid(13 * 60 + 41, len(demo)), demo)]
+              + [("run_live_gate", "scheduler", t, r) for t, r in zip(grid(13 * 60 + 33, len(live)), live)])
+    cg, core = _audit_repo(tmp_path, monkeypatch, cycles)
+    monkeypatch.setattr(gc, "GATE_CYCLES_FROM", "2026-10-05")
+    c = sqlite3.connect(tmp_path / "repo/data/apex.db")
+    c.execute("CREATE TABLE session_flags (date TEXT, kind TEXT, status TEXT, cause TEXT)")
+    if flag:
+        c.execute("INSERT INTO session_flags VALUES (?, 'partial', 'final', ?)", (day, flag))
+    c.commit(); c.close()
+    monkeypatch.setattr(cg, "_C85_SINCE", "2000-01-01")
+    monkeypatch.setattr(cg, "_c82_session_dates", lambda n: [day])
+    monkeypatch.setattr(cg, "_c82_open_day", lambda: None)
+    cg.check85()
+    return [f[4] for f in core.findings if f[0] == 85]
+
+
+def test_check85_counts_only_cycles_that_could_act(tmp_path, monkeypatch):
+    # 2026-10-22 as recorded: the ISP outage. Demo evaluated 18 of 19 slots; live ran
+    # 12 evaluated, 1 no_fresh_candidates and 5 broker_unreachable. The watch's partial
+    # flag is right; counting cycle starts called it wrong (bundle finding:85, 10-23).
+    live = ["evaluated"] * 12 + ["no_fresh_candidates"] + ["broker_unreachable"] * 5
+    assert _c85_day(tmp_path, monkeypatch, ["evaluated"] * 18, live, flag="ISP outage") == []
+
+
+def test_check85_reads_the_less_covered_book(tmp_path, monkeypatch):
+    # Live lost the session while demo kept cycling, no flag: a missed outage, named by book.
+    live = ["evaluated"] * 8 + ["broker_unreachable"] * 12
+    out = _c85_day(tmp_path, monkeypatch, ["evaluated"] * 19, live)
+    assert len(out) == 1 and "live 8/" in out[0] and "no session flag" in out[0]
+
+
+def test_check85_still_questions_a_flag_on_a_full_day(tmp_path, monkeypatch):
+    out = _c85_day(tmp_path, monkeypatch, ["evaluated"] * 19, ["evaluated"] * 20, flag="blip")
+    assert len(out) == 1 and "flag is wrong" in out[0]
+
+
+def test_actionable_starts_drop_broker_unreachable_only(tmp_path, monkeypatch):
+    from audit.gate_cycles import cycle_starts
+    d = "2026-10-22"
+    _audit_repo(tmp_path, monkeypatch, [("run_live_gate", "scheduler", f"{d}T14:13:00+00:00", "broker_unreachable"),
+                                        ("run_live_gate", "scheduler", f"{d}T14:33:00+00:00", "no_fresh_candidates"),
+                                        ("run_live_gate", "scheduler", f"{d}T14:53:00+00:00", "evaluated")])
+    from audit import gate_cycles as gc
+    monkeypatch.setattr(gc, "GATE_CYCLES_FROM", "2026-10-05")
+    conn = sqlite3.connect(tmp_path / "repo/data/apex.db")
+    assert len(cycle_starts(conn, "live_gate_history", d)[d]) == 3
+    assert cycle_starts(conn, "live_gate_history", d, actionable=True)[d] == [f"{d}T14:33", f"{d}T14:53"]
 
 
 # ── the surfaces: manual endpoints record, ops/window reports reasons ──────────

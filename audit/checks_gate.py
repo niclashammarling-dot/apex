@@ -956,7 +956,7 @@ def check80() -> None:
     try:
         conn = sqlite3.connect(db)
         from audit.gate_cycles import cycle_starts
-        starts = cycle_starts(conn, "demo_gate_history", _C80_BUILD_TS)
+        starts = cycle_starts(conn, "demo_gate_history", _C80_BUILD_TS, actionable=True)
         rows = conn.execute(
             "SELECT timestamp, ticker, lock_leading_checks FROM demo_gate_history "
             "WHERE timestamp >= ? AND lock_leading_checks LIKE '%pc_ratio%'",
@@ -1529,7 +1529,8 @@ def check85() -> None:
     try:
         conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
-        starts = cycle_starts(conn, "demo_gate_history", sessions[0])
+        starts = cycle_starts(conn, "demo_gate_history", sessions[0], actionable=True)
+        live_starts = cycle_starts(conn, "live_gate_history", sessions[0], actionable=True)
         try:
             flags = {r["date"]: dict(r) for r in conn.execute(
                 "SELECT * FROM session_flags WHERE date >= ? AND kind = 'partial'", (sessions[0],))}
@@ -1540,24 +1541,29 @@ def check85() -> None:
         flag(85, name, "WARNING", "data/apex.db:session_flags", f"could not query: {e}")
         return
     cov = {d: (c, e) for d, c, e in _c80_session_coverage({d: starts.get(d, []) for d in sessions})}
+    lcov = {d: (c, e) for d, c, e in _c80_session_coverage({d: live_starts.get(d, []) for d in sessions})}
     for d in sessions:
-        c, e = cov.get(d, (0, 0))
-        ratio = c / e if e else 0.0
+        dc, de = cov.get(d, (0, 0))
+        lc, le = lcov.get(d, (0, 0))
+        # The session is as covered as its less covered book (2026-10-24).
+        dr, lr = (dc / de if de else 0.0), (lc / le if le else 0.0)
+        c, e, ratio = (dc, de, dr) if dr <= lr else (lc, le, lr)
+        both = f"demo {dc}/{de}, live {lc}/{le} actionable cycles"
         f = flags.get(d)
         if f is None and ratio < _C85_PARTIAL:
             quiet = ", or quiet cycles undercounted (before gate_cycles)" if d < GATE_CYCLES_FROM else ""
             flag(85, name, "WARNING", "scripts/cycle_watch.py",
-                 f"{d}: demo {c}/{e} cycles ({ratio:.0%}) and no session flag — an outage the cycle watch "
+                 f"{d}: {both} ({ratio:.0%}) and no session flag — an outage the cycle watch "
                  f"did not record (watch not running, PC off){quiet}; "
                  f"if real, flag it so the paper record does not read it as a full session")
         elif f is not None and ratio >= _C85_PARTIAL:
             flag(85, name, "WARNING", "data/apex.db:session_flags",
-                 f"{d}: flagged partial ({f['cause']}) but demo coverage is {c}/{e} ({ratio:.0%}) — "
+                 f"{d}: flagged partial ({f['cause']}) but coverage is {both} ({ratio:.0%}) — "
                  f"the flag is wrong, or the outage cost under {1 - _C85_PARTIAL:.0%} of the session")
         if f is not None and f["status"] != "final":
             flag(85, name, "WARNING", "scripts/cycle_watch.py",
                  f"{d}: session flag still provisional — the watch's post-close run did not finalize it "
-                 f"(computed now: demo {c}/{e})")
+                 f"(computed now: {both})")
 
 
 # ── CHECK 86 — prune_signals has run ─────────────────────────────────────────

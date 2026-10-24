@@ -73,7 +73,9 @@ BY_CHECK: dict[int, str] = {
          "session is flagged partial (CHECK 85 row). Scope for a new date: read the market_window log for the "
          "signal and a network-error spike in apex_<date>.log first; external cause + relaunch inside 5 min = "
          "keep with the reason; no relaunch or an internal cause = root-cause (memory: self-clearing alarms)."),
-    85: ("Session flag vs coverage. 2026-10-22 read 10-23: the flag is right, the check's measure is short. "
+    85: ("Session flag vs coverage. Built 2026-10-24: coverage counts actionable cycles only and reads the less "
+         "covered of demo and live (CHECKS.md row 85); a WARNING now is read on that count. History: "
+         "2026-10-22 read 10-23: the flag is right, the check's measure is short. "
          "The ISP outage (CHECK 82 row) left the process cycling: demo coverage counts cycle starts (18/19), but "
          "live had 5 broker_unreachable cycles and demo evaluated without fresh data; the watch flagged 51 min "
          "without a live gate start. Scope: CHECK 85 counts a cycle covered only when it could act (exclude "
