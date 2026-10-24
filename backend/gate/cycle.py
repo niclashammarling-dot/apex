@@ -15,7 +15,8 @@ is unchanged — the manual endpoints and tests consume it.
 
 Reasons: no_candidates, no_fresh_candidates, all_skipped, all_excluded, evaluated,
 evaluated_some_raised, all_raised; live adds disabled, halt_unreconciled,
-broker_unreachable, account_blocked, halt_data_quality, loss_cap.
+broker_unreachable, account_blocked, halt_data_quality, loss_cap (L0, a share of
+equity since 2026-10-24), halt_m4_drawdown, halt_m4_expectancy (L0 Portfolio, backend/gate/portfolio_l0.py).
 A runner that exits without setting one records None.
 
 stale_excluded (Finding 1, 2026-10-10): distinct tickers refused by the session

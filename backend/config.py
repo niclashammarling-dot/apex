@@ -140,6 +140,19 @@ LIVE_MAX_POSITIONS       = int(os.getenv("LIVE_MAX_POSITIONS", "4"))
 LIVE_MAX_SECTOR_EXPOSURE = float(os.getenv("LIVE_MAX_SECTOR_EXPOSURE", "0.20"))
 LIVE_MAX_POSITION_SIZE   = float(os.getenv("LIVE_MAX_POSITION_SIZE", "0.10"))
 LIVE_DAILY_LOSS_CAP      = float(os.getenv("LIVE_DAILY_LOSS_CAP", "200.0"))
+# --- L0 Portfolio: the M4 stop rules (ruled 2026-10-24; backend/gate/portfolio_l0.py) ---
+# Drawdown on realised equity: Niclas 2026-10-24 "6 %" ("i överkant men det är värdefullt att veta"),
+# "m4: realiserat". Daily loss cap as a share of current equity: ruled as a share ("5% av aktuellt
+# kapital kan skala upp och ner"), level 4 % or 6 % open until the 2026-11-21 review; 5 % is the
+# interim, equal to the $500 fixed cap it replaces at the $10,000 starting balance. Expectancy: after
+# 40 in-session trades (Niclas "sätt den på 40"), below the frozen in-session reference's one-sided
+# 95 % lower bound; reference = the 34 in-session trades closed by 2026-10-23 13:58 UTC, return on
+# notional mean 1.85 %, sd 3.95 % (measured 2026-10-24 from db.live_sample_rows).
+M4_DRAWDOWN_PCT        = 0.06
+M4_DAILY_LOSS_CAP_PCT  = 0.05
+M4_EXPECTANCY_N        = 40
+M4_EXPECTANCY_REF      = {"mean": 0.0185, "sd": 0.0395, "n": 34,
+                          "frozen_after_exit": "2026-10-23T13:58:48.412222+00:00"}
 LIVE_TAKE_PROFIT_PCT     = float(os.getenv("LIVE_TAKE_PROFIT_PCT", "0.12"))
 LIVE_STOP_LOSS_PCT       = float(os.getenv("LIVE_STOP_LOSS_PCT", "0.04"))
 # A daily-loss-cap trip where broker-reported day P&L and APEX's own

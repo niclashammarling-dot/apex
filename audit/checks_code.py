@@ -709,8 +709,9 @@ _C74_REVIEWED: dict[str, tuple[str, str, str]] = {
     "tests/test_live_reconciliation.py": (
         "reviewed 2026-09-10: young-entry tests use _recent_timestamp(); the fixed dates are fill dates "
         "that must postdate _open_trade's fixed entry, and time-stop tests want an old entry; re-reviewed "
-        "2026-10-13 after adding filled_at = None to a fake order (no date change)", "2027-04-10",
-        "e5729e574de61fdf"),
+        "2026-10-13 after adding filled_at = None to a fake order (no date change); re-reviewed 2026-10-24 after the "
+        "L0 loss-cap tests gained equity and starting_balance mocks (no date change)", "2027-04-10",
+        "9d43b0ee17d26e25"),
     "tests/test_entry_fill.py": (
         "reviewed 2026-10-13: exit-check entries are an hour before now (_open_trade default); the fixed "
         "dates are fill timestamps and CHECK 89 entries read with a fixed now", "2027-04-13", "fd384bc28f8724ab"),

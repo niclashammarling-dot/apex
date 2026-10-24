@@ -149,10 +149,14 @@ def live_gate_history():
         try:
             from backend.brokers import alpaca as broker
             acct = broker.get_account()
-            day_loss = abs(min(acct["day_pnl"], 0))
             cfg = get_live_config()
-            if day_loss >= cfg.get("daily_loss_cap", 1000):
-                blocked_reason = f"daily loss cap — ${day_loss:,.0f} loss vs ${cfg['daily_loss_cap']:,.0f} cap"
+            from backend.db import live_sample_rows
+            from backend.gate import portfolio_l0
+            l0 = portfolio_l0.evaluate(acct, live_sample_rows(), cfg["starting_balance"])
+            if l0["reason"] == portfolio_l0.HALT_LOSS_CAP:
+                blocked_reason = f"daily loss cap — ${l0['day_loss']:,.0f} loss vs ${l0['daily_loss_cap']:,.0f} cap"
+            elif l0["reason"]:
+                blocked_reason = f"L0 {l0['reason']} — realised drawdown {l0['drawdown']['drawdown']:.1%}"
             elif acct.get("trading_blocked") or acct.get("account_blocked"):
                 blocked_reason = "Alpaca account blocked"
         except Exception:

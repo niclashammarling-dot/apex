@@ -15,7 +15,8 @@ const LAUNCHER = {
 };
 
 const QUIET = ["no_candidates", "all_skipped", "all_excluded"];
-const HALT = ["halt_unreconciled", "halt_data_quality", "broker_unreachable", "account_blocked", "loss_cap"];
+const HALT = ["halt_unreconciled", "halt_data_quality", "broker_unreachable", "account_blocked", "loss_cap",
+              "halt_m4_drawdown", "halt_m4_expectancy"];
 
 function CycleReasons({ r }) {
   if (!r) return null;

@@ -847,6 +847,30 @@
       "source": "Vault raw/notes/2026-10/2026-10-24-apex-atr-leg-ablation-card.md (ATR leg ablation card, vault 368b3b64, written before the code): reproducibility: RNG seed for the live entries' draws. Ablation probe only (2026-10-24): no live gate, size or exit reads it.",
       "date": "2026-10-24"
     },
+    "backend/config.py::M4_DRAWDOWN_PCT": {
+      "value": 0.06,
+      "kind": "chosen",
+      "tier": "money",
+      "source": "M4 stop rule, ruled by Niclas 2026-10-24 (vault INDEX go-criterion line; apex audit/QUESTIONS.md G7/M4); run in live's L0 Portfolio from 2026-10-24 (Niclas: \"m4: då sätter vi de tre reglerna i L0 som hindrar L1 att ens starta. Kör på live redan nu\"). Drawdown on realised equity from its peak: \"6 %\" (\"i överkant men det är värdefullt att veta\"), \"m4: realiserat\". The engine at live sizing reaches 11.6-14.9 % (F15), live 2.69 % since 07-07 (measured 2026-10-24).",
+      "date": "2026-10-24",
+      "review": "2026-11-21"
+    },
+    "backend/config.py::M4_DAILY_LOSS_CAP_PCT": {
+      "value": 0.05,
+      "kind": "chosen",
+      "tier": "money",
+      "source": "M4 stop rule, ruled by Niclas 2026-10-24 (vault INDEX go-criterion line; apex audit/QUESTIONS.md G7/M4); run in live's L0 Portfolio from 2026-10-24 (Niclas: \"m4: då sätter vi de tre reglerna i L0 som hindrar L1 att ens starta. Kör på live redan nu\"). Daily loss cap as a share of current equity (\"5% av aktuellt kapital kan skala upp och ner, vilket är bättre\"); the level 4 % or 6 % is open until the 2026-11-21 review, 5 % is the interim, equal to the $500 fixed cap it replaces at the $10,000 starting balance.",
+      "date": "2026-10-24",
+      "review": "2026-11-21"
+    },
+    "backend/config.py::M4_EXPECTANCY_N": {
+      "value": 40,
+      "kind": "chosen",
+      "tier": "money",
+      "source": "M4 stop rule, ruled by Niclas 2026-10-24 (vault INDEX go-criterion line; apex audit/QUESTIONS.md G7/M4); run in live's L0 Portfolio from 2026-10-24 (Niclas: \"m4: då sätter vi de tre reglerna i L0 som hindrar L1 att ens starta. Kör på live redan nu\"). In-session trades after the frozen reference before the expectancy rule can fire (\"sätt den på 40\"): the n that detects a shortfall the size of the whole in-session mean (1.85 %) at sd 3.95 %, one-sided 5 %, 90 % power.",
+      "date": "2026-10-24",
+      "review": "2026-11-21"
+    },
     "backend/backtest/s21_reversal_2026_10.py::HORIZONS": {
       "value": [
         1,

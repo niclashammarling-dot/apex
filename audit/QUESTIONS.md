@@ -76,7 +76,7 @@ when its own register row exists; the reference above is replaced in the same co
 | M1 | Battery verdict register: each pre-registered cell's verdict (the profit read's edge rule, R2 against RND; T-cards), readable by the repo | G1, Q-VER | the battery notes are in the vault only |
 | M2 | Robustness card: without the best trades and sector, the 2022 fold, the parameter plateau | G3 | a card, then a register row |
 | M3 | Freeze record: the evaluation window's start and the parameters frozen | G6 | Niclas's ruling on the window start |
-| M4 | Stop rule: drawdown and expectancy limits, written before the first real order | G7 | ruled 2026-10-24 (G7 threshold; vault INDEX go-criterion line); becomes PARAMETERS.json money entries when the real-money code that reads it exists |
+| M4 | Stop rule: drawdown and expectancy limits, written before the first real order | G7 | ruled 2026-10-24 (G7 threshold; vault INDEX go-criterion line); running in live's L0 Portfolio since 2026-10-24 (`backend/gate/portfolio_l0.py`, PARAMETERS.json money entries `M4_*`, review 2026-11-21: cap level 4/6 %, interim 5 %) |
 | M5 | Survivorship-free universe: delisted prices from 2015 (PRODUCTION_GAP prose, no numbered row) | Q-DAT | a PRODUCTION_GAP row; scope 2026-10-31 |
 | M6 | The regime port merged into master (criterion ruled 10-19) | Q-PAR | INDEX merge line |
 

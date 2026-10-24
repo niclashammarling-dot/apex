@@ -364,17 +364,29 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
         cycle.reason = "halt_data_quality"
         return []
 
-    # Daily loss cap check — only reached once broker and APEX are confirmed
-    # to agree, so a trip here is a genuine realized/unrealized loss, not a
-    # snapshot artifact.
-    day_loss = abs(min(acct["day_pnl"], 0))
-    if day_loss >= cfg["daily_loss_cap"]:
+    # L0 Portfolio: the M4 stop rules (backend/gate/portfolio_l0.py), before L1 starts. Only
+    # reached once broker and APEX are confirmed to agree, so a trip here is a genuine loss, not a
+    # snapshot artifact. The daily cap is a share of current equity; downstream readers (L5's
+    # risk_limits) see the effective dollar cap through cfg.
+    from backend.db import live_sample_rows
+    from backend.gate import portfolio_l0
+    l0 = portfolio_l0.evaluate(acct, live_sample_rows(), cfg["starting_balance"])
+    cfg["daily_loss_cap"] = l0["daily_loss_cap"]
+    if l0["reason"]:
         today = _ny_today()
-        logger.warning(f"Live gate: daily loss cap hit — day loss ${day_loss:.2f} >= cap ${cfg['daily_loss_cap']:.2f}")
-        if set_alert_latch(f"loss_cap:{today}"):
-            from backend.alerts import alert_daily_loss_cap
-            alert_daily_loss_cap(day_loss, cfg["daily_loss_cap"])
-        cycle.reason = "loss_cap"
+        logger.warning(f"Live gate: L0 halt {l0['reason']} — day loss ${l0['day_loss']:.2f} / cap "
+                       f"${l0['daily_loss_cap']:.2f}; realised drawdown {l0['drawdown']['drawdown']:.2%}; "
+                       f"expectancy {l0['expectancy']}")
+        if set_alert_latch(f"{l0['reason']}:{today}"):
+            if l0["reason"] == portfolio_l0.HALT_LOSS_CAP:
+                from backend.alerts import alert_daily_loss_cap
+                alert_daily_loss_cap(l0["day_loss"], l0["daily_loss_cap"])
+            else:
+                from backend.alerts import alert_gate_blocked
+                alert_gate_blocked(f"L0 {l0['reason']}: realised drawdown {l0['drawdown']['drawdown']:.2%} "
+                                   f"(peak ${l0['drawdown']['peak']:,.2f}, now ${l0['drawdown']['equity']:,.2f}); "
+                                   f"expectancy {l0['expectancy']}")
+        cycle.reason = l0["reason"]
         return []
 
     stale: list[dict] = []
