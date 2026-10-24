@@ -73,12 +73,12 @@ when its own register row exists; the reference above is replaced in the same co
 
 | id | missing | needed by | where it would live |
 |---|---|---|---|
-| M1 | Battery verdict register: each pre-registered cell's verdict (the profit read's edge rule, R2 against RND; T-cards), readable by the repo | G1, Q-VER | the battery notes are in the vault only |
+| M1 | Battery verdict register: each pre-registered cell's verdict (the profit read's edge rule, R2 against RND; T-cards), readable by the repo | G1, Q-VER | the battery notes are in the vault only; 2026-10-24 added eight pre-registered cards (S20, S20b, S21, S21b, ATR exits, leg ablation, capped stop, L3+M4), verdicts in their vault cards with archived JSONs (`raw/notes/2026-10/data/2026-10-24-apex-*`) |
 | M2 | Robustness card: without the best trades and sector, the 2022 fold, the parameter plateau | G3 | a card, then a register row |
 | M3 | Freeze record: the evaluation window's start and the parameters frozen | G6 | Niclas's ruling on the window start |
-| M4 | Stop rule: drawdown and expectancy limits, written before the first real order | G7 | ruled 2026-10-24 (G7 threshold; vault INDEX go-criterion line); running in live's L0 Portfolio since 2026-10-24 (`backend/gate/portfolio_l0.py`, PARAMETERS.json money entries `M4_*`, review 2026-11-21: cap level 4/6 %, interim 5 %) |
+| M4 | Stop rule: drawdown and expectancy limits, written before the first real order | G7 | ruled 2026-10-24 (G7 threshold; vault INDEX go-criterion line); running in live's L0 Portfolio since 2026-10-24 (`backend/gate/portfolio_l0.py`, PARAMETERS.json money entries `M4_*`, review 2026-11-21: cap level 4/6 %, interim 5 %). Backtest reading 2026-10-24 (L3+M4 card): the 6 % halt fires in every R1 history (realised drawdowns 11.7–16.4 %); level held until more evidence (Niclas 2026-10-24) |
 | M5 | Survivorship-free universe: delisted prices from 2015 (PRODUCTION_GAP prose, no numbered row) | Q-DAT | a PRODUCTION_GAP row; scope 2026-10-31 |
-| M6 | The regime port merged into master (criterion ruled 10-19) | Q-PAR | INDEX merge line |
+| M6 | The regime port merged into master (criterion ruled 10-19) | Q-PAR | done 2026-10-24 (`0964e7e`); leaves this table when Q-PAR's answered-by list is re-read |
 
 ## Rows that answer no question
 None at the time of writing: every S-row S1–S21 and every GAP row 1–32 (with 22b, 24b) is named
