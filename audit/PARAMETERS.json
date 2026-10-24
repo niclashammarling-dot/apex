@@ -674,6 +674,51 @@
       "tier": "ops",
       "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): item 2: LIVE's profit lock, 4 % trigger / 1 % trail (data/live_config.json profit_lock_trigger_pct / profit_lock_trail_pct). Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
       "date": "2026-10-21"
+    },
+    "backend/backtest/s20_vol_2026_10.py::ALPHA": {
+      "value": 0.05,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s20-volatility-l0-card.md (S20 L0 card, vault 0123140a, written before the code): card item 9: Holm over the confirmatory family at 5 % two-sided. S20 probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s20_vol_2026_10.py::IC_ECON": {
+      "value": 0.03,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s20-volatility-l0-card.md (S20 L0 card, vault 0123140a, written before the code): card items 7-8: the economically relevant IC from the v2 card (IR* 0.5 / sqrt(BR 285), conservative end), the target of the per-criterion +/- controls. S20 probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s20_vol_2026_10.py::N_SHUFFLE": {
+      "value": 200,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s20-volatility-l0-card.md (S20 L0 card, vault 0123140a, written before the code): card item 4: 200 within-day shuffles per confirmatory predictor, as T1. S20 probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s20_vol_2026_10.py::N_ZERO_DRAWS": {
+      "value": 20,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s20-volatility-l0-card.md (S20 L0 card, vault 0123140a, written before the code): card item 7: the IC-0 synthetic arm is drawn 20 times to estimate its rejection rate. S20 probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s20_vol_2026_10.py::PREDICTED": {
+      "value": {
+        "V3": -1,
+        "V4": 1
+      },
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s20-volatility-l0-card.md (S20 L0 card, vault 0123140a, written before the code): card item 3: predicted signs stated before the run (V3 low-volatility anomaly, negative; V4 vol-shock premium analogue, positive). S20 probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/s20_vol_2026_10.py::SEED": {
+      "value": 20261024,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s20-volatility-l0-card.md (S20 L0 card, vault 0123140a, written before the code): reproducibility: the RNG seed, the card's date (T1 used its own date the same way). S20 probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
     }
   }
 }

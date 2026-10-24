@@ -224,7 +224,7 @@ def main() -> None:
     a = ap.parse_args()
     a.outdir.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
-    commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
+    commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=False).stdout.strip()
 
     def log(msg: str) -> None:
         print(f"[{time.time() - t0:6.0f}s] {msg}", flush=True)
