@@ -898,12 +898,19 @@ def _compute_metrics(
         if len(daily_rets) > 1:
             mean_r = sum(daily_rets) / len(daily_rets)
             variance = sum((r - mean_r) ** 2 for r in daily_rets) / (len(daily_rets) - 1)
-            std_r = math.sqrt(variance) if variance > 0 else 0.0
-            sharpe = (mean_r / std_r) * math.sqrt(252) if std_r > 0 else 0.0
+            if math.isnan(variance):
+                # A NaN balance made every comparison false and returned 0.0 silently (the
+                # 17 macro re-test runs of 2026-10-11, all Sharpe 0.000; traced 2026-10-24).
+                logger.warning("Backtest: Sharpe undefined — NaN in the equity curve")
+                sharpe = float("nan")
+            else:
+                std_r = math.sqrt(variance) if variance > 0 else 0.0
+                sharpe = (mean_r / std_r) * math.sqrt(252) if std_r > 0 else 0.0
         else:
             sharpe = 0.0
-    except Exception:
-        sharpe = 0.0
+    except Exception as e:
+        logger.warning(f"Backtest: Sharpe not computed — {e!r}")
+        sharpe = float("nan")
 
     # Max drawdown
     try:
