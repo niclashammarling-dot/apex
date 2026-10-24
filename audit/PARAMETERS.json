@@ -832,6 +832,20 @@
       "tier": "ops",
       "source": "Vault raw/notes/2026-10/2026-10-24-apex-s20b-vol-state-l0-card.md (S20b L0 card, vault 188e49c4, written before the code): card item 7: synthetic IC at IC_econ 0.030 (v2 card). S20b probe only (2026-10-24): no live gate, size or exit reads it.",
       "date": "2026-10-24"
+    },
+    "backend/backtest/exits_atr_ablation_2026_10.py::TAIL_TOL": {
+      "value": 0.01,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-atr-leg-ablation-card.md (ATR leg ablation card, vault 368b3b64, written before the code): card item 5: TPLOCK's p1 may be at most 1 percentage point worse than live's, IS and OOS (chosen). Ablation probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
+    },
+    "backend/backtest/exits_atr_ablation_2026_10.py::SEED": {
+      "value": 20261026,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-atr-leg-ablation-card.md (ATR leg ablation card, vault 368b3b64, written before the code): reproducibility: RNG seed for the live entries' draws. Ablation probe only (2026-10-24): no live gate, size or exit reads it.",
+      "date": "2026-10-24"
     }
   }
 }
