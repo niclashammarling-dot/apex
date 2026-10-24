@@ -52,7 +52,7 @@ the questions themselves, and each go group's threshold status, which changes on
 | G4 | Live matches the model: live inside the ported backtest's distribution, slippage charged | O3 | scored after the port | Q-PAR, CHECK-89, CHECK-93 |
 | G5 | Operations: clean sessions, no unresolved CRITICAL, go-live checklist closed, recovery paths induced | O3 | not set (clean sessions) | Q-OPS |
 | G6 | Discipline: parameters frozen during the evaluation window | O3 | not set (window start) | CHECK-9, CHECK-13, PARAM-money, M3 |
-| G7 | Staging: real money starts small; a stop rule is written before the first real order | O3 | not set | Q-EXE, M4 |
+| G7 | Staging: real money starts small; a stop rule is written before the first real order | O3 | partly set (stop rule ruled 2026-10-24: drawdown 6 % on realised equity; expectancy below the paper estimate's lower CI after 40 in-session trades; review 2026-11-21. Starting size not set) | Q-EXE, M4 |
 
 ## Layers
 
@@ -76,7 +76,7 @@ when its own register row exists; the reference above is replaced in the same co
 | M1 | Battery verdict register: each pre-registered cell's verdict (the profit read's edge rule, R2 against RND; T-cards), readable by the repo | G1, Q-VER | the battery notes are in the vault only |
 | M2 | Robustness card: without the best trades and sector, the 2022 fold, the parameter plateau | G3 | a card, then a register row |
 | M3 | Freeze record: the evaluation window's start and the parameters frozen | G6 | Niclas's ruling on the window start |
-| M4 | Stop rule: drawdown and expectancy limits, written before the first real order | G7 | Niclas's ruling |
+| M4 | Stop rule: drawdown and expectancy limits, written before the first real order | G7 | ruled 2026-10-24 (G7 threshold; vault INDEX go-criterion line); becomes PARAMETERS.json money entries when the real-money code that reads it exists |
 | M5 | Survivorship-free universe: delisted prices from 2015 (PRODUCTION_GAP prose, no numbered row) | Q-DAT | a PRODUCTION_GAP row; scope 2026-10-31 |
 | M6 | The regime port merged into master (criterion ruled 10-19) | Q-PAR | INDEX merge line |
 
