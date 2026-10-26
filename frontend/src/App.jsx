@@ -385,7 +385,7 @@ function adaptFunnel(funnel) {
   return [{ stage: "POLLED", label: "Tickers polled", count: funnel.total_candidates ?? 0 }, ...stages];
 }
 
-// "L4 · Sentiment — Min Score": the lock prefix comes from the backend table, never a copy here.
+// The lock prefix of a Settings/Promote label comes from the backend table, never a copy here.
 function lockLabel(locks, key, label) {
   const lock = locks?.config_labels?.[key];
   return lock ? `${lock} — ${label}` : label;
@@ -404,6 +404,8 @@ function adaptGateRows(rows) {
     l2_summary:          r.l2_summary ?? null,
     lock_leading_checks: r.lock_leading_checks ?? null,
     lock3_reasoning:     r.lock3_reasoning ?? null,
+    lock_states:         r.lock_states ?? null,
+    reason_label:        r.reason_label ?? null,
   }));
 }
 
@@ -429,8 +431,8 @@ const SETTINGS_FIELDS = [
     hint: "Minimum Claude confidence score to pass. At 0.7 Claude must be fairly certain." },
   { key: "lock_leading_min_pass", label: "Min Checks", step: 1, min: 1, max: 4,
     hint: "Minimum sub-checks that must pass. Out of 4. Default 2 = majority required." },
-  { key: "max_drawdown_pct",     label: "Max Drawdown Alert",        step: 0.01, min: 0.01, max: 1,
-    hint: "Drawdown threshold passed to Claude in the review context." },
+  { key: "max_drawdown_pct",     label: "Max Drawdown Guard",        step: 0.01, min: 0.01, max: 1,
+    hint: "Mechanical guard before the review: once the balance is this far below the starting balance every candidate is rejected (recorded as an L6 review rejection). Also passed to Claude. Its job moves to L0 Portfolio (M4) in phase 4." },
   { key: "take_profit_pct",      label: "Take Profit %",         step: 0.01, min: 0.01, max: 1, nullable: false,
     hint: "At 15% only 28% of trades hit target — 6–8% hits 55%+",
     warnAbove: 0.08, warnMsg: () => "Above 8% — most trades won't reach target" },
@@ -447,7 +449,7 @@ const SETTINGS_FIELDS = [
   { key: "max_position_size",    label: "Max Position Size",     step: 0.01, min: 0.01, max: 0.5,
     hint: "Maximum fraction of account balance in a single position." },
   { key: "daily_loss_cap",       label: "Daily Loss Cap ($)",    step: 10,   min: 10,   max: 10000,
-    hint: "Stops new entries for the rest of the day once losses hit this amount." },
+    hint: "Demo: stops new entries for the rest of the day once losses hit this amount. Live: not read since 2026-10-24 — L0 Portfolio sets the cap at 5 % of current equity (M4)." },
   { key: "starting_balance",     label: "Starting Balance ($)",  step: 100,  min: 100,  max: 10000000,
     hint: "Account starting balance for position sizing and drawdown calculations." },
   { key: "max_hold_days",        label: "Time Stop (days)",      step: 1,    min: 1,    max: 90,

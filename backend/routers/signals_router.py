@@ -279,8 +279,8 @@ def gate_history():
                 row["lock_leading_checks"] = _json.loads(row["lock_leading_checks"])
             except Exception:
                 row["lock_leading_checks"] = None
-    from backend.gate.lock_codes import as_api
-    return {"rows": rows, "funnel": get_demo_gate_funnel_counts(), "locks": as_api()}
+    from backend.gate.lock_codes import as_api, decorate_rows
+    return {"rows": decorate_rows(rows), "funnel": get_demo_gate_funnel_counts(), "locks": as_api()}
 
 
 @router.get("/gate/locks")

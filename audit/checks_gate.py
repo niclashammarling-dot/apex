@@ -563,7 +563,11 @@ def check54() -> None:
          chain exit_lock has a stage — the table agrees with the approved chain;
       B. the frontend holds no label of its own for a gate code: a FILTERED_* string paired with
          a label in App.jsx or ApexTerminal.jsx is a second vocabulary, which is how the drift
-         happened.
+         happened;
+      C. the frontend holds no lock number of its own: a JSX text "L<n>:" or a string literal
+         starting "Lock <n>" or "L<n> · ". Added after the phase 1 review (2026-10-26, R5): B only
+         saw code/label pairs, so the Terminal's detail panel kept "L1: L3: L4: L5:" in the old
+         numbering, and "L5:" sat on a column that holds every stage's reason.
     """
     from backend.gate import lock_codes
 
@@ -581,6 +585,7 @@ def check54() -> None:
                  "backend/gate/lock_codes.py:STAGES",
                  f"chain exit_lock {n} has no stage — its rejections record FILTERED_UNKNOWN")
 
+    lock_number = re.compile(r'>\s*(L[0-9]):\s*<|["\'`](Lock [0-9]|L[0-9] · )')
     pair = re.compile(r'(?:stage:\s*"|^\s*)(FILTERED_[A-Z0-9_]+)"?\s*[:,]\s*(?:label:\s*)?[{]?\s*(?:label:\s*)?["`]', re.M)
     for rel in ("frontend/src/App.jsx", "frontend/src/components/ApexTerminal.jsx"):
         path = REPO / rel
@@ -588,11 +593,17 @@ def check54() -> None:
             flag(54, "gate funnel label/lock semantic parity", "WARNING", rel,
                  "frontend file missing — the check reads nothing for it; retarget CHECK 54")
             continue
-        own = sorted(set(pair.findall(path.read_text())))
+        text = path.read_text()
+        own = sorted(set(pair.findall(text)))
         if own:
             flag(54, "gate funnel label/lock semantic parity", "WARNING", rel,
                  f"{len(own)} gate code(s) carry a label of their own ({', '.join(own)}) — "
                  f"render them from /api/gate/locks")
+        numbers = sorted({m.group(1) or m.group(2).strip() for m in lock_number.finditer(text)})
+        if numbers:
+            flag(54, "gate funnel label/lock semantic parity", "WARNING", rel,
+                 f"{len(numbers)} lock number(s) written in the frontend ({', '.join(numbers)}) — "
+                 f"take the label from /api/gate/locks")
 
 
 def check64() -> None:

@@ -981,22 +981,30 @@ def get_open_live_tickers() -> set[str]:
         conn.close()
 
 
-def get_ticker_gate_fails(ticker: str, limit: int = 5) -> list[dict]:
+def _ticker_gate_fails(table: str, ticker: str, limit: int) -> list[dict]:
     """
-    Recent non-skip gate decisions for a ticker from the demo signals table.
-    Returns up to `limit` rows newest-first, with the most relevant fail detail
-    collapsed into a single 'detail' string for Lock 3 context injection.
+    Recent gate decisions for a ticker, newest first, skips left out (lock_codes.SKIP_CODES), for
+    L6 REVIEW's (lock5_claude) ticker_gate_history. Each row: date, the stored code (`outcome`), the
+    stage it stopped at (`stage`, the lock_codes label) and `detail`, the reason that stage recorded.
+
+    `detail` is lock3_reasoning first: the writers put the deciding stage's reason there for every
+    code, and Claude's reasoning on a trade row (gate_runner._chain_to_gate_result). Only when it is
+    empty does it fall back to the stage's own column. Until 2026-10-26 l2_summary (the sentiment
+    summary) came first, so a positioning or review rejection reached Claude as a sentiment text
+    (lock labels review R6).
     """
     import json as _json
+
+    from backend.gate.lock_codes import BY_CODE, SKIP_CODES, sql_in
     conn = get_db()
     try:
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT timestamp, gate_decision, l2_summary, macro_reason,
                    lock_leading_checks, lock3_reasoning
-            FROM signals
+            FROM {table}
             WHERE ticker = ?
               AND gate_decision IS NOT NULL
-              AND gate_decision NOT IN ('SKIPPED_OPEN', 'SKIPPED_COOLOFF')
+              AND gate_decision NOT IN ({sql_in(SKIP_CODES)})
             ORDER BY timestamp DESC
             LIMIT ?
         """, (ticker, limit)).fetchall()
@@ -1006,12 +1014,12 @@ def get_ticker_gate_fails(ticker: str, limit: int = 5) -> list[dict]:
     result = []
     for r in rows:
         decision = r["gate_decision"]
-        detail = None
-        if r["l2_summary"]:
-            detail = r["l2_summary"]
-        elif r["macro_reason"]:
+        detail = r["lock3_reasoning"]
+        if not detail and decision == "FILTERED_ELIGIBILITY":
             detail = r["macro_reason"]
-        elif r["lock_leading_checks"]:
+        elif not detail and decision == "FILTERED_L2":
+            detail = r["l2_summary"]
+        elif not detail and decision == "FILTERED_LEADING" and r["lock_leading_checks"]:
             try:
                 checks = _json.loads(r["lock_leading_checks"])
                 failed = [k for k, v in checks.items() if not v.get("pass")]
@@ -1019,61 +1027,24 @@ def get_ticker_gate_fails(ticker: str, limit: int = 5) -> list[dict]:
                 detail = "leading failed: " + "; ".join(reasons) if reasons else "leading checks failed"
             except Exception:
                 detail = "leading checks failed"
-        elif r["lock3_reasoning"]:
-            detail = r["lock3_reasoning"]
+        stage = BY_CODE.get(decision)
         result.append({
             "date":     r["timestamp"][:10],
             "outcome":  decision,
+            "stage":    stage.label if stage else decision,
             "detail":   detail,
         })
     return result
+
+
+def get_ticker_gate_fails(ticker: str, limit: int = 5) -> list[dict]:
+    """Demo: _ticker_gate_fails over the signals table."""
+    return _ticker_gate_fails("signals", ticker, limit)
 
 
 def get_live_ticker_gate_fails(ticker: str, limit: int = 5) -> list[dict]:
-    """
-    Recent non-skip gate decisions for a ticker from live_gate_history.
-    Same shape as get_ticker_gate_fails for consistent context injection.
-    """
-    import json as _json
-    conn = get_db()
-    try:
-        rows = conn.execute("""
-            SELECT timestamp, gate_decision, l2_summary, macro_reason,
-                   lock_leading_checks, lock3_reasoning
-            FROM live_gate_history
-            WHERE ticker = ?
-              AND gate_decision IS NOT NULL
-              AND gate_decision NOT IN ('SKIPPED_OPEN', 'SKIPPED_COOLOFF')
-            ORDER BY timestamp DESC
-            LIMIT ?
-        """, (ticker, limit)).fetchall()
-    finally:
-        conn.close()
-
-    result = []
-    for r in rows:
-        decision = r["gate_decision"]
-        detail = None
-        if r["l2_summary"]:
-            detail = r["l2_summary"]
-        elif r["macro_reason"]:
-            detail = r["macro_reason"]
-        elif r["lock_leading_checks"]:
-            try:
-                checks = _json.loads(r["lock_leading_checks"])
-                failed = [k for k, v in checks.items() if not v.get("pass")]
-                reasons = [checks[k].get("reason", "") for k in failed if checks[k].get("reason")]
-                detail = "leading failed: " + "; ".join(reasons) if reasons else "leading checks failed"
-            except Exception:
-                detail = "leading checks failed"
-        elif r["lock3_reasoning"]:
-            detail = r["lock3_reasoning"]
-        result.append({
-            "date":     r["timestamp"][:10],
-            "outcome":  decision,
-            "detail":   detail,
-        })
-    return result
+    """Live: _ticker_gate_fails over live_gate_history (same shape)."""
+    return _ticker_gate_fails("live_gate_history", ticker, limit)
 
 
 def get_recently_failed_live_tickers(hours: float) -> set[str]:

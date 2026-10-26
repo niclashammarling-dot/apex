@@ -38,7 +38,28 @@ def test_own_label_rows_are_flagged(tmp_path, monkeypatch):
     out = _found(core, 54)
     assert any("App.jsx" not in m and "FILTERED_L2" in m for m in out)
     assert any("FILTERED_L1" in m for m in out)
-    assert len(out) == 2
+    assert any("lock number(s) written in the frontend (L1 ·)" in m for m in out)   # C sees the literal too
+    assert len(out) == 3
+
+
+# C, added after the phase 1 review (R5): master's Terminal detail panel and Settings labels.
+DETAIL_PANEL = '<span style={{ color: "var(--t-text-3)", marginRight: 8 }}>L5:</span>\n'
+SETTINGS_LABEL = '  { key: "lock2_sentiment_min",  label: "Lock 2 Sentiment Min",  step: 0.01 },\n'
+COMMENT_ONLY = '// The lock prefix of a Settings/Promote label comes from the backend table.\n'
+
+
+def test_lock_numbers_written_in_the_frontend_are_flagged(tmp_path, monkeypatch):
+    cg, core = _setup(tmp_path, monkeypatch, SETTINGS_LABEL, DETAIL_PANEL)
+    cg.check54()
+    out = _found(core, 54)
+    assert any("(L5)" in m for m in out) and any("(Lock 2)" in m for m in out) and len(out) == 2
+
+
+def test_table_labels_and_plain_comments_are_not_lock_numbers(tmp_path, monkeypatch):
+    panel = '<span>{D.gateLocks?.detail_labels?.l2_summary}:</span>\n<span>{r.reason_label ?? "Reason"}:</span>\n'
+    cg, core = _setup(tmp_path, monkeypatch, COMMENT_ONLY, panel)
+    cg.check54()
+    assert _found(core, 54) == []
 
 
 def test_a_mislabelled_stage_in_the_table_is_flagged(tmp_path, monkeypatch):

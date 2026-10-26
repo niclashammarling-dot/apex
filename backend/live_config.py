@@ -167,7 +167,8 @@ def _write_atomic(cfg: dict) -> None:
 
 # Settings that must never be promoted from demo — account-size specific.
 # starting_balance: demo=$2k, live=$100k — completely different denominator
-# daily_loss_cap:   absolute dollars calibrated to account size; demo=$100, live=$1000
+# daily_loss_cap:   absolute dollars calibrated to account size; demo=$100 (read by the demo wallet);
+#                   live is not read by the gate since 2026-10-24 (L0 Portfolio: 5 % of equity)
 _PROMOTE_EXCLUDE = {"starting_balance", "daily_loss_cap"}
 
 

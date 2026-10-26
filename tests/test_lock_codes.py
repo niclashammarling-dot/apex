@@ -122,3 +122,115 @@ def test_live_funnel_counts_the_etf_penalty():
     assert etf["count"] == 1 and etf["label"] == "L2 · Risk (ETF)"
     assert [s["code"] for s in stages][:4] == ["SKIPPED_BLOCKLIST", "SKIPPED_OPEN", "SKIPPED_COOLOFF",
                                                "FILTERED_ELIGIBILITY"]
+
+
+# ── Review before merge (2026-10-26, findings R1-R6, R8) ─────────────────────
+
+def test_overflow_stops_before_review_in_order_and_states():
+    # R1: both runners defer L6 (stop_after_lock=4) and check overflow first; no overflow row reached L6.
+    order = [s.code for s in lock_codes.STAGES]
+    assert order.index("FILTERED_OVERFLOW_QUANT") < order.index("FILTERED_L3")
+    assert lock_codes.lock_states("FILTERED_OVERFLOW_QUANT") == [True, True, True, True, True, None]
+    assert lock_codes.lock_states("FILTERED_L3") == [True, True, True, True, True, False]
+
+
+def test_every_filter_fails_exactly_its_own_column():
+    for i, col in enumerate(lock_codes.CHAIN):
+        states = lock_codes.lock_states(col.code)
+        assert states[i] is False and states.count(False) == 1
+        assert all(v is True for v in states[:i]) and all(v is None for v in states[i + 1:])
+
+
+def test_skip_legacy_and_unknown_codes_show_no_lock_as_passed():
+    # R3: they rendered every column as passed.
+    for code in ("SKIPPED_OPEN", "SKIPPED_BLOCKLIST", "FILTERED_MACRO", "FILTERED_SOMETHING_NEW", None):
+        assert lock_codes.lock_states(code) == [None] * len(lock_codes.CHAIN)
+
+
+def test_a_trade_row_passed_review_only_if_claude_approved():
+    # R2: the pre-review "position already open" reject records TRADE_REJECTED with lock3_pass 0.
+    assert lock_codes.row_states("TRADE_REJECTED", 1) == [True] * 6
+    assert lock_codes.row_states("TRADE_REJECTED", 0) == [True] * 5 + [None]
+    assert lock_codes.row_states("FILTERED_L3", 0) == lock_codes.lock_states("FILTERED_L3")
+
+
+def test_reason_label_names_the_stage_that_wrote_the_reason():
+    # R5: the Terminal labelled lock3_reasoning "L5:" for every row.
+    assert lock_codes.reason_label("FILTERED_LEADING") == "L5 · Positioning"
+    assert lock_codes.reason_label("FILTERED_ELIGIBILITY") == "L1 · Eligibility"
+    assert lock_codes.reason_label("TRADE_EXECUTED") == "L6 · Review"
+    assert lock_codes.reason_label("FILTERED_OVERFLOW_QUANT") is None
+    rows = lock_codes.decorate_rows([{"gate_decision": "TRADE_REJECTED", "lock3_pass": 0}])
+    assert rows[0]["lock_states"][-1] is None and rows[0]["reason_label"] == "L6 · Review"
+
+
+def test_detail_labels_name_what_each_column_holds():
+    # R5: l2_summary is the sentiment summary (gate_runner: l3_data summary), shown as "L3:" before.
+    assert lock_codes.as_api()["detail_labels"] == {
+        "macro_reason": "L1 · Eligibility", "l2_summary": "L4 · Sentiment", "lock_leading_checks": "L5 · Positioning"}
+
+
+def test_lock_owned_config_keys_follow_the_approved_chain():
+    # R4: L2 RISK owns ETF, earnings, macro and concentration (chain approved 2026-10-24); L1 market state.
+    labels = lock_codes.config_labels()
+    for k in ("macro_event_blackout_days", "macro_earnings_blackout_days", "macro_earnings_near_penalty",
+              "macro_pre_event_penalty", "max_sector_exposure", "etf_negative_penalty"):
+        assert labels[k].startswith("L2 · Risk"), k
+    assert labels["vix_threshold"] == "L1 · Eligibility"
+    assert labels["max_drawdown_pct"] == "L6 · Review"            # R8: the pre-review guard's threshold
+    assert lock_codes.LOCKS[2][1] == "ETF, earnings, macro, concentration"
+    assert "calendar" not in lock_codes.LOCKS[1][1]
+
+
+def test_owned_keys_are_real_config_keys():
+    from backend.live_config import _KEYS
+    keys = set(lock_codes.config_labels())
+    assert keys <= set(_KEYS), keys - set(_KEYS)
+
+
+def test_gate_history_rows_carry_states_and_reason_label(monkeypatch):
+    from backend import db
+    from backend.routers import live_router
+    from backend.routers.live_router import live_gate_history
+    monkeypatch.setattr(live_router, "LIVE_ENABLED", False)   # no broker call (conftest refuses it)
+    now = datetime.now(timezone.utc).isoformat()
+    conn = db.get_db()
+    try:
+        conn.execute("INSERT INTO live_gate_history (ticker, sector, gate_decision, lock3_pass, timestamp) "
+                     "VALUES ('RSX', 'Tech', 'FILTERED_OVERFLOW_QUANT', 0, ?)", (now,))
+        conn.commit()
+    finally:
+        conn.close()
+    try:
+        row = next(r for r in live_gate_history()["rows"] if r["ticker"] == "RSX")
+    finally:
+        _delete("DELETE FROM live_gate_history WHERE ticker = 'RSX'")
+    assert row["lock_states"] == [True, True, True, True, True, None] and row["reason_label"] is None
+
+
+def test_review_history_shows_the_deciding_reason_and_its_stage():
+    # R6: l2_summary (sentiment) came first, so a positioning or review rejection reached Claude as a
+    # sentiment text; SKIPPED_BLOCKLIST passed the "non-skip" filter.
+    from backend import db
+    conn = db.get_db()
+    try:
+        for i, (code, l2s, reason) in enumerate((
+            ("FILTERED_LEADING", "sentiment text", "options group failed"),
+            ("FILTERED_L3", "sentiment text", "Portfolio is at the maximum position limit"),
+            ("FILTERED_L2", "weak sentiment", None),
+            ("SKIPPED_BLOCKLIST", None, None),
+        )):
+            conn.execute("INSERT INTO live_gate_history (ticker, sector, gate_decision, l2_summary, lock3_reasoning, "
+                         "timestamp) VALUES ('RVX', 'Tech', ?, ?, ?, ?)", (code, l2s, reason, f"2099-01-0{i + 1}T15:00:00"))
+        conn.commit()
+    finally:
+        conn.close()
+    try:
+        got = db.get_live_ticker_gate_fails("RVX", limit=10)
+    finally:
+        _delete("DELETE FROM live_gate_history WHERE ticker = 'RVX'")
+    assert [(r["outcome"], r["stage"], r["detail"]) for r in got] == [
+        ("FILTERED_L2", "L4 · Sentiment", "weak sentiment"),
+        ("FILTERED_L3", "L6 · Review", "Portfolio is at the maximum position limit"),
+        ("FILTERED_LEADING", "L5 · Positioning", "options group failed"),
+    ]

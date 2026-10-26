@@ -29,11 +29,12 @@ BY_CHECK: dict[int, str] = {
          "lock1_eligibility's calendar aliases are imported by tests/test_lock1_macro_blackout.py; kept with a "
          "noqa and a reason). `with get_db() as conn` leaks: `conn = get_db(); try: … finally: conn.close()`. "
          "One commit, ruff clean on the touched files, full suite. ~20 min."),
-    54: ("Dashboard funnel labels use the old lock numbering (FILTERED_L1 = Lock 2 Quant shown as 'L1 · Score', "
-         "FILTERED_L2 = Lock 3 Sentiment shown as 'L2 · Quant'; no L3 row). Scope (ruled: frontend reflects backend): "
-         "serve the lock chain from the backend (number, name, decision strings, config keys) and render adaptFunnel, "
-         "the Settings labels ('Lock 1 Fallback Threshold', 'Lock 2 Sentiment Min', App.jsx:673 map) and the "
-         "threshold panel from it; CHECK 54 goes clean. Half a day."),
+    54: ("Gate lock labels have one source (backend/gate/lock_codes.py, served at /api/gate/locks; lock labels "
+         "phase 1, 2026-10-26). A finding is either the table disagreeing with the approved chain (A: a filter stage's "
+         "label or a missing exit_lock), or the frontend holding a vocabulary of its own (B: a FILTERED_* code paired "
+         "with a label; C: a lock number written as text). Scope: render the named string from the table (as_api: "
+         "labels, badges, columns, config_labels, detail_labels) or correct the table row; never add a frontend map. "
+         "Verify: CHECK 54 clean, tests/test_audit_check54.py. ~30 min."),
     63: ("Composite dilution monitor (level check, standing since the ticker additions). Scope: read per-ticker "
          "scores since each addition vs the sector baseline; options per sector — keep the ticker, remove it, or "
          "convert the monitor to event severity (new crossings only; memory: level alerts become wallpaper). Decide "

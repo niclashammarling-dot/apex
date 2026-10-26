@@ -496,10 +496,13 @@ const GATE_LEADING_LABELS = {
   volume_accumulation: "VA",
 };
 
-function getGateLockStates(decision, locks) {
+// Per-row states from the backend (lock_codes.row_states); the per-code table is the fallback, and an
+// unknown code is shown as not known, never as passed.
+function getGateLockStates(r, locks) {
+  if (r.lock_states) return r.lock_states;
   const cols = locks?.columns ?? [];
-  const st = locks?.stages?.find(s => s.code === decision);
-  return st?.states ?? cols.map(() => true);
+  const st = locks?.stages?.find(s => s.code === r.outcome);
+  return st?.states ?? cols.map(() => null);
 }
 
 function GateFeed({ D, mode }) {
@@ -527,7 +530,8 @@ function GateFeed({ D, mode }) {
   const grouped = rows.reduce((acc, r) => {
     const prev = acc[acc.length - 1];
     if (prev && prev.sym === r.sym && prev.outcome === r.outcome
-        && !!prev.overflow_slot === !!r.overflow_slot) {
+        && !!prev.overflow_slot === !!r.overflow_slot
+        && JSON.stringify(prev.lock_states) === JSON.stringify(r.lock_states)) {
       prev._count = (prev._count || 1) + 1;
       prev._lastTs = r.ts;
     } else {
@@ -567,7 +571,7 @@ function GateFeed({ D, mode }) {
               {grouped.map((r, i) => {
                 const outcome   = gateOutcomeMeta(r, D.gateLocks);
                 const isSkipped = D.gateLocks?.stages?.find(s => s.code === r.outcome)?.kind === "skip";
-                const locks     = getGateLockStates(r.outcome, D.gateLocks);
+                const locks     = getGateLockStates(r, D.gateLocks);
                 const hasDetail = !isSkipped && !!(r.lock3_reasoning || r.lock_leading_checks || r.l2_summary || r.macro_reason);
                 const isExpanded = expanded[i];
                 const time = r._count > 1 ? `${fmtTs(r.ts)}–${fmtTs(r._lastTs)}` : fmtTs(r.ts);
@@ -614,19 +618,19 @@ function GateFeed({ D, mode }) {
                       }}>
                         {r.macro_reason && (
                           <div style={{ marginBottom: 6 }}>
-                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>L1:</span>
+                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>{D.gateLocks?.detail_labels?.macro_reason}:</span>
                             <span style={{ color: "var(--t-text-2)" }}>{r.macro_reason}</span>
                           </div>
                         )}
                         {r.l2_summary && (
                           <div style={{ marginBottom: 6 }}>
-                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>L3:</span>
+                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>{D.gateLocks?.detail_labels?.l2_summary}:</span>
                             <span style={{ color: "var(--t-text-2)" }}>{r.l2_summary}</span>
                           </div>
                         )}
                         {r.lock_leading_checks && (
                           <div style={{ marginBottom: 6 }}>
-                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>L4:</span>
+                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>{D.gateLocks?.detail_labels?.lock_leading_checks}:</span>
                             {Object.entries(GATE_LEADING_LABELS).map(([key, lbl]) => {
                               const c = r.lock_leading_checks[key];
                               if (!c) return null;
@@ -643,7 +647,7 @@ function GateFeed({ D, mode }) {
                         )}
                         {r.lock3_reasoning && (
                           <div>
-                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>L5:</span>
+                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>{r.reason_label ?? "Reason"}:</span>
                             <span style={{ color: "var(--t-text-2)" }}>{r.lock3_reasoning}</span>
                           </div>
                         )}
