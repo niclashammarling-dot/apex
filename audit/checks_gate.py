@@ -78,7 +78,7 @@ def check24():
 
 def check25():
     """
-    Verify that every gate_decision string emitted by _OUTCOMES in gate_runner.py
+    Verify that every gate_decision string the chain emits (backend/gate/lock_codes.py)
     is handled by all consumers:
       - the rendered gate feed and lock states in ApexTerminal.jsx
       - the funnel and gate-row adapters in App.jsx
@@ -103,13 +103,15 @@ def check25():
     if not runner.exists():
         return
 
-    runner_text = runner.read_text()
-    outcomes    = re.findall(r'\d+:\s*"(FILTERED_[A-Z_]+)"', runner_text)
-    if not outcomes:
+    # Since lock labels phase 1 (2026-10-26) the emitted codes come from the one table, not a
+    # literal _OUTCOMES dict; a consumer that reads the table (import or /api/gate/locks) handles
+    # every code by construction, and only a consumer with its own literals is compared.
+    from backend.gate import lock_codes
+    outcomes = list(lock_codes.OUTCOME_BY_EXIT_LOCK.values())
+    if "lock_codes" not in runner.read_text():
         flag(25, "gate_decision string parity", "WARNING",
-             "backend/gate/gate_runner.py:_OUTCOMES",
-             "_OUTCOMES dict not found or no FILTERED_* strings — pattern changed")
-        return
+             "backend/gate/gate_runner.py",
+             "gate_runner.py no longer imports lock_codes — its codes may not be the table's")
 
     for path in decision_consumers:
         if not path.exists():
@@ -120,16 +122,19 @@ def check25():
             label = path.name
             if not path.exists():
                 continue
-            if outcome not in path.read_text():
+            text = path.read_text()
+            if "/api/gate/locks" in text or "lock_codes" in text:
+                continue
+            if outcome not in text:
                 flag(25, "gate_decision string parity", "CRITICAL",
                      str(path.relative_to(REPO)),
-                     f'"{outcome}" emitted by _OUTCOMES but not handled in {label} '
+                     f'"{outcome}" emitted by the chain (lock_codes) but not handled in {label} '
                      f'(getLockStates or badge label) — unrecognized decision shows all-green locks')
 
-        if db_file.exists() and outcome not in db_file.read_text():
+        if db_file.exists() and "lock_codes" not in db_file.read_text() and outcome not in db_file.read_text():
             flag(25, "gate_decision string parity", "WARNING",
                  "backend/db.py",
-                 f'"{outcome}" emitted by _OUTCOMES but not referenced in db.py '
+                 f'"{outcome}" emitted by the chain (lock_codes) but not referenced in db.py '
                  f'— funnel counts for this outcome will silently be 0')
 
     # Sub-check B: ticker signal strings
@@ -546,69 +551,48 @@ def check53() -> None:
 
 # ── CHECK 54 — Gate funnel label/lock semantic parity ─────────────────────────
 
-# Canonical exit_lock semantics, from _chain_to_gate_result's docstring in
-# gate_runner.py (DB column mapping comment: "semantics shifted").
-_CANONICAL_LOCK_KEYWORDS = {
-    1: "Eligibility",
-    2: "Quant",
-    3: "Sentiment",
-    4: "Leading",
-    5: "Claude",
-}
-
-
 def check54() -> None:
     """
-    CHECK 54 — gate funnel label/lock semantic parity.
+    CHECK 54 — gate lock labels have one source.
 
-    _OUTCOMES in gate_runner.py maps exit_lock N to a FILTERED_* string under a
-    legacy numbering ("semantics shifted" per _chain_to_gate_result's docstring:
-    lock1_pass=Quant, lock2_pass=Sentiment, lock3_pass=Claude). adaptFunnel in
-    App.jsx then maps those same FILTERED_* strings to display labels. If a
-    label's keyword doesn't match the lock that actually produced the string,
-    a rejection from one lock is displayed under another lock's label — e.g.
-    Quant rejections shown as "L1 Score" and Sentiment rejections shown as
-    "L2 Quant", with no bucket for the lock whose keyword was displaced.
-
-    Prevented by: 2026-06-11 finding — funnel showed L4 (Leading fails) > L2
-    (labelled Quant fails) with no L3 row, traced to this label/lock drift.
+    Found 2026-06-11: the funnel labelled quant rejections "L1 Score" and sentiment rejections
+    "L2 Quant", with no L3 row, because the stored codes run one behind the lock numbers and
+    App.jsx kept its own label map. Rewritten 2026-10-26 (lock labels phase 1: one table,
+    backend/gate/lock_codes.py, served at /api/gate/locks):
+      A. every filter stage's label starts "L<n> · " and names its lock's chain name, and every
+         chain exit_lock has a stage — the table agrees with the approved chain;
+      B. the frontend holds no label of its own for a gate code: a FILTERED_* string paired with
+         a label in App.jsx or ApexTerminal.jsx is a second vocabulary, which is how the drift
+         happened.
     """
-    runner   = REPO / "backend/gate/gate_runner.py"
-    app_jsx  = REPO / "frontend/src/App.jsx"
-    if not runner.exists() or not app_jsx.exists():
-        return
+    from backend.gate import lock_codes
 
-    runner_text = runner.read_text()
-    outcomes = dict(re.findall(r'(\d+):\s*"(FILTERED_[A-Z0-9_]+)"', runner_text))
-    if not outcomes:
-        flag(54, "gate funnel label/lock semantic parity", "WARNING",
-             "backend/gate/gate_runner.py:_OUTCOMES",
-             "_OUTCOMES dict not found or no FILTERED_* strings — pattern changed")
-        return
-
-    app_text = app_jsx.read_text()
-    rows = re.findall(r'stage:\s*"(FILTERED_[A-Z0-9_]+)",\s*label:\s*"([^"]+)"', app_text)
-    label_by_stage = dict(rows)
-    if not label_by_stage:
-        flag(54, "gate funnel label/lock semantic parity", "WARNING",
-             "frontend/src/App.jsx:adaptFunnel",
-             "no FILTERED_* stage/label rows found — pattern changed")
-        return
-
-    for lock_num_str, outcome in outcomes.items():
-        lock_num = int(lock_num_str)
-        keyword  = _CANONICAL_LOCK_KEYWORDS.get(lock_num)
-        if keyword is None:
+    for s in lock_codes.STAGES:
+        if s.kind != "filter":
             continue
-        label = label_by_stage.get(outcome)
-        if label is None:
-            continue  # CHECK 25 already flags missing labels
-        if keyword.lower() not in label.lower():
+        name = lock_codes.LOCKS.get(s.lock, ("",))[0]
+        if not name or not s.label.startswith(f"L{s.lock} · ") or name.lower() not in s.label.lower():
             flag(54, "gate funnel label/lock semantic parity", "WARNING",
-                 "frontend/src/App.jsx:adaptFunnel",
-                 f'exit_lock {lock_num} ({keyword}) emits "{outcome}", which '
-                 f'adaptFunnel labels "{label}" — funnel shows {keyword} '
-                 f'rejections under a different lock\'s label')
+                 "backend/gate/lock_codes.py:STAGES",
+                 f'{s.code} is labelled "{s.label}" but sits at lock {s.lock} ({name or "no such lock"})')
+    for n in range(1, 6):
+        if n not in lock_codes.OUTCOME_BY_EXIT_LOCK:
+            flag(54, "gate funnel label/lock semantic parity", "WARNING",
+                 "backend/gate/lock_codes.py:STAGES",
+                 f"chain exit_lock {n} has no stage — its rejections record FILTERED_UNKNOWN")
+
+    pair = re.compile(r'(?:stage:\s*"|^\s*)(FILTERED_[A-Z0-9_]+)"?\s*[:,]\s*(?:label:\s*)?[{]?\s*(?:label:\s*)?["`]', re.M)
+    for rel in ("frontend/src/App.jsx", "frontend/src/components/ApexTerminal.jsx"):
+        path = REPO / rel
+        if not path.exists():
+            flag(54, "gate funnel label/lock semantic parity", "WARNING", rel,
+                 "frontend file missing — the check reads nothing for it; retarget CHECK 54")
+            continue
+        own = sorted(set(pair.findall(path.read_text())))
+        if own:
+            flag(54, "gate funnel label/lock semantic parity", "WARNING", rel,
+                 f"{len(own)} gate code(s) carry a label of their own ({', '.join(own)}) — "
+                 f"render them from /api/gate/locks")
 
 
 def check64() -> None:

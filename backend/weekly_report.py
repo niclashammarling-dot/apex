@@ -20,6 +20,7 @@ from loguru import logger
 
 from backend.backtest.live_shape import describe_varied
 from backend.db import LIVE_VERIFIED_EXIT
+from backend.gate import lock_codes
 
 _SENT_MARKER = Path(__file__).parent.parent / "data" / "weekly_report_sent.txt"
 
@@ -217,15 +218,13 @@ def _live_stats(since: str, until: str) -> dict:
 # not fixed — on the deferred-L5 path overflow is checked before Claude
 # (gate_runner.py, TRADE_QUEUED_PENDING_L5) — so those outcomes are split, not
 # chained.
-_FUNNEL_SKIPS = ("SKIPPED_OPEN", "SKIPPED_COOLOFF", "SKIPPED_BLOCKLIST")
-_FUNNEL_LOCKS = (
-    ("Lock 1 Eligibility", ("FILTERED_ELIGIBILITY",)),
-    ("Lock 2 Quant",       ("FILTERED_L1",)),
-    ("Lock 3 Sentiment",   ("FILTERED_L2",)),
-    ("Lock 4 Leading",     ("FILTERED_LEADING", "FILTERED_ETF_PENALTY")),
-)
+# Since lock labels phase 1 (2026-10-26) stages and labels come from backend/gate/lock_codes.py;
+# the ETF re-test, which runs after positioning, is its own chained row (L2 · Risk) instead of being
+# counted inside Leading.
+_FUNNEL_SKIPS = lock_codes.SKIP_CODES
+_FUNNEL_LOCKS = tuple((s.label, (s.code,)) for s in lock_codes.CHAINED)
 _FUNNEL_AFTER_LEADING = (
-    ("Lock 5 Claude filtered",  ("FILTERED_L3",)),
+    *((f"{s.label} filtered", (s.code,)) for s in lock_codes.CHAIN if s.lock == 6),
     ("Overflow filtered",       ("FILTERED_OVERFLOW_QUANT",)),
     ("Not filled (rejected/failed)", ("TRADE_REJECTED", "TRADE_FAILED")),
     ("Entered",                 ("TRADE_EXECUTED",)),
@@ -797,11 +796,11 @@ def _plain_funnel(book: str, f: dict) -> str:
     out += f" | reached the gate {f['reached_gate']}\n"
     for st in f["locks"]:
         out += f"  {st['stage']:20s} {st['failed']} of {st['reached']} filtered\n"
-    out += f"  Passed Leading {f['passed_leading']}: " + ", ".join(f"{a['outcome']} {a['n']}" for a in f["after_leading"]) + "\n"
+    out += f"  Passed {lock_codes.CHAINED[-1].label} {f['passed_leading']}: " + ", ".join(f"{a['outcome']} {a['n']}" for a in f["after_leading"]) + "\n"
     if f["other"]:
         out += "  Other decisions: " + ", ".join(f"{k} {v}" for k, v in f["other"].items()) + "\n"
     if not f["balanced"]:
-        out += "  WARNING: counts after Leading do not sum to Passed Leading\n"
+        out += f"  WARNING: counts after {lock_codes.CHAINED[-1].label} do not sum to its passed count\n"
     return out
 
 
@@ -971,7 +970,7 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None,
     funnel_rows.append(_row(_td('Reached the gate', bold=True), _td(str(dfunnel['reached_gate']), bold=True), _td(str(lfunnel['reached_gate']), bold=True)))
     for dst, lst in zip(dfunnel['locks'], lfunnel['locks']):
         funnel_rows.append(_row(_td(dst['stage']), _lock_cell(dst), _lock_cell(lst)))
-    funnel_rows.append(_row(_td('Passed Leading', bold=True), _td(str(dfunnel['passed_leading']), bold=True), _td(str(lfunnel['passed_leading']), bold=True)))
+    funnel_rows.append(_row(_td(f'Passed {lock_codes.CHAINED[-1].label}', bold=True), _td(str(dfunnel['passed_leading']), bold=True), _td(str(lfunnel['passed_leading']), bold=True)))
     for da, la in zip(dfunnel['after_leading'], lfunnel['after_leading']):
         funnel_rows.append(_row(_td(f"&nbsp;&nbsp;{da['outcome']}", bold=da['outcome'] == 'Entered'),
                                 _td(str(da['n']), bold=da['outcome'] == 'Entered'),

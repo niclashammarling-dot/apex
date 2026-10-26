@@ -120,7 +120,7 @@ class TestReference:
         assert sorted(w["funnel"]["demo"]["entered"] for w in ref["weeks"]) == [0] * 6 + [2, 3]
         assert rb["entered"] == {"median": 0, "min": 0, "max": 3}
         elig = rb["locks"][0]
-        assert elig["stage"] == "Lock 1 Eligibility"
+        assert elig["stage"] == "L1 · Eligibility"
         assert (elig["failed"], elig["reached"]) == (10, 15)   # 2·2 + 2·3 filtered of (2+4) + (3+6)
 
     def test_never_reaches_before_the_lock_chain_start(self, monkeypatch):

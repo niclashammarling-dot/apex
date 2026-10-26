@@ -33,6 +33,7 @@ from backend.gate.lock2_quant import evaluate as lock2_evaluate, _sector_thresho
 from backend.gate.lock3_sentiment import evaluate as lock3_evaluate
 from backend.gate.lock4_leading import evaluate as lock4_evaluate
 from backend.gate.lock5_claude import evaluate as lock5_evaluate
+from backend.gate.lock_codes import ETF_PENALTY
 from backend.gate.types import LockResult
 
 # Minimum posterior gap for Bayes divergence to be considered signal vs. noise.
@@ -63,7 +64,7 @@ class ChainResult:
     final_score:  float = 0.0
     summary:      str   = ""
     l5_pending:   bool  = False   # L1-L4 passed; L5 deferred to serial execution phase
-    exit_label:   str | None = None  # override _OUTCOMES[exit_lock] when set
+    exit_label:   str | None = None  # override lock_codes.outcome_for(exit_lock) when set
     exit_reason:  str | None = None  # custom reason for non-standard exits (shown in L5 slot)
 
     def to_dict(self) -> dict:
@@ -183,7 +184,7 @@ def evaluate_chain(
                         f"{etf_negative_floor:.1f}% — penalised score {signal_score:.4f} "
                         f"< sector threshold {quant_threshold:.3f}"
                     ),
-                    exit_label="FILTERED_ETF_PENALTY",
+                    exit_label=ETF_PENALTY,
                 )
 
     # ── Mechanical risk guards (pre-L5) ──────────────────────────────────────

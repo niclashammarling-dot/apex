@@ -64,7 +64,7 @@ class TestFunnel:
         _gate_rows("signals", since, WEEK)
         f = wr._funnel("demo", since, until)
         assert f["reached_gate"] == 315
-        assert [(s["reached"], s["failed"]) for s in f["locks"]] == [(315, 180), (135, 6), (129, 14), (115, 101)]
+        assert [(s["reached"], s["failed"]) for s in f["locks"]] == [(315, 180), (135, 6), (129, 14), (115, 101), (14, 0)]   # last: L2 · Risk (ETF) re-test, its own row since lock labels phase 1
         assert f["passed_leading"] == 14
         assert {a["outcome"]: a["n"] for a in f["after_leading"]}["Entered"] == 6
         assert f["balanced"] and not f["other"]

@@ -30,6 +30,7 @@ from backend.db import (
 )
 from backend.gate.chain import build_base_context, evaluate_chain
 from backend.gate.cycle import GateCycle, evaluated_reason, record_stale
+from backend.gate import lock_codes
 from backend.gate.gate_runner import (
     PRE_ROTATION_FLOOR,
     _chain_to_gate_result,
@@ -419,11 +420,11 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     ts = cycle.started_at
     for c in skipped:
         if c["ticker"] in blocklisted_tickers:
-            decision = "SKIPPED_BLOCKLIST"
+            decision = lock_codes.SKIPPED_BLOCKLIST
         elif c["ticker"] in open_tickers:
-            decision = "SKIPPED_OPEN"
+            decision = lock_codes.SKIPPED_OPEN
         else:
-            decision = "SKIPPED_COOLOFF"
+            decision = lock_codes.SKIPPED_COOLOFF
         insert_live_gate_result({
             "cycle_started_at": ts,
             "timestamp":             datetime.now(timezone.utc).isoformat(),
@@ -598,7 +599,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
                         f"Live gate [{ticker}]: overflow slot {overflow_level} rejected pre-L5 — "
                         f"score {signal['signal_score']:.4f} below {overflow_threshold:.4f}"
                     )
-                    result["outcome"] = "FILTERED_OVERFLOW_QUANT"
+                    result["outcome"] = lock_codes.OVERFLOW
                     result.pop("_l5_lock_results", None)
                     result.pop("_l5_context", None)
                 else:
@@ -637,7 +638,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
                         f"score {signal['signal_score']:.4f} below {overflow_threshold:.4f} "
                         f"(base {base_threshold:.4f} ×{1 + overflow_level * overflow_increment:.2f})"
                     )
-                    result["outcome"] = "FILTERED_OVERFLOW_QUANT"
+                    result["outcome"] = lock_codes.OVERFLOW
                 else:
                     position_pct    = result["lock3"]["position_size_pct"] if result.get("lock3") else cfg["max_position_size"]
                     available_cash  = max(0.0, min(acct["equity"], acct["cash"]))

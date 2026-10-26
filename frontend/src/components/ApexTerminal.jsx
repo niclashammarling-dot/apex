@@ -477,28 +477,16 @@ function Legend({ swatch, label, border }) {
   );
 }
 
-const GATE_OUTCOME = {
-  TRADE_EXECUTED:          { label: "EXECUTED",  cls: "t-gate-x"    },
-  TRADE_REJECTED:          { label: "REJECTED",  cls: "t-gate-filt" },
-  FILTERED_ELIGIBILITY:    { label: "L1 FAIL",   cls: "t-gate-filt" },
-  FILTERED_L1:             { label: "L2 FAIL",   cls: "t-gate-filt" },
-  FILTERED_L2:             { label: "L3 FAIL",   cls: "t-gate-filt" },
-  FILTERED_LEADING:        { label: "L4 FAIL",   cls: "t-gate-filt" },
-  FILTERED_L3:             { label: "L5 FAIL",   cls: "t-gate-filt" },
-  // Cleared L1-L5 but rejected by the escalating overflow quant threshold — never traded.
-  FILTERED_OVERFLOW_QUANT: { label: "OVERFLOW PASS", cls: "t-gate-filt" },
-  SKIPPED_OPEN:            { label: "HELD",      cls: "t-gate-skip" },
-  SKIPPED_COOLOFF:         { label: "COOLOFF",   cls: "t-gate-skip" },
-};
-
-// Executed via the overflow slot path (open_count already at max_positions) —
-// same green as a normal EXECUTED, but distinct label so it isn't read as
-// FILTERED_OVERFLOW_QUANT (which passed gates but never traded).
-function gateOutcomeMeta(r) {
+// Badges, lock columns and lock states come from the backend lock table (D.gateLocks, from
+// backend/gate/lock_codes.py; lock labels phase 1, 2026-10-26). Only the styling is decided here.
+function gateOutcomeMeta(r, locks) {
   if (r.outcome === "TRADE_EXECUTED" && r.overflow_slot) {
+    // Executed via the overflow slot path — green, but distinct from FILTERED_OVERFLOW_QUANT.
     return { label: "OVERFLOW", cls: "t-gate-x" };
   }
-  return GATE_OUTCOME[r.outcome] ?? { label: r.outcome, cls: "t-gate-filt" };
+  const st = locks?.stages?.find(s => s.code === r.outcome);
+  const cls = r.outcome === "TRADE_EXECUTED" ? "t-gate-x" : st?.kind === "skip" ? "t-gate-skip" : "t-gate-filt";
+  return { label: st?.badge ?? r.outcome, cls };
 }
 
 const GATE_LEADING_LABELS = {
@@ -508,19 +496,17 @@ const GATE_LEADING_LABELS = {
   volume_accumulation: "VA",
 };
 
-function getGateLockStates(decision) {
-  if (decision === "FILTERED_ELIGIBILITY") return [false, null,  null,  null,  null];
-  if (decision === "FILTERED_L1")          return [true,  false, null,  null,  null];
-  if (decision === "FILTERED_L2")          return [true,  true,  false, null,  null];
-  if (decision === "FILTERED_LEADING")     return [true,  true,  true,  false, null];
-  if (decision === "FILTERED_L3")          return [true,  true,  true,  true,  false];
-  return                                          [true,  true,  true,  true,  true ];
+function getGateLockStates(decision, locks) {
+  const cols = locks?.columns ?? [];
+  const st = locks?.stages?.find(s => s.code === decision);
+  return st?.states ?? cols.map(() => true);
 }
 
 function GateFeed({ D, mode }) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState({});
   const rows = mode === "live" ? (D.liveGateRows || []) : (D.gateRows || []);
+  const cols = D.gateLocks?.columns ?? [];
   if (rows.length === 0) {
     if (mode === "live" && D.liveGateBlocked) {
       return (
@@ -571,19 +557,17 @@ function GateFeed({ D, mode }) {
                 <th>TIME</th>
                 <th>SYM</th>
                 <th>SCORE</th>
-                <th style={{ textAlign: "center" }}>L1</th>
-                <th style={{ textAlign: "center" }}>L2</th>
-                <th style={{ textAlign: "center" }}>L3</th>
-                <th style={{ textAlign: "center" }}>L4</th>
-                <th style={{ textAlign: "center" }}>L5</th>
+                {cols.map(c => (
+                  <th key={c.code} style={{ textAlign: "center" }} title={c.label}>{c.head}</th>
+                ))}
                 <th>OUTCOME</th>
               </tr>
             </thead>
             <tbody>
               {grouped.map((r, i) => {
-                const outcome   = gateOutcomeMeta(r);
-                const isSkipped = r.outcome === "SKIPPED_OPEN" || r.outcome === "SKIPPED_COOLOFF";
-                const locks     = getGateLockStates(r.outcome);
+                const outcome   = gateOutcomeMeta(r, D.gateLocks);
+                const isSkipped = D.gateLocks?.stages?.find(s => s.code === r.outcome)?.kind === "skip";
+                const locks     = getGateLockStates(r.outcome, D.gateLocks);
                 const hasDetail = !isSkipped && !!(r.lock3_reasoning || r.lock_leading_checks || r.l2_summary || r.macro_reason);
                 const isExpanded = expanded[i];
                 const time = r._count > 1 ? `${fmtTs(r.ts)}–${fmtTs(r._lastTs)}` : fmtTs(r.ts);
@@ -620,7 +604,7 @@ function GateFeed({ D, mode }) {
                   </tr>,
                   isExpanded && hasDetail && (
                     <tr key={`${i}-d`}>
-                      <td colSpan={9} style={{
+                      <td colSpan={4 + cols.length} style={{
                         padding: "8px 16px 12px",
                         background: "color-mix(in oklab, var(--t-bg) 60%, #000)",
                         borderTop: "1px solid var(--t-border)",

@@ -927,14 +927,17 @@ def get_open_tickers() -> set[str]:
 
 
 def get_recently_failed_tickers(hours: float) -> set[str]:
-    """Return tickers that failed L2, L3, or MACRO in the demo gate within the last N hours."""
+    """Tickers the demo gate cooled within the last N hours: lock_codes.COOLOFF_CODES, i.e. an L4
+    SENTIMENT or L6 REVIEW rejection (and the drawdown guard, which records the L6 code). The docstring
+    said "L2, L3, or MACRO" until 2026-10-26; the query never selected quant or macro (lock labels scope)."""
+    from backend.gate.lock_codes import COOLOFF_CODES, sql_in
     from datetime import datetime, timedelta, timezone
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
     conn = get_db()
     try:
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT DISTINCT ticker FROM signals
-            WHERE gate_decision IN ('FILTERED_L2', 'FILTERED_L3')
+            WHERE gate_decision IN ({sql_in(COOLOFF_CODES)})
             AND timestamp > ?
         """, (cutoff,)).fetchall()
         return {r[0] for r in rows}
@@ -1074,14 +1077,17 @@ def get_live_ticker_gate_fails(ticker: str, limit: int = 5) -> list[dict]:
 
 
 def get_recently_failed_live_tickers(hours: float) -> set[str]:
-    """Return tickers that failed L2, L3, or MACRO in the live gate within the last N hours."""
+    """Tickers the live gate cooled within the last N hours: lock_codes.COOLOFF_CODES, i.e. an L4
+    SENTIMENT or L6 REVIEW rejection (and the drawdown guard, which records the L6 code). The docstring
+    said "L2, L3, or MACRO" until 2026-10-26; the query never selected quant or macro (lock labels scope)."""
+    from backend.gate.lock_codes import COOLOFF_CODES, sql_in
     from datetime import datetime, timedelta, timezone
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
     conn = get_db()
     try:
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT DISTINCT ticker FROM live_gate_history
-            WHERE gate_decision IN ('FILTERED_L2', 'FILTERED_L3')
+            WHERE gate_decision IN ({sql_in(COOLOFF_CODES)})
             AND timestamp > ?
         """, (cutoff,)).fetchall()
         return {r[0] for r in rows}
@@ -1204,7 +1210,14 @@ def get_demo_gate_funnel_counts(since: str | None = None) -> dict:
             FROM demo_gate_history
             {where}
         """, params).fetchone()
-        return dict(row) if row else {}
+        out = dict(row) if row else {}
+        by_code = {r["gate_decision"]: r["cnt"] for r in conn.execute(f"""
+            SELECT gate_decision, COUNT(*) AS cnt FROM demo_gate_history {where} GROUP BY gate_decision
+        """, params).fetchall()}
+        # Lock labels phase 1 (2026-10-26): the funnel the dashboard renders, per code from the one table.
+        from backend.gate.lock_codes import funnel_stages
+        out["stages"] = funnel_stages(by_code)
+        return out
     finally:
         conn.close()
 
@@ -1451,6 +1464,8 @@ def get_live_gate_funnel_counts(since: str | None = None) -> dict:
         """, params).fetchone()
 
         counts = {r["gate_decision"]: r["cnt"] for r in rows}
+        # Lock labels phase 1 (2026-10-26): the funnel the dashboard renders, per code from the one table.
+        from backend.gate.lock_codes import funnel_stages
         skipped_open      = counts.get("SKIPPED_OPEN", 0)
         skipped_cooloff   = counts.get("SKIPPED_COOLOFF", 0)
         l1_fail           = counts.get("FILTERED_L1", 0)
@@ -1480,6 +1495,7 @@ def get_live_gate_funnel_counts(since: str | None = None) -> dict:
             "overflow_executed": overflow_executed,
             "executed":          executed,
             "rejected":          rejected,
+            "stages":            funnel_stages(counts),
         }
     finally:
         conn.close()

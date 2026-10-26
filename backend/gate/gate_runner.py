@@ -25,6 +25,7 @@ from backend.db import (
 )
 from backend.gate.chain import ChainResult, build_base_context, evaluate_chain
 from backend.gate.cycle import GateCycle, evaluated_reason, record_stale
+from backend.gate import lock_codes
 
 # Max parallel workers — bounded to avoid hammering rate limits
 _MAX_WORKERS = 5
@@ -74,7 +75,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
 
     ts = cycle.started_at
     for c in skipped:
-        decision = "SKIPPED_OPEN" if c["ticker"] in open_tickers else "SKIPPED_COOLOFF"
+        decision = lock_codes.SKIPPED_OPEN if c["ticker"] in open_tickers else lock_codes.SKIPPED_COOLOFF
         update_signal_gate(c["id"], {
             "lock1_pass": 1, "lock2_pass": 0, "lock3_pass": 0,
             "gate_decision": decision, "lock3_reasoning": None,
@@ -221,7 +222,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
                         f"Gate runner [{ticker}]: overflow slot {overflow_level} rejected pre-L5 — "
                         f"score {signal['signal_score']:.4f} below {overflow_threshold:.4f}"
                     )
-                    result["outcome"] = "FILTERED_OVERFLOW_QUANT"
+                    result["outcome"] = lock_codes.OVERFLOW
                     result.pop("_l5_lock_results", None)
                     result.pop("_l5_context", None)
                 else:
@@ -252,7 +253,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
                 overflow_level   = open_count - max_positions + 1
                 overflow_threshold = round(base_threshold * (1 + overflow_level * overflow_increment), 4)
                 if signal["signal_score"] < overflow_threshold:
-                    result["outcome"] = "FILTERED_OVERFLOW_QUANT"
+                    result["outcome"] = lock_codes.OVERFLOW
                     logger.info(
                         f"Gate runner [{ticker}]: overflow slot {overflow_level} rejected — "
                         f"score {signal['signal_score']:.4f} below {overflow_threshold:.4f} "
@@ -368,16 +369,7 @@ def _run_l5_for_result(signal: dict, result: dict, cfg: dict) -> None:
     }
     result["lock3_pass"]       = int(l5.passed)
     result["claude_reasoning"] = l5_data.get("reasoning")
-    result["outcome"]         = "TRADE_QUEUED" if l5.passed else "FILTERED_L3"
-
-
-_OUTCOMES = {
-    1: "FILTERED_ELIGIBILITY",
-    2: "FILTERED_L1",
-    3: "FILTERED_L2",
-    4: "FILTERED_LEADING",
-    5: "FILTERED_L3",
-}
+    result["outcome"]         = "TRADE_QUEUED" if l5.passed else lock_codes.REVIEW_REJECT
 
 
 def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
@@ -399,7 +391,7 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
         "TRADE_QUEUED"            if chain.approved    else
         "TRADE_QUEUED_PENDING_L5" if chain.l5_pending  else
         chain.exit_label          if chain.exit_label   else
-        _OUTCOMES.get(chain.exit_lock, "FILTERED_UNKNOWN")
+        lock_codes.outcome_for(chain.exit_lock)
     )
 
     # Lock 5 (Claude) — backward compat with result["lock3"]["position_size_pct"] in wallet.py

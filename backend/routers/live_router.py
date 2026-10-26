@@ -162,7 +162,8 @@ def live_gate_history():
         except Exception:
             pass
 
-    return {"rows": rows, "funnel": funnel, "blocked_reason": blocked_reason}
+    from backend.gate.lock_codes import as_api
+    return {"rows": rows, "funnel": funnel, "blocked_reason": blocked_reason, "locks": as_api()}
 
 
 @router.post("/config/promote")

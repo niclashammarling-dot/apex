@@ -279,7 +279,16 @@ def gate_history():
                 row["lock_leading_checks"] = _json.loads(row["lock_leading_checks"])
             except Exception:
                 row["lock_leading_checks"] = None
-    return {"rows": rows, "funnel": get_demo_gate_funnel_counts()}
+    from backend.gate.lock_codes import as_api
+    return {"rows": rows, "funnel": get_demo_gate_funnel_counts(), "locks": as_api()}
+
+
+@router.get("/gate/locks")
+def gate_locks():
+    """The gate chain and every gate_decision code with its label (lock labels phase 1, 2026-10-26):
+    the one table the funnel, Terminal, Settings and Promote render from."""
+    from backend.gate.lock_codes import as_api
+    return as_api()
 
 
 @router.get("/demo/trades")
