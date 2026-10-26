@@ -65,3 +65,40 @@ def test_both_runners_hand_the_enforced_caps_to_the_context():
     assert 'wallet_ctx["dynamic_caps"] = dynamic_caps_live' in inspect.getsource(gate_runner_live.run)
     assert '"dynamic_caps": dynamic_caps' in inspect.getsource(gate_runner)
 
+
+
+# 2026-10-26 (lock labels, prompt ruled by Niclas: "godkänd prompt"; review 2026-11-09): the prompt and
+# the lock_results keys use the chain's names, and the gate history it explains is read by stage label.
+def test_lock_results_keys_are_the_chain_names():
+    from backend.gate.lock5_claude import _build_context_payload
+    from backend.gate.types import LockResult
+    results = {i: LockResult.pass_(lock_id=i, score=1.0, reason="ok") for i in (1, 2, 3, 4)}
+    keys = set(_build_context_payload("AAPL", "Technology", results, {})["lock_results"])
+    assert keys == {"l1_eligibility", "l3_score", "l4_sentiment", "l5_positioning"}
+    for k in keys:
+        assert k in SYSTEM_PROMPT
+
+
+def test_prompt_has_no_module_numbering_left():
+    for old in ("four independent filters", "Lock 2 (quantitative", "from Lock 3", "Repeated L3 fails",
+                "Repeated L4 fails", "TRADE_EXECUTED"):
+        assert old not in SYSTEM_PROMPT
+
+
+def test_gate_history_labels_in_the_prompt_are_the_ones_the_reader_writes():
+    """The prompt names stages by the label db._ticker_gate_fails writes into `stage`; a label the
+    table does not carry would be a sentence about rows Claude never sees."""
+    import inspect
+
+    from backend.gate import chain, lock_codes
+    from backend.gate.types import L5_UNAVAILABLE_PREFIX
+    labels = {s.label for s in lock_codes.STAGES}
+    for named in ("L4 · Sentiment", "L5 · Positioning", "L6 · Review", "Executed"):
+        assert named in SYSTEM_PROMPT and named in labels
+    # FILTERED_L3 also carries the guard and fail-closed rows; the prompt names both by their detail text.
+    assert "mechanical pre-L5 guard" in inspect.getsource(chain) and "mechanical drawdown guard" in SYSTEM_PROMPT
+    assert L5_UNAVAILABLE_PREFIX.startswith("anthropic_unavailable") and "anthropic_unavailable" in SYSTEM_PROMPT
+
+
+def test_dependency_note_is_in_the_prompt():
+    assert "agreement among them is one piece of evidence, not three" in SYSTEM_PROMPT

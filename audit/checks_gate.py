@@ -1794,31 +1794,43 @@ def check88() -> None:
          + f"; {len(b.get('excepted', []))} excepted")
 
 
-# ── CHECK 90 — Lock 5 output after the 2026-10-19 prompt change ────────────────
+# ── CHECK 90 — Lock 5 output after each prompt change ─────────────────────────
 
-_C90_CHANGE = "2026-10-19"   # first session on the corrected L5 prompt (Monday restart)
-_C90_REVIEW = "2026-10-24"   # Niclas 10-17: follow-up read in the Friday bundle, review that Saturday
-_C90_PRIOR_DAYS = 28         # the four weeks before the change
+# (first session on the changed prompt, review date, what changed, who set the review). The check reads
+# the latest change that has started; its "before" window runs back 4 weeks or to the previous change.
+_C90_CHANGES = (
+    ("2026-10-19", "2026-10-24", "rationale clause + enforced sector cap, not separable here",
+     "Niclas 10-17"),
+    # Lock labels: chain names and lock_results keys, gate-history stages, dependency note. The branch
+    # merges 2026-10-31 and the serving backend picks it up at its next start (Monday 13:20); if the merge
+    # moves, this date moves with it.
+    ("2026-11-02", "2026-11-09", "chain names, gate-history stages and the dependency note (lock labels)",
+     "Niclas 10-26: \"Sätt review om 2 veckor\""),
+)
+_C90_PRIOR_DAYS = 28         # at most four weeks before the change
 
 
 def check90(today: date | None = None) -> None:
     """
-    CHECK 90 — did the corrected Lock 5 prompt move L5's decisions or sizes?
+    CHECK 90 — did a Lock 5 prompt change move L5's decisions or sizes?
 
-    Two L5 changes go live together on 10-19 and this window cannot tell them apart:
-    (1) the rationale clause ("allocation weighting is handled downstream" → the
-    allocation acts upstream in Lock 1; the post-L5 multiplier is score-relative), the
-    binding no-Bayesian-sizing sentence unchanged; (2) L5 judges risk_limits.sector_cap,
-    the dynamic cap execution enforces, instead of the flat max_sector_exposure. Niclas
-    10-17: one point at a time — the other three L5 points wait for the 10-24 review. Compares, on live_gate_history and
-    live_trades, the four weeks before _C90_CHANGE with the days since:
+    One row in _C90_CHANGES per change. 2026-10-19: two L5 changes went live together and the window
+    cannot tell them apart: (1) the rationale clause ("allocation weighting is handled downstream" → the
+    allocation acts upstream in Lock 1; the post-L5 multiplier is score-relative), the binding
+    no-Bayesian-sizing sentence unchanged; (2) L5 judges risk_limits.sector_cap, the dynamic cap execution
+    enforces, instead of the flat max_sector_exposure. 2026-11-02: the lock labels prompt (approved by
+    Niclas 2026-10-26): the chain's names in the prompt and the lock_results keys, the gate history read by
+    stage, and the note that the regime fields are one piece of evidence.
+
+    Compares, on live_gate_history and live_trades, the window before the latest started change (four
+    weeks, or back to the previous change if that is nearer) with the days since:
       - L5 approval share: TRADE_EXECUTED + TRADE_FAILED over those plus FILTERED_L3
         (the L5 reject), fail-closed rows (CHECK 81's prefix) excluded — those were
         never Claude's judgement;
       - median live_trades.notional of entries.
-    WARNING (Friday bundle) from the change date to _C90_REVIEW, INFO after — the review
-    decides keep / re-evaluate / retire. Silent before the change date. n is small
-    (about 18 L5 decisions a week (71 in the four weeks to 10-16)): a direction, not a test, and the detail says so.
+    WARNING (Friday bundle) from the change date to its review, INFO after — the review decides keep /
+    re-evaluate / retire. Silent before the first change. n is small (about 18 L5 decisions a week (71 in
+    the four weeks to 10-16)): a direction, not a test, and the detail says so.
     SKIPPED without apex.db.
     """
     from datetime import timedelta
@@ -1827,11 +1839,18 @@ def check90(today: date | None = None) -> None:
     name  = "Lock 5 output after the prompt change"
     db    = REPO / "data/apex.db"
     today = today or date.today()
-    if today.isoformat() < _C90_CHANGE:
+    started = [i for i, c in enumerate(_C90_CHANGES) if c[0] <= today.isoformat()]
+    if not started:
         return
+    i = started[-1]
+    change, review, what, who = _C90_CHANGES[i]
     if not require_data_file(90, name, db):
         return
-    start = (date.fromisoformat(_C90_CHANGE) - timedelta(days=_C90_PRIOR_DAYS)).isoformat()
+    start = (date.fromisoformat(change) - timedelta(days=_C90_PRIOR_DAYS)).isoformat()
+    if i > 0:
+        start = max(start, _C90_CHANGES[i - 1][0])
+    days = (date.fromisoformat(change) - date.fromisoformat(start)).days
+    span = "4 weeks" if days == _C90_PRIOR_DAYS else f"{days} days"
     end   = (today + timedelta(days=1)).isoformat()
     try:
         conn = sqlite3.connect(db)
@@ -1853,18 +1872,17 @@ def check90(today: date | None = None) -> None:
         ok = sum(1 for _, g in part if g != "FILTERED_L3")
         return ok, len(part)
 
-    b_ok, b_n = share([r for r in rows if r[0] < _C90_CHANGE])
-    a_ok, a_n = share([r for r in rows if r[0] >= _C90_CHANGE])
-    b_sz = [n for d, n in trades if d < _C90_CHANGE and n]
-    a_sz = [n for d, n in trades if d >= _C90_CHANGE and n]
+    b_ok, b_n = share([r for r in rows if r[0] < change])
+    a_ok, a_n = share([r for r in rows if r[0] >= change])
+    b_sz = [n for d, n in trades if d < change and n]
+    a_sz = [n for d, n in trades if d >= change and n]
     pct  = lambda ok, n: f"{ok}/{n} ({ok / n:.0%})" if n else "0/0"
     med  = lambda xs: f"${median(xs):,.0f} (n={len(xs)})" if xs else "none"
-    sev  = "WARNING" if today.isoformat() <= _C90_REVIEW else "INFO"
+    sev  = "WARNING" if today.isoformat() <= review else "INFO"
     flag(90, name, sev, "backend/gate/lock5_claude.py:SYSTEM_PROMPT",
-         f"L5 approval {pct(b_ok, b_n)} in the 4 weeks before {_C90_CHANGE} vs {pct(a_ok, a_n)} since; "
-         f"median entry notional {med(b_sz)} vs {med(a_sz)}. Two changes in one window (rationale "
-         f"clause + enforced sector cap), not separable here. Small n — a direction, not a test. "
-         f"Review {_C90_REVIEW} (Niclas 10-17): keep, re-evaluate or retire this check.")
+         f"L5 approval {pct(b_ok, b_n)} in the {span} before {change} vs {pct(a_ok, a_n)} since; "
+         f"median entry notional {med(b_sz)} vs {med(a_sz)}. Change: {what}. Small n — a direction, "
+         f"not a test. Review {review} ({who}): keep, re-evaluate or retire this check.")
 
 
 # ── CHECK 91 — macro calendar horizon ─────────────────────────────────────────
