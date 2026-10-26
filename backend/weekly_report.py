@@ -614,7 +614,7 @@ def _walkforward_last() -> str:
 
 def _sweep_config(r: dict) -> str:
     """Every grid axis, as the sweep mail prints it."""
-    return (f"L1={r.get('lock1_threshold')} TP={r.get('take_profit_pct', 0)*100:.0f}% "
+    return (f"score_thr={r.get('lock1_threshold')} TP={r.get('take_profit_pct', 0)*100:.0f}% "
             f"SL={r.get('stop_loss_pct', 0)*100:.0f}% hold={r.get('time_stop_days')}d "
             f"pos={r.get('max_positions')} vix={r.get('vix_threshold') or 'off'} "
             f"rs={'on' if r.get('use_leading_rs') else 'off'}")
@@ -1296,7 +1296,7 @@ LOCK 2 QUANT THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
         else:
             plain += "  start score not recorded (results file predates 2026-09-14)\n"
         plain += (f"  one sample from a flat optimum (Sharpe capped at 2.0 in composite), not a recommendation: "
-                  f"L1={bp.get('lock1_threshold')} TP={bp.get('take_profit_pct', 0)*100:.0f}% SL={bp.get('stop_loss_pct', 0)*100:.0f}% "
+                  f"score_thr={bp.get('lock1_threshold')} TP={bp.get('take_profit_pct', 0)*100:.0f}% SL={bp.get('stop_loss_pct', 0)*100:.0f}% "
                   f"TSL={bp.get('trailing_stop_pct')} hold={bp.get('time_stop_days')}d maxpos={bp.get('max_positions')} VIX={bp.get('vix_threshold')} "
                   f"-> Sharpe {fm.get('sharpe', 0):.2f} PF {fm.get('profit_factor', 0):.2f} WR {_pct(fm.get('win_rate'))} n={fm.get('total_trades')}\n")
     elif opt_state == _SWEEP_ABSENT:

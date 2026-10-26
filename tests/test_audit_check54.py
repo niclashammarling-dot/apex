@@ -25,6 +25,11 @@ def _found(core, n):
     return [f[4] for f in core.findings if f[0] == n]
 
 
+def _found_in(core, n):
+    """(file, message) pairs: C names the file in the finding's location, not in its text."""
+    return [(f[3], f[4]) for f in core.findings if f[0] == n]
+
+
 def test_frontend_reading_the_table_is_clean(tmp_path, monkeypatch):
     cg, core = _setup(tmp_path, monkeypatch, TABLE_DRIVEN, TABLE_DRIVEN)
     cg.check54()
@@ -39,7 +44,8 @@ def test_own_label_rows_are_flagged(tmp_path, monkeypatch):
     assert any("App.jsx" not in m and "FILTERED_L2" in m for m in out)
     assert any("FILTERED_L1" in m for m in out)
     assert any("lock number(s) written in the frontend (L1 ·)" in m for m in out)   # C sees the literal too
-    assert len(out) == 3
+    assert any(f.endswith("ApexTerminal.jsx") and "(L3)" in m for f, m in _found_in(core, 54))  # badge "L3 FAIL"
+    assert len(out) == 4
 
 
 # C, added after the phase 1 review (R5): master's Terminal detail panel and Settings labels.
@@ -79,3 +85,28 @@ def test_check25_skips_a_table_driven_consumer_and_compares_one_with_literals(tm
     out = _found(core, 25)
     assert any("not handled in ApexTerminal.jsx" in m for m in out)
     assert not any("App.jsx" in m and "not handled" in m for m in out)
+
+
+# C widened 2026-10-26 (Niclas: "det måste synas rätt överallt … dashboard, funnel och gate activity"): any
+# frontend file, a lock number before a word, and a lock count. Master had all three outside the two files.
+SECTOR_ROTATION = 'title={normalized ? "Show raw scores" : "Normalize by L1 threshold — makes sectors comparable"}\n'
+FUNNEL_TITLE = '<div className="t-card-title">GATE FUNNEL · 5-LOCK</div>\n'
+NOT_LOCKS = ('const fillPath = path + ` L${w} ${h} L0 ${h} Z`;\n'
+             '// the old "L1 threshold" wording, kept in a comment\n'
+             '{/* L3 score: rendered from the table */}\n')
+
+
+def test_any_frontend_file_with_a_lock_number_before_a_word_or_a_lock_count_is_flagged(tmp_path, monkeypatch):
+    cg, core = _setup(tmp_path, monkeypatch, TABLE_DRIVEN, FUNNEL_TITLE)
+    (cg.REPO / "frontend/src/components/SectorRotation.jsx").write_text(SECTOR_ROTATION)
+    cg.check54()
+    out = _found_in(core, 54)
+    assert any(f.endswith("SectorRotation.jsx") and "(L1)" in m for f, m in out)
+    assert any(f.endswith("ApexTerminal.jsx") and "(5-LOCK)" in m for f, m in out)
+    assert len(out) == 2
+
+
+def test_svg_paths_and_comments_are_not_lock_numbers(tmp_path, monkeypatch):
+    cg, core = _setup(tmp_path, monkeypatch, TABLE_DRIVEN, NOT_LOCKS)
+    cg.check54()
+    assert _found(core, 54) == []

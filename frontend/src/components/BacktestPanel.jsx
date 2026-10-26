@@ -191,7 +191,7 @@ export default function BacktestPanel({ onResult }) {
             { name: "stop_loss_pct",     label: "Stop loss",         type: "number", placeholder: "default", title: "Hard exit when price falls this % below entry. 0.05 = -5%. Tighter stops reduce loss size but increase whipsaw exits." },
             { name: "trailing_stop_pct", label: "Trailing stop",     type: "number", placeholder: "off",     title: "Trails the stop up as price rises, locking in gains. 0.05 = stop trails 5% below peak. Leave blank to disable." },
             { name: "time_stop_days",    label: "Time stop (days)",  type: "number", placeholder: "5",       title: "Force-exit after this many days regardless of P&L. Prevents capital being stuck in stalled trades." },
-            { name: "lock1_threshold",   label: "L1 threshold",      type: "number", placeholder: "default", title: "Minimum quantitative signal score to enter a trade. Uses per-sector calibrated thresholds by default. Dead zone below 0.65 — the filter has no effect under that value." },
+            { name: "lock1_threshold",   label: "Score threshold",   type: "number", placeholder: "default", title: "Minimum quantitative signal score to enter a trade. Uses per-sector calibrated thresholds by default. Dead zone below 0.65 — the filter has no effect under that value." },
           ].map(({ name, label, type, placeholder, title }) => (
             <div key={name} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
               <label title={title} style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)", letterSpacing: "0.06em", cursor: title ? "help" : "default", borderBottom: title ? "1px dotted #404040" : "none" }}>

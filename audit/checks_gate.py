@@ -564,10 +564,15 @@ def check54() -> None:
       B. the frontend holds no label of its own for a gate code: a FILTERED_* string paired with
          a label in App.jsx or ApexTerminal.jsx is a second vocabulary, which is how the drift
          happened;
-      C. the frontend holds no lock number of its own: a JSX text "L<n>:" or a string literal
-         starting "Lock <n>" or "L<n> · ". Added after the phase 1 review (2026-10-26, R5): B only
-         saw code/label pairs, so the Terminal's detail panel kept "L1: L3: L4: L5:" in the old
-         numbering, and "L5:" sat on a column that holds every stage's reason.
+      C. the frontend holds no lock number of its own: a JSX text "L<n>:", a string literal
+         starting "Lock <n>" or "L<n> · ", or "L<n>" followed by a word ("L1 threshold"), or a lock
+         count ("5-LOCK"), in any frontend/src .jsx file (comments excluded). Added after the phase 1
+         review (2026-10-26, R5): B only saw code/label pairs, so the Terminal's detail panel kept
+         "L1: L3: L4: L5:" in the old numbering, and "L5:" sat on a column that holds every stage's
+         reason. Widened the same day (Niclas: "När alla lock är designade och klara så måste det
+         synas rätt överallt. Det gäller också dashboard, funnel och gate activity"): the funnel
+         title said "5-LOCK", and Sector Rotation and the Backtest panel called the score threshold
+         "L1 threshold"; none was in the two files C read.
     """
     from backend.gate import lock_codes
 
@@ -585,7 +590,8 @@ def check54() -> None:
                  "backend/gate/lock_codes.py:STAGES",
                  f"chain exit_lock {n} has no stage — its rejections record FILTERED_UNKNOWN")
 
-    lock_number = re.compile(r'>\s*(L[0-9]):\s*<|["\'`](Lock [0-9]|L[0-9] · )')
+    lock_number = re.compile(r'>\s*(L[0-9]):\s*<|["\'`](Lock [0-9]|L[0-9] · )'
+                             r'|(?<![\w$])(L[0-6])(?=[ \t·:]+[A-Za-z])|\b([0-9]-LOCK)\b', re.I)
     pair = re.compile(r'(?:stage:\s*"|^\s*)(FILTERED_[A-Z0-9_]+)"?\s*[:,]\s*(?:label:\s*)?[{]?\s*(?:label:\s*)?["`]', re.M)
     for rel in ("frontend/src/App.jsx", "frontend/src/components/ApexTerminal.jsx"):
         path = REPO / rel
@@ -599,9 +605,13 @@ def check54() -> None:
             flag(54, "gate funnel label/lock semantic parity", "WARNING", rel,
                  f"{len(own)} gate code(s) carry a label of their own ({', '.join(own)}) — "
                  f"render them from /api/gate/locks")
-        numbers = sorted({m.group(1) or m.group(2).strip() for m in lock_number.finditer(text)})
+    for path in sorted((REPO / "frontend/src").rglob("*.jsx")):
+        lines = (re.sub(r"\{/\*.*?\*/\}", "", re.sub(r"(^|\s)//.*$", r"\1", ln))
+                 for ln in path.read_text().splitlines())
+        numbers = sorted({next(g for g in m.groups() if g).strip()
+                          for ln in lines for m in lock_number.finditer(ln)})
         if numbers:
-            flag(54, "gate funnel label/lock semantic parity", "WARNING", rel,
+            flag(54, "gate funnel label/lock semantic parity", "WARNING", str(path.relative_to(REPO)),
                  f"{len(numbers)} lock number(s) written in the frontend ({', '.join(numbers)}) — "
                  f"take the label from /api/gate/locks")
 

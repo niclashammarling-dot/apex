@@ -130,7 +130,10 @@ def test_overflow_stops_before_review_in_order_and_states():
     # R1: both runners defer L6 (stop_after_lock=4) and check overflow first; no overflow row reached L6.
     order = [s.code for s in lock_codes.STAGES]
     assert order.index("FILTERED_OVERFLOW_QUANT") < order.index("FILTERED_L3")
-    assert lock_codes.lock_states("FILTERED_OVERFLOW_QUANT") == [True, True, True, True, True, None]
+    # L2 RISK by ruling 10-26: the overflow row fails the L2 column (the CHAIN columns are L1 L3 L4 L5 L2 L6).
+    assert [c.lock for c in lock_codes.CHAIN] == [1, 3, 4, 5, 2, 6]
+    assert lock_codes.lock_states("FILTERED_OVERFLOW_QUANT") == [True, True, True, True, False, None]
+    assert lock_codes.config_labels()["overflow_quant_increment"].startswith("L2 · Risk")
     assert lock_codes.lock_states("FILTERED_L3") == [True, True, True, True, True, False]
 
 
@@ -220,7 +223,7 @@ def test_gate_history_rows_carry_states_and_reason_label(monkeypatch):
         row = next(r for r in live_gate_history()["rows"] if r["ticker"] == "RSX")
     finally:
         _delete("DELETE FROM live_gate_history WHERE ticker = 'RSX'")
-    assert row["lock_states"] == [True, True, True, True, True, None] and row["reason_label"] is None
+    assert row["lock_states"] == [True, True, True, True, False, None] and row["reason_label"] is None
 
 
 def test_review_history_shows_the_deciding_reason_and_its_stage():

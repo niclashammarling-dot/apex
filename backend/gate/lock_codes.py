@@ -86,7 +86,9 @@ STAGES: tuple[Stage, ...] = (
           config_keys=("lock_leading_min_pass", "lock4_pcr_mode")),
     Stage(ETF_PENALTY, "filter", "L2 · Risk (ETF)", lock=2,
           config_keys=("etf_negative_penalty", "etf_negative_floor")),
-    Stage(OVERFLOW, "execution", "Overflow", config_keys=("overflow_quant_increment",)),
+    # L2 RISK by ruling (Niclas 2026-10-26: "den hör till risk"): one more position beyond max_positions.
+    # It runs in the execution phase, so it is not a CHAIN column; lock_states marks L2 failed for it.
+    Stage(OVERFLOW, "execution", "L2 · Risk (overflow)", lock=2, config_keys=("overflow_quant_increment",)),
     Stage("FILTERED_L3", "filter", "L6 · Review", lock=6, exit_lock=5, cooloff=True,
           config_keys=("lock3_confidence_min", "max_drawdown_pct")),
     Stage("TRADE_EXECUTED", "trade", "Executed"),
@@ -130,7 +132,7 @@ CHAIN: tuple[Stage, ...] = tuple(s for s in STAGES if s.kind == "filter")
 CHAINED: tuple[Stage, ...] = tuple(s for s in CHAIN if s.lock != 6)
 
 _BADGE = {SKIPPED_BLOCKLIST: "BLOCKED", SKIPPED_OPEN: "HELD", SKIPPED_COOLOFF: "COOLOFF",
-          OVERFLOW: "OVERFLOW PASS", "TRADE_EXECUTED": "EXECUTED", "TRADE_REJECTED": "REJECTED",
+          OVERFLOW: "L2 OVERFLOW", "TRADE_EXECUTED": "EXECUTED", "TRADE_REJECTED": "REJECTED",
           "TRADE_FAILED": "FAILED", "FILTERED_MACRO": "MACRO (OLD)"}
 
 
@@ -141,13 +143,17 @@ def badge(s: Stage) -> str:
 def lock_states(code: str) -> list[bool | None]:
     """One entry per CHAIN column: passed (True), failed here (False), not reached or not known (None).
     From the evaluation order: every filter before the code's stage passed, its own failed, the rest
-    were not reached (overflow stops before L6 REVIEW). Skips reach no lock; a legacy or unknown code's
-    path is not known."""
+    were not reached (overflow stops before L6 REVIEW). An execution-phase rule that a lock owns fails
+    that lock's column (overflow: L2 RISK). Skips reach no lock; a legacy or unknown code's path is not
+    known."""
     s = BY_CODE.get(code)
     if s is None or s.kind in ("skip", "legacy"):
         return [None for _ in CHAIN]
     i = _INDEX[code]
-    return [True if _INDEX[c.code] < i else False if c.code == code else None for c in CHAIN]
+    out = [True if _INDEX[c.code] < i else False if c.code == code else None for c in CHAIN]
+    if s not in CHAIN and s.lock is not None:      # an execution-phase rule of a lock (overflow, L2)
+        out = [False if c.lock == s.lock else v for c, v in zip(CHAIN, out)]
+    return out
 
 
 def row_states(code: str, lock3_pass: int | None) -> list[bool | None]:

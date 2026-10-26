@@ -253,7 +253,7 @@ function LockChain({ D, mode }) {
   return (
     <div className="t-card">
       <div className="t-card-head">
-        <div className="t-card-title">GATE FUNNEL · 5-LOCK</div>
+        <div className="t-card-title">GATE FUNNEL</div>
         <div className="t-meta">SESSION</div>
       </div>
       <div className="t-card-body">

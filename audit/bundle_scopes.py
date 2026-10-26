@@ -32,7 +32,7 @@ BY_CHECK: dict[int, str] = {
     54: ("Gate lock labels have one source (backend/gate/lock_codes.py, served at /api/gate/locks; lock labels "
          "phase 1, 2026-10-26). A finding is either the table disagreeing with the approved chain (A: a filter stage's "
          "label or a missing exit_lock), or the frontend holding a vocabulary of its own (B: a FILTERED_* code paired "
-         "with a label; C: a lock number written as text). Scope: render the named string from the table (as_api: "
+         "with a label; C: a lock number written as text in any frontend/src .jsx file, 'L1 threshold' and '5-LOCK' included). Scope: render the named string from the table (as_api: "
          "labels, badges, columns, config_labels, detail_labels) or correct the table row; never add a frontend map. "
          "Verify: CHECK 54 clean, tests/test_audit_check54.py. ~30 min."),
     63: ("Composite dilution monitor (level check, standing since the ticker additions). Scope: read per-ticker "
