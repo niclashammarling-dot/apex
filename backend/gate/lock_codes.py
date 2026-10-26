@@ -12,17 +12,22 @@ history and this column in one migration. `lock` and `label` are the approved ch
 
     L0 PORTFOLIO → L1 ELIGIBILITY → L2 RISK → L3 SCORE → L4 SENTIMENT → L5 POSITIONING → L6 REVIEW
 
-What each lock owns is the approved chain's table (2026-10-24): L1 market and sector state; L2 ETF,
-earnings, macro and concentration. Where the code runs a lock's check in a different place than the
-chain names (phase 4 moves them), STAGES keeps the evaluation order, so funnel "reached" counts stay
-true, and the stored code is the place it ran, not the lock that owns it:
-  - L2 RISK's earnings hard block and CPI/NFP/FOMC blackout run in lock1_eligibility.py and record
-    FILTERED_ELIGIBILITY; its near-term earnings and pre-event penalties are applied in chain.py and
-    bite at the score re-test (FILTERED_L1); concentration is the sector cap (execution, and L6 REVIEW's
+What each lock owns is the approved chain's table (2026-10-24), amended by Niclas 2026-10-26 ("flytta
+makro till l1": the macro calendar gives the same answer for every ticker, market state like VIX):
+L1 market and sector state, VIX and the macro calendar; L2 ETF, earnings and concentration. Where the
+code runs a lock's check in a different place than the chain names (phase 4 moves them), STAGES keeps
+the evaluation order, so funnel "reached" counts stay true, and the stored code is the place it ran,
+not the lock that owns it:
+  - L1's CPI/NFP/FOMC blackout records FILTERED_ELIGIBILITY (its own lock); L1's pre-event penalty is
+    applied in chain.py and bites at the score re-test, recorded FILTERED_L1;
+  - L2 RISK's earnings hard block runs in lock1_eligibility.py (FILTERED_ELIGIBILITY) and its near-term
+    penalty bites at the score re-test (FILTERED_L1); neither has fired in live (the earnings date never
+    arrives, PRODUCTION_GAP rows 8-9); concentration is the sector cap (execution, and L6 REVIEW's
     context);
   - the ETF penalty is L2 RISK by ruling but runs after L5 POSITIONING (chain.py re-test);
   - the chain's 20 % drawdown guard records exit_lock 5, i.e. FILTERED_L3, the same code as an
-    L6 REVIEW rejection (its job moved to L0, portfolio_l0.py; the guard leaves in phase 4);
+    L6 REVIEW rejection. It is L0 PORTFOLIO's by ruling (Niclas 2026-10-26: "dd är före allt annat"):
+    its key is labelled L0, phase 2 re-codes its rows, phase 4 moves the check before L1;
   - both runners defer L6 REVIEW to the serial execution phase (stop_after_lock=4), where the
     overflow check runs first: an overflow row never reached L6;
   - L0 PORTFOLIO halts the cycle and writes no gate row (gate_cycles reason), so it has no code;
@@ -40,8 +45,8 @@ from dataclasses import dataclass
 # The approved chain: number → (name, what it reads, the module that runs it today).
 LOCKS: dict[int, tuple[str, str, str]] = {
     0: ("PORTFOLIO",   "portfolio stop rules (M4), cycle level",         "backend/gate/portfolio_l0.py"),
-    1: ("ELIGIBILITY", "market and sector state",                         "backend/gate/lock1_eligibility.py"),
-    2: ("RISK",        "ETF, earnings, macro, concentration",             "backend/gate/lock1_eligibility.py, chain.py"),
+    1: ("ELIGIBILITY", "market and sector state, macro calendar",         "backend/gate/lock1_eligibility.py, chain.py"),
+    2: ("RISK",        "ETF, earnings, concentration",                    "backend/gate/lock1_eligibility.py, chain.py"),
     3: ("SCORE",       "price and volume score",                          "backend/gate/lock2_quant.py"),
     4: ("SENTIMENT",   "what is said: analysts, news, social",            "backend/gate/lock3_sentiment.py"),
     5: ("POSITIONING", "what is done with money: options, accumulation",  "backend/gate/lock4_leading.py"),
@@ -91,10 +96,12 @@ STAGES: tuple[Stage, ...] = (
 )
 
 # Config keys a lock owns that no stored code carries (they act inside another stage's row, see above).
+# The macro_earnings_* keys are earnings rules (L2) despite their prefix; macro_* without it are L1's calendar.
 LOCK_KEYS: dict[int, tuple[str, ...]] = {
-    1: ("vix_threshold",),
-    2: ("macro_event_blackout_days", "macro_earnings_blackout_days", "macro_earnings_near_days",
-        "macro_earnings_near_penalty", "macro_pre_event_penalty", "max_sector_exposure"),
+    0: ("max_drawdown_pct",),
+    1: ("vix_threshold", "macro_event_blackout_days", "macro_pre_event_penalty"),
+    2: ("macro_earnings_blackout_days", "macro_earnings_near_days", "macro_earnings_near_penalty",
+        "max_sector_exposure"),
 }
 
 BY_CODE: dict[str, Stage] = {s.code: s for s in STAGES}

@@ -3,8 +3,8 @@ gate/lock5_claude.py — Lock 5: Claude Synthesis (L6 REVIEW in the chain, backe
 
 The final and most contextual gate in the apex lock chain. Module numbers and chain locks differ
 until the module rename (lock labels phase 3); by the time a ticker reaches here it has passed:
-    lock1_eligibility — L1 ELIGIBILITY (sector allocated, VIX) and L2 RISK's macro-event and earnings blocks
-    lock2_quant       — L3 SCORE: signal score above the sector threshold, after L2's earnings and macro penalties
+    lock1_eligibility — L1 ELIGIBILITY (sector allocated, VIX, macro-event calendar) and L2 RISK's earnings block
+    lock2_quant       — L3 SCORE: signal score above the sector threshold, after L1's macro and L2's earnings penalties
     lock3_sentiment   — L4 SENTIMENT: sentiment is not strongly negative
     lock4_leading     — L5 POSITIONING: leading signals confirm direction
     chain.py          — L2 RISK's sector-ETF penalty re-test of the score
@@ -54,9 +54,9 @@ def _get_anthropic() -> anthropic.Anthropic:
 
 
 SYSTEM_PROMPT = """You are the final decision layer in an automated stock trading system.
-By the time a ticker reaches you it has passed, in this order: L1 eligibility (market and sector state)
-with L2 risk's macro-event and earnings blocks, L3 score (price and volume against the sector threshold,
-after L2 risk's earnings and macro-event penalties), L4 sentiment (what is said: analysts, news, social),
+By the time a ticker reaches you it has passed, in this order: L1 eligibility (market and sector state,
+the macro-event calendar) with L2 risk's earnings block, L3 score (price and volume against the sector
+threshold, after L1's macro-event and L2 risk's earnings penalties), L4 sentiment (what is said: analysts, news, social),
 L5 positioning (what is done with money: options, accumulation), and a re-test of the score after L2 risk's
 sector-ETF penalty. Their results are in lock_results (l1_eligibility, l3_score, l4_sentiment, l5_positioning).
 Do NOT re-evaluate those — trust that they have done their job.

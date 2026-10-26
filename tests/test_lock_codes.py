@@ -171,15 +171,30 @@ def test_detail_labels_name_what_each_column_holds():
 
 
 def test_lock_owned_config_keys_follow_the_approved_chain():
-    # R4: L2 RISK owns ETF, earnings, macro and concentration (chain approved 2026-10-24); L1 market state.
+    # Chain approved 2026-10-24, amended 2026-10-26 (Niclas): macro to L1 ("flytta makro till l1"),
+    # the drawdown guard to L0 ("dd är före allt annat"). L2 RISK keeps ETF, earnings, concentration.
     labels = lock_codes.config_labels()
-    for k in ("macro_event_blackout_days", "macro_earnings_blackout_days", "macro_earnings_near_penalty",
-              "macro_pre_event_penalty", "max_sector_exposure", "etf_negative_penalty"):
+    for k in ("macro_earnings_blackout_days", "macro_earnings_near_days", "macro_earnings_near_penalty",
+              "max_sector_exposure", "etf_negative_penalty"):
         assert labels[k].startswith("L2 · Risk"), k
-    assert labels["vix_threshold"] == "L1 · Eligibility"
-    assert labels["max_drawdown_pct"] == "L6 · Review"            # R8: the pre-review guard's threshold
-    assert lock_codes.LOCKS[2][1] == "ETF, earnings, macro, concentration"
-    assert "calendar" not in lock_codes.LOCKS[1][1]
+    for k in ("vix_threshold", "macro_event_blackout_days", "macro_pre_event_penalty"):
+        assert labels[k] == "L1 · Eligibility", k
+    assert labels["max_drawdown_pct"] == "L0 · Portfolio"
+    assert lock_codes.LOCKS[2][1] == "ETF, earnings, concentration"
+    assert "macro" in lock_codes.LOCKS[1][1] and "macro" not in lock_codes.LOCKS[2][1]
+
+
+def test_every_macro_key_the_code_reads_is_owned_by_the_lock_its_rule_belongs_to():
+    """The macro_* keys lock1_eligibility reads: the calendar's (no earnings in the name) are L1's, the
+    earnings ones L2's. A new macro key that is read but not owned would get no lock prefix."""
+    import inspect
+    import re
+
+    from backend.gate import lock1_eligibility
+    read = set(re.findall(r'cfg\.get\("(macro_[a-z_]+)"\)', inspect.getsource(lock1_eligibility)))
+    assert read, "positive control: the reader must be found"
+    for k in read:
+        assert k in lock_codes.LOCK_KEYS[2 if "earnings" in k else 1], k
 
 
 def test_owned_keys_are_real_config_keys():
