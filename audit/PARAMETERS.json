@@ -1053,6 +1053,48 @@
       "tier": "ops",
       "source": "INDEX 'APEX candidate ledger' (scoped 2026-10-11; built 2026-10-24 in engine_fast, Niclas: \"placeringen måste bli engine fast\"). Ledger builder only: no live gate, size or exit reads it. Live's vix_threshold (30); the class split for the S14 R1 card.",
       "date": "2026-10-24"
+    },
+    "backend/backtest/s14_r1_vix_gate_2026_10.py::N_BOOT": {
+      "value": 2000,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md (S14 R1 card, vault 2b4b92c8, written before the code): card item 3: episode-bootstrap draws. S14 R1 probe only (2026-10-27): no live gate, size or exit reads it.",
+      "date": "2026-10-27"
+    },
+    "backend/backtest/s14_r1_vix_gate_2026_10.py::N_ZERO": {
+      "value": 20,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md (S14 R1 card, vault 2b4b92c8, written before the code): card item 6: delta = 0 control draws. S14 R1 probe only (2026-10-27): no live gate, size or exit reads it.",
+      "date": "2026-10-27"
+    },
+    "backend/backtest/s14_r1_vix_gate_2026_10.py::ZERO_MAX": {
+      "value": 0.1,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md (S14 R1 card, vault 2b4b92c8, written before the code): card item 6: delta = 0 may pass L2 in at most 10 % of draws. S14 R1 probe only (2026-10-27): no live gate, size or exit reads it.",
+      "date": "2026-10-27"
+    },
+    "backend/backtest/s14_r1_vix_gate_2026_10.py::COST_BP": {
+      "value": 10,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md (S14 R1 card, vault 2b4b92c8, written before the code): card item 3: net of 10 bp per round trip. S14 R1 probe only (2026-10-27): no live gate, size or exit reads it.",
+      "date": "2026-10-27"
+    },
+    "backend/backtest/s14_r1_vix_gate_2026_10.py::NEED": {
+      "value": 4,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md (S14 R1 card, vault 2b4b92c8, written before the code): card items 4-5: the L3 criteria hold at >= 4 of 5 starts. S14 R1 probe only (2026-10-27): no live gate, size or exit reads it.",
+      "date": "2026-10-27"
+    },
+    "backend/backtest/s14_r1_vix_gate_2026_10.py::SEED": {
+      "value": 20261027,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "Vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md (S14 R1 card, vault 2b4b92c8, written before the code): reproducibility: RNG seed. S14 R1 probe only (2026-10-27): no live gate, size or exit reads it.",
+      "date": "2026-10-27"
     }
   }
 }
