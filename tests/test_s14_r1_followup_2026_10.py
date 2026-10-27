@@ -61,3 +61,12 @@ def test_vix_tables_years_and_episodes():
     assert t["by_year"]["ge_30"]["2025"]["mean"] == -0.03
     assert [e["n_ge_40"] for e in t["episodes"]] == [2, 0] and t["episodes_positive"] == 1
     assert t["calm_runs"] == 1 and t["calm_runs_positive"] == 1
+
+
+def test_fine_bins_count_consistency():
+    df = pd.DataFrame({"date": ["2020-01-02", "2020-02-03", "2021-01-04", "2021-01-05"],
+                       "vix": [21.0, 21.5, 23.0, 13.0], "net": [0.02, -0.01, -0.03, 0.01]})
+    r = f.fine_bins(df, [0, 20, 22, 24])
+    assert r["[20, 22)"] == {"n": 2, "days": 2, "win": 0.5, "mean": 0.005, "sum": 0.01,
+                                 "years_positive": 1, "years": 1, "months_positive": 0.5}
+    assert r["[22, 24)"]["years_positive"] == 0 and r["[0, 20)"]["n"] == 1

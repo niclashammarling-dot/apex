@@ -12,6 +12,8 @@ How: python -u -m backend.backtest.s14_r1_followup_2026_10 OUTDIR [--workers 3] 
      [--ledger /home/promenix/apex-battery/ledger-2026-10-24/ledger_IS.csv]
      [--battery /home/promenix/apex-battery/2026-10-19]
 
+     [--bins [--ledger-oos .../ledger_OOS.csv]]   (only the fine VIX bins, IS and OOS)
+
 What: OUTDIR/S14R1_followup_L2.json (the 20 card draws replayed, the 400-draw characterisation, the
 null-distribution test with its calibration and power, the VIX tables), and unless --skip-engine
 OUTDIR/S14R1_followup_L3.json (per time stop, arm and start: P&L, per capital-day, M4 crossings; the
@@ -44,6 +46,7 @@ ALPHA = 0.025                    # one-sided, the bar the card's 95 % CI lower b
 POWER_DELTAS = [0.005, 0.01, 0.0117]   # 0.0117: the real VIX >= 30 net mean of the 10-27 run
 VIX_BINS = [0, 15, 20, 25, 30, 40, 1000]
 HIGH = 40.0                      # Niclas 10-27: "varför handlar vi inte bara i det intervallet?"
+FINE_BINS = [0, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 35, 1000]   # Niclas 10-27: "Vilket intervall ger flest positiva utslag?"
 TIME_STOPS = [25, 15, 10]        # 25 is live's max_hold_days (get_live_config, 2026-10-27)
 NEAR = [[0, 25], [26, 60], [61, 1_000_000]]   # trading days since the last VIX >= 30 day; 25 = the time stop
 PROBE_SEED = 7                   # the 10-27 zero probe's seed, so the characterisation is the same 400 draws
@@ -132,6 +135,18 @@ def vix_tables(df: pd.DataFrame, cl: dict, n_eps: int) -> dict:
             "calm_runs_positive": int((calm > 0).sum())}
 
 
+def fine_bins(df: pd.DataFrame, edges: list[float] = FINE_BINS) -> dict:
+    """Per two-point VIX bin: rows, days, win rate, mean, the summed net (what the bin contributes), and how many
+    of its years and months have a positive mean: the consistency a 'best bin' would need."""
+    out = {}
+    for k, g in df.groupby(pd.cut(df["vix"], edges, right=False), observed=True):
+        yr, mo = g.groupby(g["date"].str[:4])["net"].mean(), g.groupby(g["date"].str[:7])["net"].mean()
+        out[str(k)] = {"n": int(len(g)), "days": int(g["date"].nunique()), "win": float((g["net"] > 0).mean()),
+                       "mean": float(g["net"].mean()), "sum": float(g["net"].sum()),
+                       "years_positive": int((yr > 0).sum()), "years": int(len(yr)), "months_positive": float((mo > 0).mean())}
+    return out
+
+
 # ── L3: displacement, time stops, M4 ──────────────────────────────────────────
 
 def m4_crossings(trade_log: list[dict], start: float = START_BALANCE, halt: float = M4_DD) -> dict:
@@ -200,6 +215,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("outdir", type=Path)
     ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--skip-engine", action="store_true")
+    ap.add_argument("--bins", action="store_true", help="only the fine VIX bins, IS and OOS ledgers, then exit")
+    ap.add_argument("--ledger-oos", type=Path, default=Path("/home/promenix/apex-battery/ledger-2026-10-24/ledger_OOS.csv"))
     ap.add_argument("--ledger", type=Path, default=Path("/home/promenix/apex-battery/ledger-2026-10-24/ledger_IS.csv"))
     ap.add_argument("--battery", type=Path, default=Path("/home/promenix/apex-battery/2026-10-19"))
     a = ap.parse_args(argv)
@@ -214,6 +231,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[{time.time() - t0:6.0f}s] {msg}", flush=True)
 
     df = s.net_rows(pd.read_csv(a.ledger))
+    if a.bins:   # second question round, 10-27: which VIX interval gives the most positive outcomes
+        B = {"IS": fine_bins(df), "OOS": fine_bins(s.net_rows(pd.read_csv(a.ledger_oos)))}
+        (a.outdir / "S14R1_followup_bins.json").write_text(json.dumps(
+            {"producer": {**producer, "ledger_oos": str(a.ledger_oos)}, **B}, indent=1))
+        log("saved bins")
+        return 0
     calm, mu, ep_days, eps, cl = s.calm_null(df)
     real = float(df.loc[df["vix"] >= VIX_LEVEL, "net"].mean())
     L2 = {"card_draws": card_draws(calm, mu, ep_days),

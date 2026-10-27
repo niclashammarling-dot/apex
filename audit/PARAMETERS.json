@@ -1143,6 +1143,27 @@
       "source": "S14 R1 follow-up, exploratory (2026-10-27): Niclas's questions after the S14 R1 run (vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md § 10). Probe only: no live gate, size or exit reads it. Niclas 2026-10-27: 'varför handlar vi inte bara i det intervallet?' (VIX 40+)",
       "date": "2026-10-27"
     },
+    "backend/backtest/s14_r1_followup_2026_10.py::FINE_BINS": {
+      "value": [
+        0,
+        12,
+        14,
+        16,
+        18,
+        20,
+        22,
+        24,
+        26,
+        28,
+        30,
+        35,
+        1000
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "S14 R1 follow-up, exploratory (2026-10-27): Niclas 'Vilket intervall ger flest positiva utslag?' (vault card § 11). Two-point VIX bins from 12 to 30; probe only: no live gate, size or exit reads it.",
+      "date": "2026-10-27"
+    },
     "backend/backtest/s14_r1_followup_2026_10.py::TIME_STOPS": {
       "value": [
         25,
