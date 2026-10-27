@@ -1,6 +1,6 @@
 {
- "generated_at": "2026-10-26T20:35:28+00:00",
- "host_commit": "003ebf2",
+ "generated_at": "2026-10-27T20:35:15+00:00",
+ "host_commit": "22c84cf",
  "findings": [
   [
    54,
@@ -21,7 +21,7 @@
    "Lock 4 PCR channel under per-ticker P25 (demo)",
    "INFO",
    "data/apex.db:demo_gate_history",
-   "Session coverage since build (cycles written / expected at 20m): 10-19 19/19, 10-20 19/19, 10-21 19/19, 10-22 18/19, 10-23 19/19; trailing-3 mean 98%. baseline (0.85, demo since 2026-05-21): 234/1049 PCR passes = 22.3%. per_ticker_p25: 42/498 = 8.4% [6.3%, 11.2%]. Composition of passes \u2014 blocked-under-0.85 names: 21% of passes vs 49% of evaluations (baseline 0% by construction); open-under-0.85 names: 36% of passes vs 32% of evaluations (baseline 87% of passes)."
+   "Session coverage since build (cycles written / expected at 20m): 10-20 19/19, 10-21 19/19, 10-22 18/19, 10-23 19/19, 10-26 19/19; trailing-3 mean 98%. baseline (0.85, demo since 2026-05-21): 234/1049 PCR passes = 22.3%. per_ticker_p25: 42/498 = 8.4% [6.3%, 11.2%]. Composition of passes \u2014 blocked-under-0.85 names: 21% of passes vs 49% of evaluations (baseline 0% by construction); open-under-0.85 names: 36% of passes vs 32% of evaluations (baseline 87% of passes)."
   ],
   [
    82,
@@ -35,21 +35,21 @@
    "Two schedulers on one book (off-phase gate cycles)",
    "INFO",
    "data/apex.db:live_gate_history",
-   "examined over the last 3 days: live 19 pair(s), 19 from gate_cycles, 0 between stamped row starts, 0 off-phase; demo 18 pair(s), 18 from gate_cycles, 0 between stamped row starts, 0 off-phase"
+   "examined over the last 3 days: live 38 pair(s), 38 from gate_cycles, 0 between stamped row starts, 0 off-phase; demo 36 pair(s), 36 from gate_cycles, 0 between stamped row starts, 0 off-phase"
   ],
   [
    87,
    "signal age at gate time",
    "INFO",
    "data/apex.db:gate_cycles",
-   "2026-10-26: live: 397 rows checked; demo: 374 rows checked; cycles 39, 39 with stale refusals (285 ticker-cycles)"
+   "2026-10-27: live: 431 rows checked; demo: 402 rows checked; cycles 39, 39 with stale refusals (283 ticker-cycles)"
   ],
   [
    87,
    "signal age at gate time",
    "INFO",
    "backend/gate/freshness.py:ENFORCE_BAR_DATE",
-   "2026-10-26 bar_date observed, not enforced (review 2026-10-17): live: 0 of 397 in-session rows on a non-session bar; demo: 0 of 374 in-session rows on a non-session bar"
+   "2026-10-27 bar_date observed, not enforced (review 2026-10-17): live: 0 of 431 in-session rows on a non-session bar; demo: 0 of 402 in-session rows on a non-session bar"
   ],
   [
    88,
@@ -84,14 +84,14 @@
    "Posterior history provenance and gap count",
    "INFO",
    "data/apex.db:sector_posterior_history",
-   "13 of 103 NYSE sessions since 2026-05-29 have no posterior row (13%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-07-29, 2026-07-31, 2026-08-03, 2026-08-05, 2026-08-20, 2026-08-21, 2026-08-26, 2026-08-27. Standing level, not an event \u2014 the July\u2013August holes are unadjudicable (no written_at, logs rotated)."
+   "13 of 104 NYSE sessions since 2026-05-29 have no posterior row (12%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-07-29, 2026-07-31, 2026-08-03, 2026-08-05, 2026-08-20, 2026-08-21, 2026-08-26, 2026-08-27. Standing level, not an event \u2014 the July\u2013August holes are unadjudicable (no written_at, logs rotated)."
   ],
   [
    78,
    "PCR history gap count",
    "INFO",
    "data/apex.db:lock4_pcr_history",
-   "45 of 109 NYSE sessions since 2026-05-21 have no PCR rows (41%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-09-01, 2026-09-02, 2026-09-03, 2026-09-10, 2026-09-14, 2026-09-16, 2026-09-17, 2026-09-21. Standing level \u2014 the per-ticker P25 calibration reads a 59%-present sample."
+   "45 of 110 NYSE sessions since 2026-05-21 have no PCR rows (41%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-09-01, 2026-09-02, 2026-09-03, 2026-09-10, 2026-09-14, 2026-09-16, 2026-09-17, 2026-09-21. Standing level \u2014 the per-ticker P25 calibration reads a 59%-present sample."
   ],
   [
    89,
@@ -101,32 +101,39 @@
    "64/65 entries at the fill; |slip| mean 0.37%, largest +2.80% (UNH 2026-07-17), 3 over 1%; excepted: id=43 HON 2026-08-04: recorded order id has no fills (orphan id; case dropped 2026-10-12, Niclas)"
   ],
   [
+   65,
+   "posterior saturation monitor",
+   "WARNING",
+   "data/regime_signal_trace.jsonl",
+   "Healthcare: ceiling pin, session 1 \u2014 pre_clamp=0.9518 > 0.95 on 2026-10-26, aggregate=0.6035, allocation=0.4891. prior=0.8604 \u00d7 combined LR 3.21 (dominant lr_ipo=2.4). No term reached LR_WARN_CEIL 10.0: the lift is the product, not one formula. Single session; 2 consecutive escalates, because from a pinned prior only combined LR 2.99 is needed again."
+  ],
+  [
    67,
    "Industrials composite dilution monitor",
    "INFO",
    "data/apex.db:sector_snapshots",
-   "Industrials avg_score=0.2905 (at 2026-10-26T19:51:30.109892+00:00) below 0.48, and 0.2984 without ETN/PWR/TT: the breach does not come from the additions (they move it -0.0079); removing them would not clear it"
+   "Industrials avg_score=0.2859 (at 2026-10-27T19:51:33.800566+00:00) below 0.48, and 0.2897 without ETN/PWR/TT: the breach does not come from the additions (they move it -0.0038); removing them would not clear it"
   ],
   [
    68,
    "Defense composite dilution monitor",
    "CRITICAL",
    "data/apex.db:sector_snapshots",
-   "Defense avg_score=0.5904 (at 2026-10-26T19:51:30.109892+00:00) is below critical floor 0.6; baseline was 0.7169 on 2026-08-08 (pre-AXON/HWM). At neutral posterior (~0.55), adjusted_score \u2248 0.325, below ALLOCATION_ENTRY_THRESHOLD 0.37. Without AXON/HWM: 0.6828. Action: remove AXON/HWM via ticker_config.remove_ticker() and diagnose signal history before re-adding."
+   "Defense avg_score=0.5871 (at 2026-10-27T19:51:33.800566+00:00) is below critical floor 0.6; baseline was 0.7169 on 2026-08-08 (pre-AXON/HWM). At neutral posterior (~0.55), adjusted_score \u2248 0.323, below ALLOCATION_ENTRY_THRESHOLD 0.37. Without AXON/HWM: 0.6859. Action: remove AXON/HWM via ticker_config.remove_ticker() and diagnose signal history before re-adding."
   ],
   [
    69,
    "Technology composite dilution monitor",
    "INFO",
    "data/apex.db:sector_snapshots",
-   "Technology avg_score=0.3991 (at 2026-10-26T19:51:30.109892+00:00) below 0.51, and 0.4190 without ANET: the breach does not come from the additions (they move it -0.0199); removing them would not clear it"
+   "Technology avg_score=0.4170 (at 2026-10-27T19:51:33.800566+00:00) below 0.51, and 0.4335 without ANET: the breach does not come from the additions (they move it -0.0165); removing them would not clear it"
   ],
   [
    71,
    "entry-floor ceiling sweep",
    "INFO",
    "data/regime_signal_trace.jsonl",
-   "2026-10-23: 3/11 eligible sectors cannot clear the 0.37 entry floor at any posterior (composite must be \u2265 0.3895 = floor/0.95); enterable: ConsumerDisc, Defense, Energy, Healthcare, Homebuilders, RealEstate, Technology, Transportation. Enterable by date (last 30): 4,4,3,4,5,4,5,5,4,5,4,4,3,4,3,4,4,3,6,8,7,6,5,7,7,5,8,8,8,8. Dark: Communication agg=0.3497 ceil_adj=0.3322 dark 11/30d; Industrials agg=0.2517 ceil_adj=0.2391 dark 19/30d; Semiconductors agg=0.1514 ceil_adj=0.1438 dark 12/30d."
+   "2026-10-26: 3/11 eligible sectors cannot clear the 0.37 entry floor at any posterior (composite must be \u2265 0.3895 = floor/0.95); enterable: ConsumerDisc, Defense, Energy, Healthcare, Homebuilders, RealEstate, Technology, Transportation. Enterable by date (last 30): 4,3,4,5,4,5,5,4,5,4,4,3,4,3,4,4,3,6,8,7,6,5,7,7,5,8,8,8,8,8. Dark: Communication agg=0.3334 ceil_adj=0.3167 dark 12/30d; Industrials agg=0.2905 ceil_adj=0.2760 dark 19/30d; Semiconductors agg=0.2272 ceil_adj=0.2158 dark 12/30d."
   ]
  ],
  "skipped": [],
@@ -215,6 +222,6 @@
  "alert_channel": {
   "ok": true,
   "detail": "SMTP login ok as niclas.hammarling@gmail.com via smtp.gmail.com",
-  "checked_at": "2026-10-26T20:35:29+00:00"
+  "checked_at": "2026-10-27T20:35:16+00:00"
  }
 }
