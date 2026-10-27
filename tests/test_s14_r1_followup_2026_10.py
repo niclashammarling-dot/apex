@@ -70,3 +70,12 @@ def test_fine_bins_count_consistency():
     assert r["[20, 22)"] == {"n": 2, "days": 2, "win": 0.5, "mean": 0.005, "sum": 0.01,
                                  "years_positive": 1, "years": 1, "months_positive": 0.5}
     assert r["[22, 24)"]["years_positive"] == 0 and r["[0, 20)"]["n"] == 1
+
+
+def test_tiers_baseline_day_spread_and_below_10():
+    df = pd.DataFrame({"date": ["2017-05-01", "2017-05-01", "2018-01-02", "2020-03-02"],
+                       "vix": [9.5, 9.5, 9.8, 31.0], "net": [0.02, -0.01, 0.03, -0.02]})
+    r = f.tiers(df)
+    assert r["all"] == {"n": 4, "win": 0.5, "mean": 0.005}
+    assert r["day_vix"]["days"] == 3 and r["day_vix"]["below_10_by_year"] == {"2017": 1, "2018": 1}
+    assert r["tiers"]["[0, 10)"]["n"] == 3 and r["tiers"]["[0, 10)"]["days"] == 2 and r["tiers"]["[30, 35)"]["n"] == 1

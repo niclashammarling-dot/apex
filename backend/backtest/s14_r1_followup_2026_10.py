@@ -47,6 +47,7 @@ POWER_DELTAS = [0.005, 0.01, 0.0117]   # 0.0117: the real VIX >= 30 net mean of 
 VIX_BINS = [0, 15, 20, 25, 30, 40, 1000]
 HIGH = 40.0                      # Niclas 10-27: "varför handlar vi inte bara i det intervallet?"
 FINE_BINS = [0, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 35, 1000]   # Niclas 10-27: "Vilket intervall ger flest positiva utslag?"
+TIERS = [0, 10, 15, 20, 25, 30, 35, 1000]   # Niclas 10-27: "10-15, 15-20, 20-25, 25-30 och 30-35"; < 10 and >= 35 apart
 TIME_STOPS = [25, 15, 10]        # 25 is live's max_hold_days (get_live_config, 2026-10-27)
 NEAR = [[0, 25], [26, 60], [61, 1_000_000]]   # trading days since the last VIX >= 30 day; 25 = the time stop
 PROBE_SEED = 7                   # the 10-27 zero probe's seed, so the characterisation is the same 400 draws
@@ -147,6 +148,17 @@ def fine_bins(df: pd.DataFrame, edges: list[float] = FINE_BINS) -> dict:
     return out
 
 
+def tiers(df: pd.DataFrame) -> dict:
+    """The five-point tiers with the ledger's own baseline beside them (same exits), and the day-level VIX
+    spread: what 'normal' is in that ledger, and how many days fall below 10."""
+    day = df.groupby("date")["vix"].first()
+    below = day[day < TIERS[1]]
+    return {"all": {"n": int(len(df)), "win": float((df["net"] > 0).mean()), "mean": float(df["net"].mean())},
+            "day_vix": {"days": int(len(day)), "median": float(day.median()), "p10": float(day.quantile(0.1)),
+                        "p90": float(day.quantile(0.9)), "below_10_by_year": below.groupby(below.index.str[:4]).size().to_dict()},
+            "tiers": fine_bins(df, TIERS)}
+
+
 # ── L3: displacement, time stops, M4 ──────────────────────────────────────────
 
 def m4_crossings(trade_log: list[dict], start: float = START_BALANCE, halt: float = M4_DD) -> dict:
@@ -216,6 +228,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--skip-engine", action="store_true")
     ap.add_argument("--bins", action="store_true", help="only the fine VIX bins, IS and OOS ledgers, then exit")
+    ap.add_argument("--tiers", action="store_true", help="only the five-point VIX tiers, IS and OOS ledgers, then exit")
     ap.add_argument("--ledger-oos", type=Path, default=Path("/home/promenix/apex-battery/ledger-2026-10-24/ledger_OOS.csv"))
     ap.add_argument("--ledger", type=Path, default=Path("/home/promenix/apex-battery/ledger-2026-10-24/ledger_IS.csv"))
     ap.add_argument("--battery", type=Path, default=Path("/home/promenix/apex-battery/2026-10-19"))
@@ -236,6 +249,12 @@ def main(argv: list[str] | None = None) -> int:
         (a.outdir / "S14R1_followup_bins.json").write_text(json.dumps(
             {"producer": {**producer, "ledger_oos": str(a.ledger_oos)}, **B}, indent=1))
         log("saved bins")
+        return 0
+    if a.tiers:   # fourth round, 10-27: the exit card's tiers; Niclas: "är det värt att räkna under 10?"
+        T = {"IS": tiers(df), "OOS": tiers(s.net_rows(pd.read_csv(a.ledger_oos)))}
+        (a.outdir / "S14R1_followup_tiers.json").write_text(json.dumps(
+            {"producer": {**producer, "ledger_oos": str(a.ledger_oos), "why": producer["why"].replace("§ 10", "§ 13")}, **T}, indent=1))
+        log("saved tiers")
         return 0
     calm, mu, ep_days, eps, cl = s.calm_null(df)
     real = float(df.loc[df["vix"] >= VIX_LEVEL, "net"].mean())

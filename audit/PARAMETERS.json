@@ -1164,6 +1164,22 @@
       "source": "S14 R1 follow-up, exploratory (2026-10-27): Niclas 'Vilket intervall ger flest positiva utslag?' (vault card § 11). Two-point VIX bins from 12 to 30; probe only: no live gate, size or exit reads it.",
       "date": "2026-10-27"
     },
+    "backend/backtest/s14_r1_followup_2026_10.py::TIERS": {
+      "value": [
+        0,
+        10,
+        15,
+        20,
+        25,
+        30,
+        35,
+        1000
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "S14 R1 follow-up, exploratory (2026-10-27): the exit-levels card's VIX tiers, Niclas '10-15, 15-20, 20-25, 25-30 och 30-35' (vault card § 13); < 10 and >= 35 kept apart for his question 'är det värt att räkna under 10?'. Probe only: no live gate, size or exit reads it.",
+      "date": "2026-10-27"
+    },
     "backend/backtest/s14_r1_followup_2026_10.py::TIME_STOPS": {
       "value": [
         25,
