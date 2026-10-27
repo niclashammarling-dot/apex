@@ -79,3 +79,4 @@ def test_tiers_baseline_day_spread_and_below_10():
     assert r["all"] == {"n": 4, "win": 0.5, "mean": 0.005}
     assert r["day_vix"]["days"] == 3 and r["day_vix"]["below_10_by_year"] == {"2017": 1, "2018": 1}
     assert r["tiers"]["[0, 10)"]["n"] == 3 and r["tiers"]["[0, 10)"]["days"] == 2 and r["tiers"]["[30, 35)"]["n"] == 1
+    assert r["tiers_10"]["[0, 10)"]["n"] == 3 and r["tiers_10"]["[30, 1000)"]["n"] == 1

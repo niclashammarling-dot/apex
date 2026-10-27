@@ -48,6 +48,7 @@ VIX_BINS = [0, 15, 20, 25, 30, 40, 1000]
 HIGH = 40.0                      # Niclas 10-27: "varför handlar vi inte bara i det intervallet?"
 FINE_BINS = [0, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 35, 1000]   # Niclas 10-27: "Vilket intervall ger flest positiva utslag?"
 TIERS = [0, 10, 15, 20, 25, 30, 35, 1000]   # Niclas 10-27: "10-15, 15-20, 20-25, 25-30 och 30-35"; < 10 and >= 35 apart
+TIERS_10 = [0, 10, 20, 30, 1000]   # Niclas 10-27: "om 10-skutt är bättre intervall då: 0-10, 10-20 och 20-30"
 TIME_STOPS = [25, 15, 10]        # 25 is live's max_hold_days (get_live_config, 2026-10-27)
 NEAR = [[0, 25], [26, 60], [61, 1_000_000]]   # trading days since the last VIX >= 30 day; 25 = the time stop
 PROBE_SEED = 7                   # the 10-27 zero probe's seed, so the characterisation is the same 400 draws
@@ -156,7 +157,7 @@ def tiers(df: pd.DataFrame) -> dict:
     return {"all": {"n": int(len(df)), "win": float((df["net"] > 0).mean()), "mean": float(df["net"].mean())},
             "day_vix": {"days": int(len(day)), "median": float(day.median()), "p10": float(day.quantile(0.1)),
                         "p90": float(day.quantile(0.9)), "below_10_by_year": below.groupby(below.index.str[:4]).size().to_dict()},
-            "tiers": fine_bins(df, TIERS)}
+            "tiers": fine_bins(df, TIERS), "tiers_10": fine_bins(df, TIERS_10)}
 
 
 # ── L3: displacement, time stops, M4 ──────────────────────────────────────────
