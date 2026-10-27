@@ -94,3 +94,19 @@ def test_decide_follows_the_card():
     assert s.decide(_L2(0.002, 0.02, zero_ok=False), _L3(0.0012, 0.055))["verdict"] == "unanswered (L2 control)"
     assert s.decide(_L2(0.002, 0.02), _L3(0.0012, 0.055, ctl=False))["verdict"] == "unanswered (L3 control)"
     assert s.decide(_L2(-0.001, 0.02), None)["verdict"] == "L2 only: no verdict without L3"
+
+
+def test_null_pass_rates_count_one_and_two_sided_passes():
+    rng = np.random.default_rng(2)
+    calm = [np.array([0.01, -0.01]) for _ in range(40)]          # centred: every draw's mean is exactly 0
+    r = s.null_pass_rates(calm, 0.0, [2, 1, 3], 10, rng)
+    assert r == {"draws": 10, "pass_rate": 0.0, "two_sided_rate": 0.0}
+    up = [np.array([0.05, 0.05]) for _ in range(40)]              # not centred: every draw passes
+    assert s.null_pass_rates(up, 0.0, [2, 1, 3], 5, rng)["pass_rate"] == 1.0
+
+
+def test_calm_null_excludes_episode_days_and_vix_rows():
+    df = pd.DataFrame({"date": ["d1", "d1", "d2", "d3", "d4"], "vix": [20, 20, 35, 20, 20],
+                       "net": [0.01, 0.03, 0.5, 0.02, 0.04]})
+    calm, mu, ep_days, eps, cl = s.calm_null(df)
+    assert ep_days == [1] and [len(c) for c in calm] == [2, 1, 1] and np.isclose(mu, 0.025)

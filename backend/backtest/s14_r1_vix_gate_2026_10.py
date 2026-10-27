@@ -11,9 +11,12 @@ How: python -u -m backend.backtest.s14_r1_vix_gate_2026_10 OUTDIR [--workers 3] 
      [--ledger /home/promenix/apex-battery/ledger-2026-10-24/ledger_IS.csv]
      [--battery /home/promenix/apex-battery/2026-10-19]
 
+     [--zero-probe N [--probe-seed 7]]   (exploratory: the delta = 0 pass rate over N draws)
+
 What: OUTDIR/S14R1_L2.json (controls first, then the classes and the 2020 / 2022 / rest rows),
 OUTDIR/S14R1_L3.json (rewritten after every engine run: per arm and start the metrics, M4's drawdown and
-the period rows; controls) and OUTDIR/S14R1_decision.json (the card's rule).
+the period rows; controls), OUTDIR/S14R1_decision.json (the card's rule), and with --zero-probe only
+OUTDIR/S14R1_zero_probe.json.
 """
 from __future__ import annotations
 
@@ -97,6 +100,35 @@ def null_draw(calm: list[np.ndarray], mu: float, ep_days: list[int], delta: floa
     return np.concatenate(xs), np.concatenate(gs)
 
 
+def null_pass_rates(calm: list[np.ndarray], mu: float, ep_days: list[int], n: int,
+                    rng: np.random.Generator) -> dict:
+    """Share of n delta = 0 draws that pass L2 (lower bound > 0), and two-sided (either bound past 0)."""
+    lo = two = 0
+    for _ in range(n):
+        c = boot_ci(*null_draw(calm, mu, ep_days, 0.0, rng), rng)
+        lo += c["lo"] > 0
+        two += c["lo"] > 0 or c["hi"] < 0
+    return {"draws": n, "pass_rate": lo / n, "two_sided_rate": two / n}
+
+
+def calm_null(df: pd.DataFrame) -> tuple[list[np.ndarray], float, list[int], list, dict]:
+    """The null's inputs: net outcomes per calm day (date order), their mean, episode day counts, episodes,
+    the cluster map. `df` carries `net`."""
+    day_vix = df.groupby("date")["vix"].first().sort_index()
+    days, level = list(day_vix.index), list(day_vix >= VIX_LEVEL)
+    eps, cl = day_clusters(days, level)
+    st = df["vix"] >= VIX_LEVEL
+    by_day = {d: g.to_numpy() for d, g in df.loc[~st, ["date", "net"]].groupby("date")["net"]}
+    calm = [by_day.get(d, np.empty(0)) for d in days if cl[d] >= len(eps)]
+    return calm, float(np.concatenate(calm).mean()), [n for _, _, n in eps], eps, cl
+
+
+def net_rows(df: pd.DataFrame) -> pd.DataFrame:
+    df = df[df["pnl_live"].notna()].copy()
+    df["net"] = df["pnl_live"] - COST_BP / 1e4
+    return df
+
+
 def in_period(dates: pd.Series, name: str) -> pd.Series:
     if name == "rest":
         return ~functools.reduce(lambda x, y: x | y, (in_period(dates, p) for p in PERIODS))
@@ -105,26 +137,18 @@ def in_period(dates: pd.Series, name: str) -> pd.Series:
 
 
 def l2(df: pd.DataFrame, rng: np.random.Generator, log=print) -> dict:
-    df = df[df["pnl_live"].notna()].copy()
-    df["net"] = df["pnl_live"] - COST_BP / 1e4
-    day_vix = df.groupby("date")["vix"].first().sort_index()
-    days, level = list(day_vix.index), list(day_vix >= VIX_LEVEL)
-    eps, cl = day_clusters(days, level)
+    df = net_rows(df)
+    calm, mu, ep_days, eps, cl = calm_null(df)
     df["cluster"] = df["date"].map(cl)
     st = df["vix"] >= VIX_LEVEL
-    calm_days = [d for d in days if cl[d] >= len(eps)]
-    by_day = {d: g.to_numpy() for d, g in df.loc[~st, ["date", "net"]].groupby("date")["net"]}
-    calm = [by_day.get(d, np.empty(0)) for d in calm_days]
-    mu = float(np.concatenate(calm).mean())
-    ep_days = [n for _, _, n in eps]
 
     # Controls first (card items 6-7): delta = 0 sets the half-width, delta+ = 2 x it must pass.
     zero = boot_ci(*null_draw(calm, mu, ep_days, 0.0, rng), rng)
     half = zero["half_width"]
-    zero_pass = [boot_ci(*null_draw(calm, mu, ep_days, 0.0, rng), rng)["lo"] > 0 for _ in range(N_ZERO)]
+    zero_pass = null_pass_rates(calm, mu, ep_days, N_ZERO, rng)["pass_rate"]
     plus = boot_ci(*null_draw(calm, mu, ep_days, 2 * half, rng), rng)
-    ctl = {"zero": zero, "half_width": half, "zero_pass_rate": float(np.mean(zero_pass)),
-           "zero_ok": bool(np.mean(zero_pass) <= ZERO_MAX), "plus": plus, "plus_supported": bool(plus["lo"] > 0),
+    ctl = {"zero": zero, "half_width": half, "zero_pass_rate": float(zero_pass),
+           "zero_ok": bool(zero_pass <= ZERO_MAX), "plus": plus, "plus_supported": bool(plus["lo"] > 0),
            "calm_mean_net": mu}
     log(f"L2 controls: half-width {half:.5f}, +delta supported {ctl['plus_supported']}, "
         f"zero pass rate {ctl['zero_pass_rate']:.2f}")
@@ -213,6 +237,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("outdir", type=Path)
     ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--skip-l3", action="store_true")
+    ap.add_argument("--zero-probe", type=int, default=0, help="exploratory: delta = 0 pass rate over N draws, then exit")
+    ap.add_argument("--probe-seed", type=int, default=7)
     ap.add_argument("--ledger", type=Path, default=Path("/home/promenix/apex-battery/ledger-2026-10-24/ledger_IS.csv"))
     ap.add_argument("--battery", type=Path, default=Path("/home/promenix/apex-battery/2026-10-19"))
     a = ap.parse_args(argv)
@@ -226,8 +252,15 @@ def main(argv: list[str] | None = None) -> int:
     def log(msg: str) -> None:
         print(f"[{time.time() - t0:6.0f}s] {msg}", flush=True)
 
-    rng = np.random.default_rng(SEED)
     df = pd.read_csv(a.ledger)
+    if a.zero_probe:   # 10b of the 10-27 run: can 20 draws tell the instrument's rate from the 10 % bar?
+        calm, mu, ep_days, _, _ = calm_null(net_rows(df))
+        r = null_pass_rates(calm, mu, ep_days, a.zero_probe, np.random.default_rng(a.probe_seed))
+        r.update(seed=a.probe_seed, label="exploratory, not the card's verdict")
+        (a.outdir / "S14R1_zero_probe.json").write_text(json.dumps({"producer": producer, **r}, indent=1))
+        log(f"zero probe: {r}")
+        return 0
+    rng = np.random.default_rng(SEED)
     L2 = l2(df, rng, log)
     (a.outdir / "S14R1_L2.json").write_text(json.dumps({"producer": producer, **L2}, indent=1, default=str))
     g = L2["vix_ge_30"]
