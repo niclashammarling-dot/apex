@@ -1095,6 +1095,98 @@
       "tier": "ops",
       "source": "Vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md (S14 R1 card, vault 2b4b92c8, written before the code): reproducibility: RNG seed. S14 R1 probe only (2026-10-27): no live gate, size or exit reads it.",
       "date": "2026-10-27"
+    },
+    "backend/backtest/s14_r1_followup_2026_10.py::N_PROBE": {
+      "value": 400,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "S14 R1 follow-up, exploratory (2026-10-27): Niclas's questions after the S14 R1 run (vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md § 10). Probe only: no live gate, size or exit reads it. draws in the characterisation and the null reference; the 10-27 zero probe's count",
+      "date": "2026-10-27"
+    },
+    "backend/backtest/s14_r1_followup_2026_10.py::ALPHA": {
+      "value": 0.025,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "S14 R1 follow-up, exploratory (2026-10-27): Niclas's questions after the S14 R1 run (vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md § 10). Probe only: no live gate, size or exit reads it. one-sided level the card's 95 % CI lower bound stands for",
+      "date": "2026-10-27"
+    },
+    "backend/backtest/s14_r1_followup_2026_10.py::POWER_DELTAS": {
+      "value": [
+        0.005,
+        0.01,
+        0.0117
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "S14 R1 follow-up, exploratory (2026-10-27): Niclas's questions after the S14 R1 run (vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md § 10). Probe only: no live gate, size or exit reads it. power read at 0.5 %, 1 % and the measured VIX >= 30 net mean of the 10-27 run (S14R1_L2.json)",
+      "date": "2026-10-27"
+    },
+    "backend/backtest/s14_r1_followup_2026_10.py::VIX_BINS": {
+      "value": [
+        0,
+        15,
+        20,
+        25,
+        30,
+        40,
+        1000
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "S14 R1 follow-up, exploratory (2026-10-27): Niclas's questions after the S14 R1 run (vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md § 10). Probe only: no live gate, size or exit reads it. VIX bins for the class table; 30 is live's vix_threshold, 40 Niclas's 10-27 question",
+      "date": "2026-10-27"
+    },
+    "backend/backtest/s14_r1_followup_2026_10.py::HIGH": {
+      "value": 40.0,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "S14 R1 follow-up, exploratory (2026-10-27): Niclas's questions after the S14 R1 run (vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md § 10). Probe only: no live gate, size or exit reads it. Niclas 2026-10-27: 'varför handlar vi inte bara i det intervallet?' (VIX 40+)",
+      "date": "2026-10-27"
+    },
+    "backend/backtest/s14_r1_followup_2026_10.py::TIME_STOPS": {
+      "value": [
+        25,
+        15,
+        10
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "S14 R1 follow-up, exploratory (2026-10-27): Niclas's questions after the S14 R1 run (vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md § 10). Probe only: no live gate, size or exit reads it. 25 is live's max_hold_days (get_live_config 2026-10-27); 15 and 10 per Niclas's 'time stop är kortare'",
+      "date": "2026-10-27"
+    },
+    "backend/backtest/s14_r1_followup_2026_10.py::NEAR": {
+      "value": [
+        [
+          0,
+          25
+        ],
+        [
+          26,
+          60
+        ],
+        [
+          61,
+          1000000
+        ]
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "source": "S14 R1 follow-up, exploratory (2026-10-27): Niclas's questions after the S14 R1 run (vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md § 10). Probe only: no live gate, size or exit reads it. distance buckets in trading days since the last VIX >= 30 day; 25 = the time stop",
+      "date": "2026-10-27"
+    },
+    "backend/backtest/s14_r1_followup_2026_10.py::PROBE_SEED": {
+      "value": 7,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "S14 R1 follow-up, exploratory (2026-10-27): Niclas's questions after the S14 R1 run (vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md § 10). Probe only: no live gate, size or exit reads it. reproducibility: the 10-27 zero probe's seed, so the characterisation is the same 400 draws",
+      "date": "2026-10-27"
+    },
+    "backend/backtest/s14_r1_followup_2026_10.py::REF_SEED": {
+      "value": 20261028,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "S14 R1 follow-up, exploratory (2026-10-27): Niclas's questions after the S14 R1 run (vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md § 10). Probe only: no live gate, size or exit reads it. reproducibility: RNG seed of the null reference",
+      "date": "2026-10-27"
     }
   }
 }
