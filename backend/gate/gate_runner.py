@@ -407,7 +407,7 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
         "model":             l5_data.get("model"),
     }
 
-    # Lock 4 (Leading) — flatten pass_count/min_pass for _log_summary()
+    # Lock 4 (Leading) — flatten pass_count and the two groups for _log_summary()
     l4_data   = l4.data if l4 else {}
     # lock4_leading uses "checks"; "sub_checks" is a DB-compat alias (same dict)
     l4_checks = l4_data.get("checks") or l4_data.get("sub_checks", {})
@@ -418,7 +418,8 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
             "score":      l4.score,
             "reason":     l4.reason,
             "pass_count": l4_data.get("pass_count", 0),
-            "min_pass":   l4_data.get("min_pass", 2),
+            "price_group_pass":   l4_data.get("price_group_pass"),
+            "options_group_pass": l4_data.get("options_group_pass"),
             "checks":     l4_checks,
         }
 
@@ -560,6 +561,10 @@ def _compute_bayesian_multipliers(
     return RegimeBayes.size_multipliers(regime_bayes_result.allocation, sector_queued)
 
 
+def _mark(passed: bool | None) -> str:
+    return "?" if passed is None else "✓" if passed else "✗"
+
+
 def _log_summary(ticker: str, result: dict) -> None:
     l1        = result["lock1"]
     l2        = result.get("lock2")
@@ -571,7 +576,8 @@ def _log_summary(ticker: str, result: dict) -> None:
     if l2:
         parts.append(f"L2={'✓' if l2['passed'] else '✗'}({l2.get('score', '?')})")
     if l_leading:
-        parts.append(f"LD={'✓' if l_leading['passed'] else '✗'}({l_leading['pass_count']}/{l_leading['min_pass']})")
+        parts.append(f"LD={'✓' if l_leading['passed'] else '✗'}(price {_mark(l_leading.get('price_group_pass'))} "
+                     f"options {_mark(l_leading.get('options_group_pass'))})")
     if l3:
         parts.append(f"L3={'✓' if l3['passed'] else '✗'}({l3.get('decision')} {l3.get('confidence', 0):.2f})")
 

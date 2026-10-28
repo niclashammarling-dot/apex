@@ -37,7 +37,6 @@ def _demo_cfg(**overrides):
         "lock1_threshold":              0.5,
         "lock2_sentiment_min":          0.2,
         "lock3_confidence_min":         0.6,
-        "lock_leading_min_pass":        2,
         "vix_threshold":                25.0,
         "macro_event_blackout_days":    1,
         "macro_earnings_blackout_days": 3,
@@ -89,7 +88,7 @@ def _lr_pass(lock_id: int, score: float = 0.75, data: dict = None) -> LockResult
                 "unusual_calls":     {"pass": True,  "reason": "3x"},
                 "volume_accumulation": {"pass": False, "reason": "up/down vol ratio 0.88 over 20d (distribution/neutral)"},
             },
-            "pass_count": 3, "min_pass": 2,
+            "pass_count": 3, "price_group_pass": True, "options_group_pass": True,
         }
     elif lock_id == 5:
         base = {"decision": "BUY", "confidence": 0.85,

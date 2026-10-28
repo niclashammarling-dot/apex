@@ -91,7 +91,7 @@ STAGES: tuple[Stage, ...] = (
     Stage("FILTERED_L2", "filter", "L4 · Sentiment", lock=4, exit_lock=3, cooloff=True,
           config_keys=("lock2_sentiment_min",)),
     Stage("FILTERED_LEADING", "filter", "L5 · Positioning", lock=5, exit_lock=4,
-          config_keys=("lock_leading_min_pass", "lock4_pcr_mode")),
+          config_keys=("lock4_pcr_mode",)),
     Stage(ETF_PENALTY, "filter", "L2 · Risk (ETF)", lock=2,
           config_keys=("etf_negative_penalty", "etf_negative_floor")),
     # L2 RISK by ruling (Niclas 2026-10-26: "den hör till risk"): one more position beyond max_positions.

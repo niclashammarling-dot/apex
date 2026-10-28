@@ -137,7 +137,7 @@ def test_evaluate_volume_accumulation_is_wired(mock_rs, mock_pcr, mock_ucv, mock
     result = evaluate("NVDA", "Technology")
     assert mock_va.called
     assert "volume_accumulation" in result.data["checks"]
-    assert result.passed  # 3/4 checks pass, min_pass=2
+    assert result.passed  # price group (RS) and options group pass
 
 
 @patch("backend.gate.lock4_leading._check_volume_accumulation")
@@ -173,3 +173,29 @@ def test_volume_accumulation_score_contribution(mock_rs, mock_pcr, mock_ucv, moc
     result = evaluate("GS", "Financials")
     assert result.passed          # 3/4, both groups pass
     assert abs(result.score - 0.75) < 0.001  # 3 * 0.25
+
+
+def test_settings_and_logs_carry_no_min_pass():
+    """lock_leading_min_pass was read by chain.py and passed into a parameter lock4 never used (since the
+    two-group rule, 2026-06-03); Settings offered it as "Min Checks" and the gate log printed pass_count/min_pass.
+    Retired 2026-10-28 (Niclas: "om inget läser min pass är det väl ingen poäng att spara"). The log names the
+    two groups that decide instead."""
+    import inspect
+    from loguru import logger
+    from backend.gate import gate_runner, gate_runner_live, lock_codes
+    from backend.live_config import get_live_config
+    from backend.demo_config import get_demo_config
+    assert "min_pass" not in inspect.signature(evaluate).parameters
+    assert "lock_leading_min_pass" not in get_live_config() and "lock_leading_min_pass" not in get_demo_config()
+    assert "lock_leading_min_pass" not in lock_codes.config_labels()
+    lines = []
+    sink = logger.add(lambda m: lines.append(str(m)), level="INFO")
+    try:
+        for runner in (gate_runner, gate_runner_live):
+            runner._log_summary("NVDA", {"outcome": "FILTERED_LEADING",
+                                         "lock1": {"passed": True, "score": 0.7},
+                                         "lock_leading": {"passed": False, "pass_count": 2,
+                                                          "price_group_pass": True, "options_group_pass": False}})
+    finally:
+        logger.remove(sink)
+    assert sum("LD=✗(price ✓ options ✗)" in l for l in lines) == 2, lines

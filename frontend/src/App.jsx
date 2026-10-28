@@ -430,8 +430,6 @@ const SETTINGS_FIELDS = [
     hint: "Minimum Grok sentiment score to pass. 0.0 = neutral or better." },
   { key: "lock3_confidence_min", label: "Confidence Min", step: 0.01, min: 0, max: 1,
     hint: "Minimum Claude confidence score to pass. At 0.7 Claude must be fairly certain." },
-  { key: "lock_leading_min_pass", label: "Min Checks", step: 1, min: 1, max: 4,
-    hint: "Minimum sub-checks that must pass. Out of 4. Default 2 = majority required." },
   { key: "max_drawdown_pct",     label: "Max Drawdown Guard",        step: 0.01, min: 0.01, max: 1,
     hint: "Mechanical guard before the review: once the balance is this far below the starting balance every candidate is rejected. Also passed to Claude. Recorded as a review rejection until lock labels phase 2 re-codes it to the Portfolio lock; the check moves before Eligibility in phase 4. Not M4's 6 % realised-drawdown halt, which the Portfolio lock runs separately." },
   { key: "take_profit_pct",      label: "Take Profit %",         step: 0.01, min: 0.01, max: 1, nullable: false,
@@ -658,7 +656,7 @@ function SettingsModal({ settings, tickers, locks, onSave, onTickerAdd, onTicker
 
 const PROMOTE_LABELS = {
   lock1_threshold: "Fallback Threshold", lock2_sentiment_min: "Sentiment Min",
-  lock3_confidence_min: "Confidence Min", lock_leading_min_pass: "Min Checks",
+  lock3_confidence_min: "Confidence Min",
   max_drawdown_pct: "Max Drawdown Guard", take_profit_pct: "Take Profit %", stop_loss_pct: "Stop Loss %",
   profit_lock_trigger_pct: "Profit-Lock Trigger %",
   profit_lock_trail_pct: "Profit-Lock Trail %", max_positions: "Max Positions",
