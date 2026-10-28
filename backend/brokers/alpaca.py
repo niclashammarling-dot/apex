@@ -250,7 +250,10 @@ def place_bracket_order(
     the nearest whole share. Prices rounded to 2dp (sufficient for US equities).
     """
     qty = int(notional / current_price)  # floor to whole shares — bracket orders require integer qty
-    # TODO(bundle 2026-10-13): a five-lock BUY is lost when the slot's notional is below one share — LLY 2026-10-12 21:34 CEST, $844.99 vs $1181.11, logged as ERROR "Live trade failed" — scope: find why the notional was $845 (last slot, cash, Bayesian size) in gate_runner_live sizing; decide refuse-before-Lock-5 as a labelled reason (no Claude call spent, not an ERROR) or round up to one share within the sector cap; count occurrences since 07-07 first (grep "Computed qty=0" in logs) to size it
+    # Ruled 2026-10-28 (Niclas, lock labels phase 2: "L1 måste kontrollera först att beloppet räcker"): L1 refuses
+    # before the chain when the notional cannot buy one share (rule notional_too_small, no Claude call); built on
+    # lock-labels-phase2, merges 2026-10-31. Counted: 11 rows 2026-10-12..10-16, all LLY (PRODUCTION_GAP row 34).
+    # This raise stays as the last guard.
     if qty <= 0:
         raise ValueError(f"Computed qty={qty} for {ticker} @ ${current_price:.2f} notional=${notional:.2f}")
 
