@@ -58,7 +58,7 @@ TEST_ROW_CODE = "REMOVE_TEST_ROW"
 # The pre-chain skips: the rows the runners wrote before any lock ran, now L1's rules.
 SKIPS = {"SKIPPED_BLOCKLIST": "blocklist", "SKIPPED_COOLOFF": "cooloff", "SKIPPED_OPEN": "position_open"}
 # Live's whole-share sizing failure was recorded as a broker error; the order could not buy one share
-# (11 rows, LLY, 2026-09/10). The text decides it, so the rule is L1 notional_too_small (eighth round).
+# (11 rows, LLY, 2026-10-12..10-16; PRODUCTION_GAP row 34). The text decides it, so the rule is L1 notional_too_small (eighth round).
 QTY_ZERO = "broker_error: Computed qty=0"
 # L5's two-group rule (d70ab53, committed 2026-06-03 17:59 UTC) took effect at the restart between the
 # 18:08 and 19:28 UTC cycles that day: the first positioning stop with two of four checks passed, possible
