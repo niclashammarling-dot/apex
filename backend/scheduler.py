@@ -659,6 +659,13 @@ EOD_CATCHUP_MAX_DAYS = 10
 # fixed cron slots: in the EU/US DST-mismatch weeks the launcher starts 09:20 ET.
 EOD_RETRY_MINUTES = 10
 EOD_RETRY_UNTIL   = time(9, 25)
+# The slot that writes a session's row: the eod_regime cron at 08:30 ET on the next NYSE
+# session after it. A row computed before that slot is ahead of it, not missed (2026-10-28, Niclas:
+# "en varning som står på, det blir noise"): the 08:20 ET launch runs the catch-up ten minutes
+# before the cron, so "EOD regime missed" was a WARNING on every normal morning, 8 of 8
+# sessions 10-16..10-27, and a real miss read the same. One minute late is the cron's own run.
+EOD_SLOT      = time(8, 30)
+EOD_SLOT_LATE = time(8, 31)
 EOD_REPLAY_LOCK      = Path(__file__).resolve().parent.parent / "data" / ".eod_replay.lock"
 
 
@@ -678,6 +685,15 @@ def _last_eod_due(now: datetime) -> date:
     while not _nyse_sessions_for_date(d.isoformat()):
         d -= timedelta(days=1)
     return d
+
+
+def _eod_overdue(session: date, now: datetime) -> bool:
+    """True once the slot that writes `session`'s row has passed: EOD_SLOT_LATE on the next
+    NYSE session. Not the next weekday: the launcher's session gate keeps the backend down on
+    a weekday holiday, so the cron never fires there and Labor Day would make every
+    post-holiday morning a miss."""
+    slot_day = _nyse_sessions_between(session, session + timedelta(days=10))[0]
+    return (now.date(), now.time()) >= (slot_day, EOD_SLOT_LATE)
 
 
 def _check_missed_eod_regime() -> None:
@@ -760,10 +776,18 @@ def _eod_catchup_unlocked() -> bool:
     # is sequential, so a two-day outage must be replayed in order, not patched at
     # the newest day. Capped so a stale DB on a fresh install doesn't replay months.
     missed = _nyse_sessions_between(last_date, expected)[-EOD_CATCHUP_MAX_DAYS:]
-    logger.warning(
-        f"EOD regime missed for {len(missed)} session(s) {missed[0]}..{missed[-1]} "
-        f"(last row: {last_date or 'never'}) — running now"
-    )
+    overdue = [d for d in missed if _eod_overdue(d, now)]
+    if overdue:
+        logger.warning(
+            f"EOD regime missed for {len(overdue)} session(s) {overdue[0]}..{overdue[-1]} "
+            f"past their {EOD_SLOT:%H:%M} ET slot (last row: {last_date or 'never'}) — "
+            f"running {len(missed)} now"
+        )
+    else:
+        logger.info(
+            f"EOD regime: {len(missed)} session(s) {missed[0]}..{missed[-1]} due ahead of "
+            f"the {EOD_SLOT:%H:%M} ET slot (last row: {last_date or 'never'}) — running now"
+        )
     # Stop at the first session not written (2026-10-16). The loop ignored the status:
     # with D1 failing and D2 succeeding, D2's row moved MAX(date) past D1, and D1 was
     # never due again — a permanent hole in a sequential posterior.
@@ -1054,7 +1078,7 @@ def start_scheduler() -> None:
         _check_missed_eod_regime,   # runs every session due and not yet written, oldest first
         "cron",
         day_of_week="mon-fri",
-        hour=8,
+        hour=8,             # = EOD_SLOT, literal: test_schedule_window reads these with ast
         minute=30,          # pre-open (14:30 Stockholm), FOR the previous session. Was 16:15 ET
                             # same day (22:15 Stockholm) — the slot the machine is most often
                             # off for, and the one the 09-18/09-21 outages hit. Every input is

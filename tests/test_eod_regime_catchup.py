@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pandas as pd
 import pytest
+from loguru import logger
 
 import backend.db as db
 import backend.scheduler as sched
@@ -314,3 +315,54 @@ def test_last_retry_slot_lands_exactly_at_the_limit():
             datetime(2026, 9, 8, 9, 25, tzinfo=NY)
         assert sched._schedule_eod_retry(datetime(2026, 9, 8, 9, 16, tzinfo=NY)) is None
     assert add_job.call_count == 1
+
+
+# ── the catch-up line is a WARNING only past the session's slot (2026-10-28) ──
+# The 08:20 ET launch ran the catch-up ten minutes before the 08:30 cron, so "EOD regime
+# missed" was a WARNING on every normal morning (8 of 8 sessions 10-16..10-27) and a real
+# miss read the same. Slot = 08:30 ET on the next NYSE session; one minute late is the
+# cron's own run.
+
+def _catchup_levels(last_row, now):
+    _seed_history(last_row)
+    seen = []
+    sink = logger.add(lambda m: seen.append((m.record["level"].name, m.record["message"])))
+    try:
+        _run_catchup(now, ["ok"] * 10)
+    finally:
+        logger.remove(sink)
+    return [(lvl, msg) for lvl, msg in seen if msg.startswith("EOD regime")]
+
+
+@pytest.mark.parametrize("last_row, now", [
+    ("2026-10-23", datetime(2026, 10, 27, 8, 20, tzinfo=NY)),   # the 08:20 launch, Monday's row
+    ("2026-10-23", datetime(2026, 10, 27, 8, 30, tzinfo=NY)),   # the cron's own run at its slot
+    ("2026-10-23", datetime(2026, 10, 26, 17, 0, tzinfo=NY)),   # the session's own evening
+    ("2026-09-03", datetime(2026, 9, 8, 8, 20, tzinfo=NY)),     # after Labor Day: Friday's slot is Tuesday
+])
+def test_catchup_ahead_of_its_slot_is_info(last_row, now):
+    lines = _catchup_levels(last_row, now)
+    assert [lvl for lvl, _ in lines] == ["INFO"], lines
+    assert "due ahead of the 08:30 ET slot" in lines[0][1]
+
+
+def test_catchup_after_the_slot_is_a_warning():
+    lines = _catchup_levels("2026-10-23", datetime(2026, 10, 27, 9, 10, tzinfo=NY))   # late start
+    assert [lvl for lvl, _ in lines] == ["WARNING"], lines
+    assert "missed for 1 session(s) 2026-10-26..2026-10-26 past their 08:30 ET slot" in lines[0][1]
+
+
+def test_warning_names_only_the_overdue_sessions():
+    # Thursday's row missing at Tuesday's launch: Friday's slot (Monday 08:30) has passed,
+    # Monday's (Tuesday 08:30) has not; both are run.
+    lines = _catchup_levels("2026-10-22", datetime(2026, 10, 27, 8, 20, tzinfo=NY))
+    assert [lvl for lvl, _ in lines] == ["WARNING"], lines
+    assert "missed for 1 session(s) 2026-10-23..2026-10-23" in lines[0][1]
+    assert lines[0][1].endswith("running 2 now")
+
+
+def test_eod_slot_is_the_cron_slot():
+    from pathlib import Path
+    from tests.test_schedule_window import cron_jobs
+    job = next(j for j in cron_jobs(Path(sched.__file__).read_text()) if j["id"] == "eod_regime")
+    assert (job["hour"], job["minute"]) == (sched.EOD_SLOT.hour, sched.EOD_SLOT.minute)
