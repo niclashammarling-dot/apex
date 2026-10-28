@@ -1053,6 +1053,12 @@
       "tier": "ops",
       "source": "INDEX 'APEX candidate ledger' (scoped 2026-10-11; built 2026-10-24 in engine_fast, Niclas: \"placeringen måste bli engine fast\"). Ledger builder only: no live gate, size or exit reads it. Live's vix_threshold (30); the class split for the S14 R1 card.",
       "date": "2026-10-24"
+    },
+    "backend/gate/history_classify.py::PRE_EVENT_RATIO": {
+      "value": 0.95,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "chain.py multiplies the score by 1 - macro_pre_event_penalty before the score test; the penalty has been 0.05 in live and demo config since it shipped (fdd1a7a, 2026-06-16), so a pre-event bite stores score / signal_score = 0.95: 172 of 172 reasoned FILTERED_L1 rows after 06-16 (probed 2026-10-28). Identifies those rows in the lock labels phase 2 classifier; no gate, size or exit reads it."
     }
   }
 }

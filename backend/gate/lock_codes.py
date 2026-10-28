@@ -201,6 +201,11 @@ def decorate_rows(rows: list[dict]) -> list[dict]:
     return rows
 
 
+def lock_code(n: int) -> str:
+    """"FILTERED_L2_RISK": the gate_decision code of chain lock n from phase 2 on (ruling B, 2026-10-26)."""
+    return f"FILTERED_L{n}_{LOCKS[n][0]}"
+
+
 def lock_label(n: int) -> str:
     """"L2 · Risk": the chain name of lock n, in the stage labels' form."""
     return f"L{n} · {LOCKS[n][0].capitalize()}"
