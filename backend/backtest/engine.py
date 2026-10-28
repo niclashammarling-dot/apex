@@ -27,9 +27,9 @@ from typing import TypedDict
 from backend.macro_calendar import macro_status as _shared_macro_status
 
 
-def _macro_status(today: date) -> str:
-    """"hard_block" / "pre_event" / "clear" for today (Lock 1 B2, live defaults)."""
-    return _shared_macro_status(today)[0]
+def _macro_status(today: date, cpi_nfp_pre_days: int) -> str:
+    """"hard_block" / "pre_event" / "clear" for today (Lock 1 B2; the CPI/NFP window from the caller)."""
+    return _shared_macro_status(today, cpi_nfp_pre_days=cpi_nfp_pre_days)[0]
 
 import pandas as pd
 import yfinance as yf
@@ -129,6 +129,7 @@ def run(
     daily_loss_cap:     float | None = None,   # None: DAILY_LOSS_CAP_PCT × initial_balance
     macro_hard_block:   bool        = False,
     macro_pre_event_penalty: float | None = None,
+    macro_event_blackout_days: int | None = None,   # None: live config (live_shape.live_macro_event_blackout_days)
     etf_negative_penalty: float | None = None,
     etf_negative_floor:   float        = -1.0,
     overflow_quant_increment: float | None = None,  # row 14: None = live (0.05); math.inf = hard stop at max_positions
@@ -229,6 +230,9 @@ def run(
         earnings_dates = _fetch_earnings_dates(stock_tickers, start, end)
         logger.info(f"Backtest: loaded earnings dates for {len(earnings_dates)} tickers")
 
+    if macro_event_blackout_days is None:
+        from backend.backtest.live_shape import live_macro_event_blackout_days
+        macro_event_blackout_days = live_macro_event_blackout_days()
     if sl_cooldown_days is None or tp_cooldown_days is None:
         from backend.backtest.live_shape import live_cooloff_days
         _live_sl, _live_tp = live_cooloff_days()
@@ -302,7 +306,7 @@ def run(
         vix_blocked = vix_threshold is not None and _vix_on(raw_data, today) >= vix_threshold  # live: `>=`
 
         # Macro calendar filter
-        macro_day = _macro_status(today)
+        macro_day = _macro_status(today, macro_event_blackout_days)
         if macro_hard_block and macro_day in ("hard_block", "pre_event"):
             candidates = []
         elif macro_day == "hard_block":

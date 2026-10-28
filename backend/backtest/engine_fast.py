@@ -123,6 +123,7 @@ def run(
     kelly_factor:       dict[str, float] | None = None,      # {date: k} replaces half-Kelly's 0.50 that day (H-V1, 2026-10-17)
     macro_hard_block:   bool        = False,   # also block pre-event days (engine.py's flag)
     macro_pre_event_penalty: float | None = None,   # live 0.05: score × (1 − p) on CPI/NFP eve, re-thresholded
+    macro_event_blackout_days: int | None = None,   # None: live config (live_shape.live_macro_event_blackout_days)
     etf_negative_penalty: float | None = None,      # row 11, live 0.15: sector ETF below the floor → score × (1 − p) must clear the threshold
     etf_negative_floor:   float        = -1.0,      # percent, live -1.0
     overflow_quant_increment: float | None = None,  # row 14: None = live (0.05); math.inf = hard stop at max_positions
@@ -266,6 +267,9 @@ def run(
         stock_tickers = [t for cfg in SECTORS.values() for t in cfg["tickers"]]
         earnings_dates = _fetch_earnings_dates(stock_tickers, start, end)
 
+    if macro_event_blackout_days is None:
+        from backend.backtest.live_shape import live_macro_event_blackout_days
+        macro_event_blackout_days = live_macro_event_blackout_days()
     if sl_cooldown_days is None or tp_cooldown_days is None:
         from backend.backtest.live_shape import live_cooloff_days
         _live_sl, _live_tp = live_cooloff_days()
@@ -333,7 +337,7 @@ def run(
         # Candidate ledger (2026-10-24, INDEX ledger line): every candidate that passed Lock 1's
         # threshold and allocation, before the macro, VIX, ETF and earnings rules act on it.
         if candidate_ledger is not None and rnd is None:
-            _md = macro_status(today)[0]
+            _md = macro_status(today, cpi_nfp_pre_days=macro_event_blackout_days)[0]
             _vx = vix_cache.get(today_str)
             _held = {t["ticker"] for t in open_trades}
             for sig in candidates:
@@ -352,7 +356,7 @@ def run(
         # Rows 7 / 10 (2026-10-17): Lock 1 B2's macro blackout, as engine.py and live —
         # FOMC −2 days through the decision day and CPI/NFP release days block entries;
         # the eve of CPI/NFP takes the pre-event penalty and must clear the threshold again.
-        macro_day = macro_status(today)[0] if macro_blackout else None
+        macro_day = macro_status(today, cpi_nfp_pre_days=macro_event_blackout_days)[0] if macro_blackout else None
         if macro_day == "hard_block" or (macro_hard_block and macro_day == "pre_event"):
             candidates = []
         elif macro_day == "pre_event" and macro_pre_event_penalty is not None and rnd is None:

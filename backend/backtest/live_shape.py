@@ -154,6 +154,15 @@ def live_cooloff_days() -> tuple[int, int]:
     return (math.ceil(cfg["exit_cooloff_hours"] / 24), math.ceil(cfg["tp_cooloff_hours"] / 24))
 
 
+def live_macro_event_blackout_days() -> int:
+    """The CPI/NFP pre-event window in days for both engines, from live config, as live and demo read it
+    (lock1_eligibility: cfg `macro_event_blackout_days`). Until 2026-10-28 the engines used
+    macro_status's own default, equal to live's value by coincidence, not by reference (Niclas
+    2026-10-28, P3: one calendar for every book: demo, live and the shadow book)."""
+    from backend.live_config import get_live_config
+    return int(get_live_config()["macro_event_blackout_days"])
+
+
 def reentry_cooloff_days(exit_reason: str, outcome: str, sl_days: int, tp_days: int) -> int:
     """Days a ticker is blocked from re-entry after this exit, as live picks the window
     (`db.get_recently_exited_live_tickers`, 2026-10-18, PRODUCTION_GAP row 23): only a
