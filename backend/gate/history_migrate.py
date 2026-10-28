@@ -7,12 +7,13 @@ classifier (history_classify) decides each row's class; this module writes it:
     a code (ungated `signals` rows stay NULL, P1);
   - the one test row that reached production (demo_gate_history 1276) is deleted, its full row kept in the
     record as JSON;
+  - the pass flags after the last lock that ran on the row become NULL (ruling D, history_classify.pass_flags):
+    from phase 2 a NULL flag means the lock did not run, 0 that it ran and failed;
   - every touched row gets one row in `gate_code_migration`: old and new code, rule, basis (ruling F), the
-    old pass flags (ruling D re-codes them later), and the time. That table is the recovery path
-    (reverse()) and the bridge for archived producers that read old codes (T7).
+    old pass flags, and the time. That table is the recovery path (reverse()) and the bridge for archived
+    producers that read old codes (T7).
 
-One transaction per call. Pass flags (ruling D) and column renames are not written here: they change with
-the readers that read them, in the build. Nothing here opens a connection: the caller passes one, and
+One transaction per call. Column renames are not written here: they are phase 3 part a. Nothing here opens a connection: the caller passes one, and
 scripts/migrate_gate_codes.py refuses the production database without --production.
 """
 from __future__ import annotations
@@ -22,7 +23,7 @@ import sqlite3
 from collections import Counter
 from datetime import datetime, timezone
 
-from backend.gate.history_classify import TABLES, TEST_ROW_CODE, classify
+from backend.gate.history_classify import TABLES, TEST_ROW_CODE, classify, pass_flags
 
 RECORD = "gate_code_migration"
 PASS_FLAGS = ("lock1_pass", "lock2_pass", "lock3_pass", "lock_leading_pass")
@@ -71,8 +72,10 @@ def migrate(conn: sqlite3.Connection, migrated_at: str | None = None) -> Counter
                     deleted = json.dumps(row, sort_keys=True, default=str)
                     conn.execute(f"DELETE FROM {table} WHERE id = ?", (row["id"],))
                 else:
-                    conn.execute(f"UPDATE {table} SET gate_decision = ?, stop_code = ? WHERE id = ?",
-                                 (k.code, k.stop_code, row["id"]))
+                    new_flags = {f: v for f, v in pass_flags(k, row).items() if f in flags}
+                    sets = ", ".join(f"{f} = ?" for f in new_flags)
+                    conn.execute(f"UPDATE {table} SET gate_decision = ?, stop_code = ?, {sets} WHERE id = ?",
+                                 (k.code, k.stop_code, *new_flags.values(), row["id"]))
                 conn.execute(
                     f"INSERT INTO {RECORD} VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (table, row["id"], row["gate_decision"], k.code, k.stop_code, k.rule, k.basis,
@@ -82,8 +85,8 @@ def migrate(conn: sqlite3.Connection, migrated_at: str | None = None) -> Counter
 
 
 def reverse(conn: sqlite3.Connection) -> int:
-    """Undo migrate() from the record: old codes back, stop_code NULL, the deleted row re-inserted, the
-    record emptied. The added stop_code column stays (SQLite drops columns only by rebuild); it is NULL."""
+    """Undo migrate() from the record: old codes and pass flags back, stop_code NULL, the deleted row
+    re-inserted, the record emptied. The added stop_code column stays (SQLite drops columns only by rebuild); it is NULL."""
     conn.row_factory = sqlite3.Row
     n = 0
     with conn:
@@ -94,8 +97,10 @@ def reverse(conn: sqlite3.Connection) -> int:
                 conn.execute(f"INSERT INTO {rec['tbl']} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
                              [row[c] for c in cols])
             else:
-                conn.execute(f"UPDATE {rec['tbl']} SET gate_decision = ?, stop_code = NULL WHERE id = ?",
-                             (rec["old_code"], rec["row_id"]))
+                old_flags = json.loads(rec["old_pass_flags"])
+                sets = "".join(f", {f} = ?" for f in old_flags)
+                conn.execute(f"UPDATE {rec['tbl']} SET gate_decision = ?, stop_code = NULL{sets} WHERE id = ?",
+                             (rec["old_code"], *old_flags.values(), rec["row_id"]))
             n += 1
         conn.execute(f"DELETE FROM {RECORD}")
     return n

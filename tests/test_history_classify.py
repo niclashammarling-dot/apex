@@ -10,13 +10,14 @@ The rule register (lock_codes.RULES) is tested against the writers' own source: 
 outcome_reason they emit has exactly one rule, every rule's config key is labelled with the rule's lock, and
 every stop_code parses back (Niclas 2026-10-28: "konsekvent och kan härledas överallt där det används").
 """
+import json
 import re
 from pathlib import Path
 
 import pytest
 
 from backend.gate import lock_codes
-from backend.gate.history_classify import ELIGIBILITY_FAIL_TYPES, TABLES, UnclassifiedRow, classify
+from backend.gate.history_classify import ELIGIBILITY_FAIL_TYPES, TABLES, UnclassifiedRow, classify, pass_flags
 
 GATE = Path(__file__).resolve().parents[1] / "backend" / "gate"
 
@@ -82,6 +83,34 @@ CASES = [
     (LIVE, {"id": 2, "timestamp": "2026-03-30T15:22:31.705322+00:00", "ticker": "XOM",
             "gate_decision": "FILTERED_LEADING", "signal_score": 0.6213, "lock_leading_pass": 0},
      "FILTERED_L5_POSITIONING_LEADING", "field"),
+    # Under the two-group rule a price check error decides the price group: a data error, not the signal.
+    (LIVE, {"id": 8151, "timestamp": "2026-07-17T17:40:09.073808+00:00", "ticker": "TMO",
+            "gate_decision": "FILTERED_LEADING", "signal_score": 0.7134, "lock_leading_pass": 0,
+            "lock_leading_checks": json.dumps({
+                "relative_strength": {"pass": False, "error": True, "reason": "insufficient price history for 5d RS"},
+                "put_call_ratio": {"pass": False, "reason": "P/C 1.85 vs threshold 0.85 (neutral/bearish)"},
+                "unusual_calls": {"pass": False, "reason": "call/put vol 0.4x (normal)"},
+                "volume_accumulation": {"pass": True, "reason": "up/down vol ratio 2.17 over 20d (accumulation)"}})},
+     "FILTERED_L5_POSITIONING_UNAVAILABLE", "field"),
+    # Price group passed; the options fetch timed out, so the options group failed on a data error.
+    (LIVE, {"id": 18410, "timestamp": "2026-10-12T13:54:56.106545+00:00", "ticker": "LLY",
+            "gate_decision": "FILTERED_LEADING", "signal_score": 0.6231, "lock_leading_pass": 0,
+            "lock3_reasoning": "options group failed — neither PCR nor unusual calls passed",
+            "lock_leading_checks": json.dumps({
+                "relative_strength": {"pass": True, "reason": "LLY +3.3% vs XLV +3.3% (5d)"},
+                "put_call_ratio": {"pass": False, "reason": "no options data (timed out)"},
+                "unusual_calls": {"pass": False, "reason": "no options data (timed out)"},
+                "volume_accumulation": {"pass": True, "reason": "up/down vol ratio 1.86 over 20d (accumulation)"}})},
+     "FILTERED_L5_POSITIONING_UNAVAILABLE", "field"),
+    # The same day, before the restart that brought the two-group rule: 2 of 4, an error was one fewer pass.
+    (LIVE, {"id": 2359, "timestamp": "2026-06-03T17:48:08.592928+00:00", "ticker": "LRCX",
+            "gate_decision": "FILTERED_LEADING", "signal_score": 0.8364, "lock_leading_pass": 0,
+            "lock_leading_checks": json.dumps({
+                "relative_strength": {"pass": False, "reason": "LRCX +12.3% vs SOXX +14.4% (5d)"},
+                "put_call_ratio": {"pass": False, "reason": "P/C 0.94 vs threshold 0.85 (neutral/bearish)"},
+                "unusual_calls": {"pass": True, "reason": "call/put vol 3.0x (unusual)"},
+                "volume_accumulation": {"pass": False, "error": True, "reason": "unexpected column format"}})},
+     "FILTERED_L5_POSITIONING_LEADING", "field"),
     (LIVE, {"id": 7025, "timestamp": "2026-07-13T15:01:55.060627+00:00", "ticker": "AAPL",
             "gate_decision": "FILTERED_LEADING", "signal_score": 0.6505, "lock_leading_pass": 1},
      "FILTERED_L2_RISK_ETF", "field"),
@@ -116,20 +145,20 @@ CASES = [
     (LIVE, {"id": 1038, "timestamp": "2026-05-25T14:54:17.161681+00:00", "ticker": "LLY",
             "gate_decision": "TRADE_REJECTED", "signal_score": 0.6855, "outcome_reason": None,
             "lock3_reasoning": "All four locks passed. Portfolio is empty with minimal drawdown (~0.95%)"},
-     "TRADE_REJECTED_REASON_UNRECORDED", "unattributable"),
+     "FILTERED_UNKNOWN", "unattributable"),
     (LIVE, {"id": 1, "timestamp": "2026-03-30T15:02:41.541658+00:00", "ticker": "XOM",
             "gate_decision": "TRADE_EXECUTED", "signal_score": 0.6155},
      "TRADE_EXECUTED", "field"),
     (LIVE, {"id": 18661, "timestamp": "2026-10-12T19:34:13.679935+00:00", "ticker": "LLY",
             "gate_decision": "TRADE_FAILED", "signal_score": 0.6495,
             "outcome_reason": "broker_error: Computed qty=0 for LLY @ $1181.11 notional=$844.99"},
-     "TRADE_FAILED_BROKER_ERROR", "field"),
+     "FILTERED_L1_ELIGIBILITY_NOTIONAL_TOO_SMALL", "field"),
     (LIVE, {"id": 18, "timestamp": "2026-04-06T14:44:20.956321+00:00", "ticker": "EQIX",
             "gate_decision": "SKIPPED_OPEN", "signal_score": 0.551},
-     "SKIPPED_OPEN", "field"),
+     "FILTERED_L1_ELIGIBILITY_POSITION_OPEN", "field"),
     (LIVE, {"id": 6, "timestamp": "2026-03-30T16:38:44.491463+00:00", "ticker": "CVX",
             "gate_decision": "SKIPPED_COOLOFF", "signal_score": 0.6108},
-     "SKIPPED_COOLOFF", "field"),
+     "FILTERED_L1_ELIGIBILITY_COOLOFF", "field"),
     (DEMO, {"id": 1276, "timestamp": "2026-01-01T00:00:00", "ticker": "_TEST",
             "gate_decision": "FILTERED_L1", "signal_score": 0.5},
      "REMOVE_TEST_ROW", "field"),
@@ -165,9 +194,9 @@ def test_lock_codes_follow_the_chain_names():
             "lock_leading_pass": None}),
     (LIVE, {"id": 6, "timestamp": "2026-10-01T15:00:00+00:00", "gate_decision": "TRADE_REJECTED",
             "outcome_reason": "a reason no rule knows"}),
-    # An identifier the register files under another code: TRADE_FAILED never carries sector_cap.
-    (LIVE, {"id": 8, "timestamp": "2026-10-01T15:00:00+00:00", "gate_decision": "TRADE_FAILED",
-            "outcome_reason": "sector_cap"}),
+    # A positioning row under the two-group rule must carry its checks: the rule is read from them.
+    (LIVE, {"id": 8, "timestamp": "2026-10-01T15:00:00+00:00", "gate_decision": "FILTERED_LEADING",
+            "lock_leading_pass": 0, "lock_leading_checks": None}),
     (LIVE, {"id": 9, "timestamp": "2026-10-01T15:00:00+00:00", "gate_decision": "FILTERED_ELIGIBILITY",
             "macro_reason": "Sector 'Energy' a wording after a lock1 change"}),
     (LIVE, {"id": 7, "timestamp": "2026-10-01T15:00:00+00:00", "gate_decision": None}),
@@ -196,13 +225,13 @@ def test_every_fail_type_lock1_emits_has_one_rule_and_a_history_reading():
     assert {f for _, f in ELIGIBILITY_FAIL_TYPES} == emitted
 
 
-def test_every_outcome_reason_live_emits_has_one_rule_under_its_trade_code():
+def test_every_outcome_reason_live_emits_has_one_rule_owned_by_a_lock():
     src = (GATE / "gate_runner_live.py").read_text()
     pairs = re.findall(r'result\["outcome"\]\s*=\s*"(TRADE_\w+)"\s*\n\s*'
                        r'(?:#[^\n]*\n\s*)*result\["outcome_reason"\]\s*=\s*f?"(\w+)', src)
-    assert {r for _, r in pairs} == {"position_open", "notional_too_small", "sector_cap", "broker_error"}
-    for code, reason in pairs:
-        assert lock_codes.rule_for(reason).owner == code, (code, reason)
+    owners = {reason: lock_codes.rule_for(reason).owner for _, reason in pairs}
+    # Eighth round: open position and too small a notional are L1's, the sector cap L2's, the broker L6's.
+    assert owners == {"position_open": 1, "notional_too_small": 1, "sector_cap": 2, "broker_error": 6}
 
 
 def test_identifiers_and_names_are_unique_and_every_stop_code_parses_back():
@@ -223,6 +252,53 @@ def test_identifiers_and_names_are_unique_and_every_stop_code_parses_back():
 def test_every_rule_config_key_is_labelled_with_the_rule_lock():
     labels = lock_codes.config_labels()
     for r in lock_codes.RULES:
-        if isinstance(r.owner, int):
-            for k in r.config_keys:
-                assert labels.get(k, "").startswith(f"L{r.owner} "), (r.name, k, labels.get(k))
+        for k in r.config_keys:
+            assert labels.get(k, "").startswith(f"L{r.owner} "), (r.name, k, labels.get(k))
+
+
+def test_every_outcome_is_owned_by_a_lock_or_is_unknown():
+    for table, row, *_ in CASES:
+        k = classify(table, row)
+        if k.code in ("TRADE_EXECUTED", "REMOVE_TEST_ROW", lock_codes.UNKNOWN):
+            assert k.stop_code == k.code
+            continue
+        owner, rule = lock_codes.parse_stop_code(k.stop_code)
+        assert k.code == lock_codes.lock_code(owner) and k.rule == rule
+
+
+def test_cooloff_stops_are_the_rows_the_old_cooloff_codes_held():
+    # Ruling 6 (keep cooloff as is): {FILTERED_L2, FILTERED_L3} before phase 2, the same rows after it.
+    for table, row, *_ in CASES:
+        k = classify(table, row)
+        old = row["gate_decision"] in ("FILTERED_L2", "FILTERED_L3") and k.code != "REMOVE_TEST_ROW"
+        assert (k.stop_code in lock_codes.COOLOFF_STOPS) == old, row["id"]
+
+
+# ── Ruling D: a flag is NULL where its lock did not run (run order before phase 4) ──────────────────
+
+FLAGS = {"lock1_pass": 0, "lock2_pass": 0, "lock_leading_pass": 0, "lock3_pass": 0}
+
+
+@pytest.mark.parametrize("code, extra, ran", [
+    ("SKIPPED_COOLOFF", {"lock1_pass": 1}, ()),                         # skips write lock1_pass 1, ran nothing
+    ("FILTERED_ELIGIBILITY", {"macro_reason": "VIX=31.0 >= threshold 30"}, ()),
+    ("FILTERED_L1", {"timestamp": "2026-05-01T15:00:00+00:00"}, ("lock1_pass",)),
+    ("FILTERED_MACRO", {"lock1_pass": 1, "macro_reason": "macro event: CPI on 2026-04-08 (Δ1d)"}, ("lock1_pass",)),
+    ("FILTERED_L2", {"lock1_pass": 1, "lock3_reasoning": "bearish"}, ("lock1_pass", "lock2_pass")),
+    ("FILTERED_ETF_PENALTY", {"lock1_pass": 1, "lock2_pass": 1, "lock_leading_pass": 1},
+     ("lock1_pass", "lock2_pass", "lock_leading_pass")),
+    ("FILTERED_OVERFLOW_QUANT", {"lock1_pass": 1, "lock2_pass": 1, "lock_leading_pass": 1},
+     ("lock1_pass", "lock2_pass", "lock_leading_pass")),
+    ("FILTERED_L3", {"lock3_reasoning": "drawdown 25.1% > max 20.0% (mechanical pre-L5 guard)"},
+     ("lock1_pass", "lock2_pass", "lock_leading_pass")),
+    ("FILTERED_L3", {"lock3_reasoning": "HOLD"}, ("lock1_pass", "lock2_pass", "lock_leading_pass", "lock3_pass")),
+    ("TRADE_REJECTED", {"lock3_pass": 1}, ("lock1_pass", "lock2_pass", "lock_leading_pass", "lock3_pass")),
+    ("TRADE_REJECTED", {"lock3_pass": 0, "outcome_reason": "position_open"},
+     ("lock1_pass", "lock2_pass", "lock_leading_pass")),                 # the pre-review reject: L6 did not run
+    ("TRADE_EXECUTED", {}, ("lock1_pass", "lock2_pass", "lock_leading_pass", "lock3_pass")),
+])
+def test_pass_flags_are_null_after_the_last_lock_that_ran(code, extra, ran):
+    row = {"id": 1, "timestamp": "2026-10-01T15:00:00+00:00", "gate_decision": code, **FLAGS, **extra}
+    flags = pass_flags(classify(LIVE, row), row)
+    assert {c for c, v in flags.items() if v is not None} == set(ran)
+    assert all(flags[c] == row[c] for c in ran)

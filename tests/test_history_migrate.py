@@ -2,8 +2,9 @@
 Lock labels phase 2: the migration (backend/gate/history_migrate.py) on a fixture database in tmp_path.
 
 The dry run on a copy of production (scripts/migrate_gate_codes.py --dry-run) is the counts' positive control;
-these tests pin the mechanics: every coded row re-coded with its stop_code and recorded, the test row deleted
-with its full row kept, reverse() restoring the original exactly, a second run refused, and an unclassifiable
+these tests pin the mechanics: every coded row re-coded with its stop_code and recorded, the pass flags after
+the last lock that ran set to NULL (ruling D), the test row deleted with its full row kept, reverse() restoring
+the original exactly, a second run refused, and an unclassifiable
 row rolling the whole transaction back.
 """
 import sqlite3
@@ -23,6 +24,7 @@ ROWS = {
         (2, "2026-07-16T17:44:52+00:00", "JNJ", 0.5177, "FILTERED_ETF_PENALTY", 1, 1, 0, 1, None, None, None, None),
         (3, "2026-10-12T19:34:13+00:00", "LLY", 0.6495, "TRADE_FAILED", 1, 1, 1, 1, None, None, None,
          "broker_error: Computed qty=0"),
+        (4, "2026-06-03T17:48:00+00:00", "CVX", 0.61, "SKIPPED_COOLOFF", 1, 0, 0, 0, None, None, None, None),
     ],
     "demo_gate_history": [
         (1276, "2026-01-01T00:00:00", "_TEST", 0.5, "FILTERED_L1", 0, 0, 0, None, None, None, None, None),
@@ -62,13 +64,24 @@ def test_migrate_recodes_records_and_reverse_restores(db):
     got = {t: dict(db.execute(f"SELECT id, stop_code FROM {t}")) for t in ROWS}
     assert got == {
         "live_gate_history": {1: "FILTERED_L1_ELIGIBILITY_MACRO_PRE_EVENT", 2: "FILTERED_L2_RISK_ETF",
-                              3: "TRADE_FAILED_BROKER_ERROR"},
+                              3: "FILTERED_L1_ELIGIBILITY_NOTIONAL_TOO_SMALL", 4: "FILTERED_L1_ELIGIBILITY_COOLOFF"},
         "demo_gate_history": {7439: "FILTERED_L0_PORTFOLIO_DRAWDOWN_GUARD"},          # 1276 deleted
         "signals": {10: None, 11: "FILTERED_L1_ELIGIBILITY_MACRO_EVENT"},             # ungated stays NULL
     }
     assert dict(db.execute("SELECT id, gate_decision FROM live_gate_history")) == {
-        1: "FILTERED_L1_ELIGIBILITY", 2: "FILTERED_L2_RISK", 3: "TRADE_FAILED"}
-    assert sum(counts.values()) == 6 == db.execute(f"SELECT COUNT(*) FROM {RECORD}").fetchone()[0]
+        1: "FILTERED_L1_ELIGIBILITY", 2: "FILTERED_L2_RISK", 3: "FILTERED_L1_ELIGIBILITY", 4: "FILTERED_L1_ELIGIBILITY"}
+    # Ruling D: (lock1_pass, lock2_pass, lock3_pass, lock_leading_pass), NULL after the last lock that ran.
+    flags = lambda t: {r[0]: r[1:] for r in db.execute(
+        f"SELECT id, lock1_pass, lock2_pass, lock3_pass, lock_leading_pass FROM {t}")}
+    assert flags("live_gate_history") == {
+        1: (1, None, None, None),          # the pre-event penalty bit at L3's re-test
+        2: (1, 1, None, 1),                # the ETF re-test ran after L5, before L6
+        3: (1, 1, 1, 1),                   # Claude approved, the order could not buy
+        4: (None, None, None, None),       # a skip ran no lock (it wrote lock1_pass 1)
+    }
+    assert flags("demo_gate_history") == {7439: (1, 1, None, 1)}     # the guard ran before L6
+    assert flags("signals")[11] == (None, None, None, None)           # eligibility: no flagged lock ran
+    assert sum(counts.values()) == 7 == db.execute(f"SELECT COUNT(*) FROM {RECORD}").fetchone()[0]
     rec = db.execute(f"SELECT old_code, basis, old_pass_flags, deleted_row FROM {RECORD} "
                      f"WHERE tbl = 'demo_gate_history' AND row_id = 1276").fetchone()
     assert rec[0] == "FILTERED_L1" and '"ticker": "_TEST"' in rec[3]
@@ -76,7 +89,7 @@ def test_migrate_recodes_records_and_reverse_restores(db):
 
     with pytest.raises(RuntimeError):
         migrate(db)                                              # a migrated database is refused
-    assert reverse(db) == 6
+    assert reverse(db) == 7
     assert _dump(db) == original
     assert db.execute(f"SELECT COUNT(*) FROM {RECORD}").fetchone()[0] == 0
 
