@@ -100,7 +100,6 @@ backend/config.py::LOCK1_THRESHOLD
 backend/config.py::LOCK2_SENTIMENT_MIN
 backend/config.py::LOCK3_CONFIDENCE_MIN
 backend/config.py::LOCK3_MAX_DRAWDOWN_PCT
-backend/config.py::LOCK_LEADING_MIN_PASS
 backend/config.py::MACRO_EARNINGS_BLACKOUT_DAYS
 backend/config.py::MACRO_EARNINGS_NEAR_DAYS
 backend/config.py::MACRO_EARNINGS_NEAR_PENALTY
@@ -144,7 +143,6 @@ backend/gate/lock3_sentiment.py::RETRY_WAITS
 backend/gate/lock3_sentiment.py::_CB_COOLDOWN
 backend/gate/lock3_sentiment.py::_CB_THRESHOLD
 backend/gate/lock4_leading.py::LOCK_ID
-backend/gate/lock4_leading.py::MIN_PASS
 backend/gate/lock4_leading.py::PCR_THRESHOLD
 backend/gate/lock4_leading.py::VOL_ACCUM_THRESHOLD
 backend/gate/lock4_leading.py::VOL_ACCUM_WINDOW
@@ -213,7 +211,6 @@ data/demo_config.json:gate_cooloff_hours
 data/demo_config.json:lock1_threshold
 data/demo_config.json:lock2_sentiment_min
 data/demo_config.json:lock3_confidence_min
-data/demo_config.json:lock_leading_min_pass
 data/demo_config.json:macro_earnings_blackout_days
 data/demo_config.json:macro_earnings_near_days
 data/demo_config.json:macro_earnings_near_penalty
@@ -240,7 +237,6 @@ data/live_config.json:gate_cooloff_hours
 data/live_config.json:lock1_threshold
 data/live_config.json:lock2_sentiment_min
 data/live_config.json:lock3_confidence_min
-data/live_config.json:lock_leading_min_pass
 data/live_config.json:macro_earnings_blackout_days
 data/live_config.json:macro_earnings_near_days
 data/live_config.json:macro_earnings_near_penalty

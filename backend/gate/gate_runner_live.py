@@ -863,6 +863,10 @@ def _fire_trade_alert(ticker: str, signal: dict, notional: float, order_id: str,
         logger.warning(f"Alert dispatch failed [{ticker}]: {e}")
 
 
+def _mark(passed: bool | None) -> str:
+    return "?" if passed is None else "✓" if passed else "✗"
+
+
 def _log_summary(ticker: str, result: dict) -> None:
     l1        = result["lock1"]
     l2        = result.get("lock2")
@@ -874,7 +878,8 @@ def _log_summary(ticker: str, result: dict) -> None:
     if l2:
         parts.append(f"L2={'✓' if l2['passed'] else '✗'}({l2.get('score', '?')})")
     if l_leading:
-        parts.append(f"LD={'✓' if l_leading['passed'] else '✗'}({l_leading['pass_count']}/{l_leading['min_pass']})")
+        parts.append(f"LD={'✓' if l_leading['passed'] else '✗'}(price {_mark(l_leading.get('price_group_pass'))} "
+                     f"options {_mark(l_leading.get('options_group_pass'))})")
     if l3:
         parts.append(f"L3={'✓' if l3['passed'] else '✗'}({l3.get('decision')} {l3.get('confidence', 0):.2f})")
 
