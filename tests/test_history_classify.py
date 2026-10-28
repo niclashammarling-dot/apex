@@ -5,11 +5,20 @@ One test per class, each built from a real stored row of that class (fields copi
 2026-10-28: table, id, timestamp, ticker, code and the deciding fields; long texts cut). Plus: a row that
 matches no class raises, and every stop_code starts with its code (ruling B). The class counts on all
 three tables are the dry run's positive control (scope step 2), not these tests.
+
+The rule register (lock_codes.RULES) is tested against the writers' own source: every fail_type and
+outcome_reason they emit has exactly one rule, every rule's config key is labelled with the rule's lock, and
+every stop_code parses back (Niclas 2026-10-28: "konsekvent och kan härledas överallt där det används").
 """
+import re
+from pathlib import Path
+
 import pytest
 
 from backend.gate import lock_codes
-from backend.gate.history_classify import TABLES, UnclassifiedRow, classify
+from backend.gate.history_classify import ELIGIBILITY_FAIL_TYPES, TABLES, UnclassifiedRow, classify
+
+GATE = Path(__file__).resolve().parents[1] / "backend" / "gate"
 
 LIVE, DEMO = "live_gate_history", "demo_gate_history"
 
@@ -18,6 +27,20 @@ CASES = [
     (LIVE, {"id": 501, "timestamp": "2026-04-20T13:32:33.762794+00:00", "ticker": "UNH",
             "gate_decision": "FILTERED_ELIGIBILITY", "signal_score": 0.6824,
             "macro_reason": "Sector 'Healthcare' not found in regime leaderboard"},
+     "FILTERED_L1_ELIGIBILITY_REGIME", "field"),
+    (LIVE, {"id": 780, "timestamp": "2026-05-04T14:48:17.639096+00:00", "ticker": "AMZN",
+            "gate_decision": "FILTERED_ELIGIBILITY", "signal_score": 0.6231,
+            "macro_reason": "Sector 'ConsumerDisc' below leaderboard cutoff — only top 5 sectors by adjusted score "
+                            "qualify (leaders: Technology, ConsumerStaples, Communication, Financials, RealEstate)"},
+     "FILTERED_L1_ELIGIBILITY_REGIME", "field"),
+    (LIVE, {"id": 971, "timestamp": "2026-05-15T17:48:11.796138+00:00", "ticker": "KO",
+            "gate_decision": "FILTERED_ELIGIBILITY", "signal_score": 0.5851,
+            "macro_reason": "Sector 'ConsumerStaples' excluded from entry: Edge only at low thresholds (0.55–0.60), "
+                            "inverted vs gate direction; no viable operating-range threshold"},
+     "FILTERED_L1_ELIGIBILITY_REGIME", "field"),
+    (LIVE, {"id": 503, "timestamp": "2026-04-20T13:32:33.722558+00:00", "ticker": "AMZN",
+            "gate_decision": "FILTERED_ELIGIBILITY", "signal_score": 0.6583,
+            "macro_reason": "Sector 'ConsumerDisc' adjusted score 0.462 < allocation floor 0.50"},
      "FILTERED_L1_ELIGIBILITY_REGIME", "field"),
     (LIVE, {"id": 22167, "timestamp": "2026-10-27T19:53:47.194580+00:00", "ticker": "SPOT",
             "gate_decision": "FILTERED_ELIGIBILITY", "signal_score": 0.5947,
@@ -58,7 +81,7 @@ CASES = [
      "FILTERED_L4_SENTIMENT_UNAVAILABLE_INFERRED", "inferred"),
     (LIVE, {"id": 2, "timestamp": "2026-03-30T15:22:31.705322+00:00", "ticker": "XOM",
             "gate_decision": "FILTERED_LEADING", "signal_score": 0.6213, "lock_leading_pass": 0},
-     "FILTERED_L5_POSITIONING_MIN_PASS", "field"),
+     "FILTERED_L5_POSITIONING_LEADING", "field"),
     (LIVE, {"id": 7025, "timestamp": "2026-07-13T15:01:55.060627+00:00", "ticker": "AAPL",
             "gate_decision": "FILTERED_LEADING", "signal_score": 0.6505, "lock_leading_pass": 1},
      "FILTERED_L2_RISK_ETF", "field"),
@@ -100,7 +123,7 @@ CASES = [
     (LIVE, {"id": 18661, "timestamp": "2026-10-12T19:34:13.679935+00:00", "ticker": "LLY",
             "gate_decision": "TRADE_FAILED", "signal_score": 0.6495,
             "outcome_reason": "broker_error: Computed qty=0 for LLY @ $1181.11 notional=$844.99"},
-     "TRADE_FAILED", "field"),
+     "TRADE_FAILED_BROKER_ERROR", "field"),
     (LIVE, {"id": 18, "timestamp": "2026-04-06T14:44:20.956321+00:00", "ticker": "EQIX",
             "gate_decision": "SKIPPED_OPEN", "signal_score": 0.551},
      "SKIPPED_OPEN", "field"),
@@ -141,7 +164,12 @@ def test_lock_codes_follow_the_chain_names():
     (LIVE, {"id": 5, "timestamp": "2026-10-01T15:00:00+00:00", "gate_decision": "FILTERED_LEADING",
             "lock_leading_pass": None}),
     (LIVE, {"id": 6, "timestamp": "2026-10-01T15:00:00+00:00", "gate_decision": "TRADE_REJECTED",
+            "outcome_reason": "a reason no rule knows"}),
+    # An identifier the register files under another code: TRADE_FAILED never carries sector_cap.
+    (LIVE, {"id": 8, "timestamp": "2026-10-01T15:00:00+00:00", "gate_decision": "TRADE_FAILED",
             "outcome_reason": "sector_cap"}),
+    (LIVE, {"id": 9, "timestamp": "2026-10-01T15:00:00+00:00", "gate_decision": "FILTERED_ELIGIBILITY",
+            "macro_reason": "Sector 'Energy' a wording after a lock1 change"}),
     (LIVE, {"id": 7, "timestamp": "2026-10-01T15:00:00+00:00", "gate_decision": None}),
 ])
 def test_a_row_matching_no_class_raises(table, row):
@@ -153,3 +181,48 @@ def test_only_the_three_gate_tables():
     assert TABLES == ("live_gate_history", "demo_gate_history", "signals")
     with pytest.raises(ValueError):
         classify("live_trades", {"gate_decision": "TRADE_EXECUTED"})
+
+
+# ── The rule register ────────────────────────────────────────────────────────────────────────────────
+
+def _emitted_literals(path: Path, pattern: str) -> set[str]:
+    return set(re.findall(pattern, path.read_text()))
+
+
+def test_every_fail_type_lock1_emits_has_one_rule_and_a_history_reading():
+    emitted = _emitted_literals(GATE / "lock1_eligibility.py", r'"fail_type":\s*"(\w+)"')
+    assert emitted >= {"vix", "macro_event", "earnings", "regime_floor"}       # the scan reads the source
+    assert {lock_codes.rule_for(f).name for f in emitted} <= {r.name for r in lock_codes.RULES}
+    assert {f for _, f in ELIGIBILITY_FAIL_TYPES} == emitted
+
+
+def test_every_outcome_reason_live_emits_has_one_rule_under_its_trade_code():
+    src = (GATE / "gate_runner_live.py").read_text()
+    pairs = re.findall(r'result\["outcome"\]\s*=\s*"(TRADE_\w+)"\s*\n\s*'
+                       r'(?:#[^\n]*\n\s*)*result\["outcome_reason"\]\s*=\s*f?"(\w+)', src)
+    assert {r for _, r in pairs} == {"position_open", "notional_too_small", "sector_cap", "broker_error"}
+    for code, reason in pairs:
+        assert lock_codes.rule_for(reason).owner == code, (code, reason)
+
+
+def test_identifiers_and_names_are_unique_and_every_stop_code_parses_back():
+    idents = [i for r in lock_codes.RULES for i in r.emitted_as]
+    assert len(idents) == len(set(idents))
+    keys = [(r.owner, r.name) for r in lock_codes.RULES]
+    assert len(keys) == len(set(keys))
+    for owner, name in keys:
+        code = lock_codes.stop_code(owner, name)
+        assert code.startswith(lock_codes.owner_code(owner) + "_")
+        assert lock_codes.parse_stop_code(code) == (owner, name)
+    with pytest.raises(KeyError):
+        lock_codes.stop_code(5, "min_pass")             # a name outside the register is refused
+    with pytest.raises(KeyError):
+        lock_codes.parse_stop_code("FILTERED_L3_SCORE_GROK")
+
+
+def test_every_rule_config_key_is_labelled_with_the_rule_lock():
+    labels = lock_codes.config_labels()
+    for r in lock_codes.RULES:
+        if isinstance(r.owner, int):
+            for k in r.config_keys:
+                assert labels.get(k, "").startswith(f"L{r.owner} "), (r.name, k, labels.get(k))

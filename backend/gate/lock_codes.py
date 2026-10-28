@@ -206,6 +206,88 @@ def lock_code(n: int) -> str:
     return f"FILTERED_L{n}_{LOCKS[n][0]}"
 
 
+@dataclass(frozen=True)
+class Rule:
+    owner: int | str                  # chain lock number, or the trade code the rule sits under
+    name: str
+    emitted_as: tuple[str, ...] = ()  # the code's own identifiers for it (fail_type, outcome_reason)
+    config_keys: tuple[str, ...] = ()
+    source: str = ""
+
+
+# The rules within each lock (phase 2, ruling B 2026-10-26: stop_code = the lock's code + "_" + rule).
+# Every rule name exists here once; the history classifier, the writers and the stop_code CHECK read it,
+# so a stop_code parses back to its owner and rule (parse_stop_code) and a writer's identifier maps to
+# one rule (rule_for) (Niclas 2026-10-28: "konsekvent och kan härledas överallt där det används").
+# A name is the code's own word for the check that stopped the row: the identifier it already emits
+# (lock1_eligibility's fail_type, gate_runner_live's outcome_reason) where there is one, else the check
+# itself: the module whose check it is (leading, claude) or what it tests (threshold, grok's verdict).
+# `unavailable` is a judging model that did not answer, failing closed; `_inferred` and
+# `reason_unrecorded` exist only in history (ruling F).
+RULES: tuple[Rule, ...] = (
+    Rule(0, "drawdown_guard", config_keys=("max_drawdown_pct",),
+         source="chain.py mechanical pre-L5 guard (reason ends '(mechanical pre-L5 guard)')"),
+    Rule(1, "regime", ("excluded_sector", "regime_unavailable", "below_leaderboard_cutoff", "regime_floor"),
+         source="lock1_eligibility fail_type: the regime module's verdict on the sector"),
+    Rule(1, "vix", ("vix",), ("vix_threshold",), "lock1_eligibility fail_type"),
+    Rule(1, "macro_event", ("macro_event",), ("macro_event_blackout_days",), "lock1_eligibility fail_type"),
+    Rule(1, "macro_pre_event", ("macro_pre_event",), ("macro_pre_event_penalty",),
+         "lock1_eligibility data key; the penalty bites at the score re-test (chain.py)"),
+    Rule(2, "earnings", ("earnings",), ("macro_earnings_blackout_days",), "lock1_eligibility fail_type"),
+    Rule(2, "earnings_near", ("earnings_near_penalty",), ("macro_earnings_near_days", "macro_earnings_near_penalty"),
+         "lock1_eligibility data key; the penalty bites at the score re-test (chain.py); never fired"),
+    Rule(2, "etf", config_keys=("etf_negative_penalty", "etf_negative_floor"),
+         source="chain.py ETF re-test (exit_label FILTERED_ETF_PENALTY)"),
+    Rule(2, "overflow", config_keys=("overflow_quant_increment",), source="gate_runner*.py execution phase"),
+    Rule(3, "threshold", config_keys=("lock1_threshold",), source="lock2_quant: score below the threshold"),
+    Rule(4, "grok", config_keys=("lock2_sentiment_min",),
+         source="lock3_sentiment: Grok's verdict (score at or below the minimum, or low conviction)"),
+    Rule(4, "unavailable", source="lock3_sentiment 'Grok API unavailable — failing closed'"),
+    Rule(4, "unavailable_inferred", source="history: no summary and no reason"),
+    Rule(5, "leading", config_keys=("lock4_pcr_mode",),
+         source="lock4_leading: the leading-indicator checks (price and options groups; min-of-4 before)"),
+    Rule(6, "claude", config_keys=("lock3_confidence_min",),
+         source="lock5_claude: Claude's decision (HOLD, or confidence below the minimum)"),
+    Rule(6, "unavailable", source="lock5_claude L5_UNAVAILABLE_PREFIX"),
+    Rule(6, "unavailable_inferred", source="history: no reasoning before ba12aa2 (2026-09-18)"),
+    Rule("TRADE_REJECTED", "position_open", ("position_open",), source="gate_runner_live outcome_reason"),
+    Rule("TRADE_REJECTED", "notional_too_small", ("notional_too_small",), source="gate_runner_live outcome_reason"),
+    Rule("TRADE_REJECTED", "sector_cap", ("sector_cap",), ("max_sector_exposure",), "gate_runner_live outcome_reason"),
+    Rule("TRADE_REJECTED", "reason_unrecorded", source="history: outcome_reason before b3804fb, and demo"),
+    Rule("TRADE_FAILED", "broker_error", ("broker_error",), source="gate_runner_live outcome_reason ('broker_error: …')"),
+    Rule("TRADE_FAILED", "reason_unrecorded", source="history: outcome_reason before b3804fb"),
+)
+
+
+def owner_code(owner: int | str) -> str:
+    return lock_code(owner) if isinstance(owner, int) else owner
+
+
+def stop_code(owner: int | str, rule: str) -> str:
+    """"FILTERED_L1_ELIGIBILITY_MACRO_EVENT": the owner's code + "_" + a registered rule (ruling B)."""
+    if not any(r.owner == owner and r.name == rule for r in RULES):
+        raise KeyError(f"no rule {rule!r} under {owner!r} in lock_codes.RULES")
+    return f"{owner_code(owner)}_{rule.upper()}"
+
+
+def parse_stop_code(code: str) -> tuple[int | str, str]:
+    """(owner, rule) of a stop_code: the inverse of stop_code, through the register."""
+    for r in RULES:
+        if code == f"{owner_code(r.owner)}_{r.name.upper()}":
+            return r.owner, r.name
+    raise KeyError(f"not a registered stop_code: {code!r}")
+
+
+def rule_for(emitted: str) -> Rule:
+    """The rule a writer's own identifier belongs to (fail_type, or outcome_reason before ':').
+    Identifiers are unique across the register (pinned by a test), so the identifier alone gives the owner."""
+    key = emitted.split(":", 1)[0]
+    for r in RULES:
+        if key in r.emitted_as:
+            return r
+    raise KeyError(f"{emitted!r} is not an identifier of any rule in lock_codes.RULES")
+
+
 def lock_label(n: int) -> str:
     """"L2 · Risk": the chain name of lock n, in the stage labels' form."""
     return f"L{n} · {LOCKS[n][0].capitalize()}"

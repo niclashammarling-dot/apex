@@ -19,15 +19,18 @@ A row that matches no class raises UnclassifiedRow instead of defaulting: an unk
 not a row to file under the nearest lock. Rows without a code (ungated `signals` rows, P1) stay NULL and
 are never passed here.
 
-Rule names: the scope's (regime, vix, macro_event, macro_pre_event, earnings, etf, overflow, claude,
-unavailable, unavailable_inferred, drawdown_guard, reason_unrecorded), plus the deciding mechanism where
-the scope left a lock's own judgement unnamed: L3 `threshold`, L4 `grok`, L5 `min_pass`.
+Rule names come from lock_codes.RULES, never from this module: stop_code() refuses a name the register
+does not hold. Where the writer emitted an identifier of its own (lock1_eligibility's fail_type, live's
+outcome_reason), the row's text or field is read back to that identifier and the register gives the rule
+(rule_for), so history and the writers name a check the same way (Niclas 2026-10-28: "konsekvent och kan
+härledas överallt där det används").
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 
+from backend.gate import lock_codes
 from backend.gate.lock_codes import lock_code
 
 TABLES = ("live_gate_history", "demo_gate_history", "signals")
@@ -45,7 +48,19 @@ PRE_EVENT_REASONLESS_DAY = "2026-07-02"
 TEST_ROW = ("demo_gate_history", 1276)
 TEST_ROW_CODE = "REMOVE_TEST_ROW"
 
-UNCHANGED = ("TRADE_EXECUTED", "TRADE_FAILED", "SKIPPED_OPEN", "SKIPPED_COOLOFF", "SKIPPED_BLOCKLIST")
+UNCHANGED = ("TRADE_EXECUTED", "SKIPPED_OPEN", "SKIPPED_COOLOFF", "SKIPPED_BLOCKLIST")
+
+# lock1_eligibility's reason texts → the fail_type it set with them (lock1_eligibility.py, `fail_type`), including
+# the wordings before the hysteresis band ("< allocation floor") and before the leaderboard cutoff ("not found").
+ELIGIBILITY_FAIL_TYPES: tuple[tuple[str, str], ...] = (
+    (r"^VIX=", "vix"),
+    (r"^Macro event blackout", "macro_event"),
+    (r"^Earnings on", "earnings"),
+    (r"^Sector '[^']*' excluded from entry", "excluded_sector"),
+    (r"^Sector '[^']*' (below leaderboard cutoff|not found in regime leaderboard)", "below_leaderboard_cutoff"),
+    (r"^Sector '[^']*' (has no allocation|adjusted score [0-9.]+ < allocation floor)", "regime_floor"),
+    (r"^Regime module has not run", "regime_unavailable"),
+)
 
 
 class UnclassifiedRow(ValueError):
@@ -61,8 +76,16 @@ class Class:
 
 
 def _lock(n: int, rule: str, basis: str = "field") -> Class:
-    code = lock_code(n)
-    return Class(code, f"{code}_{rule.upper()}", rule, basis)
+    return Class(lock_code(n), lock_codes.stop_code(n, rule), rule, basis)
+
+
+def _emitted(table: str, row: dict, ident: str, basis: str = "field") -> Class:
+    """The class of a row whose writer's own identifier (fail_type, outcome_reason) is known."""
+    try:
+        r = lock_codes.rule_for(ident)
+    except KeyError as e:
+        raise UnclassifiedRow(f"{table} id {row.get('id')}: {e}") from None
+    return Class(lock_codes.owner_code(r.owner), lock_codes.stop_code(r.owner, r.name), r.name, basis)
 
 
 def _score_in_reason(text: str) -> float | None:
@@ -86,23 +109,22 @@ def classify(table: str, row: dict) -> Class:
     if code in UNCHANGED:
         return Class(code, code, None, "field")
 
-    if code == "TRADE_REJECTED":
-        # outcome_reason exists on live only, from b3804fb (09-27); every TRADE_REJECTED row predates it.
+    if code in ("TRADE_REJECTED", "TRADE_FAILED"):
+        # outcome_reason exists on live only, from b3804fb (09-27): every live TRADE_FAILED row carries it,
+        # every TRADE_REJECTED row predates it, and demo has no such column.
         if row.get("outcome_reason"):
-            raise UnclassifiedRow(f"{table} id {row.get('id')}: TRADE_REJECTED with an outcome_reason "
-                                  f"({row['outcome_reason']!r}) — no such row existed at scoping; class it")
-        return Class(code, f"{code}_REASON_UNRECORDED", "reason_unrecorded",
-                     "unattributable:outcome_reason not recorded before b3804fb, logs pruned")
+            k = _emitted(table, row, row["outcome_reason"])
+            if k.code != code:
+                raise UnclassifiedRow(f"{table} id {row.get('id')}: outcome_reason {row['outcome_reason']!r} "
+                                      f"belongs under {k.code}, not {code}")
+            return k
+        return Class(code, lock_codes.stop_code(code, "reason_unrecorded"), "reason_unrecorded",
+                     "unattributable:outcome_reason not recorded (before b3804fb, or demo), logs pruned")
 
     if code == "FILTERED_ELIGIBILITY":
-        if macro.startswith("VIX="):
-            return _lock(1, "vix")
-        if macro.startswith("Macro event blackout"):
-            return _lock(1, "macro_event")
-        if macro.startswith("Earnings on"):
-            return _lock(2, "earnings")
-        if macro.startswith("Sector"):
-            return _lock(1, "regime")
+        for pattern, fail_type in ELIGIBILITY_FAIL_TYPES:
+            if re.match(pattern, macro):
+                return _emitted(table, row, fail_type)
         raise UnclassifiedRow(f"{table} id {row.get('id')}: eligibility reason {macro[:60]!r}")
 
     if code == "FILTERED_MACRO":            # legacy, 2026-04-06..04-09: the CPI 04-08 block
@@ -133,7 +155,7 @@ def classify(table: str, row: dict) -> Class:
 
     if code == "FILTERED_LEADING":
         if row.get("lock_leading_pass") == 0:
-            return _lock(5, "min_pass")
+            return _lock(5, "leading")
         if row.get("lock_leading_pass") == 1:      # 07-13..07-16: the ETF re-test before it had its code
             return _lock(2, "etf")
         raise UnclassifiedRow(f"{table} id {row.get('id')}: positioning row with lock_leading_pass "
