@@ -3,9 +3,17 @@ gate/lock_codes.py — the one table of gate locks and gate_decision codes.
 
 Lock labels phase 1 (vault raw/notes/2026-10/2026-10-24-apex-lock-labels-scope.md; chain approved by
 Niclas 2026-10-24: "Kedjan ser bra ut. Godkänd."). Before this table five vocabularies named the same
-locks: chain.py's exit_lock (right), the stored gate_decision codes (one behind: FILTERED_L1 = quant),
-the DB columns, the config keys, and the frontend labels (CHECK 54, firing since 06-11). Every writer
-and reader of a code now imports it from here; the frontend reads it from /api/gate/locks.
+locks: chain.py's exit_lock (the module numbers: exit_lock 2 = lock2_quant), the stored gate_decision
+codes (one behind those: FILTERED_L1 = quant), the DB columns, the config keys, and the frontend labels
+(CHECK 54, firing since 06-11). Every writer and reader of a code now imports it from here; the frontend
+reads it from /api/gate/locks.
+
+Two numberings until phase 3. "Lock 1".."Lock 5" in code and comments outside this file are the module
+numbers (lock1_eligibility .. lock5_claude, chain.py's lock_id and exit_lock); "L0".."L6" and the names
+below are the chain. Module N → chain: 1 → L1 ELIGIBILITY (+ L2's earnings rules), 2 → L3 SCORE,
+3 → L4 SENTIMENT, 4 → L5 POSITIONING, 5 → L6 REVIEW (MODULE_TO_CHAIN). Phase 2 re-codes the stored
+history to the chain, phase 3 renames the modules and keys (lock labels review R9, 2026-10-26: module
+numbering is rename material, not a miss), after which one numbering remains.
 
 Phase 1 changes no stored string. `code` is what the three gate tables hold today; phase 2 rewrites
 history and this column in one migration. `lock` and `label` are the approved chain:
@@ -46,7 +54,7 @@ from dataclasses import dataclass
 LOCKS: dict[int, tuple[str, str, str]] = {
     0: ("PORTFOLIO",   "portfolio stop rules (M4), cycle level",         "backend/gate/portfolio_l0.py"),
     1: ("ELIGIBILITY", "market and sector state, macro calendar",         "backend/gate/lock1_eligibility.py, chain.py"),
-    2: ("RISK",        "ETF, earnings, concentration",                    "backend/gate/lock1_eligibility.py, chain.py"),
+    2: ("RISK",        "ETF, earnings, concentration, overflow",          "backend/gate/lock1_eligibility.py, chain.py, gate_runner*.py"),
     3: ("SCORE",       "price and volume score",                          "backend/gate/lock2_quant.py"),
     4: ("SENTIMENT",   "what is said: analysts, news, social",            "backend/gate/lock3_sentiment.py"),
     5: ("POSITIONING", "what is done with money: options, accumulation",  "backend/gate/lock4_leading.py"),
@@ -109,6 +117,8 @@ LOCK_KEYS: dict[int, tuple[str, ...]] = {
 BY_CODE: dict[str, Stage] = {s.code: s for s in STAGES}
 _INDEX: dict[str, int] = {s.code: i for i, s in enumerate(STAGES)}
 OUTCOME_BY_EXIT_LOCK: dict[int, str] = {s.exit_lock: s.code for s in STAGES if s.exit_lock is not None}
+# Module lock_id (lockN_*.py, chain.py exit_lock) → chain lock, until the phase 3 rename.
+MODULE_TO_CHAIN: dict[int, int] = {s.exit_lock: s.lock for s in STAGES if s.exit_lock is not None}
 COOLOFF_CODES: tuple[str, ...] = tuple(s.code for s in STAGES if s.cooloff)
 SKIP_CODES: tuple[str, ...] = tuple(s.code for s in STAGES if s.kind == "skip")
 REVIEW_REJECT = OUTCOME_BY_EXIT_LOCK[5]
@@ -169,7 +179,9 @@ def row_states(code: str, lock3_pass: int | None) -> list[bool | None]:
 
 def reason_label(code: str) -> str | None:
     """Whose reason the row's lock3_reasoning column holds: the writers put the deciding stage's reason
-    there for every code (gate_runner._chain_to_gate_result), and Claude's for a trade row."""
+    there for every filter code (gate_runner._chain_to_gate_result), and Claude's for a trade row. An
+    overflow row stores none (0 of 22 since 2026-09-01: it is set in the execution phase, before L6), and
+    skips have none, so both get no label."""
     s = BY_CODE.get(code)
     if s is None:
         return None

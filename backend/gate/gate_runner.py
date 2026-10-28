@@ -375,10 +375,11 @@ def _run_l5_for_result(signal: dict, result: dict, cfg: dict) -> None:
 def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
     """Translate ChainResult into the flat result dict expected by run() and DB writers.
 
-    DB column mapping (schema preserved, semantics shifted):
-        lock1_pass = Lock 2 Quant result
-        lock2_pass = Lock 3 Sentiment result
-        lock3_pass = Lock 5 Claude result
+    DB column mapping (schema preserved, semantics shifted; module lock → chain lock, lock_codes):
+        lock1_pass = Lock 2 quant result     (L3 SCORE)
+        lock2_pass = Lock 3 sentiment result (L4 SENTIMENT)
+        lock3_pass = Lock 5 Claude result    (L6 REVIEW)
+    Phase 2 renames the columns to the chain (l3_score_pass …).
     """
     lr = chain.lock_results
     l1 = lr.get(1)   # Eligibility

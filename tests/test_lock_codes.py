@@ -18,6 +18,14 @@ def test_codes_are_the_stored_ones_until_phase_2():
     assert lock_codes.outcome_for(None) == lock_codes.outcome_for(9) == "FILTERED_UNKNOWN"
 
 
+def test_module_numbers_map_to_the_chain_lock_their_code_records():
+    # The two numberings until phase 3 (docstring): module lock_id N records the code of chain lock
+    # MODULE_TO_CHAIN[N], and the module file is named by N.
+    assert lock_codes.MODULE_TO_CHAIN == {1: 1, 2: 3, 3: 4, 4: 5, 5: 6}
+    for n, chain in lock_codes.MODULE_TO_CHAIN.items():
+        assert f"lock{n}_" in lock_codes.LOCKS[chain][2]
+
+
 def test_cooloff_set_is_exactly_sentiment_and_review():
     assert set(lock_codes.COOLOFF_CODES) == {"FILTERED_L2", "FILTERED_L3"}
     assert {lock_codes.BY_CODE[c].lock for c in lock_codes.COOLOFF_CODES} == {4, 6}
@@ -124,6 +132,32 @@ def test_live_funnel_counts_the_etf_penalty():
                                                "FILTERED_ELIGIBILITY"]
 
 
+def test_demo_and_live_funnels_agree_on_the_same_rows():
+    # R14 (2026-10-28): demo never returned overflow_executed, so the dashboard showed "0u" with 2
+    # overflow entries in demo_gate_history; demo's `executed` also counted TRADE_REJECTED.
+    from backend import db
+    rows = [("FUNA", "TRADE_EXECUTED", 1), ("FUNB", "TRADE_EXECUTED", 0), ("FUNC", "TRADE_REJECTED", 0),
+            ("FUND", "FILTERED_OVERFLOW_QUANT", 0), ("FUNE", "SKIPPED_OPEN", 0)]
+    conn = db.get_db()
+    try:
+        for table in ("demo_gate_history", "live_gate_history"):
+            conn.executemany(f"INSERT INTO {table} (ticker, sector, gate_decision, overflow_slot, timestamp) "
+                             "VALUES (?, 'Tech', ?, ?, '2099-01-02T15:00:00+00:00')", rows)
+        conn.commit()
+    finally:
+        conn.close()
+    since = "2099-01-01T00:00:00+00:00"
+    try:
+        demo, live = db.get_demo_gate_funnel_counts(since), db.get_live_gate_funnel_counts(since)
+    finally:
+        for table in ("demo_gate_history", "live_gate_history"):
+            _delete(f"DELETE FROM {table} WHERE ticker LIKE 'FUN_'")
+    assert demo == live
+    assert demo["overflow_executed"] == 1 and demo["total_candidates"] == 5
+    by_code = {s["code"]: s["count"] for s in demo["stages"]}
+    assert by_code["TRADE_EXECUTED"] == 2 and by_code["TRADE_REJECTED"] == 1
+
+
 # ── Review before merge (2026-10-26, findings R1-R6, R8) ─────────────────────
 
 def test_overflow_stops_before_review_in_order_and_states():
@@ -183,7 +217,7 @@ def test_lock_owned_config_keys_follow_the_approved_chain():
     for k in ("vix_threshold", "macro_event_blackout_days", "macro_pre_event_penalty"):
         assert labels[k] == "L1 · Eligibility", k
     assert labels["max_drawdown_pct"] == "L0 · Portfolio"
-    assert lock_codes.LOCKS[2][1] == "ETF, earnings, concentration"
+    assert lock_codes.LOCKS[2][1] == "ETF, earnings, concentration, overflow"   # overflow: ruling E, 10-26
     assert "macro" in lock_codes.LOCKS[1][1] and "macro" not in lock_codes.LOCKS[2][1]
 
 

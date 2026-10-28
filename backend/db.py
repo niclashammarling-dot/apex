@@ -988,8 +988,9 @@ def _ticker_gate_fails(table: str, ticker: str, limit: int) -> list[dict]:
     stage it stopped at (`stage`, the lock_codes label) and `detail`, the reason that stage recorded.
 
     `detail` is lock3_reasoning first: the writers put the deciding stage's reason there for every
-    code, and Claude's reasoning on a trade row (gate_runner._chain_to_gate_result). Only when it is
-    empty does it fall back to the stage's own column. Until 2026-10-26 l2_summary (the sentiment
+    filter code, and Claude's reasoning on a trade row (gate_runner._chain_to_gate_result). Only when it
+    is empty does it fall back to the stage's own column. An overflow row has none (set in the execution
+    phase, before L6), so its detail is None and `stage` says what stopped it. Until 2026-10-26 l2_summary (the sentiment
     summary) came first, so a positioning or review rejection reached Claude as a sentiment text
     (lock labels review R6).
     """
@@ -1160,38 +1161,41 @@ def get_demo_gate_history(since: str | None = None, limit: int | None = 500) -> 
         conn.close()
 
 
-def get_demo_gate_funnel_counts(since: str | None = None) -> dict:
+def _gate_funnel_counts(table: str, since: str | None = None) -> dict:
+    """The dashboard funnel for one gate table: per-code stages from the one lock table
+    (lock_codes.funnel_stages), the candidate total, and how many trades went into an overflow slot.
+
+    One function for demo and live (2026-10-28, lock labels review R14): the two hand-written
+    versions had drifted. Demo never returned `overflow_executed`, so its funnel showed "0u" with 2
+    overflow entries in demo_gate_history, and demo's `executed` counted TRADE_REJECTED too. Since
+    phase 1 the frontend reads only `stages`, `total_candidates` and `overflow_executed`; the
+    named per-code keys (l1_fail …) had no reader left and are gone.
+    """
+    from backend.gate.lock_codes import funnel_stages
+    where = "WHERE gate_decision IS NOT NULL"
+    params: tuple = ()
+    if since:
+        where += " AND timestamp >= ?"
+        params = (since,)
     conn = get_db()
     try:
-        where = "WHERE timestamp >= ?" if since else ""
-        params = (since,) if since else ()
-        row = conn.execute(f"""
-            SELECT
-                count(*)                                                         AS total_candidates,
-                sum(gate_decision = 'SKIPPED_OPEN')                              AS skipped_open,
-                sum(gate_decision = 'SKIPPED_COOLOFF')                           AS skipped_cooloff,
-                sum(gate_decision NOT IN ('SKIPPED_OPEN','SKIPPED_COOLOFF'))     AS evaluated,
-                sum(gate_decision = 'FILTERED_ELIGIBILITY')                      AS eligibility_fail,
-                sum(gate_decision = 'FILTERED_L1')                               AS l1_fail,
-                sum(gate_decision = 'FILTERED_L2')                               AS l2_fail,
-                sum(gate_decision = 'FILTERED_LEADING')                          AS leading_fail,
-                sum(gate_decision = 'FILTERED_L3')                               AS l3_fail,
-                sum(gate_decision = 'FILTERED_OVERFLOW_QUANT')                   AS overflow_fail,
-                sum(gate_decision IN ('TRADE_EXECUTED','TRADE_REJECTED'))         AS executed
-            FROM demo_gate_history
-            {where}
-        """, params).fetchone()
-        out = dict(row) if row else {}
-        by_code = {r["gate_decision"]: r["cnt"] for r in conn.execute(f"""
-            SELECT gate_decision, COUNT(*) AS cnt FROM demo_gate_history {where} GROUP BY gate_decision
+        counts = {r["gate_decision"]: r["cnt"] for r in conn.execute(f"""
+            SELECT gate_decision, COUNT(*) AS cnt FROM {table} {where} GROUP BY gate_decision
         """, params).fetchall()}
-        # Lock labels phase 1 (2026-10-26): the funnel the dashboard renders, per code from the one table.
-        from backend.gate.lock_codes import funnel_stages
-        out["stages"] = funnel_stages(by_code)
-        return out
+        overflow_executed = conn.execute(f"""
+            SELECT COUNT(*) FROM {table} {where} AND gate_decision = 'TRADE_EXECUTED' AND overflow_slot = 1
+        """, params).fetchone()[0]
     finally:
         conn.close()
+    return {
+        "total_candidates":  sum(counts.values()),
+        "overflow_executed": overflow_executed,
+        "stages":            funnel_stages(counts),
+    }
 
+
+def get_demo_gate_funnel_counts(since: str | None = None) -> dict:
+    return _gate_funnel_counts("demo_gate_history", since)
 
 def get_equity_curve(current_prices: dict[str, float] | None = None) -> list[dict]:
     """
@@ -1413,64 +1417,7 @@ def get_live_gate_history(since: str | None = None, limit: int | None = 500) -> 
 
 def get_live_gate_funnel_counts(since: str | None = None) -> dict:
     """Full funnel counts for the live gate, including pre-gate skips."""
-    conn = get_db()
-    try:
-        where = "WHERE gate_decision IS NOT NULL"
-        params: tuple = ()
-        if since:
-            where += " AND timestamp >= ?"
-            params = (since,)
-
-        rows = conn.execute(f"""
-            SELECT gate_decision, COUNT(*) AS cnt
-            FROM live_gate_history
-            {where}
-            GROUP BY gate_decision
-        """, params).fetchall()
-
-        overflow_executed_row = conn.execute(f"""
-            SELECT COUNT(*) AS cnt
-            FROM live_gate_history
-            {where} AND gate_decision = 'TRADE_EXECUTED' AND overflow_slot = 1
-        """, params).fetchone()
-
-        counts = {r["gate_decision"]: r["cnt"] for r in rows}
-        # Lock labels phase 1 (2026-10-26): the funnel the dashboard renders, per code from the one table.
-        from backend.gate.lock_codes import funnel_stages
-        skipped_open      = counts.get("SKIPPED_OPEN", 0)
-        skipped_cooloff   = counts.get("SKIPPED_COOLOFF", 0)
-        l1_fail           = counts.get("FILTERED_L1", 0)
-        eligibility_fail  = counts.get("FILTERED_ELIGIBILITY", 0)
-        l2_fail           = counts.get("FILTERED_L2", 0)
-        leading_fail      = counts.get("FILTERED_LEADING", 0)
-        l3_fail           = counts.get("FILTERED_L3", 0)
-        overflow_fail     = counts.get("FILTERED_OVERFLOW_QUANT", 0)
-        overflow_executed = overflow_executed_row["cnt"] if overflow_executed_row else 0
-        executed          = counts.get("TRADE_EXECUTED", 0)
-        rejected          = counts.get("TRADE_REJECTED", 0)
-
-        total_candidates = sum(counts.values())
-        evaluated = total_candidates - skipped_open - skipped_cooloff
-
-        return {
-            "total_candidates":  total_candidates,
-            "skipped_open":      skipped_open,
-            "skipped_cooloff":   skipped_cooloff,
-            "evaluated":         evaluated,
-            "l1_fail":           l1_fail,
-            "eligibility_fail":  eligibility_fail,
-            "l2_fail":           l2_fail,
-            "leading_fail":      leading_fail,
-            "l3_fail":           l3_fail,
-            "overflow_fail":     overflow_fail,
-            "overflow_executed": overflow_executed,
-            "executed":          executed,
-            "rejected":          rejected,
-            "stages":            funnel_stages(counts),
-        }
-    finally:
-        conn.close()
-
+    return _gate_funnel_counts("live_gate_history", since)
 
 def insert_pcr_observation(
     ticker: str,

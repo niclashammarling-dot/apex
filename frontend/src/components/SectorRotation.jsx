@@ -78,7 +78,7 @@ export default function SectorRotation() {
   });
   const [normalized,    setNormalized] = useState(false);
   const [thresholds,    setThresholds] = useState({});
-  const [fallback,      setFallback]   = useState(null);   // backend TICKER_THRESHOLD_DEFAULT, served
+  const [fallback,      setFallback]   = useState(null);   // backend sector_regime.TICKER_THRESHOLD_DEFAULT, served
 
   const [showBackfill, setShowBackfill] = useState(false);
   const [bfStart,      setBfStart]      = useState("2020-01-01");
@@ -293,8 +293,8 @@ export default function SectorRotation() {
 
         <div className="t-meta" style={{ marginTop: 8 }}>
           {normalized
-            ? "Normalized: score ÷ the sector's score threshold (calibrated; the fallback where none is). 1.0× = at threshold."
-            : `Raw scores. Dashed line = ${fallback ?? "—"} (fallback score threshold). Click sectors to toggle.`}
+            ? "Normalized: score ÷ the sector's calibrated score threshold (the sector-regime default where a sector has none). 1.0× = at threshold."
+            : `Raw scores. Dashed line = ${fallback ?? "—"}, the sector-regime default for a sector without a calibrated threshold; the score lock tests each sector's calibrated one. Click sectors to toggle.`}
         </div>
       </div>
     </div>

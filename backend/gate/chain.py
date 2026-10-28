@@ -9,9 +9,16 @@ Both runners import evaluate_chain() from here. They differ only in:
     - execution layer (wallet.execute_trade vs Alpaca bracket order)
     - DB writes (demo_gate_history vs live_gate_history)
 
-The chain runs in order:
-    Lock 1 (Eligibility) → Lock 2 (Quant) → Lock 3 (Sentiment)
-    → Lock 4 (Leading) → Lock 5 (Claude) → execute
+The chain runs in order (module lock ids; the chain's names in backend/gate/lock_codes.py, which
+holds the mapping MODULE_TO_CHAIN until the phase 3 rename):
+    Lock 1 eligibility (L1 ELIGIBILITY, and L2 RISK's earnings rules)
+    → earnings and macro pre-event penalties on the score
+    → Lock 2 quant (L3 SCORE) → Lock 3 sentiment (L4 SENTIMENT) → Lock 4 leading (L5 POSITIONING)
+    → ETF penalty re-test of the score (L2 RISK, recorded FILTERED_ETF_PENALTY)
+    → drawdown guard (L0 PORTFOLIO by ruling, recorded as exit_lock 5)
+    → Lock 5 Claude (L6 REVIEW)
+Both runners pass stop_after_lock=4: the chain returns l5_pending after the guard, and the runner's
+serial execution phase checks overflow (L2 RISK) before it runs Lock 5 for a candidate with a slot.
 
 Each lock receives typed arguments. If any lock fails, the chain
 stops immediately — downstream locks are not evaluated.

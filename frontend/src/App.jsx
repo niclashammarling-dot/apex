@@ -379,7 +379,8 @@ function adaptFunnel(funnel) {
   // (backend/gate/lock_codes.py, /api/gate/locks; lock labels phase 1, 2026-10-26).
   const stages = (funnel.stages || []).map(s => ({
     stage: s.code,
-    label: s.code === "FILTERED_OVERFLOW_QUANT" ? `${s.label} · ${funnel.overflow_executed ?? 0}u/${s.count}r` : s.label,
+    // The execution-phase stage is overflow (L2 RISK): slots used / rejected.
+    label: s.kind === "execution" ? `${s.label} · ${funnel.overflow_executed}u/${s.count}r` : s.label,
     count: s.count,
   }));
   return [{ stage: "POLLED", label: "Tickers polled", count: funnel.total_candidates ?? 0 }, ...stages];
