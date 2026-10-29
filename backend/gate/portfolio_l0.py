@@ -81,3 +81,15 @@ def evaluate(acct: dict, rows: list[dict], starting_balance: float) -> dict:
         reason = HALT_EXPECTANCY
     return {"reason": reason, "daily_loss_cap": round(cap, 2), "day_loss": round(day_loss, 2),
             "drawdown": dd, "expectancy": exp}
+
+
+def rule_verdicts(v: dict) -> dict[str, str]:
+    """Each M4 rule's verdict for the cycle, by its identifier (lock_codes.put maps it to L0's rule): every rule
+    runs every cycle; expectancy is no_data until its sample reaches M4_EXPECTANCY_N (lock labels phase 2)."""
+    from backend.gate.lock_codes import FAIL, NO_DATA, PASS
+    exp = v["expectancy"]
+    return {
+        HALT_DRAWDOWN:   FAIL if v["drawdown"]["drawdown"] >= M4_DRAWDOWN_PCT else PASS,
+        HALT_LOSS_CAP:   FAIL if v["day_loss"] >= v["daily_loss_cap"] else PASS,
+        HALT_EXPECTANCY: FAIL if exp["breached"] else NO_DATA if exp["n"] < exp["needed"] else PASS,
+    }

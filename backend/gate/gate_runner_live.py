@@ -37,6 +37,7 @@ from backend.gate.gate_runner import (
     _compute_bayesian_multipliers,
     _overflow_state,
     _persist_multiplier_stats,
+    _pre_chain_states,
     _run_l5_for_result,
 )
 from backend.sector_caps import compute_dynamic_caps
@@ -390,6 +391,9 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
                                    f"expectancy {l0['expectancy']}")
         cycle.reason = l0["reason"]
         return []
+    l0_states: dict[str, str] = {}
+    for ident, verdict in portfolio_l0.rule_verdicts(l0).items():
+        lock_codes.put(l0_states, ident, verdict)
 
     stale: list[dict] = []
     candidates = get_lock1_candidates(threshold=cfg["lock1_threshold"],
@@ -415,6 +419,8 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     )
     blocklisted_tickers = set(LIVE_TICKER_BLOCKLIST)
     blocked = open_tickers | failed_tickers | exited_tickers | blocklisted_tickers
+    pre_checks = {"blocklist": blocklisted_tickers, "position_open": open_tickers,
+                  "cooloff": failed_tickers, "exit_cooloff": exited_tickers}
     skipped = [c for c in candidates if c["ticker"] in blocked]
     candidates = [c for c in candidates if c["ticker"] not in blocked]
 
@@ -564,6 +570,10 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
             except Exception as e:
                 logger.error(f"Live gate [{signal['ticker']}]: evaluation raised — {e}")
                 continue
+            checks = ({k: v for k, v in pre_checks.items() if k != "blocklist"} if signal.get("pre_rotation")
+                      else pre_checks)
+            result["rule_states"] = {**l0_states, **_pre_chain_states(signal["ticker"], checks),
+                                     **result.get("rule_states", {})}
             evaluated.append((signal, result))
     cycle.reason = evaluated_reason(len(candidates), len(evaluated))
 

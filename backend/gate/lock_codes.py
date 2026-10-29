@@ -231,24 +231,27 @@ class Rule:
 # The one exception is UNKNOWN, an outcome no rule covers, which alerts when written (ninth round).
 # Cooloff keeps the set db.py selected before phase 2 ({FILTERED_L2, FILTERED_L3}, ruling 6 2026-10-24):
 # every L4 and L6 decision and the drawdown guard, which shared FILTERED_L3; not a broker error (TRADE_FAILED).
+# Within a lock the rules are listed in the order they run, which stop_of reads when two fail on one row: M4's
+# drawdown before its loss cap and expectancy (portfolio_l0.evaluate), the chain's guard after them; position open
+# before cooloff (the runners' skip label), gate cooloff before exit cooloff (ruling 2026-10-29).
 RULES: tuple[Rule, ...] = (
-    Rule(0, "drawdown_guard", config_keys=("max_drawdown_pct",), cooloff=True,
-         source="chain.py mechanical pre-L5 guard (reason ends '(mechanical pre-L5 guard)')"),
-    Rule(0, "loss_cap", ("loss_cap",), ("daily_loss_cap",),
-         "M4 rule 2 in live (portfolio_l0.HALT_LOSS_CAP, cycle level); wallet.execute_trade's fixed-dollar cap in demo"),
     Rule(0, "halt_m4_drawdown", ("halt_m4_drawdown",),
          source="M4 rule 1, portfolio_l0.HALT_DRAWDOWN: realised equity off its peak (live, cycle level)"),
+    Rule(0, "loss_cap", ("loss_cap",), ("daily_loss_cap",),
+         "M4 rule 2 in live (portfolio_l0.HALT_LOSS_CAP, cycle level); wallet.execute_trade's fixed-dollar cap in demo"),
     Rule(0, "halt_m4_expectancy", ("halt_m4_expectancy",),
          source="M4 rule 3, portfolio_l0.HALT_EXPECTANCY: the trailing sample's expectancy (live, cycle level)"),
+    Rule(0, "drawdown_guard", config_keys=("max_drawdown_pct",), cooloff=True,
+         source="chain.py mechanical pre-L5 guard (reason ends '(mechanical pre-L5 guard)')"),
     Rule(1, "blocklist", ("blocklist",), source="gate_runner_live: the live blocklist, before the chain"),
+    Rule(1, "position_open", ("position_open",),
+         source="both runners before the chain, and the execution re-check (gate_runner_live, wallet)"),
     Rule(1, "cooloff", ("cooloff",), ("gate_cooloff_hours",),
          "both runners, before the chain: a recent L4/L6 stop (the gate cooloff; before 2026-10-31 SKIPPED_COOLOFF "
          "also held the exit cooloff)"),
     Rule(1, "exit_cooloff", ("exit_cooloff",), ("exit_cooloff_hours", "tp_cooloff_hours"),
          "both runners, before the chain: the ticker's own recent exit (tp_cooloff_hours after a TP/TSL win, "
          "exit_cooloff_hours after any other exit; db.get_recently_exited_*tickers)"),
-    Rule(1, "position_open", ("position_open",),
-         source="both runners before the chain, and the execution re-check (gate_runner_live, wallet)"),
     Rule(1, "regime", ("regime", "excluded_sector", "regime_unavailable", "below_leaderboard_cutoff", "regime_floor"),
          source="lock1_eligibility fail_type: the regime module's verdict on the sector"),
     Rule(1, "vix", ("vix",), ("vix_threshold",), "lock1_eligibility fail_type"),

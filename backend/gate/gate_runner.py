@@ -70,6 +70,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
         tp_hours=cfg.get("tp_cooloff_hours", 168),
     )
     blocked = open_tickers | failed_tickers | exited_tickers
+    pre_checks = {"position_open": open_tickers, "cooloff": failed_tickers, "exit_cooloff": exited_tickers}
     skipped = [c for c in candidates if c["ticker"] in blocked]
     candidates = [c for c in candidates if c["ticker"] not in blocked]
 
@@ -188,6 +189,8 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
             except Exception as e:
                 logger.exception(f"Gate runner [{signal['ticker']}]: evaluation raised — {e}")
                 continue
+            result["rule_states"] = {**_pre_chain_states(signal["ticker"], pre_checks),
+                                     **result.get("rule_states", {})}
             evaluated.append((signal, result))
     cycle.reason = evaluated_reason(len(candidates), len(evaluated))
 
@@ -348,6 +351,17 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
         result["_l5_lock_results"] = chain.lock_results
         result["_l5_context"]      = context
     return result
+
+
+def _pre_chain_states(ticker: str, checks: dict[str, set[str]]) -> dict[str, str]:
+    """L1's checks before the chain, each with its verdict for this ticker: the live blocklist, an open position,
+    gate cooloff, exit cooloff (Niclas 2026-10-29: separate markers). Only the checks the candidate met are passed
+    in: pre-rotation candidates are not checked against the live blocklist (gate_runner_live; input to the
+    watchlist and rotation work after phase 4), so blocklist is absent on their rows."""
+    states: dict[str, str] = {}
+    for ident, tickers in checks.items():
+        lock_codes.put(states, ident, lock_codes.FAIL if ticker in tickers else lock_codes.PASS)
+    return states
 
 
 def _overflow_state(result: dict, refused: bool) -> None:
