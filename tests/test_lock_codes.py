@@ -3,7 +3,8 @@
 Phase 1 changes no stored string, so the codes are pinned to what the gate tables hold; the cooloff
 set is pinned to ruling 6 ("behåll cool off nu"); the labels to the chain approved 2026-10-24.
 """
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
+from zoneinfo import ZoneInfo
 
 from backend.gate import lock_codes
 from backend.gate.chain import ChainResult
@@ -245,11 +246,14 @@ def test_gate_history_rows_carry_states_and_reason_label(monkeypatch):
     from backend.routers import live_router
     from backend.routers.live_router import live_gate_history
     monkeypatch.setattr(live_router, "LIVE_ENABLED", False)   # no broker call (conftest refuses it)
-    now = datetime.now(timezone.utc).isoformat()
+    # The endpoint serves rows since today's 09:30 ET; a row stamped "now" is outside it before the open
+    # (failed every morning in Stockholm, found 2026-10-29 10:08), so stamp it at the open.
+    et = ZoneInfo("America/New_York")
+    at_open = datetime.combine(datetime.now(et).date(), time(9, 30), tzinfo=et).isoformat()
     conn = db.get_db()
     try:
         conn.execute("INSERT INTO live_gate_history (ticker, sector, gate_decision, lock3_pass, timestamp) "
-                     "VALUES ('RSX', 'Tech', 'FILTERED_OVERFLOW_QUANT', 0, ?)", (now,))
+                     "VALUES ('RSX', 'Tech', 'FILTERED_OVERFLOW_QUANT', 0, ?)", (at_open,))
         conn.commit()
     finally:
         conn.close()
