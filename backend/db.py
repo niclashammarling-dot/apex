@@ -444,6 +444,9 @@ def init_db() -> None:
         # rejected) — enforced cap and its source, the flat cap, projected exposure, and
         # whether each cap would reject. Observe-only evidence for the two-caps decision.
         _add_column_if_missing(conn, "live_gate_history", "outcome_reason",    "TEXT")
+        # Demo from lock labels phase 2 (2026-10-29: "demo = live except trading"): the wallet's refusal or the
+        # runner's pre-L5 position check, by its rule identifier (lock_codes.RULES). NULL on older demo rows.
+        _add_column_if_missing(conn, "demo_gate_history", "outcome_reason",    "TEXT")
         _add_column_if_missing(conn, "live_gate_history", "cap_check",         "TEXT")
         # One value per gate cycle, shared by every row it writes (2026-09-30): CHECK 83
         # keyed on row minutes and read one slow cycle (09-28, 1m40s under weekly_research)
@@ -1114,14 +1117,14 @@ def insert_demo_gate_result(row: dict) -> None:
                  lock3_pass, gate_decision, lock3_reasoning, l2_summary,
                  lock3_sentiment_score, lock3_conviction, macro_reason, ticker_signal,
                  earnings_near, days_to_earnings, overflow_slot, cycle_started_at,
-                 signal_ts, bar_date)
+                 signal_ts, bar_date, outcome_reason)
             VALUES
                 (:timestamp, :ticker, :sector, :signal_score,
                  :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
                  :lock3_pass, :gate_decision, :lock3_reasoning, :l2_summary,
                  :lock3_sentiment_score, :lock3_conviction, :macro_reason, :ticker_signal,
                  :earnings_near, :days_to_earnings, :overflow_slot, :cycle_started_at,
-                 :signal_ts, :bar_date)
+                 :signal_ts, :bar_date, :outcome_reason)
         """
         _assert_insert_fields("insert_demo_gate_result", _SQL, row)
         conn.execute(_SQL, {**row,
@@ -1133,7 +1136,8 @@ def insert_demo_gate_result(row: dict) -> None:
               "overflow_slot":         1 if row.get("overflow_slot") else 0,
               "cycle_started_at":      row.get("cycle_started_at"),
               "signal_ts":             row.get("signal_ts"),
-              "bar_date":              row.get("bar_date")})
+              "bar_date":              row.get("bar_date"),
+              "outcome_reason":        row.get("outcome_reason")})
         conn.commit()
     finally:
         conn.close()

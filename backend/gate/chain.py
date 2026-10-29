@@ -132,12 +132,8 @@ def evaluate_chain(
     l1 = lock1_evaluate(ticker, sector, cfg)
     lock_results[1] = l1
     for ident, verdict in l1.data.get("rule_states", {}).items():
-        try:
-            r = lock_codes.rule_for(ident)
-        except KeyError:    # an identifier outside the register names no rule: the stop is unknown, not a raise
+        if not lock_codes.put(states, ident, verdict):   # outside the register: the stop is unknown, not a raise
             logger.error(f"[{ticker}] Lock 1 identifier {ident!r} is not in lock_codes.RULES — stop unknown")
-            continue
-        states[lock_codes.rule_key(r.owner, r.name)] = verdict
     if not l1.passed:
         return _chain_fail(ticker, sector, lock_results, exit_lock=1, states=states)
     unpenalised_score = signal_score

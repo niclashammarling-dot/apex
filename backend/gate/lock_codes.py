@@ -263,7 +263,7 @@ RULES: tuple[Rule, ...] = (
          "lock1_eligibility data key; the penalty bites at the score re-test (chain.py); never fired"),
     Rule(2, "etf", config_keys=("etf_negative_penalty", "etf_negative_floor"),
          source="chain.py ETF re-test (exit_label FILTERED_ETF_PENALTY)"),
-    Rule(2, "overflow", config_keys=("overflow_quant_increment",), source="gate_runner*.py execution phase"),
+    Rule(2, "overflow", ("overflow",), ("overflow_quant_increment",), "gate_runner*.py execution phase"),
     Rule(2, "max_positions", ("max_positions",), ("max_positions",),
          "wallet.execute_trade: demo max positions without an overflow slot"),
     Rule(2, "sector_cap", ("sector_cap",), ("max_sector_exposure",),
@@ -331,6 +331,17 @@ def parse_stop_code(code: str) -> tuple[int, str]:
         return parse_rule_key(code[len("FILTERED_"):])
     except KeyError:
         raise KeyError(f"not a registered stop_code: {code!r}") from None
+
+
+def put(states: dict[str, str], ident: str, verdict: str) -> bool:
+    """Record a writer's identifier (fail_type, outcome_reason) with its verdict under its rule's key. False when
+    the identifier is in no rule: nothing is recorded, so the row's stop is unknown rather than guessed."""
+    try:
+        r = rule_for(ident)
+    except KeyError:
+        return False
+    states[rule_key(r.owner, r.name)] = verdict
+    return True
 
 
 def stop_of(states: dict[str, str]) -> tuple[int, str] | None:

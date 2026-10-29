@@ -90,7 +90,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
             "l2_summary": None, "macro_reason": None,
             "ticker_signal": None, "earnings_near": None, "days_to_earnings": None,
             "lock3_sentiment_score": None, "lock3_conviction": None,
-            "overflow_slot": False,
+            "overflow_slot": False, "outcome_reason": None,
             "signal_ts": c.get("timestamp"), "bar_date": c.get("bar_date"),
         })
 
@@ -209,14 +209,18 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
         if result["outcome"] == "TRADE_QUEUED_PENDING_L5":
             sector         = signal.get("sector", "")
             base_threshold = (sector_thresholds or {}).get(sector, cfg["lock1_threshold"])
+            states = result.setdefault("rule_states", {})
+            lock_codes.put(states, "position_open", lock_codes.FAIL if ticker in open_tickers else lock_codes.PASS)
             if ticker in open_tickers:
                 logger.info(f"Gate runner: trade skipped [{ticker}]: position already open (pre-L5)")
                 result["outcome"] = "TRADE_REJECTED"
+                result["outcome_reason"] = "position_open"
                 result.pop("_l5_lock_results", None)
                 result.pop("_l5_context", None)
             elif open_count >= max_positions:
                 overflow_level     = open_count - max_positions + 1
                 overflow_threshold = round(base_threshold * (1 + overflow_level * overflow_increment), 4)
+                _overflow_state(result, signal["signal_score"] < overflow_threshold)
                 if signal["signal_score"] < overflow_threshold:
                     logger.warning(
                         f"Gate runner [{ticker}]: overflow slot {overflow_level} rejected pre-L5 — "
@@ -252,6 +256,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
                 base_threshold   = (sector_thresholds or {}).get(sector, cfg["lock1_threshold"])
                 overflow_level   = open_count - max_positions + 1
                 overflow_threshold = round(base_threshold * (1 + overflow_level * overflow_increment), 4)
+                _overflow_state(result, signal["signal_score"] < overflow_threshold)
                 if signal["signal_score"] < overflow_threshold:
                     result["outcome"] = lock_codes.OVERFLOW
                     logger.info(
@@ -300,6 +305,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
             "earnings_near":          result.get("earnings_near"),
             "days_to_earnings":       result.get("days_to_earnings"),
             "overflow_slot":          result.get("overflow_slot", False),
+            "outcome_reason":         result.get("outcome_reason"),   # the wallet's or the runner's rule identifier
             "signal_ts":              signal.get("timestamp"),
             "bar_date":               signal.get("bar_date"),
         })
@@ -342,6 +348,12 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
         result["_l5_lock_results"] = chain.lock_results
         result["_l5_context"]      = context
     return result
+
+
+def _overflow_state(result: dict, refused: bool) -> None:
+    """L2 overflow's verdict on a candidate beyond max_positions (both runners' execution phase). With a slot
+    free the rule does not run: the row's L2 stays open until max_positions is reached (ruling E, 2026-10-26)."""
+    lock_codes.put(result.setdefault("rule_states", {}), "overflow", lock_codes.FAIL if refused else lock_codes.PASS)
 
 
 def _run_l5_for_result(signal: dict, result: dict, cfg: dict) -> None:
