@@ -1073,6 +1073,16 @@
       "tier": "money",
       "source": "Demo minimum order: the literal `amount < 50` in wallet.execute_trade since 0660e4a (2026-03-25), never measured. Named 2026-10-29 (lock labels phase 2) when L1's affordability check also runs before the chain on the largest possible notional.",
       "review": "2026-11-14"
+    },
+    "backend/gate/history_classify.py::GATE_COOLOFF_HOURS": {
+      "value": {
+        "live": 4,
+        "demo": 5
+      },
+      "kind": "structural",
+      "tier": "ops",
+      "source": "gate_cooloff_hours as data/live_config.json (4) and data/demo_config.json (5) hold it since the configs are tracked (2026-06-26). History replay only (lock labels phase 2, the cooloff split, 2026-10-29): with these and the cooloff set in force, every SKIPPED_COOLOFF row in the three tables is explained; no live gate, size or exit reads it.",
+      "date": "2026-10-29"
     }
   }
 }

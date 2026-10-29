@@ -35,7 +35,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from backend.gate import lock_codes
 from backend.gate.lock_codes import lock_code
@@ -55,8 +57,17 @@ PRE_EVENT_REASONLESS_DAY = "2026-07-02"
 TEST_ROW = ("demo_gate_history", 1276)
 TEST_ROW_CODE = "REMOVE_TEST_ROW"
 
-# The pre-chain skips: the rows the runners wrote before any lock ran, now L1's rules.
+# The pre-chain skips: the rows the runners wrote before any lock ran, now L1's rules. SKIPPED_COOLOFF held two
+# checks (Niclas 2026-10-29: "Skipped cooloff och exit cooloff bör vara olika markörer"): CooloffIndex says which.
 SKIPS = {"SKIPPED_BLOCKLIST": "blocklist", "SKIPPED_COOLOFF": "cooloff", "SKIPPED_OPEN": "position_open"}
+# The gate cooloff set held FILTERED_MACRO, the April macro gate's code, until 6794433 (2026-05-12 16:33 CEST).
+MACRO_COOLOFF_UNTIL = "2026-05-12T14:33:12+00:00"
+# gate_cooloff_hours per book and the exit windows (exit_cooloff_hours after any exit, tp_cooloff_hours after a
+# TP/TSL win), as the configs hold them since they are tracked (2026-06-26). Replayed with these and the set in
+# force, every cooloff skip in the three tables is explained (probe 2026-10-29: live 1432 gate / 1869 exit / 3 both
+# after the 133 April rows the macro code explains; demo 1846 / 2395 / 71).
+GATE_COOLOFF_HOURS = {"live": 4, "demo": 5}
+EXIT_COOLOFF_HOURS, TP_COOLOFF_HOURS = 24, 168
 # Live's whole-share sizing failure was recorded as a broker error; the order could not buy one share
 # (11 rows, LLY, 2026-10-12..10-16; PRODUCTION_GAP row 34). The text decides it, so the rule is L1 notional_too_small (eighth round).
 QTY_ZERO = "broker_error: Computed qty=0"
@@ -163,7 +174,69 @@ def _score_in_reason(text: str) -> float | None:
     return float(m.group(1)) if m else None
 
 
-def classify(table: str, row: dict) -> Class:
+def _at(ts: str) -> datetime:
+    t = datetime.fromisoformat(ts)
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+class CooloffIndex:
+    """Which cooloff stopped each SKIPPED_COOLOFF row, replayed at the time it was decided: a gate stop (an L4/L6
+    decision, and FILTERED_MACRO until MACRO_COOLOFF_UNTIL) within gate_cooloff_hours → `cooloff`; the ticker's
+    own exit within its window → `exit_cooloff`; both → `cooloff`, first in the register (ruling 2026-10-29).
+    Live reads live_gate_history and live_trades; demo reads demo_gate_history (the demo runner read the `signals`
+    copy, whose row is overwritten by each cycle's decision, so a stop can be gone from it) and trades. A
+    `signals` row's timestamp is the signal's poll time, not the decision's: it takes the time of the last demo
+    cooloff skip of the ticker between its own time and the ticker's next signal, else its own time. A row neither
+    cooloff explains raises: the migration stops rather than guess."""
+
+    def __init__(self, conn) -> None:
+        def rows(sql):
+            return conn.execute(sql).fetchall()
+        self.stops: dict[tuple[str, str], list] = defaultdict(list)
+        self.exits: dict[tuple[str, str], list] = defaultdict(list)
+        for book, table in (("live", "live_gate_history"), ("demo", "demo_gate_history")):
+            for t, ts, code in rows(f"SELECT ticker, timestamp, gate_decision FROM {table} "
+                                    "WHERE gate_decision IN ('FILTERED_L2', 'FILTERED_L3', 'FILTERED_MACRO')"):
+                self.stops[(book, t)].append((_at(ts), code))
+        for book, table in (("live", "live_trades"), ("demo", "trades")):
+            for t, ex, out, why in rows(f"SELECT ticker, exited_at, outcome, exit_reason FROM {table} "
+                                        "WHERE exited_at IS NOT NULL AND outcome IN ('WIN', 'LOSS', 'EXPIRED')"):
+                hours = TP_COOLOFF_HOURS if (out == "WIN" and why in ("TP", "TSL")) else EXIT_COOLOFF_HOURS
+                self.exits[(book, t)].append((_at(ex), hours))
+        self.demo_skips: dict[str, list] = defaultdict(list)
+        for t, ts in rows("SELECT ticker, timestamp FROM demo_gate_history WHERE gate_decision = 'SKIPPED_COOLOFF'"):
+            self.demo_skips[t].append(_at(ts))
+        self.signal_times: dict[str, list] = defaultdict(list)
+        for t, ts in rows("SELECT ticker, timestamp FROM signals"):
+            self.signal_times[t].append(_at(ts))
+        for d in (self.demo_skips, self.signal_times):
+            for v in d.values():
+                v.sort()
+
+    def rule(self, table: str, row: dict) -> tuple[str, str]:
+        t, at = row["ticker"], _at(row["timestamp"])
+        book = "live" if table == "live_gate_history" else "demo"
+        when = "at the row's time"
+        if table == "signals":
+            times = self.signal_times[t]
+            nxt = next((x for x in times if x > at), None)
+            matched = [d for d in self.demo_skips[t] if at <= d and (nxt is None or d < nxt)]
+            if matched:
+                at, when = matched[-1], "at the matched demo_gate_history decision"
+            else:
+                when = "at the signal's time (no matched demo decision)"
+        codes = ("FILTERED_L2", "FILTERED_L3") + (("FILTERED_MACRO",) if at < _at(MACRO_COOLOFF_UNTIL) else ())
+        gate = any(0 < (at - s).total_seconds() < GATE_COOLOFF_HOURS[book] * 3600 and c in codes
+                   for s, c in self.stops[(book, t)])
+        exit_ = any(0 < (at - x).total_seconds() < h * 3600 for x, h in self.exits[(book, t)])
+        if gate:
+            return "cooloff", f"inferred:gate cooloff {when}" + ("; the exit cooloff held too" if exit_ else "")
+        if exit_:
+            return "exit_cooloff", f"inferred:exit cooloff {when}"
+        raise UnclassifiedRow(f"{table} id {row.get('id')}: a cooloff skip neither cooloff explains {when}")
+
+
+def classify(table: str, row: dict, cooloff: CooloffIndex | None = None) -> Class:
     if table not in TABLES:
         raise ValueError(f"not a gate table: {table}")
     code = row.get("gate_decision")
@@ -178,6 +251,12 @@ def classify(table: str, row: dict) -> Class:
 
     if code == "TRADE_EXECUTED":
         return Class(code, code, None, "field")
+
+    if code == "SKIPPED_COOLOFF":           # gate or exit cooloff, replayed (CooloffIndex)
+        if cooloff is None:
+            raise UnclassifiedRow(f"{table} id {row.get('id')}: a cooloff skip needs the CooloffIndex")
+        rule, basis = cooloff.rule(table, row)
+        return _lock(1, rule, 2, basis)
 
     if code in SKIPS:                       # written before any lock ran
         return _lock(1, SKIPS[code], 2)

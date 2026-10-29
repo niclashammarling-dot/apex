@@ -46,6 +46,10 @@ def db(tmp_path):
     for t, rows in ROWS.items():
         conn.execute(f"CREATE TABLE {t} ({COLS})")
         conn.executemany(f"INSERT INTO {t} VALUES ({', '.join('?' * 13)})", rows)
+    # The cooloff replay reads the trades: CVX exited on a stop 6 h before its cooloff skip (constructed row).
+    for t in ("live_trades", "trades"):
+        conn.execute(f"CREATE TABLE {t} (ticker TEXT, exited_at TEXT, outcome TEXT, exit_reason TEXT)")
+    conn.execute("INSERT INTO live_trades VALUES ('CVX', '2026-06-03T11:48:00+00:00', 'LOSS', 'SL')")
     conn.commit()
     yield conn
     conn.close()
@@ -65,7 +69,7 @@ def test_migrate_recodes_records_and_reverse_restores(db):
     got = {t: dict(db.execute(f"SELECT id, stop_code FROM {t}")) for t in ROWS}
     assert got == {
         "live_gate_history": {1: "FILTERED_L1_ELIGIBILITY_MACRO_PRE_EVENT", 2: "FILTERED_L2_RISK_ETF",
-                              3: "FILTERED_L1_ELIGIBILITY_NOTIONAL_TOO_SMALL", 4: "FILTERED_L1_ELIGIBILITY_COOLOFF"},
+                              3: "FILTERED_L1_ELIGIBILITY_NOTIONAL_TOO_SMALL", 4: "FILTERED_L1_ELIGIBILITY_EXIT_COOLOFF"},
         "demo_gate_history": {7439: "FILTERED_L0_PORTFOLIO_DRAWDOWN_GUARD"},          # 1276 deleted
         "signals": {10: None, 11: "FILTERED_L1_ELIGIBILITY_MACRO_EVENT"},             # ungated stays NULL
     }
@@ -119,7 +123,7 @@ def test_migrate_writes_the_rule_states_the_row_proves_and_reverse_clears_them(d
     assert got[("live_gate_history", 3)]["L1_ELIGIBILITY_NOTIONAL_TOO_SMALL"] == "fail"
     assert got[("live_gate_history", 3)]["L6_REVIEW_CLAUDE"] == "pass"
     # A skip ran no chain lock: only its rule.
-    assert got[("live_gate_history", 4)] == {"L1_ELIGIBILITY_COOLOFF": "fail"}
+    assert got[("live_gate_history", 4)] == {"L1_ELIGIBILITY_EXIT_COOLOFF": "fail"}
     # The guard (L0): L5 passed, L6 never ran (its 0 is NULL after ruling D, so no Claude verdict is claimed).
     assert got[("demo_gate_history", 7439)]["L0_PORTFOLIO_DRAWDOWN_GUARD"] == "fail"
     assert "L6_REVIEW_CLAUDE" not in got[("demo_gate_history", 7439)]

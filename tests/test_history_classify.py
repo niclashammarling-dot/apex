@@ -17,7 +17,18 @@ from pathlib import Path
 import pytest
 
 from backend.gate import lock_codes
-from backend.gate.history_classify import ELIGIBILITY_FAIL_TYPES, TABLES, UnclassifiedRow, classify, pass_flags
+from backend.gate.history_classify import (ELIGIBILITY_FAIL_TYPES, TABLES, CooloffIndex, UnclassifiedRow, classify,
+                                          pass_flags)
+
+
+class _GateCooloff:
+    """The cooloff replay's answer for the real cooloff row below (CVX 2026-03-30: a gate stop, replayed on
+    production 2026-10-29). The replay itself is tested on its own fixture (test_cooloff_index_*)."""
+    def rule(self, table, row):
+        return "cooloff", "inferred:gate cooloff at the row's time"
+
+
+COOLOFF = _GateCooloff()
 
 GATE = Path(__file__).resolve().parents[1] / "backend" / "gate"
 
@@ -158,7 +169,7 @@ CASES = [
      "FILTERED_L1_ELIGIBILITY_POSITION_OPEN", "field"),
     (LIVE, {"id": 6, "timestamp": "2026-03-30T16:38:44.491463+00:00", "ticker": "CVX",
             "gate_decision": "SKIPPED_COOLOFF", "signal_score": 0.6108},
-     "FILTERED_L1_ELIGIBILITY_COOLOFF", "field"),
+     "FILTERED_L1_ELIGIBILITY_COOLOFF", "inferred"),
     (DEMO, {"id": 1276, "timestamp": "2026-01-01T00:00:00", "ticker": "_TEST",
             "gate_decision": "FILTERED_L1", "signal_score": 0.5},
      "REMOVE_TEST_ROW", "field"),
@@ -167,7 +178,7 @@ CASES = [
 
 @pytest.mark.parametrize("table, row, stop_code, basis", CASES, ids=[f"{c[2]}-{c[3]}-{c[1]['id']}" for c in CASES])
 def test_each_class_from_a_real_row(table, row, stop_code, basis):
-    k = classify(table, row)
+    k = classify(table, row, COOLOFF)
     assert (k.stop_code, k.basis.split(":")[0]) == (stop_code, basis)
     assert k.stop_code.startswith(k.code)                      # ruling B: the CHECK's invariant
     if k.basis != "field":
@@ -266,7 +277,7 @@ def test_every_rule_config_key_is_labelled_with_the_rule_lock():
 
 def test_every_outcome_is_owned_by_a_lock_or_is_unknown():
     for table, row, *_ in CASES:
-        k = classify(table, row)
+        k = classify(table, row, COOLOFF)
         if k.code in ("TRADE_EXECUTED", "REMOVE_TEST_ROW", lock_codes.UNKNOWN):
             assert k.stop_code == k.code
             continue
@@ -277,7 +288,7 @@ def test_every_outcome_is_owned_by_a_lock_or_is_unknown():
 def test_cooloff_stops_are_the_rows_the_old_cooloff_codes_held():
     # Ruling 6 (keep cooloff as is): {FILTERED_L2, FILTERED_L3} before phase 2, the same rows after it.
     for table, row, *_ in CASES:
-        k = classify(table, row)
+        k = classify(table, row, COOLOFF)
         old = row["gate_decision"] in ("FILTERED_L2", "FILTERED_L3") and k.code != "REMOVE_TEST_ROW"
         assert (k.stop_code in lock_codes.COOLOFF_STOPS) == old, row["id"]
 
@@ -307,6 +318,68 @@ FLAGS = {"lock1_pass": 0, "lock2_pass": 0, "lock_leading_pass": 0, "lock3_pass":
 ])
 def test_pass_flags_are_null_after_the_last_lock_that_ran(code, extra, ran):
     row = {"id": 1, "timestamp": "2026-10-01T15:00:00+00:00", "gate_decision": code, **FLAGS, **extra}
-    flags = pass_flags(classify(LIVE, row), row)
+    flags = pass_flags(classify(LIVE, row, COOLOFF), row)
     assert {c for c, v in flags.items() if v is not None} == set(ran)
     assert all(flags[c] == row[c] for c in ran)
+
+
+# ── Gate or exit cooloff (Niclas 2026-10-29: "Skipped cooloff och exit cooloff bör vara olika markörer") ──
+
+def _cooloff_db(stops=(), exits=(), demo_skips=(), signals=()):
+    import sqlite3
+    c = sqlite3.connect(":memory:")
+    for t in ("live_gate_history", "demo_gate_history"):
+        c.execute(f"CREATE TABLE {t} (ticker TEXT, timestamp TEXT, gate_decision TEXT)")
+    for t in ("live_trades", "trades"):
+        c.execute(f"CREATE TABLE {t} (ticker TEXT, exited_at TEXT, outcome TEXT, exit_reason TEXT)")
+    c.execute("CREATE TABLE signals (ticker TEXT, timestamp TEXT)")
+    c.executemany("INSERT INTO live_gate_history VALUES (?, ?, ?)", stops)
+    c.executemany("INSERT INTO demo_gate_history VALUES (?, ?, ?)",
+                  [(t, ts, "SKIPPED_COOLOFF") for t, ts in demo_skips] + list(stops))
+    c.executemany("INSERT INTO live_trades VALUES (?, ?, ?, ?)", exits)
+    c.executemany("INSERT INTO trades VALUES (?, ?, ?, ?)", exits)
+    c.executemany("INSERT INTO signals VALUES (?, ?)", signals)
+    return CooloffIndex(c)
+
+
+def _skip(ticker, ts):
+    return {"id": 1, "ticker": ticker, "timestamp": ts, "gate_decision": "SKIPPED_COOLOFF"}
+
+
+def test_cooloff_index_tells_gate_from_exit_and_gives_both_to_cooloff():
+    idx = _cooloff_db(stops=[("AAA", "2026-07-01T14:00:00+00:00", "FILTERED_L3")],
+                      exits=[("BBB", "2026-07-01T10:00:00+00:00", "LOSS", "SL"),
+                             ("AAA", "2026-07-01T13:00:00+00:00", "LOSS", "SL"),
+                             ("CCC", "2026-06-28T10:00:00+00:00", "WIN", "TP")])     # TP win: 168 h
+    assert idx.rule(LIVE, _skip("AAA", "2026-07-01T16:00:00+00:00"))[0] == "cooloff"          # both: cooloff
+    assert "exit cooloff held too" in idx.rule(LIVE, _skip("AAA", "2026-07-01T16:00:00+00:00"))[1]
+    assert idx.rule(LIVE, _skip("BBB", "2026-07-02T09:00:00+00:00"))[0] == "exit_cooloff"     # 23 h after an SL
+    assert idx.rule(LIVE, _skip("CCC", "2026-07-03T10:00:00+00:00"))[0] == "exit_cooloff"     # 120 h after a TP
+    with pytest.raises(UnclassifiedRow):
+        idx.rule(LIVE, _skip("BBB", "2026-07-02T11:00:00+00:00"))                             # 25 h: neither
+
+
+def test_cooloff_index_reads_the_april_macro_code_until_it_left_the_set():
+    # 6794433 (2026-05-12) took FILTERED_MACRO out of the gate cooloff set; the April skips were cooled by it.
+    idx = _cooloff_db(stops=[("AAA", "2026-04-08T13:00:00+00:00", "FILTERED_MACRO"),
+                             ("AAA", "2026-05-20T13:00:00+00:00", "FILTERED_MACRO")])
+    assert idx.rule(LIVE, _skip("AAA", "2026-04-08T15:00:00+00:00"))[0] == "cooloff"
+    with pytest.raises(UnclassifiedRow):
+        idx.rule(LIVE, _skip("AAA", "2026-05-20T15:00:00+00:00"))
+
+
+def test_cooloff_index_replays_a_signals_row_at_the_matched_demo_decision():
+    # signals.timestamp is the signal's poll time; the decision came later (LLY 2026-10-22: the L2 stop at 19:03
+    # cooled the 19:14 skip written onto the 17:20 signal row).
+    idx = _cooloff_db(stops=[("LLY", "2026-10-22T19:03:54+00:00", "FILTERED_L2")],
+                      demo_skips=[("LLY", "2026-10-22T19:14:18+00:00")],
+                      signals=[("LLY", "2026-10-22T17:20:52+00:00"), ("LLY", "2026-10-22T20:05:52+00:00")])
+    rule, basis = idx.rule("signals", _skip("LLY", "2026-10-22T17:20:52+00:00"))
+    assert rule == "cooloff" and "matched demo_gate_history decision" in basis
+    with pytest.raises(UnclassifiedRow):
+        idx.rule("live_gate_history", _skip("LLY", "2026-10-22T17:20:52+00:00"))   # live never saw the demo stop
+
+
+def test_a_cooloff_skip_without_the_index_is_refused():
+    with pytest.raises(UnclassifiedRow):
+        classify(LIVE, _skip("AAA", "2026-07-01T16:00:00+00:00"))

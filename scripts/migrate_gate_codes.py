@@ -5,7 +5,8 @@ Lock labels phase 2: re-code the gate history (backend/gate/history_migrate.py),
         Copies the database with SQLite's backup API into DIR, migrates the copy, and checks it:
           1. counts per (table, old code, stop_code, basis) against the scope note's table (probed 10-26),
              on the rows that existed then; every row since must be a class the table already has;
-          2. every skip row re-coded to its L1 rule (eighth round), one for one against the original's codes;
+          2. every skip row re-coded to its L1 rule (eighth round; a cooloff skip to gate or exit cooloff,
+             2026-10-29), one for one against the original's codes;
           3. every column except the codes and the pass flags byte-identical to the original (scope step 3,
              first identity check); a pass flag either kept or set NULL, and never NULL where it was 1 on a
              row that ran a lock (ruling D; skips wrote lock1_pass 1 without running L3);
@@ -168,12 +169,19 @@ def dry_run(src: Path, out_dir: Path) -> int:
         got = Counter(r[0] for r in conn.execute(f"SELECT stop_code FROM {t} WHERE stop_code IS NOT NULL"))
         for old, rule in SKIPS.items():
             want = sum(1 for c in c0.values() if c == old)
-            stop = lock_codes.stop_code(1, rule)
-            extra = conn.execute(f"SELECT COUNT(*) FROM gate_code_migration WHERE tbl = ? AND stop_code = ? "
-                                 f"AND old_code != ?", (t, stop, old)).fetchone()[0]
-            report.setdefault("skips", {}).setdefault(t, {})[old] = {"original": want, stop: got[stop] - extra}
-            if got[stop] - extra != want:
-                findings.append(f"{t} {old}: {want} in the original, {got[stop] - extra} re-coded to {stop}")
+            # SKIPPED_COOLOFF splits into gate and exit cooloff (Niclas 2026-10-29); together they are one for one.
+            rules = ("cooloff", "exit_cooloff") if old == "SKIPPED_COOLOFF" else (rule,)
+            entry = {"original": want}
+            n = 0
+            for r in rules:
+                stop = lock_codes.stop_code(1, r)
+                extra = conn.execute(f"SELECT COUNT(*) FROM gate_code_migration WHERE tbl = ? AND stop_code = ? "
+                                     f"AND old_code != ?", (t, stop, old)).fetchone()[0]
+                entry[stop] = got[stop] - extra
+                n += got[stop] - extra
+            report.setdefault("skips", {}).setdefault(t, {})[old] = entry
+            if n != want:
+                findings.append(f"{t} {old}: {want} in the original, {n} re-coded to {', '.join(rules)}")
 
     # 3. Identity: every column except the codes and flags unchanged, same row ids (less the deleted test row);
     #    a flag kept or NULL, never NULL where it was 1 on a row that ran a lock (ruling D).

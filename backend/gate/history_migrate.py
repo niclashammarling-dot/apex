@@ -25,7 +25,8 @@ import sqlite3
 from collections import Counter
 from datetime import datetime, timezone
 
-from backend.gate.history_classify import TABLES, TEST_ROW_CODE, classify, history_rule_states, pass_flags
+from backend.gate.history_classify import (TABLES, TEST_ROW_CODE, CooloffIndex, classify, history_rule_states,
+                                          pass_flags)
 
 RECORD = "gate_code_migration"
 PASS_FLAGS = ("lock1_pass", "lock2_pass", "lock3_pass", "lock_leading_pass")
@@ -61,6 +62,9 @@ def migrate(conn: sqlite3.Connection, migrated_at: str | None = None) -> Counter
             if conn.execute(f"SELECT COUNT(*) FROM {RECORD}").fetchone()[0]:
                 raise RuntimeError(f"{RECORD} already holds rows: this database was migrated")
         conn.execute(_RECORD_DDL)
+        conn.row_factory = None
+        cooloff = CooloffIndex(conn)          # gate or exit cooloff for each SKIPPED_COOLOFF row
+        conn.row_factory = sqlite3.Row
         for table in TABLES:
             for col in ("stop_code", "rule_states"):
                 if col not in _columns(conn, table):
@@ -69,7 +73,7 @@ def migrate(conn: sqlite3.Connection, migrated_at: str | None = None) -> Counter
             rows = conn.execute(f"SELECT * FROM {table} WHERE gate_decision IS NOT NULL ORDER BY id").fetchall()
             for r in rows:
                 row = dict(r)
-                k = classify(table, row)
+                k = classify(table, row, cooloff)
                 deleted = None
                 if k.code == TEST_ROW_CODE:
                     deleted = json.dumps(row, sort_keys=True, default=str)
