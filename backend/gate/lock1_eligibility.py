@@ -32,6 +32,7 @@ from datetime import date
 from loguru import logger
 
 from backend.config import EXCLUDED_SECTORS
+from backend.gate.lock_codes import FAIL, NO_DATA, PASS
 from backend.gate.types import LockResult
 # One calendar for Lock 1 and both backtest engines (2026-10-17, Niclas: "live måste ha
 # en enda kalender att gå efter"): backend/macro_calendar.py, official FOMC / BLS dates.
@@ -64,6 +65,11 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
     """
     Evaluate eligibility for a ticker.
 
+    data["rule_states"] holds each check that ran, by the identifier it emits (lock_codes.rule_for maps it
+    to its rule): PASS, FAIL (the fail_type), or NO_DATA when the check had no input and let the ticker
+    through (VIX unreadable, no earnings date). The pre-event penalties are decided at the score test
+    (chain.py), so they are not here.
+
     Checks (in order):
       1. Regime: sector must be in leaderboard above allocation floor
       2. VIX: must be below threshold
@@ -85,6 +91,15 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
     Returns:
         LockResult with lock_id=1
     """
+    states: dict[str, str] = {}
+    result = _evaluate(ticker, sector, cfg, states)
+    if not result.passed:
+        states[result.data["fail_type"]] = FAIL
+    result.data["rule_states"] = states
+    return result
+
+
+def _evaluate(ticker: str, sector: str, cfg: dict, states: dict[str, str]) -> LockResult:
     # ── 0. Structural exclusion — before any market-state check ──────────────
     if sector in EXCLUDED_SECTORS:
         return LockResult.fail(
@@ -152,6 +167,8 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
             },
         )
 
+    states["regime"] = PASS
+
     # ── B. Macro filter ───────────────────────────────────────────────────────
     _vt = cfg.get("vix_threshold")
     vix_threshold     = 25.0 if _vt is None else _vt
@@ -178,6 +195,8 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
             },
         )
 
+    states["vix"] = PASS if vix is not None else NO_DATA
+
     _eb = cfg.get("macro_event_blackout_days")
     cpi_nfp_blackout = 1 if _eb is None else _eb
     macro_status, event_desc = _macro_status(today, _FOMC_PRE_EVENT_DAYS, cpi_nfp_blackout)
@@ -193,6 +212,7 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
                 "vix":              vix,
             },
         )
+    states["macro_event"] = PASS
     macro_penalty_data: dict = {}
     if macro_status == "pre_event":
         macro_penalty_data = {
@@ -225,6 +245,8 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
                 "days_to_earnings":      delta,
                 "earnings_near_penalty": earnings_near_penalty,
             }
+
+    states["earnings"] = PASS if earnings else NO_DATA
 
     # ── Pass ──────────────────────────────────────────────────────────────────
     logger.debug(

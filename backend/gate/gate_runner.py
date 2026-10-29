@@ -23,7 +23,7 @@ from backend.db import (
     insert_demo_gate_result,
     update_signal_gate,
 )
-from backend.gate.chain import ChainResult, build_base_context, evaluate_chain
+from backend.gate.chain import ChainResult, build_base_context, evaluate_chain, verdict_states
 from backend.gate.cycle import GateCycle, evaluated_reason, record_stale
 from backend.gate import lock_codes
 
@@ -368,6 +368,7 @@ def _run_l5_for_result(signal: dict, result: dict, cfg: dict) -> None:
         "model":             l5_data.get("model"),
     }
     result["lock3_pass"]       = int(l5.passed)
+    result.setdefault("rule_states", {}).update(verdict_states(6, "claude", l5))
     result["claude_reasoning"] = l5_data.get("reasoning")
     result["outcome"]         = "TRADE_QUEUED" if l5.passed else lock_codes.REVIEW_REJECT
 
@@ -379,7 +380,7 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
         lock1_pass = Lock 2 quant result     (L3 SCORE)
         lock2_pass = Lock 3 sentiment result (L4 SENTIMENT)
         lock3_pass = Lock 5 Claude result    (L6 REVIEW)
-    Phase 2 renames the columns to the chain (l3_score_pass …).
+    Phase 3 part a renames the columns to the chain (l3_score_pass …; ruling 2026-10-28, eighth round).
     """
     lr = chain.lock_results
     l1 = lr.get(1)   # Eligibility
@@ -437,6 +438,7 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
         "ticker_signal": signal.get("ticker_signal"),
         "timestamp":    datetime.now(timezone.utc).isoformat(),
         "outcome":      outcome,
+        "rule_states":  dict(chain.rule_states),   # lock_codes.rule_key → verdict; L6 added by _run_l5_for_result
         # Named lock dicts (used by _log_summary and wallet.execute_trade)
         "lock1":        lock1_compat,
         "lock2":        l3.to_dict() if l3 else None,

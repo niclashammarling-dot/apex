@@ -280,6 +280,7 @@ def evaluate(ticker: str, sentiment_min: float | None = None) -> LockResult:
             lock_id=LOCK_ID,
             reason="Grok API unavailable — failing closed",
             data={
+                "unavailable": True,   # the rule is `unavailable`, not Grok's verdict (lock_codes.RULES)
                 "score":      None,
                 "conviction": None,
                 "key_themes": [],

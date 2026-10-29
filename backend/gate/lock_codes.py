@@ -109,7 +109,8 @@ STAGES: tuple[Stage, ...] = (
 # The macro_earnings_* keys are earnings rules (L2) despite their prefix; macro_* without it are L1's calendar.
 LOCK_KEYS: dict[int, tuple[str, ...]] = {
     0: ("max_drawdown_pct", "daily_loss_cap"),
-    1: ("vix_threshold", "macro_event_blackout_days", "macro_pre_event_penalty", "gate_cooloff_hours"),
+    1: ("vix_threshold", "macro_event_blackout_days", "macro_pre_event_penalty", "gate_cooloff_hours",
+        "exit_cooloff_hours", "tp_cooloff_hours"),
     2: ("macro_earnings_blackout_days", "macro_earnings_near_days", "macro_earnings_near_penalty",
         "max_sector_exposure", "max_positions"),
 }
@@ -233,12 +234,22 @@ class Rule:
 RULES: tuple[Rule, ...] = (
     Rule(0, "drawdown_guard", config_keys=("max_drawdown_pct",), cooloff=True,
          source="chain.py mechanical pre-L5 guard (reason ends '(mechanical pre-L5 guard)')"),
-    Rule(0, "loss_cap", ("loss_cap",), ("daily_loss_cap",), "wallet.execute_trade: demo daily realised loss cap"),
+    Rule(0, "loss_cap", ("loss_cap",), ("daily_loss_cap",),
+         "M4 rule 2 in live (portfolio_l0.HALT_LOSS_CAP, cycle level); wallet.execute_trade's fixed-dollar cap in demo"),
+    Rule(0, "halt_m4_drawdown", ("halt_m4_drawdown",),
+         source="M4 rule 1, portfolio_l0.HALT_DRAWDOWN: realised equity off its peak (live, cycle level)"),
+    Rule(0, "halt_m4_expectancy", ("halt_m4_expectancy",),
+         source="M4 rule 3, portfolio_l0.HALT_EXPECTANCY: the trailing sample's expectancy (live, cycle level)"),
     Rule(1, "blocklist", ("blocklist",), source="gate_runner_live: the live blocklist, before the chain"),
-    Rule(1, "cooloff", ("cooloff",), ("gate_cooloff_hours",), "both runners: a recent L4/L6 stop, before the chain"),
+    Rule(1, "cooloff", ("cooloff",), ("gate_cooloff_hours",),
+         "both runners, before the chain: a recent L4/L6 stop (the gate cooloff; before 2026-10-31 SKIPPED_COOLOFF "
+         "also held the exit cooloff)"),
+    Rule(1, "exit_cooloff", ("exit_cooloff",), ("exit_cooloff_hours", "tp_cooloff_hours"),
+         "both runners, before the chain: the ticker's own recent exit (tp_cooloff_hours after a TP/TSL win, "
+         "exit_cooloff_hours after any other exit; db.get_recently_exited_*tickers)"),
     Rule(1, "position_open", ("position_open",),
          source="both runners before the chain, and the execution re-check (gate_runner_live, wallet)"),
-    Rule(1, "regime", ("excluded_sector", "regime_unavailable", "below_leaderboard_cutoff", "regime_floor"),
+    Rule(1, "regime", ("regime", "excluded_sector", "regime_unavailable", "below_leaderboard_cutoff", "regime_floor"),
          source="lock1_eligibility fail_type: the regime module's verdict on the sector"),
     Rule(1, "vix", ("vix",), ("vix_threshold",), "lock1_eligibility fail_type"),
     Rule(1, "macro_event", ("macro_event",), ("macro_event_blackout_days",), "lock1_eligibility fail_type"),
@@ -283,19 +294,51 @@ def owner_code(owner: int) -> str:
     return lock_code(owner)
 
 
+# A row's rule_states: every rule that ran on it, by rule_key, with its verdict (Niclas 2026-10-29: "Kedjan
+# anger ägare och regel för varje stopp, men även för varje pass"). A rule that did not run is absent.
+# NO_DATA: the rule ran without its input and let the row through (VIX unreadable, no earnings date), which a
+# pass would hide. A failure mode (unavailable, broker_error) appears only as FAIL.
+PASS, FAIL, NO_DATA = "pass", "fail", "no_data"
+_ORDER: dict[tuple[int, str], int] = {(r.owner, r.name): i for i, r in enumerate(RULES)}
+
+
+def rule_key(owner: int, rule: str) -> str:
+    """"L1_ELIGIBILITY_MACRO_EVENT": a registered rule's one name. rule_states keys are this, and a stop_code is
+    "FILTERED_" + this (ruling B), so a rule is spelled once wherever it is used."""
+    if (owner, rule) not in _ORDER:
+        raise KeyError(f"no rule {rule!r} under {owner!r} in lock_codes.RULES")
+    return f"L{owner}_{LOCKS[owner][0]}_{rule.upper()}"
+
+
+def parse_rule_key(key: str) -> tuple[int, str]:
+    """(owner, rule) of a rule_key: the inverse of rule_key, through the register."""
+    for r in RULES:
+        if key == f"L{r.owner}_{LOCKS[r.owner][0]}_{r.name.upper()}":
+            return r.owner, r.name
+    raise KeyError(f"not a registered rule_key: {key!r}")
+
+
 def stop_code(owner: int, rule: str) -> str:
     """"FILTERED_L1_ELIGIBILITY_MACRO_EVENT": the owner's code + "_" + a registered rule (ruling B)."""
-    if not any(r.owner == owner and r.name == rule for r in RULES):
-        raise KeyError(f"no rule {rule!r} under {owner!r} in lock_codes.RULES")
-    return f"{owner_code(owner)}_{rule.upper()}"
+    return "FILTERED_" + rule_key(owner, rule)
 
 
 def parse_stop_code(code: str) -> tuple[int, str]:
     """(owner, rule) of a stop_code: the inverse of stop_code, through the register. UNKNOWN has no owner."""
-    for r in RULES:
-        if code == f"{owner_code(r.owner)}_{r.name.upper()}":
-            return r.owner, r.name
-    raise KeyError(f"not a registered stop_code: {code!r}")
+    if not code.startswith("FILTERED_"):
+        raise KeyError(f"not a registered stop_code: {code!r}")
+    try:
+        return parse_rule_key(code[len("FILTERED_"):])
+    except KeyError:
+        raise KeyError(f"not a registered stop_code: {code!r}") from None
+
+
+def stop_of(states: dict[str, str]) -> tuple[int, str] | None:
+    """The rule that owns a row's stop: its first FAIL in chain order, by lock and then register order (ruling
+    2026-10-28: "macro slår till först, L1, så den regeln gäller först"; when gate and exit cooloff both hold,
+    cooloff). None when nothing failed. Writers and readers both take the stop from here."""
+    fails = [parse_rule_key(k) for k, v in states.items() if v == FAIL]
+    return min(fails, key=lambda f: (f[0], _ORDER[f])) if fails else None
 
 
 def rule_for(emitted: str) -> Rule:

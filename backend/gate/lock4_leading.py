@@ -153,7 +153,8 @@ def evaluate(ticker: str, sector: str, pcr_mode: str = "pooled_scalar") -> LockR
           no errors, ≥1 pass → price group PASS
       OPTIONS group (put_call_ratio, unusual_calls):
           ≥1 pass → options group PASS
-          (options errors surface at the shared fetch level, not per-check)
+          (options errors surface at the shared fetch level: a failed fetch marks both checks
+           `error`, so a fail it decides is L5 `unavailable`, data["unavailable"])
       LD passes only when BOTH groups pass.
 
     Args:
@@ -230,6 +231,7 @@ def evaluate(ticker: str, sector: str, pcr_mode: str = "pooled_scalar") -> LockR
     options_checks = [checks["put_call_ratio"],     checks["unusual_calls"]]
 
     price_errors      = sum(1 for c in price_checks   if c and c.get("error"))
+    options_errors    = sum(1 for c in options_checks if c and c.get("error"))
     price_passes      = sum(1 for c in price_checks   if c and c.get("pass"))
     options_passes    = sum(1 for c in options_checks if c and c.get("pass"))
 
@@ -248,6 +250,11 @@ def evaluate(ticker: str, sector: str, pcr_mode: str = "pooled_scalar") -> LockR
         "price_group_pass":    price_group_pass,
         "options_group_pass":  options_group_pass,
         "price_errors":        price_errors,
+        "options_errors":      options_errors,
+        # A data error decided the failing group: the rule is `unavailable`, not `leading` (lock_codes.RULES).
+        # The price group fails on any error; the options group decides only when the price group passed.
+        "unavailable":         (not passed) and ((not price_group_pass and price_errors > 0)
+                                                 or (price_group_pass and options_errors > 0)),
         # Kept for DB compat (lock_leading_checks serialised as JSON)
         "sub_checks":          checks,
     }
@@ -261,6 +268,8 @@ def evaluate(ticker: str, sector: str, pcr_mode: str = "pooled_scalar") -> LockR
             )
         elif not price_group_pass:
             reason = "price group failed — neither RS nor VA passed"
+        elif options_errors > 0:
+            reason = f"options group failed ({options_errors} error(s)) — {checks['put_call_ratio']['reason'][:60]}"
         else:
             reason = "options group failed — neither PCR nor unusual calls passed"
         logger.debug(f"Lock 4 [{ticker}] FAIL — {reason}")
@@ -384,8 +393,9 @@ def _check_put_call_ratio(chains: list[tuple], fetch_err: str | None = None,
                            in threshold_mode so the fallback rate is observable.
     """
     if not chains:
-        reason = f"no options data ({fetch_err})" if fetch_err else "no options data (no listed expiries)"
-        return {"pass": False, "reason": reason}
+        if fetch_err:   # a fetch error is a data error (L5 `unavailable`); no listed expiries is not
+            return {"pass": False, "error": True, "reason": f"no options data ({fetch_err})"}
+        return {"pass": False, "reason": "no options data (no listed expiries)"}
 
     call_oi = put_oi = 0
     for calls, puts in chains:
@@ -430,8 +440,9 @@ def _check_put_call_ratio(chains: list[tuple], fetch_err: str | None = None,
 def _check_unusual_call_volume(chains: list[tuple], fetch_err: str | None = None) -> dict:
     """Call volume >= 2x put volume across near-term expiries."""
     if not chains:
-        reason = f"no options data ({fetch_err})" if fetch_err else "no options data (no listed expiries)"
-        return {"pass": False, "reason": reason}
+        if fetch_err:   # a fetch error is a data error (L5 `unavailable`); no listed expiries is not
+            return {"pass": False, "error": True, "reason": f"no options data ({fetch_err})"}
+        return {"pass": False, "reason": "no options data (no listed expiries)"}
 
     call_vol = put_vol = 0
     for calls, puts in chains:

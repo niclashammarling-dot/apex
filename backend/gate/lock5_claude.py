@@ -152,7 +152,8 @@ def _fail_closed(cause: str) -> LockResult:
         lock_id=LOCK_ID,
         reason=reason,
         data={"decision": "HOLD", "confidence": 0.0, "position_size_pct": 0.0,
-              "reasoning": reason, "model": None},
+              "reasoning": reason, "model": None,
+              "unavailable": True},   # the rule is `unavailable`, not Claude's decision (lock_codes.RULES)
     )
 
 
@@ -161,6 +162,10 @@ def _fail_closed(cause: str) -> LockResult:
 # lock_results keys by module lock id: the chain's names, as the prompt uses them. Until 2026-10-26
 # they were the module names (lock1_eligibility … lock4_leading) while the prompt said Lock 1–4.
 _PAYLOAD_KEYS = {1: "l1_eligibility", 2: "l3_score", 3: "l4_sentiment", 4: "l5_positioning"}
+# The chain's bookkeeping in a lock's data (lock labels phase 2, 2026-10-29): which rules ran and whether a data
+# error decided the lock. It names rows; it is not evidence about the candidate, and the Lock 5 prompt approved
+# 2026-10-26 was written without it, so Claude's input stays as it was.
+_BOOKKEEPING = ("rule_states", "unavailable", "options_errors")
 
 
 def _build_context_payload(
@@ -181,7 +186,7 @@ def _build_context_payload(
                 "passed": r.passed,
                 "score":  round(r.score, 4),
                 "reason": r.reason,
-                "data":   r.data,
+                "data":   {k: v for k, v in r.data.items() if k not in _BOOKKEEPING},
             }
 
     payload = {
