@@ -163,7 +163,7 @@ def live_gate_history():
             pass
 
     from backend.gate.lock_codes import as_api, decorate_rows
-    return {"rows": decorate_rows(rows), "funnel": funnel, "blocked_reason": blocked_reason, "locks": as_api()}
+    return {"rows": decorate_rows(rows, "live"), "funnel": funnel, "blocked_reason": blocked_reason, "locks": as_api()}
 
 
 @router.post("/config/promote")

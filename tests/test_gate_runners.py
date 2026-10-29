@@ -103,12 +103,28 @@ def _lr_fail(lock_id: int, reason: str = "fail") -> LockResult:
     return LockResult.fail(lock_id=lock_id, reason=reason, data={})
 
 
+# The rule each module lock records, in the order the chain meets them (chain.py rule_states; lock labels phase 2).
+_MODULE_RULES = {1: [(1, "regime"), (1, "vix"), (1, "macro_event"), (2, "earnings")],
+                 2: [(3, "threshold"), (1, "macro_pre_event"), (2, "earnings_near")],
+                 3: [(4, "grok")], 4: [(5, "leading"), (2, "etf"), (0, "drawdown_guard")], 5: [(6, "claude")]}
+# The rule a fixture's failing module lock stops on.
+_STOP_RULE = {1: (1, "regime"), 2: (3, "threshold"), 3: (4, "grok"), 4: (5, "leading"), 5: (6, "claude")}
+
+
+def _states(upto: int, stop: int | None = None) -> dict[str, str]:
+    from backend.gate.lock_codes import FAIL, PASS, rule_key
+    out = {rule_key(o, r): PASS for m in range(1, upto + 1) for (o, r) in _MODULE_RULES[m] if m != stop}
+    if stop is not None:
+        out[rule_key(*_STOP_RULE[stop])] = FAIL
+    return out
+
+
 def _chain_pass(ticker: str = "NVDA", sector: str = "Technology") -> ChainResult:
     """Return a fully-passing ChainResult (all 5 locks)."""
     lr = {i: _lr_pass(i) for i in range(1, 6)}
     return ChainResult(
         ticker=ticker, sector=sector, approved=True, exit_lock=None,
-        lock_results=lr, final_score=0.85, summary="APPROVED",
+        lock_results=lr, final_score=0.85, summary="APPROVED", rule_states=_states(5),
     )
 
 
@@ -124,7 +140,7 @@ def _chain_fail_at(
     return ChainResult(
         ticker=ticker, sector=sector, approved=False, exit_lock=exit_lock,
         lock_results=lr, final_score=0.3,
-        summary=f"REJECTED at Lock {exit_lock} — {reason}",
+        summary=f"REJECTED at Lock {exit_lock} — {reason}", rule_states=_states(exit_lock, stop=exit_lock),
     )
 
 
@@ -215,14 +231,15 @@ class TestDemoGateRunner:
         update_mock = mocks[7]  # update_signal_gate
         update_mock.assert_called_once()
         saved = update_mock.call_args[0][1]
-        assert saved["gate_decision"] == "SKIPPED_OPEN"
+        assert saved["gate_decision"] == "FILTERED_L1_ELIGIBILITY"
+        assert saved["stop_code"] == "FILTERED_L1_ELIGIBILITY_POSITION_OPEN"
 
     def test_all_candidates_skipped_cooloff(self):
         results, mocks = _run_demo(candidates=[_signal("NVDA")],
                                    failed_tickers={"NVDA"})
         assert results == []
         saved = mocks[7].call_args[0][1]
-        assert saved["gate_decision"] == "SKIPPED_COOLOFF"
+        assert saved["stop_code"] == "FILTERED_L1_ELIGIBILITY_COOLOFF"
 
     def test_mixed_skip_and_evaluate(self):
         results, mocks = _run_demo(
@@ -231,38 +248,38 @@ class TestDemoGateRunner:
         )
         assert len(results) == 1
         assert results[0]["ticker"] == "AAPL"
-        # Two DB writes: one SKIPPED_OPEN + one evaluation result
+        # Two DB writes: one L1 position_open skip + one evaluation result
         assert mocks[7].call_count == 2
 
     def test_eligibility_fail_returns_filtered_eligibility(self):
         results, _ = _run_demo(candidates=[_signal()],
                                chain_result=_chain_fail_at(1))
-        assert results[0]["outcome"]       == "FILTERED_ELIGIBILITY"
-        assert results[0]["gate_decision"] == "FILTERED_ELIGIBILITY"
+        assert results[0]["outcome"]       == "FILTERED_L1_ELIGIBILITY"
+        assert results[0]["gate_decision"] == "FILTERED_L1_ELIGIBILITY"
 
     def test_l1_fail_returns_filtered_l1(self):
         results, _ = _run_demo(candidates=[_signal()],
                                chain_result=_chain_fail_at(2))
-        assert results[0]["outcome"]       == "FILTERED_L1"
-        assert results[0]["gate_decision"] == "FILTERED_L1"
+        assert results[0]["outcome"]       == "FILTERED_L3_SCORE"
+        assert results[0]["gate_decision"] == "FILTERED_L3_SCORE"
 
     def test_l2_fail_returns_filtered_l2(self):
         results, _ = _run_demo(candidates=[_signal()],
                                chain_result=_chain_fail_at(3))
-        assert results[0]["outcome"]       == "FILTERED_L2"
-        assert results[0]["gate_decision"] == "FILTERED_L2"
+        assert results[0]["outcome"]       == "FILTERED_L4_SENTIMENT"
+        assert results[0]["gate_decision"] == "FILTERED_L4_SENTIMENT"
 
     def test_leading_fail_returns_filtered_leading(self):
         results, _ = _run_demo(candidates=[_signal()],
                                chain_result=_chain_fail_at(4))
-        assert results[0]["outcome"]       == "FILTERED_LEADING"
-        assert results[0]["gate_decision"] == "FILTERED_LEADING"
+        assert results[0]["outcome"]       == "FILTERED_L5_POSITIONING"
+        assert results[0]["gate_decision"] == "FILTERED_L5_POSITIONING"
 
     def test_l3_fail_returns_filtered_l3(self):
         results, _ = _run_demo(candidates=[_signal()],
                                chain_result=_chain_fail_at(5))
-        assert results[0]["outcome"]       == "FILTERED_L3"
-        assert results[0]["gate_decision"] == "FILTERED_L3"
+        assert results[0]["outcome"]       == "FILTERED_L6_REVIEW"
+        assert results[0]["gate_decision"] == "FILTERED_L6_REVIEW"
 
     def test_all_pass_trade_executed(self):
         results, _ = _run_demo(candidates=[_signal()], trade_result=True)
@@ -270,9 +287,11 @@ class TestDemoGateRunner:
         assert results[0]["gate_decision"] == "TRADE_EXECUTED"
 
     def test_all_pass_wallet_rejects_trade(self):
+        # A wallet refusal names its rule (wallet.execute_trade); a mock returning None without one is the
+        # broken contract, FILTERED_UNKNOWN (tests/test_execution_rule_states.py covers both).
         results, _ = _run_demo(candidates=[_signal()], trade_result=None)
-        assert results[0]["outcome"]       == "TRADE_REJECTED"
-        assert results[0]["gate_decision"] == "TRADE_REJECTED"
+        assert results[0]["outcome"]       == "FILTERED_UNKNOWN"
+        assert results[0]["gate_decision"] == "FILTERED_UNKNOWN"
 
     def test_gate_decision_not_derived_from_lock_internals(self):
         # Regression: gate_decision must never echo lock5's "BUY" decision
@@ -522,14 +541,14 @@ class TestLiveGateRunner:
         insert_mock = mocks[9]  # insert_live_gate_result
         insert_mock.assert_called_once()
         saved = insert_mock.call_args[0][0]
-        assert saved["gate_decision"] == "SKIPPED_OPEN"
+        assert saved["stop_code"] == "FILTERED_L1_ELIGIBILITY_POSITION_OPEN"
 
     def test_cooloff_ticker_skipped(self):
         results, mocks = _run_live(candidates=[_signal("NVDA")],
                                    failed_tickers={"NVDA"})
         assert results == []
         saved = mocks[9].call_args[0][0]
-        assert saved["gate_decision"] == "SKIPPED_COOLOFF"
+        assert saved["stop_code"] == "FILTERED_L1_ELIGIBILITY_COOLOFF"
 
     def test_all_skipped_no_evaluations(self):
         results, mocks = _run_live(
@@ -553,36 +572,36 @@ class TestLiveGateRunner:
             results, mocks = _run_live(candidates=[_signal("HON", sector="Industrials")])
         assert results == []
         saved = mocks[9].call_args[0][0]
-        assert saved["gate_decision"] == "SKIPPED_BLOCKLIST"
+        assert saved["stop_code"] == "FILTERED_L1_ELIGIBILITY_BLOCKLIST"
 
     # ── Pipeline outcomes ─────────────────────────────────────────────────────
 
     def test_eligibility_fail(self):
         results, _ = _run_live(candidates=[_signal()],
                                chain_result=_chain_fail_at(1))
-        assert results[0]["outcome"]       == "FILTERED_ELIGIBILITY"
-        assert results[0]["gate_decision"] == "FILTERED_ELIGIBILITY"
+        assert results[0]["outcome"]       == "FILTERED_L1_ELIGIBILITY"
+        assert results[0]["gate_decision"] == "FILTERED_L1_ELIGIBILITY"
 
     def test_l1_fail(self):
         results, _ = _run_live(candidates=[_signal()],
                                chain_result=_chain_fail_at(2))
-        assert results[0]["outcome"]       == "FILTERED_L1"
-        assert results[0]["gate_decision"] == "FILTERED_L1"
+        assert results[0]["outcome"]       == "FILTERED_L3_SCORE"
+        assert results[0]["gate_decision"] == "FILTERED_L3_SCORE"
 
     def test_l2_fail(self):
         results, _ = _run_live(candidates=[_signal()],
                                chain_result=_chain_fail_at(3))
-        assert results[0]["outcome"] == "FILTERED_L2"
+        assert results[0]["outcome"] == "FILTERED_L4_SENTIMENT"
 
     def test_leading_fail(self):
         results, _ = _run_live(candidates=[_signal()],
                                chain_result=_chain_fail_at(4))
-        assert results[0]["outcome"] == "FILTERED_LEADING"
+        assert results[0]["outcome"] == "FILTERED_L5_POSITIONING"
 
     def test_l3_fail(self):
         results, _ = _run_live(candidates=[_signal()],
                                chain_result=_chain_fail_at(5))
-        assert results[0]["outcome"] == "FILTERED_L3"
+        assert results[0]["outcome"] == "FILTERED_L6_REVIEW"
 
     def test_all_pass_trade_executed(self):
         results, mocks = _run_live(candidates=[_signal()])
@@ -595,22 +614,24 @@ class TestLiveGateRunner:
         # score=0.50 < overflow_threshold=0.525 (base 0.50 × 1.05) → overflow rejection
         results, mocks = _run_live(candidates=[_signal(score=0.50)], positions=positions,
                                    cfg_overrides={"max_positions": 5})
-        assert results[0]["outcome"] == "FILTERED_OVERFLOW_QUANT"
+        assert results[0]["stop_code"] == "FILTERED_L2_RISK_OVERFLOW"
         mocks[14].assert_not_called()
 
     def test_ticker_already_open_at_execution_rejected(self):
         # Race condition: position opened between evaluation and execution
         results, mocks = _run_live(candidates=[_signal("NVDA")],
                                    positions=[{"ticker": "NVDA", "cost_basis": 200.0}])
-        assert results[0]["outcome"] == "TRADE_REJECTED"
+        assert results[0]["stop_code"] == "FILTERED_L1_ELIGIBILITY_POSITION_OPEN"
         mocks[14].assert_not_called()
 
     def test_notional_too_small_rejected(self):
-        # equity=$1 → notional = 1 * 0.10 = $0.10, below $10 floor
+        # equity=$1 → the largest notional = 1 * 0.10 = $0.10, below the $10 floor: refused at L1 before the chain
         results, mocks = _run_live(candidates=[_signal()],
                                    account=_account(equity=1.0, buying_power=1.0),
                                    cfg_overrides={"max_position_size": 0.10})
-        assert results[0]["outcome"] == "TRADE_REJECTED"
+        assert results == []
+        assert mocks[9].call_args[0][0]["stop_code"] == "FILTERED_L1_ELIGIBILITY_NOTIONAL_TOO_SMALL"
+        mocks[11].assert_not_called()
         mocks[14].assert_not_called()
 
     def test_broker_exception_sets_trade_failed(self):
@@ -622,19 +643,20 @@ class TestLiveGateRunner:
             stack.enter_context(boom)
             from backend.gate import gate_runner_live
             results = gate_runner_live.run()
-        assert results[0]["outcome"] == "TRADE_FAILED"
+        assert results[0]["outcome"] == "FILTERED_L6_REVIEW"
         # gate_decision written to DB must match the final outcome
         saved = mocks[9].call_args[0][0]  # insert_live_gate_result arg
-        assert saved["gate_decision"] == "TRADE_FAILED"
+        assert saved["gate_decision"] == "FILTERED_L6_REVIEW"
+        assert saved["stop_code"] == "FILTERED_L6_REVIEW_BROKER_ERROR"
         assert saved["alpaca_order_id"] is None
 
     def test_max_positions_gate_decision_in_db(self):
         positions = [{"ticker": f"T{i}"} for i in range(5)]
-        # score=0.50 < overflow_threshold → FILTERED_OVERFLOW_QUANT, counted in overflow_fail funnel
+        # score=0.50 < overflow_threshold → L2 overflow, counted under L2 · Risk in the funnel
         results, mocks = _run_live(candidates=[_signal(score=0.50)], positions=positions,
                                    cfg_overrides={"max_positions": 5})
         saved = mocks[9].call_args[0][0]
-        assert saved["gate_decision"] == "FILTERED_OVERFLOW_QUANT"
+        assert saved["gate_decision"] == "FILTERED_L2_RISK" and saved["stop_code"] == "FILTERED_L2_RISK_OVERFLOW"
 
     def test_gate_decision_not_buy_for_executed_trade(self):
         results, _ = _run_live(candidates=[_signal()])
@@ -657,11 +679,11 @@ class TestLiveGateRunner:
     # ── Demo / live parity ────────────────────────────────────────────────────
 
     @pytest.mark.parametrize("exit_lock,expected_outcome", [
-        (1, "FILTERED_ELIGIBILITY"),
-        (2, "FILTERED_L1"),
-        (3, "FILTERED_L2"),
-        (4, "FILTERED_LEADING"),
-        (5, "FILTERED_L3"),
+        (1, "FILTERED_L1_ELIGIBILITY"),
+        (2, "FILTERED_L3_SCORE"),
+        (3, "FILTERED_L4_SENTIMENT"),
+        (4, "FILTERED_L5_POSITIONING"),
+        (5, "FILTERED_L6_REVIEW"),
     ])
     def test_demo_live_outcome_parity(self, exit_lock, expected_outcome):
         """Both runners produce identical outcome and gate_decision for each failure mode."""
@@ -676,7 +698,7 @@ class TestLiveGateRunner:
         assert live_results[0]["gate_decision"] == expected_outcome
 
     def test_both_runners_record_skipped_open(self):
-        """Both runners write SKIPPED_OPEN to their respective DB tables."""
+        """Both runners write the L1 position_open skip to their respective DB tables."""
         sig = _signal("NVDA")
 
         demo_results, demo_mocks = _run_demo(candidates=[sig],
@@ -687,8 +709,7 @@ class TestLiveGateRunner:
         demo_saved = demo_mocks[7].call_args[0][1]  # update_signal_gate
         live_saved = live_mocks[9].call_args[0][0]  # insert_live_gate_result
 
-        assert demo_saved["gate_decision"] == "SKIPPED_OPEN"
-        assert live_saved["gate_decision"] == "SKIPPED_OPEN"
+        assert demo_saved["stop_code"] == live_saved["stop_code"] == "FILTERED_L1_ELIGIBILITY_POSITION_OPEN"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

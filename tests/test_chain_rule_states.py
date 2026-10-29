@@ -176,22 +176,28 @@ def test_a_failed_score_test_without_its_threshold_is_an_unknown_stop_not_a_gues
     assert not cr.approved and cr.exit_lock == 2 and cr.stop is None
 
 
+# The code the pre-phase-2 writer stored for a chain stop, frozen here (lock_codes.outcome_for and chain.py's
+# exit_label until 2026-10-31): module exit_lock → code, the ETF re-test under its own code.
+_LEGACY_CODE = {1: "FILTERED_ELIGIBILITY", 2: "FILTERED_L1", 3: "FILTERED_L2", 4: "FILTERED_LEADING", 5: "FILTERED_L3"}
+
+
 @pytest.mark.parametrize("name, kwargs, stop, states, readable", [c for c in CASES if c[4]],
                          ids=[c[0] for c in CASES if c[4]])
 def test_the_writer_and_the_history_classifier_name_the_same_stop(name, kwargs, stop, states, readable):
-    # The row today's writer stores (gate_runner._chain_to_gate_result → insert_live_gate_result), classified as
-    # the migration will classify it. Excluded: classes history never held, which the classifier refuses
-    # (a genuine threshold stop after 06-16, earnings_near, both penalties).
+    # The row the pre-phase-2 writer would have stored for this stop, classified as the migration classifies
+    # history: the same stop_code as the writer now derives (so migrated and new rows mean the same). Excluded:
+    # classes history never held, which the classifier refuses (a genuine threshold stop after 06-16,
+    # earnings_near, both penalties).
     cr = _run(**kwargs)
     signal = {"ticker": "AAPL", "sector": SECTOR, "id": 1, "signal_score": kwargs.get("score", 0.80)}
     res = gate_runner._chain_to_gate_result(signal, cr)
-    row = {"id": 1, "timestamp": res["timestamp"], "gate_decision": res["outcome"],
+    legacy = "FILTERED_ETF_PENALTY" if cr.stop == (2, "etf") else _LEGACY_CODE[cr.exit_lock]
+    row = {"id": 1, "timestamp": res["timestamp"], "gate_decision": legacy,
            "signal_score": signal["signal_score"], "lock3_reasoning": res["claude_reasoning"],
            "macro_reason": res["macro_reason"], "l2_summary": res["l2_summary"],
-           "lock1_pass": res["lock1_pass"], "lock2_pass": res["lock2_pass"],
-           "lock_leading_pass": res["lock_leading_pass"], "lock_leading_checks": res["lock_leading_checks"],
-           "lock3_pass": res["lock3_pass"]}
+           "lock_leading_checks": res["lock_leading_checks"], **lock_codes.flags(cr.rule_states)}
     assert classify("live_gate_history", row).stop_code == lock_codes.stop_code(*stop)
+    assert gate_runner._finalize({**res, "outcome": gate_runner.STOPPED})["stop_code"] == lock_codes.stop_code(*stop)
 
 
 def test_the_deferred_review_adds_claude_rule_to_the_runner_result():

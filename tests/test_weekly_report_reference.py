@@ -22,14 +22,17 @@ from backend.db import close_live_trade, close_trade, get_db, init_db, insert_li
 init_db()
 
 
-def _gate_rows(table: str, at: str, decisions: dict[str, int]):
+def _gate_rows(table: str, at: str, stops: dict[str, int]):
+    """Rows by stop_code (lock labels phase 2); gate_decision is the owner's lock code."""
+    from backend.gate import lock_codes
     conn = get_db()
     try:
-        for decision, n in decisions.items():
+        for stop, n in stops.items():
+            code = stop if stop == "TRADE_EXECUTED" else lock_codes.lock_code(lock_codes.parse_stop_code(stop)[0])
             for i in range(n):
                 conn.execute(
-                    f"INSERT INTO {table} (timestamp, ticker, sector, gate_decision) VALUES (?, ?, ?, ?)",
-                    (at, f"R{i}", "Technology", decision),
+                    f"INSERT INTO {table} (timestamp, ticker, sector, gate_decision, stop_code) VALUES (?, ?, ?, ?, ?)",
+                    (at, f"R{i}", "Technology", code, stop),
                 )
         conn.commit()
     finally:
@@ -111,7 +114,7 @@ class TestReference:
         # one TRADE_EXECUTED in each of: this week, prior weeks 1 and 8, and week 9 (outside)
         for k, n in ((0, 5), (1, 2), (wr.REFERENCE_WEEKS, 3), (wr.REFERENCE_WEEKS + 1, 7)):
             at = _monday(self.SINCE, k).replace("00:00:00", "15:00:00")
-            _gate_rows("signals", at, {"TRADE_EXECUTED": n, "FILTERED_ELIGIBILITY": 2 * n})
+            _gate_rows("signals", at, {"TRADE_EXECUTED": n, "FILTERED_L1_ELIGIBILITY_REGIME": 2 * n})
         ref = wr._reference(self.SINCE)
         assert len(ref["weeks"]) == wr.REFERENCE_WEEKS
         assert ref["weeks"][0]["since"] == _monday(self.SINCE, 1)
@@ -119,9 +122,9 @@ class TestReference:
         rb = wr._ref_book(ref, "demo")
         assert sorted(w["funnel"]["demo"]["entered"] for w in ref["weeks"]) == [0] * 6 + [2, 3]
         assert rb["entered"] == {"median": 0, "min": 0, "max": 3}
-        elig = rb["locks"][0]
-        assert elig["stage"] == "L1 · Eligibility"
-        assert (elig["failed"], elig["reached"]) == (10, 15)   # 2·2 + 2·3 filtered of (2+4) + (3+6)
+        elig = rb["locks"][1]
+        assert elig["label"] == "L1 · Eligibility"
+        assert (elig["count"], rb["candidates"]) == (10, 15)   # 2·2 + 2·3 stopped of (2+4) + (3+6) candidates
 
     def test_never_reaches_before_the_lock_chain_start(self, monkeypatch):
         monkeypatch.setattr(wr, "REFERENCE_START", "2033-05-23T00:00:00+00:00")
@@ -153,8 +156,8 @@ class TestReference:
 class TestReportShowsReference:
     def test_html_and_plain_carry_the_reference(self, monkeypatch):
         since = "2033-11-07T00:00:00+00:00"
-        _gate_rows("signals", "2033-11-08T15:00:00+00:00", {"FILTERED_ELIGIBILITY": 4, "TRADE_EXECUTED": 1})
-        _gate_rows("signals", "2033-11-01T15:00:00+00:00", {"FILTERED_ELIGIBILITY": 6, "TRADE_EXECUTED": 2})
+        _gate_rows("signals", "2033-11-08T15:00:00+00:00", {"FILTERED_L1_ELIGIBILITY_REGIME": 4, "TRADE_EXECUTED": 1})
+        _gate_rows("signals", "2033-11-01T15:00:00+00:00", {"FILTERED_L1_ELIGIBILITY_REGIME": 6, "TRADE_EXECUTED": 2})
         _closed_live("r1", "Materials", "2033-11-08T15:00:00+00:00", 5.0)
         _closed_live("r2", "Materials", "2033-11-02T15:00:00+00:00", 7.0)
         monkeypatch.setattr(wr, "_week_start_iso", lambda: since)
@@ -164,7 +167,7 @@ class TestReportShowsReference:
         for text in (html, plain):
             assert f"Prior {wr.REFERENCE_WEEKS} full weeks" in text
             assert "not a cause" in text
-            assert "6/8 (75%)" in text           # prior: 6 filtered of 8 reached at Lock 1
+            assert "6/8 (75%)" in text           # prior: 6 stopped at L1 of 8 candidates
             assert "4/5 (80%)" in text           # this week
         assert "Materials 1/1 $+7" in plain      # prior-week sector row
         assert f"Prior {wr.REFERENCE_WEEKS} wk (demo / live)" in html

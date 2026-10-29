@@ -1059,6 +1059,20 @@
       "kind": "structural",
       "tier": "ops",
       "source": "chain.py multiplies the score by 1 - macro_pre_event_penalty before the score test; the penalty has been 0.05 in live and demo config since it shipped (fdd1a7a, 2026-06-16), so a pre-event bite stores score / signal_score = 0.95: 172 of 172 reasoned FILTERED_L1 rows after 06-16 (probed 2026-10-28). Identifies those rows in the lock labels phase 2 classifier; no gate, size or exit reads it."
+    },
+    "backend/gate/gate_runner_live.py::LIVE_MIN_ORDER": {
+      "value": 10.0,
+      "kind": "chosen",
+      "tier": "money",
+      "source": "Live minimum order: the literal `notional < 10` in gate_runner_live since eda5851 (2026-03-26), never measured. Named 2026-10-29 (lock labels phase 2) when L1's affordability check also runs before the chain on the largest possible notional, together with one whole share.",
+      "review": "2026-11-14"
+    },
+    "backend/wallet.py::MIN_ORDER": {
+      "value": 50.0,
+      "kind": "chosen",
+      "tier": "money",
+      "source": "Demo minimum order: the literal `amount < 50` in wallet.execute_trade since 0660e4a (2026-03-25), never measured. Named 2026-10-29 (lock labels phase 2) when L1's affordability check also runs before the chain on the largest possible notional.",
+      "review": "2026-11-14"
     }
   }
 }

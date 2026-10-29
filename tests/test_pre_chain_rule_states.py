@@ -92,3 +92,49 @@ def test_a_demo_row_carries_the_pre_chain_verdicts_and_no_m4():
     assert {k: states.get(k) for k in SKIPS.values()} == {
         SKIPS["blocklist"]: None, SKIPS["position_open"]: PASS, SKIPS["cooloff"]: PASS, SKIPS["exit_cooloff"]: PASS}
     assert M4.isdisjoint(states)                                      # demo runs no M4 (phase 4 parity input)
+
+
+def test_demo_refuses_an_unaffordable_cycle_before_the_chain():
+    # Demo's largest notional is cash × max_position_size; below the wallet's $50 every candidate is refused at L1
+    # before any Grok, options or Claude call (Niclas 2026-10-28: "Kan vi spara anrop så är det bra").
+    from tests.test_gate_runners import _demo_patches, _signal
+    patches = _demo_patches(candidates=[_signal()])
+    with ExitStack() as st:
+        mocks = [st.enter_context(p) for p in patches]
+        st.enter_context(patch("backend.db.get_portfolio_summary", return_value={"cash": 300.0}))   # 15 % = $45
+        results = gate_runner.run()
+    assert results == []
+    mocks[9].assert_not_called()                                       # evaluate_chain
+    row = mocks[8].call_args[0][0]
+    assert row["stop_code"] == "FILTERED_L1_ELIGIBILITY_NOTIONAL_TOO_SMALL" and row["lock1_pass"] is None
+
+
+def test_a_live_unknown_outcome_is_mailed_once_per_cycle():
+    # A chain stop that names no rule (a lock's identifier outside the register gives this): both rows are
+    # FILTERED_UNKNOWN and the cycle sends one mail listing both.
+    from tests.test_gate_runners import _chain_fail_at, _live_patches, _signal
+    cr = _chain_fail_at(3)
+    cr.rule_states = {}
+    patches = _live_patches(candidates=[_signal("NVDA", sid=1), _signal("AAPL", sid=2)], chain_result=cr)
+    with ExitStack() as st:
+        mocks = [st.enter_context(p) for p in patches]
+        alert = st.enter_context(patch("backend.alerts.alert_gate_unknown"))
+        from backend.gate import gate_runner_live
+        results = gate_runner_live.run()
+    assert [r["gate_decision"] for r in results] == ["FILTERED_UNKNOWN", "FILTERED_UNKNOWN"]
+    assert all(c.args[0]["stop_code"] == "FILTERED_UNKNOWN" for c in mocks[9].call_args_list)
+    alert.assert_called_once()
+    assert alert.call_args[0][0] == "live" and sorted(r["ticker"] for r in alert.call_args[0][1]) == ["AAPL", "NVDA"]
+
+
+def test_alert_gate_unknown_mails_one_message_naming_each_row():
+    from backend import alerts
+    with patch.object(alerts, "_dispatch", return_value=True) as d:
+        assert alerts.alert_gate_unknown("live", [
+            {"ticker": "NVDA", "timestamp": "2026-11-03T14:00", "outcome_reason": None,
+             "rule_states": {K(6, "claude"): PASS}},
+            {"ticker": "AAPL", "timestamp": "2026-11-03T14:00", "outcome_reason": "new_check"}])
+    d.assert_called_once()
+    title, body = d.call_args[0]
+    assert "2 row(s)" in title and "LIVE" in title
+    assert "NVDA" in body and "L6_REVIEW_CLAUDE=pass" in body and "'new_check'" in body and "lock_codes.py" in body

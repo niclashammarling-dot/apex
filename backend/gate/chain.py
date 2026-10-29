@@ -14,8 +14,8 @@ holds the mapping MODULE_TO_CHAIN until the phase 3 rename):
     Lock 1 eligibility (L1 ELIGIBILITY, and L2 RISK's earnings rules)
     → earnings and macro pre-event penalties on the score
     → Lock 2 quant (L3 SCORE) → Lock 3 sentiment (L4 SENTIMENT) → Lock 4 leading (L5 POSITIONING)
-    → ETF penalty re-test of the score (L2 RISK, recorded FILTERED_ETF_PENALTY)
-    → drawdown guard (L0 PORTFOLIO by ruling, recorded as exit_lock 5)
+    → ETF penalty re-test of the score (L2 RISK, rule etf)
+    → drawdown guard (L0 PORTFOLIO, rule drawdown_guard; exit_lock 5 until phase 4 moves it)
     → Lock 5 Claude (L6 REVIEW)
 Both runners pass stop_after_lock=4: the chain returns l5_pending after the guard, and the runner's
 serial execution phase checks overflow (L2 RISK) before it runs Lock 5 for a candidate with a slot.
@@ -45,7 +45,7 @@ from backend.gate.lock3_sentiment import evaluate as lock3_evaluate
 from backend.gate.lock4_leading import evaluate as lock4_evaluate
 from backend.gate.lock5_claude import evaluate as lock5_evaluate
 from backend.gate import lock_codes
-from backend.gate.lock_codes import ETF_PENALTY, FAIL, NO_DATA, PASS
+from backend.gate.lock_codes import FAIL, NO_DATA, PASS
 from backend.gate.types import LockResult
 
 # Minimum posterior gap for Bayes divergence to be considered signal vs. noise.
@@ -63,7 +63,8 @@ class ChainResult:
         ticker        — ticker symbol
         sector        — apex sector
         approved      — True if all 5 locks passed
-        exit_lock     — lock_id where chain stopped (None if all passed)
+        exit_lock     — module lock_id where the chain stopped (None if all passed); the stored codes come
+                        from rule_states (lock_codes.codes_for)
         lock_results  — {lock_id: LockResult} for all evaluated locks
         final_score   — score of the last evaluated lock
         summary       — human-readable chain outcome
@@ -77,7 +78,6 @@ class ChainResult:
     final_score:  float = 0.0
     summary:      str   = ""
     l5_pending:   bool  = False   # L1-L4 passed; L5 deferred to serial execution phase
-    exit_label:   str | None = None  # override lock_codes.outcome_for(exit_lock) when set
     exit_reason:  str | None = None  # custom reason for non-standard exits (shown in L5 slot)
     rule_states:  dict[str, str] = field(default_factory=dict)
 
@@ -215,7 +215,6 @@ def evaluate_chain(
                         f"{etf_negative_floor:.1f}% — penalised score {signal_score:.4f} "
                         f"< sector threshold {quant_threshold:.3f}"
                     ),
-                    exit_label=ETF_PENALTY,
                     states=states,
                 )
 
@@ -318,7 +317,6 @@ def _chain_fail(
     lock_results: dict[int, LockResult],
     exit_lock:    int,
     reason:       str | None = None,
-    exit_label:   str | None = None,
     states:       dict[str, str] | None = None,
 ) -> ChainResult:
     failed  = lock_results[exit_lock]
@@ -334,7 +332,6 @@ def _chain_fail(
         lock_results=lock_results,
         final_score=failed.score,
         summary=summary,
-        exit_label=exit_label,
         exit_reason=msg,
         rule_states=dict(states or {}),
     )

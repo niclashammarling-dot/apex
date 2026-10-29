@@ -1,17 +1,38 @@
 import React, { useEffect, useState } from "react";
 
-// Dashboard surface for live_gate_history.outcome_reason / cap_check, from
-// /api/ops/rejections. Reasons per day (older rows: "unattributed" — their
-// reason was only in the 14-day log), and every execution-side sector cap test
-// with the enforced cap vs the flat cap. Observe-only evidence for the two-caps
-// decision (2026-09-27).
+// Dashboard surface for the gate tables' outcome_reason (live and, from lock labels phase 2, demo) and live's
+// cap_check, from /api/ops/rejections. Refusals per day by the refusing rule ("unknown": a FILTERED_UNKNOWN row,
+// no rule covers it), and every execution-side sector cap test with the enforced cap vs the flat cap.
+// Observe-only evidence for the two-caps decision (2026-09-27).
 const REASON_CLS = {
   sector_cap:         "t-sev-high",
+  max_positions:      "t-sev-medium",
+  loss_cap:           "t-sev-high",
   notional_too_small: "t-sev-medium",
+  price_missing:      "t-sev-medium",
   position_open:      "t-pill-paper",
   broker_error:       "t-sev-high",
-  unattributed:       "t-pill-paper",
+  unknown:            "t-sev-high",
 };
+
+function ReasonDays({ days, book }) {
+  if (days.length === 0) return <div className="t-meta" style={{ marginBottom: 10 }}>{book}: no refusals in 10 days</div>;
+  return (
+    <table className="t-tbl" style={{ marginBottom: 12 }}>
+      <thead><tr><th>{book} day</th><th>Reasons</th></tr></thead>
+      <tbody>
+        {days.map(d => (
+          <tr key={d.date}>
+            <td><strong>{d.date.slice(5)}</strong></td>
+            <td>{Object.entries(d.reasons).map(([k, n]) => (
+              <span key={k} className={"t-pill " + (REASON_CLS[k] || "t-pill-paper")} style={{ marginRight: 6 }}>{k} ×{n}</span>
+            ))}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
 
 const pct = v => `${(v * 100).toFixed(1)}%`;
 const sthlm = ts => new Date(ts).toLocaleString("sv-SE", { timeZone: "Europe/Stockholm", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -39,21 +60,8 @@ export default function LiveRejectionsPanel() {
           {(s.dynamic_rejects_flat_allows || 0) + (s.flat_rejects_dynamic_allows || 0)}
         </strong>
       </div>
-      {data.days.length === 0 ? <div className="t-meta">no rejections or failures in 10 days</div> : (
-        <table className="t-tbl" style={{ marginBottom: 12 }}>
-          <thead><tr><th>Day</th><th>Reasons</th></tr></thead>
-          <tbody>
-            {data.days.map(d => (
-              <tr key={d.date}>
-                <td><strong>{d.date.slice(5)}</strong></td>
-                <td>{Object.entries(d.reasons).map(([k, n]) => (
-                  <span key={k} className={"t-pill " + (REASON_CLS[k] || "t-pill-paper")} style={{ marginRight: 6 }}>{k} ×{n}</span>
-                ))}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <ReasonDays days={data.days} book="LIVE" />
+      <ReasonDays days={data.demo_days || []} book="DEMO" />
       {data.caps.length > 0 && (
         <table className="t-tbl">
           <thead><tr><th>Time (Sthlm)</th><th>Ticker</th><th>Sector</th><th>Projected</th><th>Cap</th><th>Flat</th><th>Decision</th></tr></thead>

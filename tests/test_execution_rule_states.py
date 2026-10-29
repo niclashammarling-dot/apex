@@ -77,8 +77,9 @@ def test_every_identifier_the_wallet_emits_has_one_rule_owned_by_a_lock():
 def _run_demo(score=0.65, open_tickers=(), max_positions=4, refuse=None):
     from tests.test_gate_runners import _chain_pass, _demo_patches, _signal
 
-    def execute(gr, price, **kw):
+    def execute(gr, price, **kw):              # the wallet's contract: a refusal records its rule and reason
         if refuse:
+            lock_codes.put(gr.setdefault("rule_states", {}), refuse, FAIL)
             gr["outcome_reason"] = refuse
             return None
         return {"id": 1}
@@ -93,19 +94,35 @@ def _run_demo(score=0.65, open_tickers=(), max_positions=4, refuse=None):
 
 def test_the_wallet_reason_reaches_demo_gate_history():
     results, mocks = _run_demo(refuse="sector_cap")
-    assert results[0]["outcome"] == "TRADE_REJECTED"
-    assert mocks[8].call_args[0][0]["outcome_reason"] == "sector_cap"
+    row = mocks[8].call_args[0][0]
+    assert results[0]["outcome"] == row["gate_decision"] == "FILTERED_L2_RISK"
+    assert row["stop_code"] == "FILTERED_L2_RISK_SECTOR_CAP" and row["outcome_reason"] == "sector_cap"
+
+
+def test_a_wallet_refusal_without_a_rule_is_unknown_and_mailed():
+    # The wallet's contract broken (None with no reason): no rule failed, so the row is FILTERED_UNKNOWN and the
+    # cycle mails it once (Niclas 2026-10-28: "som direkt flaggas och skickas till min mail").
+    from tests.test_gate_runners import _chain_pass, _demo_patches, _signal
+    patches = _demo_patches(candidates=[_signal()], chain_result=_chain_pass(), trade_result=None)
+    with ExitStack() as st:
+        mocks = [st.enter_context(p) for p in patches]
+        alert = st.enter_context(patch("backend.alerts.alert_gate_unknown"))
+        from backend.gate import gate_runner
+        results = gate_runner.run()
+    assert results[0]["gate_decision"] == lock_codes.UNKNOWN == mocks[8].call_args[0][0]["stop_code"]
+    alert.assert_called_once()
+    assert alert.call_args[0][0] == "demo" and [r["ticker"] for r in alert.call_args[0][1]] == ["NVDA"]
 
 
 def test_the_demo_runner_records_overflow_beyond_max_positions():
     # One position open (AAPL), max 1: NVDA needs an overflow slot at 0.5 × 1.05 = 0.525.
     results, mocks = _run_demo(score=0.51, open_tickers=("AAPL",), max_positions=1)
-    assert results[0]["outcome"] == lock_codes.OVERFLOW
+    assert results[0]["stop_code"] == "FILTERED_L2_RISK_OVERFLOW"
     assert results[0]["rule_states"][K(2, "overflow")] == FAIL
     results, _ = _run_demo(score=0.65, open_tickers=("AAPL",), max_positions=1)
     assert results[0]["outcome"] == "TRADE_EXECUTED" and results[0]["rule_states"][K(2, "overflow")] == PASS
-    results, _ = _run_demo(score=0.65)                                  # a free slot: overflow does not run
-    assert K(2, "overflow") not in results[0]["rule_states"]
+    results, _ = _run_demo(score=0.65)                                  # a free slot passes overflow
+    assert results[0]["rule_states"][K(2, "overflow")] == PASS
 
 
 def test_skip_rows_carry_outcome_reason_so_the_insert_guard_stays_quiet():
@@ -159,26 +176,35 @@ def test_an_executed_live_order_passed_every_execution_check():
     assert lock_codes.stop_of(results[0]["rule_states"]) is None
 
 
-def test_a_notional_below_one_share_is_refused_at_l1_before_the_broker():
-    # LLY 2026-10-12..10-16: $517-862 against a $1181-1272 share reached the broker as qty 0 (a "broker error").
-    results, mocks = _run_live(price=1200.0)            # notional 10 % of $10,000 = $1,000 < one share
+def test_a_notional_below_one_share_is_refused_at_l1_before_the_chain_or_before_the_broker():
+    # LLY 2026-10-12..10-16: $517-862 against a $1181-1272 share reached the broker as qty 0 (a "broker error"),
+    # after a Claude call each time. Before the chain: the largest notional (10 % of $10,000) buys no $1,200 share.
+    results, mocks = _run_live(price=1200.0)
+    mocks[11].assert_not_called() and mocks[14].assert_not_called()
+    assert results == [] and _stored(mocks)["stop_code"] == "FILTERED_L1_ELIGIBILITY_NOTIONAL_TOO_SMALL"
+    # At execution: 15 % could buy a share, Claude's 10 % ($1,000) cannot; refused before the broker.
+    results, mocks = _run_live(price=1200.0, cfg_overrides={"max_position_size": 0.15})
     mocks[14].assert_not_called()
-    assert results[0]["outcome"] == "TRADE_REJECTED" and _stored(mocks)["outcome_reason"] == "notional_too_small"
+    assert _stored(mocks)["outcome_reason"] == "notional_too_small"
     assert lock_codes.stop_of(results[0]["rule_states"]) == (1, "notional_too_small")
+    assert results[0]["lock3_pass"] == 1                 # Claude approved; L1 refused the order after it
     results, mocks = _run_live(price=999.0)             # one share fits: the order goes
     assert results[0]["outcome"] == "TRADE_EXECUTED" and mocks[14].called
 
 
-def test_a_missing_price_is_refused_at_l1_before_the_broker():
+def test_a_missing_price_is_refused_at_l1_before_the_chain():
+    # No price: refused before the chain (no Grok, options or Claude call) and before the broker.
     results, mocks = _run_live(price=None)
+    mocks[11].assert_not_called()                       # evaluate_chain
     mocks[14].assert_not_called()
-    assert _stored(mocks)["outcome_reason"] == "price_missing"
-    assert lock_codes.stop_of(results[0]["rule_states"]) == (1, "price_missing")
+    row = _stored(mocks)
+    assert results == [] and row["outcome_reason"] == "price_missing"
+    assert row["stop_code"] == "FILTERED_L1_ELIGIBILITY_PRICE_MISSING" and row["lock1_pass"] is None
 
 
 def test_a_broker_refusal_is_l6_broker_error_and_does_not_cool_the_ticker():
     results, mocks = _run_live(broker_raises=RuntimeError("insufficient buying power"))
-    assert results[0]["outcome"] == "TRADE_FAILED"
+    assert results[0]["outcome"] == "FILTERED_L6_REVIEW" and results[0]["lock3_pass"] == 1
     assert _stored(mocks)["outcome_reason"].startswith("broker_error: insufficient")
     stop = lock_codes.stop_of(results[0]["rule_states"])
     assert stop == (6, "broker_error") and lock_codes.stop_code(*stop) not in lock_codes.COOLOFF_STOPS
@@ -186,7 +212,7 @@ def test_a_broker_refusal_is_l6_broker_error_and_does_not_cool_the_ticker():
 
 def test_the_live_sector_cap_and_overflow_are_recorded():
     results, _ = _run_live(cfg_overrides={"max_sector_exposure": 0.05})   # $1,000 of $10,000 is 10 % > 5 %
-    assert results[0]["outcome"] == "TRADE_REJECTED"
+    assert results[0]["outcome"] == "FILTERED_L2_RISK"
     assert lock_codes.stop_of(results[0]["rule_states"]) == (2, "sector_cap")
     held = [{"ticker": "AAPL", "cost_basis": 100.0}]
     results, _ = _run_live(positions=held, cfg_overrides={"max_positions": 1})   # NVDA 0.65 ≥ 0.5 × 1.05

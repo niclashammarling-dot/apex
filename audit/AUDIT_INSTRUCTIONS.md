@@ -115,11 +115,10 @@ Verify that breakout signal classification enforces minimum volume backing.
 - Flag any breakout classification path that bypasses the volume check as CRITICAL.
 
 ### CHECK 25 — gate_decision string parity
-Every string in `_OUTCOMES` in `gate_runner.py` must be recognized by all consumers.
-- Extract string values from `_OUTCOMES` dict (`FILTERED_*` strings).
-- Verify each string appears in `getLockStates` (or equivalent) in both `GateFeed.jsx` and `LiveGateFeed.jsx`.
-- Verify each string appears in the badge/label map in both frontend components.
-- Verify each string appears in the funnel SQL queries and dict lookups in `db.py`.
+Every code the writers store must be recognized by all consumers. Since lock labels phase 2 (2026-10-31) the writers derive it from the row's rule_states through `lock_codes.codes_for`: one lock code per lock (`FILTERED_L<n>_<NAME>`), `TRADE_EXECUTED`, or `FILTERED_UNKNOWN`.
+- Confirm `gate_runner.py` derives its codes through `lock_codes.codes_for`.
+- A consumer that reads the table (`lock_codes` import or `/api/gate/locks`) handles every code by construction; any other consumer (`ApexTerminal.jsx`, `App.jsx`, `db.py`) must name each code.
+- CHECK 94 reads the stored rows themselves.
 - Flag any mismatch as CRITICAL — an unrecognized decision string falls through to the all-green default, showing passing lock icons for a failed ticker.
 - Also extract ticker `signal = "..."` values from `sector_regime.py` (excluding `vel_signal` lines) and verify each appears in all frontend signal maps (`SectorGrid.jsx`, `SectorRegime.jsx`, `Watchlist.jsx`, `RotationForecast.jsx`). Flag any missing entry as WARNING — renders as fallback label/color.
 
@@ -157,12 +156,13 @@ Account-size-specific config keys must not appear in the promotable set.
 
 Run as part of `python3 audit/mechanical_checks.py` (no separate invocation needed).
 
-Queries `data/apex.db:live_gate_history`. Trigger condition: ≥ N=5 consecutive active trading days (≥ M=5 gate assessments, excluding SKIPPED_*) with zero TRADE_EXECUTED since the last entry.
+Queries `data/apex.db:live_gate_history`. Trigger condition: ≥ N=5 consecutive active trading days (≥ M=5 gate assessments, excluding skips: `lock_codes.skip_sql`, the L1 rules that stop a candidate before any chain lock runs) with zero TRADE_EXECUTED since the last entry.
 
 **Severity: WARNING** — diagnostic only. Do not treat as an audit failure. Legitimate compression periods will trigger this; the filter breakdown is what distinguishes compression from breakage:
-- FILTERED_ELIGIBILITY dominant → eligibility logic suspect (sector exposure, promote corruption, config error)
-- FILTERED_L1 dominant → threshold calibration too tight or market genuinely compressed
-- FILTERED_LEADING dominant → leading indicators blocking broadly
+The breakdown is by stop_code (the stopping rule):
+- an L1 eligibility rule dominant (regime, vix, macro_event) → eligibility logic suspect (sector exposure, promote corruption, config error), or a market state the lock is built to stop
+- L1 `macro_pre_event` or L3 `threshold` dominant → threshold calibration too tight, or market genuinely compressed
+- L5 `leading` dominant → leading indicators blocking broadly; L5 `unavailable` dominant → a data source down
 
 Output row includes: days since last entry, average daily assessment count, top 2 filter reasons with percentages.
 

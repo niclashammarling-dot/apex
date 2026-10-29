@@ -9,7 +9,11 @@ Lock labels phase 2: re-code the gate history (backend/gate/history_migrate.py),
           3. every column except the codes and the pass flags byte-identical to the original (scope step 3,
              first identity check); a pass flag either kept or set NULL, and never NULL where it was 1 on a
              row that ran a lock (ruling D; skips wrote lock1_pass 1 without running L3);
-          4. reverse() on the migrated copy gives the original codes and flags back on every row.
+          4. reverse() on the migrated copy gives the original codes and flags back on every row;
+          5. cooloff: the rows the new query selects (stop_code in lock_codes.COOLOFF_STOPS) are the row ids the
+             old one selected on the original (gate_decision in FILTERED_L2, FILTERED_L3; ruling 6), per table;
+          6. T7 (rejected_candidates_2026_10.gate_rows) reads the same (ticker, timestamp, code) from the migrated
+             copy as from the original, so its archived result reproduces.
         Writes DIR/dry_run_<stamp>.json. The original is opened read-only.
     python scripts/migrate_gate_codes.py --db PATH
         Migrates PATH in place. Refuses data/apex.db unless --production is also given (scope step 5:
@@ -34,6 +38,11 @@ sys.path.insert(0, str(ROOT))
 from backend.gate.history_classify import SKIPS, TABLES   # noqa: E402
 from backend.gate import lock_codes                       # noqa: E402
 from backend.gate.history_migrate import migrate, reverse  # noqa: E402
+from backend.gate.lock_codes import sql_in                 # noqa: E402
+from backend.backtest.rejected_candidates_2026_10 import gate_rows   # noqa: E402
+
+# The cooloff set db.py selected before phase 2 (ruling 6, 2026-10-24), the original's side of check 5.
+OLD_COOLOFF = ("FILTERED_L2", "FILTERED_L3")
 
 PRODUCTION = (ROOT / "data" / "apex.db").resolve()
 
@@ -114,10 +123,25 @@ def dry_run(src: Path, out_dir: Path) -> int:
     report: dict = {"source": str(src), "copy": str(copy), "ran_at_utc": stamp, "scope_read_utc": SCOPE_READ_UTC}
 
     conn = sqlite3.connect(copy)
-    unchanged = ("gate_decision", "stop_code", *FLAGS)
+    unchanged = ("gate_decision", "stop_code", "rule_states", *FLAGS)
     before = {t: (_row_hashes(conn, t, unchanged), _codes(conn, t), _flags(conn, t)) for t in TABLES}
+    old_cooloff = {t: {r[0] for r in conn.execute(f"SELECT id FROM {t} WHERE gate_decision IN ({sql_in(OLD_COOLOFF)})")}
+                   for t in TABLES}
+    t7_before = sorted(gate_rows(conn, "2000-01-01", "2100-01-01"))
     migrate(conn)
     conn.row_factory = None
+    # 5. Cooloff selects the same rows (ruling 6), and 6. T7 reads the same codes, on the migrated copy.
+    for t in TABLES:
+        new = {r[0] for r in conn.execute(f"SELECT id FROM {t} WHERE stop_code IN ({sql_in(lock_codes.COOLOFF_STOPS)})")}
+        report.setdefault("cooloff_ids", {})[t] = {"old": len(old_cooloff[t]), "new": len(new),
+                                                   "only_old": sorted(old_cooloff[t] - new)[:20],
+                                                   "only_new": sorted(new - old_cooloff[t])[:20]}
+        if new != old_cooloff[t]:
+            findings.append(f"{t}: cooloff selects {len(new)} rows, the old query {len(old_cooloff[t])}")
+    t7_after = sorted(gate_rows(conn, "2000-01-01", "2100-01-01"))
+    report["t7_rows"] = {"before": len(t7_before), "after": len(t7_after), "identical": t7_before == t7_after}
+    if t7_before != t7_after:
+        findings.append(f"T7 gate rows differ after the migration ({len(t7_before)} before, {len(t7_after)} after)")
 
     # 1. Counts against the scope table: exactly, on rows older than the read's start; between the read's
     #    start and end a live session was writing, so a class may hold up to its later count there.

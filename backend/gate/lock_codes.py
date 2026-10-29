@@ -1,210 +1,80 @@
 """
-gate/lock_codes.py — the one table of gate locks and gate_decision codes.
+gate/lock_codes.py — the one table of gate locks, their rules and the stored codes.
 
-Lock labels phase 1 (vault raw/notes/2026-10/2026-10-24-apex-lock-labels-scope.md; chain approved by
-Niclas 2026-10-24: "Kedjan ser bra ut. Godkänd."). Before this table five vocabularies named the same
-locks: chain.py's exit_lock (the module numbers: exit_lock 2 = lock2_quant), the stored gate_decision
-codes (one behind those: FILTERED_L1 = quant), the DB columns, the config keys, and the frontend labels
-(CHECK 54, firing since 06-11). Every writer and reader of a code now imports it from here; the frontend
-reads it from /api/gate/locks.
-
-Two numberings until phase 3. "Lock 1".."Lock 5" in code and comments outside this file are the module
-numbers (lock1_eligibility .. lock5_claude, chain.py's lock_id and exit_lock); "L0".."L6" and the names
-below are the chain. Module N → chain: 1 → L1 ELIGIBILITY (+ L2's earnings rules), 2 → L3 SCORE,
-3 → L4 SENTIMENT, 4 → L5 POSITIONING, 5 → L6 REVIEW (MODULE_TO_CHAIN). Phase 2 re-codes the stored
-history to the chain, phase 3 renames the modules and keys (lock labels review R9, 2026-10-26: module
-numbering is rename material, not a miss), after which one numbering remains.
-
-Phase 1 changes no stored string. `code` is what the three gate tables hold today; phase 2 rewrites
-history and this column in one migration. `lock` and `label` are the approved chain:
+Lock labels (vault raw/notes/2026-10/2026-10-24-apex-lock-labels-scope.md and the phase 2 scope note; chain
+approved by Niclas 2026-10-24: "Kedjan ser bra ut. Godkänd."):
 
     L0 PORTFOLIO → L1 ELIGIBILITY → L2 RISK → L3 SCORE → L4 SENTIMENT → L5 POSITIONING → L6 REVIEW
 
-What each lock owns is the approved chain's table (2026-10-24), amended by Niclas 2026-10-26 ("flytta
-makro till l1": the macro calendar gives the same answer for every ticker, market state like VIX):
-L1 market and sector state, VIX and the macro calendar; L2 ETF, earnings and concentration. Where the
-code runs a lock's check in a different place than the chain names (phase 4 moves them), STAGES keeps
-the evaluation order, so funnel "reached" counts stay true, and the stored code is the place it ran,
-not the lock that owns it:
-  - L1's CPI/NFP/FOMC blackout records FILTERED_ELIGIBILITY (its own lock); L1's pre-event penalty is
-    applied in chain.py and bites at the score re-test, recorded FILTERED_L1;
-  - L2 RISK's earnings hard block runs in lock1_eligibility.py (FILTERED_ELIGIBILITY) and its near-term
-    penalty bites at the score re-test (FILTERED_L1); neither has fired in live (the earnings date never
-    arrives, PRODUCTION_GAP rows 8-9); concentration is the sector cap (execution, and L6 REVIEW's
-    context);
-  - the ETF penalty is L2 RISK by ruling but runs after L5 POSITIONING (chain.py re-test);
-  - the chain's 20 % drawdown guard records exit_lock 5, i.e. FILTERED_L3, the same code as an
-    L6 REVIEW rejection. It is L0 PORTFOLIO's by ruling (Niclas 2026-10-26: "dd är före allt annat"):
-    its key is labelled L0, phase 2 re-codes its rows, phase 4 moves the check before L1;
-  - both runners defer L6 REVIEW to the serial execution phase (stop_after_lock=4), where the
-    overflow check runs first: an overflow row never reached L6;
-  - L0 PORTFOLIO halts the cycle and writes no gate row (gate_cycles reason), so it has no code;
-  - the real quant threshold is the pre-filter (db.get_lock1_candidates), which writes no row either;
-    FILTERED_L1 counts only penalty bites at the re-test (10-10 finding, ruling 5 after S1).
+What each lock owns is the approved chain's table, amended 2026-10-26 ("flytta makro till l1": the macro
+calendar is market state like VIX): L0 the portfolio (M4, the drawdown guard), L1 market and sector state, VIX,
+the macro calendar and whether the candidate can be bought at all (the skips, affordability), L2 ETF, earnings
+and concentration (overflow, max positions, the sector cap), L3 the score, L4 what is said, L5 what is done with
+money, L6 the review and the order it releases.
 
-Cooloff (ruling 6, 2026-10-24: "behåll cool off nu"): the set is kept exactly as db.py selected it,
-{FILTERED_L2, FILTERED_L3}: an L4 SENTIMENT or L6 REVIEW rejection (and the drawdown guard, which shares
-FILTERED_L3) cools the ticker; score, positioning and ETF rejections do not. Pinned by a test.
+Every outcome is owned by a lock (Niclas 2026-10-28: "alla utfall måste ägas av ett lås"). A row records every
+rule that ran on it with its verdict (`rule_states`, keyed by `rule_key`), and its stop is the first failing
+rule in chain order (`stop_of`). The stored codes are derived from that by `codes_for`:
+  - gate_decision: the owner's lock code (`FILTERED_L1_ELIGIBILITY` …), TRADE_EXECUTED, or FILTERED_UNKNOWN;
+  - stop_code: "FILTERED_" + the rule key (`FILTERED_L1_ELIGIBILITY_COOLOFF` …), the same for the other two.
+FILTERED_UNKNOWN is the one outcome without an owner: no registered rule failed. It is mailed when written.
+
+Until phase 4 a lock's rules run in several places (L2's earnings inside lock1_eligibility, its ETF re-test
+after L5, overflow and the sector cap at execution; the guard after L5). So a code names the owner, and how far
+the row got is the pass flags (FLAG_RULES; NULL where the lock did not run, ruling D) and `rule_states`.
+
+Two numberings until phase 3: "Lock 1".."Lock 5" in code outside this file are the module numbers
+(lock1_eligibility .. lock5_claude, chain.py's lock_id and exit_lock; MODULE_TO_CHAIN); "L0".."L6" and the
+names here are the chain. The stored codes before the 2026-10-31 migration are LEGACY_CODES, read only by the
+history classifier, the migration and archived producers (T7) through the migration record.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
-# The approved chain: number → (name, what it reads, the module that runs it today).
+# The approved chain: number → (name, what it reads, the modules that run its rules today).
 LOCKS: dict[int, tuple[str, str, str]] = {
-    0: ("PORTFOLIO",   "portfolio stop rules (M4), cycle level",         "backend/gate/portfolio_l0.py"),
-    1: ("ELIGIBILITY", "market and sector state, macro calendar",         "backend/gate/lock1_eligibility.py, chain.py"),
+    0: ("PORTFOLIO",   "portfolio stop rules (M4), cycle level",         "backend/gate/portfolio_l0.py, chain.py"),
+    1: ("ELIGIBILITY", "market and sector state, macro calendar",         "backend/gate/lock1_eligibility.py, chain.py, gate_runner*.py"),
     2: ("RISK",        "ETF, earnings, concentration, overflow",          "backend/gate/lock1_eligibility.py, chain.py, gate_runner*.py"),
     3: ("SCORE",       "price and volume score",                          "backend/gate/lock2_quant.py"),
     4: ("SENTIMENT",   "what is said: analysts, news, social",            "backend/gate/lock3_sentiment.py"),
     5: ("POSITIONING", "what is done with money: options, accumulation",  "backend/gate/lock4_leading.py"),
-    6: ("REVIEW",      "judgement over the whole candidate",              "backend/gate/lock5_claude.py"),
+    6: ("REVIEW",      "judgement over the whole candidate",              "backend/gate/lock5_claude.py, gate_runner*.py"),
 }
 
+# Module lock_id (lockN_*.py, chain.py exit_lock) → chain lock, until the phase 3 rename: the first lock whose
+# modules include lockN_ (lock1_eligibility also runs L2's earnings rules, so L1 is its lock).
+MODULE_TO_CHAIN: dict[int, int] = {n: min(lock for lock, (_, _, modules) in LOCKS.items() if f"lock{n}_" in modules)
+                                   for n in range(1, 6)}
 
-@dataclass(frozen=True)
-class Stage:
-    code: str                         # gate_decision as stored
-    kind: str                         # skip | filter | execution | trade | legacy
-    label: str                        # display label (funnel, Terminal badge)
-    lock: int | None = None           # number in the approved chain
-    exit_lock: int | None = None      # chain.py exit_lock whose default code this is
-    cooloff: bool = False
-    config_keys: tuple[str, ...] = ()
-
-
-ETF_PENALTY = "FILTERED_ETF_PENALTY"
-OVERFLOW = "FILTERED_OVERFLOW_QUANT"
-SKIPPED_BLOCKLIST = "SKIPPED_BLOCKLIST"
-SKIPPED_OPEN = "SKIPPED_OPEN"
-SKIPPED_COOLOFF = "SKIPPED_COOLOFF"
+TRADE_EXECUTED = "TRADE_EXECUTED"
 UNKNOWN = "FILTERED_UNKNOWN"
+BOOKS = ("live", "demo")
 
-# Evaluation order, as the runners record it.
-STAGES: tuple[Stage, ...] = (
-    Stage(SKIPPED_BLOCKLIST, "skip", "Live blocklist"),
-    Stage(SKIPPED_OPEN, "skip", "Position open"),
-    Stage(SKIPPED_COOLOFF, "skip", "Cooloff", config_keys=("gate_cooloff_hours",)),
-    Stage("FILTERED_ELIGIBILITY", "filter", "L1 · Eligibility", lock=1, exit_lock=1),
-    Stage("FILTERED_L1", "filter", "L3 · Score", lock=3, exit_lock=2,
-          config_keys=("lock1_threshold",)),
-    Stage("FILTERED_L2", "filter", "L4 · Sentiment", lock=4, exit_lock=3, cooloff=True,
-          config_keys=("lock2_sentiment_min",)),
-    Stage("FILTERED_LEADING", "filter", "L5 · Positioning", lock=5, exit_lock=4,
-          config_keys=("lock4_pcr_mode",)),
-    Stage(ETF_PENALTY, "filter", "L2 · Risk (ETF)", lock=2,
-          config_keys=("etf_negative_penalty", "etf_negative_floor")),
-    # L2 RISK by ruling (Niclas 2026-10-26: "den hör till risk"): one more position beyond max_positions.
-    # It runs in the execution phase, so it is not a CHAIN column; lock_states marks L2 failed for it.
-    Stage(OVERFLOW, "execution", "L2 · Risk (overflow)", lock=2, config_keys=("overflow_quant_increment",)),
-    Stage("FILTERED_L3", "filter", "L6 · Review", lock=6, exit_lock=5, cooloff=True,
-          config_keys=("lock3_confidence_min", "max_drawdown_pct")),
-    Stage("TRADE_EXECUTED", "trade", "Executed"),
-    Stage("TRADE_REJECTED", "trade", "Rejected"),
-    Stage("TRADE_FAILED", "trade", "Order failed"),
-    Stage("FILTERED_MACRO", "legacy", "Macro (before 2026-04-10)"),
+# The codes stored before phase 2's migration (2026-10-31). No writer emits them; a CHECK flags one on a new row,
+# and a test refuses any reader outside the legacy readers that names one.
+LEGACY_CODES: tuple[str, ...] = (
+    "SKIPPED_BLOCKLIST", "SKIPPED_OPEN", "SKIPPED_COOLOFF", "FILTERED_ELIGIBILITY", "FILTERED_L1", "FILTERED_L2",
+    "FILTERED_LEADING", "FILTERED_ETF_PENALTY", "FILTERED_OVERFLOW_QUANT", "FILTERED_L3", "TRADE_REJECTED",
+    "TRADE_FAILED", "FILTERED_MACRO",
 )
 
-# Config keys a lock owns that no stored code carries (they act inside another stage's row, see above).
-# The macro_earnings_* keys are earnings rules (L2) despite their prefix; macro_* without it are L1's calendar.
-LOCK_KEYS: dict[int, tuple[str, ...]] = {
-    0: ("max_drawdown_pct", "daily_loss_cap"),
-    1: ("vix_threshold", "macro_event_blackout_days", "macro_pre_event_penalty", "gate_cooloff_hours",
-        "exit_cooloff_hours", "tp_cooloff_hours"),
-    2: ("macro_earnings_blackout_days", "macro_earnings_near_days", "macro_earnings_near_penalty",
-        "max_sector_exposure", "max_positions"),
-}
 
-BY_CODE: dict[str, Stage] = {s.code: s for s in STAGES}
-_INDEX: dict[str, int] = {s.code: i for i, s in enumerate(STAGES)}
-OUTCOME_BY_EXIT_LOCK: dict[int, str] = {s.exit_lock: s.code for s in STAGES if s.exit_lock is not None}
-# Module lock_id (lockN_*.py, chain.py exit_lock) → chain lock, until the phase 3 rename.
-MODULE_TO_CHAIN: dict[int, int] = {s.exit_lock: s.lock for s in STAGES if s.exit_lock is not None}
-COOLOFF_CODES: tuple[str, ...] = tuple(s.code for s in STAGES if s.cooloff)
-SKIP_CODES: tuple[str, ...] = tuple(s.code for s in STAGES if s.kind == "skip")
-REVIEW_REJECT = OUTCOME_BY_EXIT_LOCK[5]
-REVIEW_LABEL = BY_CODE[REVIEW_REJECT].label
+def lock_code(n: int) -> str:
+    """"FILTERED_L2_RISK": the gate_decision code of chain lock n (ruling B, 2026-10-26)."""
+    return f"FILTERED_L{n}_{LOCKS[n][0]}"
 
 
-def outcome_for(exit_lock: int | None) -> str:
-    """The code a chain rejection at `exit_lock` records (exit_label overrides live in chain.py)."""
-    return OUTCOME_BY_EXIT_LOCK.get(exit_lock, UNKNOWN)
+def lock_label(n: int) -> str:
+    """"L2 · Risk": the chain name of lock n, as every surface shows it."""
+    return f"L{n} · {LOCKS[n][0].capitalize()}"
 
 
 def sql_in(codes: tuple[str, ...]) -> str:
     """`'A', 'B'` for an IN (...) clause; codes are module constants, never user input."""
     return ", ".join(f"'{c}'" for c in codes)
-
-
-# The per-candidate filters in the order a candidate meets them; the Terminal's lock columns and
-# the weekly report's chained funnel read this. L6 REVIEW is last: the overflow check (deferred path,
-# both runners) runs before it, so the reports split what follows L2 RISK instead of chaining it.
-CHAIN: tuple[Stage, ...] = tuple(s for s in STAGES if s.kind == "filter")
-CHAINED: tuple[Stage, ...] = tuple(s for s in CHAIN if s.lock != 6)
-
-_BADGE = {SKIPPED_BLOCKLIST: "BLOCKED", SKIPPED_OPEN: "HELD", SKIPPED_COOLOFF: "COOLOFF",
-          OVERFLOW: "L2 OVERFLOW", "TRADE_EXECUTED": "EXECUTED", "TRADE_REJECTED": "REJECTED",
-          "TRADE_FAILED": "FAILED", "FILTERED_MACRO": "MACRO (OLD)"}
-
-
-def badge(s: Stage) -> str:
-    return f"L{s.lock} FAIL" if s.kind == "filter" else _BADGE[s.code]
-
-
-def lock_states(code: str) -> list[bool | None]:
-    """One entry per CHAIN column: passed (True), failed here (False), not reached or not known (None).
-    From the evaluation order: every filter before the code's stage passed, its own failed, the rest
-    were not reached (overflow stops before L6 REVIEW). An execution-phase rule that a lock owns fails
-    that lock's column (overflow: L2 RISK). Skips reach no lock; a legacy or unknown code's path is not
-    known."""
-    s = BY_CODE.get(code)
-    if s is None or s.kind in ("skip", "legacy"):
-        return [None for _ in CHAIN]
-    i = _INDEX[code]
-    out = [True if _INDEX[c.code] < i else False if c.code == code else None for c in CHAIN]
-    if s not in CHAIN and s.lock is not None:      # an execution-phase rule of a lock (overflow, L2)
-        out = [False if c.lock == s.lock else v for c, v in zip(CHAIN, out)]
-    return out
-
-
-def row_states(code: str, lock3_pass: int | None) -> list[bool | None]:
-    """lock_states for one stored row. A trade row passed L6 REVIEW only if Claude approved it
-    (lock3_pass = 1): the pre-review "position already open" reject records TRADE_REJECTED with
-    lock3_pass 0, and its L6 column is not reached."""
-    out = lock_states(code)
-    s = BY_CODE.get(code)
-    if s is not None and s.kind == "trade" and lock3_pass != 1:
-        out = [None if c.lock == 6 else v for c, v in zip(CHAIN, out)]
-    return out
-
-
-def reason_label(code: str) -> str | None:
-    """Whose reason the row's lock3_reasoning column holds: the writers put the deciding stage's reason
-    there for every filter code (gate_runner._chain_to_gate_result), and Claude's for a trade row. An
-    overflow row stores none (0 of 22 since 2026-09-01: it is set in the execution phase, before L6), and
-    skips have none, so both get no label."""
-    s = BY_CODE.get(code)
-    if s is None:
-        return None
-    if s.kind == "filter":
-        return s.label
-    if s.kind == "trade":
-        return REVIEW_LABEL
-    return None
-
-
-def decorate_rows(rows: list[dict]) -> list[dict]:
-    """Per-row lock states and reason label for the gate history endpoints (Terminal)."""
-    for r in rows:
-        code = r.get("gate_decision")
-        r["lock_states"] = row_states(code, r.get("lock3_pass"))
-        r["reason_label"] = reason_label(code)
-    return rows
-
-
-def lock_code(n: int) -> str:
-    """"FILTERED_L2_RISK": the gate_decision code of chain lock n from phase 2 on (ruling B, 2026-10-26)."""
-    return f"FILTERED_L{n}_{LOCKS[n][0]}"
 
 
 @dataclass(frozen=True)
@@ -216,34 +86,37 @@ class Rule:
     source: str = ""
     cooloff: bool = False             # a stop by this rule cools the ticker (db's cooloff query)
     history_only: bool = False        # written only by the history migration; a CHECK refuses it on new rows
+    books: tuple[str, ...] = BOOKS    # the books that run it
+    check: bool = True                # a check that passes or fails; False for a failure mode (unavailable,
+                                      # broker_error), which appears only as a fail
+    optional: bool = False            # runs only on some rows of its book (demo's max_positions, not on an
+                                      # overflow slot), so a lock can show ✓ without it
 
 
 # The rules within each lock (phase 2, ruling B 2026-10-26: stop_code = the lock's code + "_" + rule).
-# Every rule name exists here once; the history classifier, the writers and the stop_code CHECK read it,
+# Every rule name exists here once; the writers, the readers, the history classifier and the CHECKs read it,
 # so a stop_code parses back to its owner and rule (parse_stop_code) and a writer's identifier maps to
 # one rule (rule_for) (Niclas 2026-10-28: "konsekvent och kan härledas överallt där det används").
 # A name is the code's own word for the check that stopped the row: the identifier it already emits
 # (lock1_eligibility's fail_type, the runners' outcome_reason) where there is one, else the check itself:
 # the module whose check it is (leading, claude) or what it tests (threshold, grok's verdict).
 # `unavailable` is a source that did not answer, failing closed; `_inferred` exists only in history (ruling F).
-# Every outcome is owned by a lock (Niclas 2026-10-28, eighth round: "alla utfall måste ägas av ett lås"):
-# the skips, the execution phase and the wallet's checks are rules of their locks, not codes of their own.
-# The one exception is UNKNOWN, an outcome no rule covers, which alerts when written (ninth round).
 # Cooloff keeps the set db.py selected before phase 2 ({FILTERED_L2, FILTERED_L3}, ruling 6 2026-10-24):
 # every L4 and L6 decision and the drawdown guard, which shared FILTERED_L3; not a broker error (TRADE_FAILED).
 # Within a lock the rules are listed in the order they run, which stop_of reads when two fail on one row: M4's
 # drawdown before its loss cap and expectancy (portfolio_l0.evaluate), the chain's guard after them; position open
 # before cooloff (the runners' skip label), gate cooloff before exit cooloff (ruling 2026-10-29).
 RULES: tuple[Rule, ...] = (
-    Rule(0, "halt_m4_drawdown", ("halt_m4_drawdown",),
+    Rule(0, "halt_m4_drawdown", ("halt_m4_drawdown",), books=("live",),
          source="M4 rule 1, portfolio_l0.HALT_DRAWDOWN: realised equity off its peak (live, cycle level)"),
     Rule(0, "loss_cap", ("loss_cap",), ("daily_loss_cap",),
          "M4 rule 2 in live (portfolio_l0.HALT_LOSS_CAP, cycle level); wallet.execute_trade's fixed-dollar cap in demo"),
-    Rule(0, "halt_m4_expectancy", ("halt_m4_expectancy",),
+    Rule(0, "halt_m4_expectancy", ("halt_m4_expectancy",), books=("live",),
          source="M4 rule 3, portfolio_l0.HALT_EXPECTANCY: the trailing sample's expectancy (live, cycle level)"),
     Rule(0, "drawdown_guard", config_keys=("max_drawdown_pct",), cooloff=True,
          source="chain.py mechanical pre-L5 guard (reason ends '(mechanical pre-L5 guard)')"),
-    Rule(1, "blocklist", ("blocklist",), source="gate_runner_live: the live blocklist, before the chain"),
+    Rule(1, "blocklist", ("blocklist",), books=("live",),
+         source="gate_runner_live: the live blocklist, before the chain"),
     Rule(1, "position_open", ("position_open",),
          source="both runners before the chain, and the execution re-check (gate_runner_live, wallet)"),
     Rule(1, "cooloff", ("cooloff",), ("gate_cooloff_hours",),
@@ -259,50 +132,66 @@ RULES: tuple[Rule, ...] = (
     Rule(1, "macro_pre_event", ("macro_pre_event",), ("macro_pre_event_penalty",),
          "lock1_eligibility data key; the penalty bites at the score re-test (chain.py)"),
     Rule(1, "notional_too_small", ("notional_too_small",),
-         source="the order cannot buy: live < $10 or qty 0 (whole shares), demo < $50 ('insufficient cash')"),
-    Rule(1, "price_missing", ("price_missing",), source="wallet.execute_trade: no price"),
+         source="the order cannot buy: before the chain on the largest possible notional, and at execution "
+                "(live < $10 or no whole share, demo < $50)"),
+    Rule(1, "price_missing", ("price_missing",), source="before the chain and at execution: no price"),
     Rule(2, "earnings", ("earnings",), ("macro_earnings_blackout_days",), "lock1_eligibility fail_type"),
     Rule(2, "earnings_near", ("earnings_near_penalty",), ("macro_earnings_near_days", "macro_earnings_near_penalty"),
          "lock1_eligibility data key; the penalty bites at the score re-test (chain.py); never fired"),
     Rule(2, "etf", config_keys=("etf_negative_penalty", "etf_negative_floor"),
-         source="chain.py ETF re-test (exit_label FILTERED_ETF_PENALTY)"),
-    Rule(2, "overflow", ("overflow",), ("overflow_quant_increment",), "gate_runner*.py execution phase"),
-    Rule(2, "max_positions", ("max_positions",), ("max_positions",),
-         "wallet.execute_trade: demo max positions without an overflow slot"),
+         source="chain.py ETF re-test after L5 (FILTERED_ETF_PENALTY before 2026-10-31)"),
+    Rule(2, "overflow", ("overflow",), ("overflow_quant_increment",),
+         "gate_runner*.py execution phase: a position beyond max_positions needs the escalated score; a free slot "
+         "passes"),
+    Rule(2, "max_positions", ("max_positions",), ("max_positions",), books=("demo",), optional=True,
+         source="wallet.execute_trade: demo max positions without an overflow slot"),
     Rule(2, "sector_cap", ("sector_cap",), ("max_sector_exposure",),
          "execution phase: gate_runner_live, wallet.execute_trade"),
     Rule(3, "threshold", config_keys=("lock1_threshold",), source="lock2_quant: score below the threshold"),
     Rule(4, "grok", config_keys=("lock2_sentiment_min",), cooloff=True,
          source="lock3_sentiment: Grok's verdict (score at or below the minimum, or low conviction)"),
-    Rule(4, "unavailable", cooloff=True, source="lock3_sentiment 'Grok API unavailable — failing closed'"),
-    Rule(4, "unavailable_inferred", cooloff=True, history_only=True, source="history: no summary and no reason"),
+    Rule(4, "unavailable", cooloff=True, check=False,
+         source="lock3_sentiment 'Grok API unavailable — failing closed'"),
+    Rule(4, "unavailable_inferred", cooloff=True, history_only=True, check=False,
+         source="history: no summary and no reason"),
     Rule(5, "leading", config_keys=("lock4_pcr_mode",),
          source="lock4_leading: the leading-indicator checks (price and options groups; 2 of 4 before 2026-06-03)"),
-    Rule(5, "unavailable", source="lock4_leading: a data error decided the failing group (price check error, "
-                                  "or no options data with a fetch error)"),
+    Rule(5, "unavailable", check=False,
+         source="lock4_leading: a data error decided the failing group (price check error, or no options data "
+                "with a fetch error)"),
     Rule(6, "claude", config_keys=("lock3_confidence_min",), cooloff=True,
          source="lock5_claude: Claude's decision (HOLD, or confidence below the minimum)"),
-    Rule(6, "unavailable", cooloff=True, source="lock5_claude L5_UNAVAILABLE_PREFIX"),
-    Rule(6, "unavailable_inferred", cooloff=True, history_only=True,
+    Rule(6, "unavailable", cooloff=True, check=False, source="lock5_claude L5_UNAVAILABLE_PREFIX"),
+    Rule(6, "unavailable_inferred", cooloff=True, history_only=True, check=False,
          source="history: no reasoning before ba12aa2 (2026-09-18)"),
-    Rule(6, "broker_error", ("broker_error",), source="gate_runner_live: the broker refused the approved order"),
+    Rule(6, "broker_error", ("broker_error",), check=False,
+         source="gate_runner_live: the broker refused the approved order"),
 )
 
-# The pass flag each lock writes, by its column name until phase 3 renames them. L0, L1 and L2 have no
-# column. NULL means the lock did not run on that row (ruling D), 0 that it ran and failed, 1 passed.
+# The pass flag columns (names until phase 3 part a) and the rules each one summarises: 1 when they passed, 0 when
+# one failed, NULL when none ran (ruling D). lock1_pass is the score test as run, so the two penalties that bite
+# at it count; lock3_pass is Claude's decision, so a broker error after an approval leaves it 1. These are the
+# values the columns held before phase 2, minus the 0s for locks that never ran.
+FLAG_RULES: dict[str, tuple[tuple[int, str], ...]] = {
+    "lock1_pass":        ((3, "threshold"), (1, "macro_pre_event"), (2, "earnings_near")),
+    "lock2_pass":        ((4, "grok"), (4, "unavailable"), (4, "unavailable_inferred")),
+    "lock_leading_pass": ((5, "leading"), (5, "unavailable")),
+    "lock3_pass":        ((6, "claude"), (6, "unavailable"), (6, "unavailable_inferred")),
+}
+# The lock each flag column belongs to (the history migration's run-order check reads it).
 FLAG_COLUMNS: dict[int, str] = {3: "lock1_pass", 4: "lock2_pass", 5: "lock_leading_pass", 6: "lock3_pass"}
-
-
-def owner_code(owner: int) -> str:
-    return lock_code(owner)
-
 
 # A row's rule_states: every rule that ran on it, by rule_key, with its verdict (Niclas 2026-10-29: "Kedjan
 # anger ägare och regel för varje stopp, men även för varje pass"). A rule that did not run is absent.
 # NO_DATA: the rule ran without its input and let the row through (VIX unreadable, no earnings date), which a
-# pass would hide. A failure mode (unavailable, broker_error) appears only as FAIL.
+# pass would hide; Terminal shows it N/A (Niclas 2026-10-29: "ett tillfälligt tredje läge").
 PASS, FAIL, NO_DATA = "pass", "fail", "no_data"
 _ORDER: dict[tuple[int, str], int] = {(r.owner, r.name): i for i, r in enumerate(RULES)}
+_BY_KEY: dict[tuple[int, str], Rule] = {(r.owner, r.name): r for r in RULES}
+
+
+def owner_code(owner: int) -> str:
+    return lock_code(owner)
 
 
 def rule_key(owner: int, rule: str) -> str:
@@ -336,6 +225,16 @@ def parse_stop_code(code: str) -> tuple[int, str]:
         raise KeyError(f"not a registered stop_code: {code!r}") from None
 
 
+def rule_for(emitted: str) -> Rule:
+    """The rule a writer's own identifier belongs to (fail_type, or outcome_reason before ':').
+    Identifiers are unique across the register (pinned by a test), so the identifier alone gives the owner."""
+    key = emitted.split(":", 1)[0]
+    for r in RULES:
+        if key in r.emitted_as:
+            return r
+    raise KeyError(f"{emitted!r} is not an identifier of any rule in lock_codes.RULES")
+
+
 def put(states: dict[str, str], ident: str, verdict: str) -> bool:
     """Record a writer's identifier (fail_type, outcome_reason) with its verdict under its rule's key. False when
     the identifier is in no rule: nothing is recorded, so the row's stop is unknown rather than guessed."""
@@ -355,23 +254,120 @@ def stop_of(states: dict[str, str]) -> tuple[int, str] | None:
     return min(fails, key=lambda f: (f[0], _ORDER[f])) if fails else None
 
 
-def rule_for(emitted: str) -> Rule:
-    """The rule a writer's own identifier belongs to (fail_type, or outcome_reason before ':').
-    Identifiers are unique across the register (pinned by a test), so the identifier alone gives the owner."""
-    key = emitted.split(":", 1)[0]
-    for r in RULES:
-        if key in r.emitted_as:
-            return r
-    raise KeyError(f"{emitted!r} is not an identifier of any rule in lock_codes.RULES")
+def codes_for(states: dict[str, str], executed: bool) -> tuple[str, str]:
+    """(gate_decision, stop_code) of a row, the one derivation every writer uses: TRADE_EXECUTED for an order
+    placed, else the stop's owner code and stop_code, else FILTERED_UNKNOWN (no registered rule failed)."""
+    if executed:
+        return TRADE_EXECUTED, TRADE_EXECUTED
+    stop = stop_of(states)
+    if stop is None:
+        return UNKNOWN, UNKNOWN
+    return lock_code(stop[0]), stop_code(*stop)
+
+
+def flags(states: dict[str, str]) -> dict[str, int | None]:
+    """The four pass flag columns from rule_states (FLAG_RULES)."""
+    out: dict[str, int | None] = {}
+    for col, rules in FLAG_RULES.items():
+        seen = [states[rule_key(o, r)] for o, r in rules if rule_key(o, r) in states]
+        out[col] = None if not seen else 0 if FAIL in seen else 1
+    return out
 
 
 COOLOFF_STOPS: tuple[str, ...] = tuple(stop_code(r.owner, r.name) for r in RULES if r.cooloff)
 HISTORY_ONLY_STOPS: tuple[str, ...] = tuple(stop_code(r.owner, r.name) for r in RULES if r.history_only)
+# The L1 rules a candidate can be stopped by before any chain lock runs: a stop by one of them with no pass flag
+# set is a skip (it carries no judgement on the candidate; Claude's gate history leaves it out).
+SKIP_RULES: tuple[str, ...] = tuple(stop_code(1, n) for n in
+                                    ("blocklist", "position_open", "cooloff", "exit_cooloff",
+                                     "notional_too_small", "price_missing"))
 
 
-def lock_label(n: int) -> str:
-    """"L2 · Risk": the chain name of lock n, in the stage labels' form."""
-    return f"L{n} · {LOCKS[n][0].capitalize()}"
+def is_skip(row: dict) -> bool:
+    """A row stopped before any chain lock ran by one of SKIP_RULES."""
+    return row.get("stop_code") in SKIP_RULES and all(row.get(c) is None for c in FLAG_RULES)
+
+
+def skip_sql() -> str:
+    """is_skip as an SQL predicate over a gate table's columns (the same constants)."""
+    return f"(stop_code IN ({sql_in(SKIP_RULES)}) AND " + " AND ".join(f"{c} IS NULL" for c in FLAG_RULES) + ")"
+
+
+def expected_checks(lock: int, book: str) -> tuple[str, ...]:
+    """The rule keys a lock's ✓ needs on a row of `book`: its checks that the book runs on every row."""
+    return tuple(rule_key(r.owner, r.name) for r in RULES
+                 if r.owner == lock and r.check and not r.history_only and not r.optional and book in r.books)
+
+
+def lock_marks(states: dict[str, str], book: str) -> list[str | None]:
+    """One mark per lock L0..L6 for a row (Terminal, ruling 2026-10-28: one ✗ per stopped row, in its owner's
+    column). "fail" in the stop owner's column; "n/a" when a rule of the lock ran without its input; "pass" when
+    every check the book runs passed; "partial" when some ran and others not yet (until phase 4 a lock's rules run
+    in several places) or another lock's stop ended the row; None when no rule of the lock ran."""
+    stop = stop_of(states)
+    out: list[str | None] = []
+    for n in sorted(LOCKS):
+        mine = {k: v for k, v in states.items() if parse_rule_key(k)[0] == n}
+        if stop is not None and stop[0] == n:
+            out.append("fail")
+        elif not mine:
+            out.append(None)
+        elif NO_DATA in mine.values():
+            out.append("n/a")
+        elif all(mine.get(k) == PASS for k in expected_checks(n, book)) and FAIL not in mine.values():
+            out.append("pass")
+        else:
+            out.append("partial")
+    return out
+
+
+def badge(row: dict) -> str:
+    """The Terminal's outcome pill: the rule that stopped the row ("L1 COOLOFF"), EXECUTED or UNKNOWN."""
+    code = row.get("stop_code") or row.get("gate_decision")
+    if code == TRADE_EXECUTED:
+        return "EXECUTED"
+    try:
+        owner, rule = parse_stop_code(code or "")
+    except KeyError:
+        return "UNKNOWN" if code == UNKNOWN else (code or "")
+    return f"L{owner} {rule.upper().replace('_', ' ')}"
+
+
+def badge_kind(row: dict) -> str:
+    code = row.get("stop_code") or row.get("gate_decision")
+    if code == TRADE_EXECUTED:
+        return "executed"
+    if code == UNKNOWN or not (code or "").startswith("FILTERED_L"):
+        return "unknown"
+    return "skip" if is_skip(row) else "stop"
+
+
+def reason_label(row: dict) -> str | None:
+    """Whose reason the row's lock3_reasoning column holds: Claude's once L6 ran (lock3_pass set), otherwise the
+    chain lock that stopped the row (gate_runner._chain_to_gate_result stores the stopping lock's reason). A row
+    with no reason (skips, overflow before L6, affordability) gets no label."""
+    if not row.get("lock3_reasoning"):
+        return None
+    if row.get("lock3_pass") is not None:
+        return lock_label(6)
+    try:
+        return lock_label(parse_stop_code(row.get("stop_code") or "")[0])
+    except KeyError:
+        return None
+
+
+def decorate_rows(rows: list[dict], book: str) -> list[dict]:
+    """Per-row lock marks, badge and reason label for the gate history endpoints (Terminal)."""
+    for r in rows:
+        try:
+            states = json.loads(r.get("rule_states") or "{}")
+        except (TypeError, ValueError):
+            states = {}
+        r["lock_states"] = lock_marks(states, book)
+        r["badge"] = badge(r)
+        r["badge_kind"] = badge_kind(r)
+        r["reason_label"] = reason_label(r)
+    return rows
 
 
 def config_label(key: str) -> str | None:
@@ -380,34 +376,43 @@ def config_label(key: str) -> str | None:
 
 
 def config_labels() -> dict[str, str]:
-    out = {k: s.label for s in STAGES if s.lock is not None for k in s.config_keys}
-    out.update({k: lock_label(n) for n, keys in LOCK_KEYS.items() for k in keys})
-    return out
+    return {k: lock_label(r.owner) for r in RULES for k in r.config_keys}
 
 
-def funnel_stages(by_code: dict[str, int]) -> list[dict]:
-    """The dashboard funnel, in evaluation order, counted per stored code (computed here, rendered
-    as-is by the frontend). Legacy codes are left out; anything unknown is listed under its code."""
-    rows = [{"code": s.code, "label": s.label, "kind": s.kind, "lock": s.lock, "count": by_code.get(s.code, 0)}
-            for s in STAGES if s.kind != "legacy"]
-    rows += [{"code": c, "label": c, "kind": "unknown", "lock": None, "count": n}
-             for c, n in sorted((c, n) for c, n in by_code.items() if c is not None) if c not in BY_CODE]
+def funnel_stages(by_stop: dict[str, int]) -> list[dict]:
+    """The dashboard funnel, per lock in chain order with each rule's stops, then executed and unknown (computed
+    here, rendered as-is by the frontend). A code the register does not know is listed under its own name."""
+    rows = []
+    for n in sorted(LOCKS):
+        rules = [{"rule": r.name, "stop_code": stop_code(n, r.name), "count": by_stop.get(stop_code(n, r.name), 0)}
+                 for r in RULES if r.owner == n]
+        rows.append({"code": lock_code(n), "label": lock_label(n), "kind": "lock", "lock": n,
+                     "count": sum(x["count"] for x in rules), "rules": [x for x in rules if x["count"]]})
+    rows.append({"code": TRADE_EXECUTED, "label": "Executed", "kind": "executed", "lock": None,
+                 "count": by_stop.get(TRADE_EXECUTED, 0), "rules": []})
+    rows.append({"code": UNKNOWN, "label": "Unknown (no rule)", "kind": "unknown", "lock": None,
+                 "count": by_stop.get(UNKNOWN, 0), "rules": []})
+    known = {stop_code(r.owner, r.name) for r in RULES} | {TRADE_EXECUTED, UNKNOWN}
+    rows += [{"code": c, "label": c, "kind": "unregistered", "lock": None, "count": n, "rules": []}
+             for c, n in sorted((c, n) for c, n in by_stop.items() if c is not None and c not in known)]
     return rows
 
 
+MARKS = {"pass": "✓", "fail": "✗", "n/a": "N/A", "partial": "◐", "none": "·"}
+
+
 def as_api() -> dict:
-    """Served at /api/gate/locks and inside both gate-history responses: the chain, the Terminal's
-    lock columns, and every stage in evaluation order with its badge and lock states."""
+    """Served at /api/gate/locks and inside both gate-history responses: the chain, the Terminal's lock
+    columns L0–L6 and their marks, every rule with its stop code, and the config and detail labels."""
     return {
         "locks": [{"lock": n, "name": name, "reads": reads, "module": module}
                   for n, (name, reads, module) in sorted(LOCKS.items())],
-        "columns": [{"code": s.code, "lock": s.lock, "head": f"L{s.lock}", "label": s.label} for s in CHAIN],
-        "stages": [{"code": s.code, "kind": s.kind, "label": s.label, "lock": s.lock, "badge": badge(s),
-                    "states": lock_states(s.code), "exit_lock": s.exit_lock, "cooloff": s.cooloff,
-                    "config_keys": list(s.config_keys)}
-                   for s in STAGES],
+        "columns": [{"lock": n, "head": f"L{n}", "label": lock_label(n), "code": lock_code(n)} for n in sorted(LOCKS)],
+        "marks": MARKS,
+        "rules": [{"lock": r.owner, "rule": r.name, "stop_code": stop_code(r.owner, r.name),
+                   "label": f"{lock_label(r.owner)} · {r.name}", "cooloff": r.cooloff, "books": list(r.books),
+                   "config_keys": list(r.config_keys)} for r in RULES],
         "config_labels": config_labels(),
-        "detail_labels": {"macro_reason": BY_CODE["FILTERED_ELIGIBILITY"].label,
-                          "l2_summary": BY_CODE["FILTERED_L2"].label,
-                          "lock_leading_checks": BY_CODE["FILTERED_LEADING"].label},
+        "detail_labels": {"macro_reason": lock_label(1), "l2_summary": lock_label(4),
+                          "lock_leading_checks": lock_label(5)},
     }

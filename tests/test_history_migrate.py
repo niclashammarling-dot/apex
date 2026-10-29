@@ -19,7 +19,8 @@ COLS = ("id INTEGER PRIMARY KEY, timestamp TEXT, ticker TEXT, signal_score REAL,
         "lock3_reasoning TEXT, l2_summary TEXT, macro_reason TEXT, outcome_reason TEXT")
 ROWS = {
     "live_gate_history": [
-        (1, "2026-09-03T19:11:02+00:00", "TMO", 0.6049, "FILTERED_L1", 1, None, 0, None,
+        # Flags as production holds them on every FILTERED_L1 row (180/182/167, read 2026-10-29): 0 and 0.
+        (1, "2026-09-03T19:11:02+00:00", "TMO", 0.6049, "FILTERED_L1", 0, 0, 0, 0,
          "Signal score 0.5747 below threshold 0.5892", None, None, None),
         (2, "2026-07-16T17:44:52+00:00", "JNJ", 0.5177, "FILTERED_ETF_PENALTY", 1, 1, 0, 1, None, None, None, None),
         (3, "2026-10-12T19:34:13+00:00", "LLY", 0.6495, "TRADE_FAILED", 1, 1, 1, 1, None, None, None,
@@ -74,7 +75,7 @@ def test_migrate_recodes_records_and_reverse_restores(db):
     flags = lambda t: {r[0]: r[1:] for r in db.execute(
         f"SELECT id, lock1_pass, lock2_pass, lock3_pass, lock_leading_pass FROM {t}")}
     assert flags("live_gate_history") == {
-        1: (1, None, None, None),          # the pre-event penalty bit at L3's re-test
+        1: (0, None, None, None),          # the pre-event penalty bit at L3's re-test: the test as run failed
         2: (1, 1, None, 1),                # the ETF re-test ran after L5, before L6
         3: (1, 1, 1, 1),                   # Claude approved, the order could not buy
         4: (None, None, None, None),       # a skip ran no lock (it wrote lock1_pass 1)
@@ -102,3 +103,26 @@ def test_an_unclassifiable_row_rolls_everything_back(db):
         migrate(db)
     assert _dump(db) == original
     assert db.execute(f"SELECT COUNT(*) FROM {RECORD}").fetchone()[0] == 0
+
+
+def test_migrate_writes_the_rule_states_the_row_proves_and_reverse_clears_them(db):
+    import json
+    migrate(db, migrated_at="2026-10-31T10:00:00+00:00")
+    db.row_factory = None
+    got = {(t, i): json.loads(s) for t in ROWS
+           for i, s in db.execute(f"SELECT id, rule_states FROM {t} WHERE rule_states IS NOT NULL")}
+    # TMO: a macro pre-event bite after the eligibility module went live. The penalty failed the score test (its
+    # flag is 0), so only the stop and the module's regime and macro checks are known; earnings had no data.
+    assert got[("live_gate_history", 1)] == {"L1_ELIGIBILITY_MACRO_PRE_EVENT": "fail", "L1_ELIGIBILITY_REGIME": "pass",
+                                             "L1_ELIGIBILITY_MACRO_EVENT": "pass", "L2_RISK_EARNINGS": "no_data"}
+    # LLY: Claude approved (lock3_pass 1), the order could not buy one share.
+    assert got[("live_gate_history", 3)]["L1_ELIGIBILITY_NOTIONAL_TOO_SMALL"] == "fail"
+    assert got[("live_gate_history", 3)]["L6_REVIEW_CLAUDE"] == "pass"
+    # A skip ran no chain lock: only its rule.
+    assert got[("live_gate_history", 4)] == {"L1_ELIGIBILITY_COOLOFF": "fail"}
+    # The guard (L0): L5 passed, L6 never ran (its 0 is NULL after ruling D, so no Claude verdict is claimed).
+    assert got[("demo_gate_history", 7439)]["L0_PORTFOLIO_DRAWDOWN_GUARD"] == "fail"
+    assert "L6_REVIEW_CLAUDE" not in got[("demo_gate_history", 7439)]
+    assert ("signals", 10) not in got                                   # ungated rows stay NULL
+    reverse(db)
+    assert db.execute("SELECT COUNT(*) FROM live_gate_history WHERE rule_states IS NOT NULL").fetchone()[0] == 0

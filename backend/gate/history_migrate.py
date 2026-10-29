@@ -9,6 +9,8 @@ classifier (history_classify) decides each row's class; this module writes it:
     record as JSON;
   - the pass flags after the last lock that ran on the row become NULL (ruling D, history_classify.pass_flags):
     from phase 2 a NULL flag means the lock did not run, 0 that it ran and failed;
+  - `rule_states` gets the verdicts the row's own fields prove (history_classify.history_rule_states), so a
+    history row reads like a new one in Terminal and Claude's gate history, with only what is known;
   - every touched row gets one row in `gate_code_migration`: old and new code, rule, basis (ruling F), the
     old pass flags, and the time. That table is the recovery path (reverse()) and the bridge for archived
     producers that read old codes (T7).
@@ -23,7 +25,7 @@ import sqlite3
 from collections import Counter
 from datetime import datetime, timezone
 
-from backend.gate.history_classify import TABLES, TEST_ROW_CODE, classify, pass_flags
+from backend.gate.history_classify import TABLES, TEST_ROW_CODE, classify, history_rule_states, pass_flags
 
 RECORD = "gate_code_migration"
 PASS_FLAGS = ("lock1_pass", "lock2_pass", "lock3_pass", "lock_leading_pass")
@@ -60,8 +62,9 @@ def migrate(conn: sqlite3.Connection, migrated_at: str | None = None) -> Counter
                 raise RuntimeError(f"{RECORD} already holds rows: this database was migrated")
         conn.execute(_RECORD_DDL)
         for table in TABLES:
-            if "stop_code" not in _columns(conn, table):
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN stop_code TEXT")
+            for col in ("stop_code", "rule_states"):
+                if col not in _columns(conn, table):
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
             flags = [f for f in PASS_FLAGS if f in _columns(conn, table)]
             rows = conn.execute(f"SELECT * FROM {table} WHERE gate_decision IS NOT NULL ORDER BY id").fetchall()
             for r in rows:
@@ -73,9 +76,10 @@ def migrate(conn: sqlite3.Connection, migrated_at: str | None = None) -> Counter
                     conn.execute(f"DELETE FROM {table} WHERE id = ?", (row["id"],))
                 else:
                     new_flags = {f: v for f, v in pass_flags(k, row).items() if f in flags}
+                    states = json.dumps(history_rule_states(k, row, new_flags))
                     sets = ", ".join(f"{f} = ?" for f in new_flags)
-                    conn.execute(f"UPDATE {table} SET gate_decision = ?, stop_code = ?, {sets} WHERE id = ?",
-                                 (k.code, k.stop_code, *new_flags.values(), row["id"]))
+                    conn.execute(f"UPDATE {table} SET gate_decision = ?, stop_code = ?, rule_states = ?, {sets} "
+                                 "WHERE id = ?", (k.code, k.stop_code, states, *new_flags.values(), row["id"]))
                 conn.execute(
                     f"INSERT INTO {RECORD} VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (table, row["id"], row["gate_decision"], k.code, k.stop_code, k.rule, k.basis,
@@ -85,8 +89,8 @@ def migrate(conn: sqlite3.Connection, migrated_at: str | None = None) -> Counter
 
 
 def reverse(conn: sqlite3.Connection) -> int:
-    """Undo migrate() from the record: old codes and pass flags back, stop_code NULL, the deleted row
-    re-inserted, the record emptied. The added stop_code column stays (SQLite drops columns only by rebuild); it is NULL."""
+    """Undo migrate() from the record: old codes and pass flags back, stop_code and rule_states NULL, the deleted
+    row re-inserted, the record emptied. The added columns stay (SQLite drops columns only by rebuild); they are NULL."""
     conn.row_factory = sqlite3.Row
     n = 0
     with conn:
@@ -99,7 +103,8 @@ def reverse(conn: sqlite3.Connection) -> int:
             else:
                 old_flags = json.loads(rec["old_pass_flags"])
                 sets = "".join(f", {f} = ?" for f in old_flags)
-                conn.execute(f"UPDATE {rec['tbl']} SET gate_decision = ?, stop_code = NULL{sets} WHERE id = ?",
+                conn.execute(f"UPDATE {rec['tbl']} SET gate_decision = ?, stop_code = NULL, rule_states = NULL{sets} "
+                             "WHERE id = ?",
                              (rec["old_code"], *old_flags.values(), rec["row_id"]))
             n += 1
         conn.execute(f"DELETE FROM {RECORD}")

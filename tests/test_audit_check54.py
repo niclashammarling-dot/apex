@@ -68,19 +68,23 @@ def test_table_labels_and_plain_comments_are_not_lock_numbers(tmp_path, monkeypa
     assert _found(core, 54) == []
 
 
-def test_a_mislabelled_stage_in_the_table_is_flagged(tmp_path, monkeypatch):
+def test_a_rule_or_module_outside_the_chain_is_flagged(tmp_path, monkeypatch):
+    # A: the table agrees with the approved chain (rewritten for lock labels phase 2: the stored code is the
+    # owner's lock code, so every rule must be owned by a lock of the chain and every module lock map to one).
     cg, core = _setup(tmp_path, monkeypatch, TABLE_DRIVEN, TABLE_DRIVEN)
-    bad = tuple(dataclasses.replace(s, label="L1 · Score") if s.code == "FILTERED_L1" else s
-                for s in lock_codes.STAGES)
-    monkeypatch.setattr(lock_codes, "STAGES", bad)
+    stray = dataclasses.replace(lock_codes.RULES[0], owner=9, name="stray")
+    monkeypatch.setattr(lock_codes, "RULES", lock_codes.RULES + (stray,))
+    monkeypatch.setattr(lock_codes, "MODULE_TO_CHAIN", {k: v for k, v in lock_codes.MODULE_TO_CHAIN.items() if k != 3})
     cg.check54()
-    assert any('FILTERED_L1 is labelled "L1 · Score" but sits at lock 3 (SCORE)' in m for m in _found(core, 54))
+    out = _found(core, 54)
+    assert any("rule stray is owned by lock 9" in m for m in out)
+    assert any("module lock 3 maps to no chain lock" in m for m in out)
 
 
 def test_check25_skips_a_table_driven_consumer_and_compares_one_with_literals(tmp_path, monkeypatch):
     cg, core = _setup(tmp_path, monkeypatch, TABLE_DRIVEN, "const BADGE = {};\n")
     (cg.REPO / "backend/gate").mkdir(parents=True)
-    (cg.REPO / "backend/gate/gate_runner.py").write_text("from backend.gate import lock_codes\n")
+    (cg.REPO / "backend/gate/gate_runner.py").write_text("from backend.gate import lock_codes  # codes_for\n")
     cg.check25()
     out = _found(core, 25)
     assert any("not handled in ApexTerminal.jsx" in m for m in out)

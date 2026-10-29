@@ -280,7 +280,7 @@ def gate_history():
             except Exception:
                 row["lock_leading_checks"] = None
     from backend.gate.lock_codes import as_api, decorate_rows
-    return {"rows": decorate_rows(rows), "funnel": get_demo_gate_funnel_counts(), "locks": as_api()}
+    return {"rows": decorate_rows(rows, "demo"), "funnel": get_demo_gate_funnel_counts(), "locks": as_api()}
 
 
 @router.get("/gate/locks")
@@ -1133,40 +1133,47 @@ def get_weekend_bundle():
 @router.get("/ops/rejections")
 def get_live_rejections(days: int = 10):
     """
-    Why live trades were rejected or failed, and what the sector cap test saw
-    (2026-09-27). Per day: TRADE_REJECTED / TRADE_FAILED counts by
-    outcome_reason; rows written before the column existed count as
-    "unattributed" — their reason was only ever in the 14-day log. Cap rows:
-    every live decision where the execution-side cap test ran, with the
-    enforced cap (dynamic, or flat_fallback when compute_dynamic_caps had no
-    entry) and whether the flat cap would have decided differently. Observe
-    only; the two-caps decision reads this.
+    Why orders were refused or failed after the candidate was chosen, per book, and what live's sector cap test
+    saw (2026-09-27). Per day: refusals counted by outcome_reason, the refusing rule's identifier (position_open,
+    notional_too_small, price_missing, sector_cap, broker_error; demo's wallet adds max_positions and loss_cap);
+    FILTERED_UNKNOWN rows count as "unknown" (the 19 reasonless rejections of 05-25..08-10 in history, and any
+    new outcome no rule covers). Demo writes outcome_reason from lock labels phase 2 (2026-10-31: "demo = live
+    except trading"). Cap rows: every live decision where the execution-side cap test ran, with the enforced cap
+    (dynamic, or flat_fallback) and whether the flat cap would have decided differently. Observe only.
     """
     import json
     from collections import Counter
     from datetime import datetime, timedelta, timezone
     from zoneinfo import ZoneInfo
 
+    from backend.gate.lock_codes import UNKNOWN
+
     _STHLM = ZoneInfo("Europe/Stockholm")
 
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    with closing(get_db()) as conn:   # sqlite3's own context manager never closes (CHECK 45)
-        rows = conn.execute(
-            "SELECT timestamp, ticker, sector, gate_decision, outcome_reason, cap_check "
-            "FROM live_gate_history WHERE timestamp >= ? "
-            "AND (gate_decision IN ('TRADE_REJECTED', 'TRADE_FAILED') OR cap_check IS NOT NULL) "
-            "ORDER BY timestamp DESC",
-            (since,),
-        ).fetchall()
 
-    by_day: dict[str, Counter] = {}
+    def _days(table: str, extra: str = "") -> tuple[list[dict], list]:
+        with closing(get_db()) as conn:   # sqlite3's own context manager never closes (CHECK 45)
+            rows = conn.execute(
+                f"SELECT timestamp, ticker, sector, gate_decision, outcome_reason{extra} "
+                f"FROM {table} WHERE timestamp >= ? "
+                f"AND (outcome_reason IS NOT NULL OR gate_decision = ?{' OR cap_check IS NOT NULL' if extra else ''}) "
+                "ORDER BY timestamp DESC",
+                (since, UNKNOWN),
+            ).fetchall()
+        by_day: dict[str, Counter] = {}
+        for r in rows:
+            if r["outcome_reason"] or r["gate_decision"] == UNKNOWN:
+                reason = (r["outcome_reason"] or "unknown").split(":", 1)[0]
+                # Day in Stockholm local — the operator's clock, not the UTC row date.
+                day = datetime.fromisoformat(r["timestamp"]).astimezone(_STHLM).date().isoformat()
+                by_day.setdefault(day, Counter())[reason] += 1
+        return [{"date": d, "reasons": dict(c)} for d, c in sorted(by_day.items(), reverse=True)], rows
+
+    live_days, live_rows = _days("live_gate_history", ", cap_check")
+    demo_days, _ = _days("demo_gate_history")
     caps, disagree = [], Counter()
-    for r in rows:
-        if r["gate_decision"] in ("TRADE_REJECTED", "TRADE_FAILED"):
-            reason = (r["outcome_reason"] or "unattributed").split(":", 1)[0]
-            # Day in Stockholm local — the operator's clock, not the UTC row date.
-            day = datetime.fromisoformat(r["timestamp"]).astimezone(_STHLM).date().isoformat()
-            by_day.setdefault(day, Counter())[reason] += 1
+    for r in live_rows:
         if r["cap_check"]:
             cc = json.loads(r["cap_check"])
             caps.append({"timestamp": r["timestamp"], "ticker": r["ticker"], "sector": r["sector"],
@@ -1175,9 +1182,10 @@ def get_live_rejections(days: int = 10):
             if cc["over_cap"] != cc["over_flat"]:
                 disagree["dynamic_rejects_flat_allows" if cc["over_cap"] else "flat_rejects_dynamic_allows"] += 1
     return {
-        "days":    [{"date": d, "reasons": dict(c)} for d, c in sorted(by_day.items(), reverse=True)],
-        "caps":    caps,
-        "summary": {"cap_tests": len(caps), **disagree},
+        "days":      live_days,
+        "demo_days": demo_days,
+        "caps":      caps,
+        "summary":   {"cap_tests": len(caps), **disagree},
     }
 
 

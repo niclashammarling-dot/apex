@@ -49,7 +49,7 @@ BY_CHECK: dict[int, str] = {
          "may move the term): no action if the merge bounds the family, else a bound on _lr_ipo_cluster with a "
          "replay of the three pinned days. A third pin within 5 sessions before then = read first in the week. ~30 min."),
     67: ("Industrials composite below its critical floor after the ETN/PWR/TT additions. Scope: as CHECK 63; the "
-         "sector currently has no allocation (all FILTERED_ELIGIBILITY 10-05..10-09), so no live exposure — decide "
+         "sector currently has no allocation (all L1 eligibility `regime` stops 10-05..10-09), so no live exposure — decide "
          "ticker changes or event conversion."),
     68: ("Defense composite 0.27 vs floor 0.6 after AXON/HWM. Scope: as CHECK 63; also no allocation this week."),
     69: ("Technology composite below 0.56 after ANET. Scope: as CHECK 63 — Technology holds 5 of 9 live positions, "

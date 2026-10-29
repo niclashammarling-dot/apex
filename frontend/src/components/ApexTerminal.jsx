@@ -477,16 +477,18 @@ function Legend({ swatch, label, border }) {
   );
 }
 
-// Badges, lock columns and lock states come from the backend lock table (D.gateLocks, from
-// backend/gate/lock_codes.py; lock labels phase 1, 2026-10-26). Only the styling is decided here.
-function gateOutcomeMeta(r, locks) {
-  if (r.outcome === "TRADE_EXECUTED" && r.overflow_slot) {
-    // Executed via the overflow slot path — green, but distinct from FILTERED_OVERFLOW_QUANT.
-    return { label: "OVERFLOW", cls: "t-gate-x" };
+// Badges, lock columns and per-row marks come from the backend lock table (D.gateLocks and the row's badge and
+// lock_states, from backend/gate/lock_codes.py; lock labels phase 2). Only the styling is decided here.
+function gateOutcomeMeta(r) {
+  if (r.badge_kind === "executed" && r.overflow_slot) {
+    // Executed into an overflow slot — green, but distinct from an L2 overflow stop.
+    return { label: "EXECUTED · OVERFLOW", cls: "t-gate-x" };
   }
-  const st = locks?.stages?.find(s => s.code === r.outcome);
-  const cls = r.outcome === "TRADE_EXECUTED" ? "t-gate-x" : st?.kind === "skip" ? "t-gate-skip" : "t-gate-filt";
-  return { label: st?.badge ?? r.outcome, cls };
+  const cls = r.badge_kind === "executed" ? "t-gate-x"
+    : r.badge_kind === "skip" ? "t-gate-skip"
+    : r.badge_kind === "unknown" ? "t-sev-high"      // FILTERED_UNKNOWN: no rule covers it, mailed when written
+    : "t-gate-filt";
+  return { label: r.badge ?? r.outcome, cls };
 }
 
 const GATE_LEADING_LABELS = {
@@ -496,13 +498,10 @@ const GATE_LEADING_LABELS = {
   volume_accumulation: "VA",
 };
 
-// Per-row states from the backend (lock_codes.row_states); the per-code table is the fallback, and an
-// unknown code is shown as not known, never as passed.
+// Per-row marks from the backend (lock_codes.lock_marks: "pass", "fail", "n/a", "partial", or null where no rule
+// of the lock ran); a row without them is shown as not known, never as passed.
 function getGateLockStates(r, locks) {
-  if (r.lock_states) return r.lock_states;
-  const cols = locks?.columns ?? [];
-  const st = locks?.stages?.find(s => s.code === r.outcome);
-  return st?.states ?? cols.map(() => null);
+  return r.lock_states ?? (locks?.columns ?? []).map(() => null);
 }
 
 function GateFeed({ D, mode }) {
@@ -529,7 +528,7 @@ function GateFeed({ D, mode }) {
 
   const grouped = rows.reduce((acc, r) => {
     const prev = acc[acc.length - 1];
-    if (prev && prev.sym === r.sym && prev.outcome === r.outcome
+    if (prev && prev.sym === r.sym && prev.outcome === r.outcome && prev.stop_code === r.stop_code
         && !!prev.overflow_slot === !!r.overflow_slot
         && JSON.stringify(prev.lock_states) === JSON.stringify(r.lock_states)) {
       prev._count = (prev._count || 1) + 1;
@@ -541,8 +540,10 @@ function GateFeed({ D, mode }) {
   }, []);
 
   const fmtTs = ts => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
-  const lockColor = pass => pass === true ? "var(--t-accent)" : pass === false ? "var(--t-red)" : "var(--t-text-3)";
-  const lockIcon  = pass => pass === true ? "✓" : pass === false ? "✗" : "·";
+  const marks     = D.gateLocks?.marks ?? {};
+  const lockColor = m => m === "pass" ? "var(--t-accent)" : m === "fail" ? "var(--t-red)"
+    : m === "n/a" ? "var(--t-amber)" : m === "partial" ? "var(--t-text-2)" : "var(--t-text-3)";
+  const lockIcon  = m => marks[m ?? "none"] ?? "·";
 
   return (
     <div className="t-card">
@@ -562,15 +563,15 @@ function GateFeed({ D, mode }) {
                 <th>SYM</th>
                 <th>SCORE</th>
                 {cols.map(c => (
-                  <th key={c.code} style={{ textAlign: "center" }} title={c.label}>{c.head}</th>
+                  <th key={c.lock} style={{ textAlign: "center" }} title={c.label}>{c.head}</th>
                 ))}
                 <th>OUTCOME</th>
               </tr>
             </thead>
             <tbody>
               {grouped.map((r, i) => {
-                const outcome   = gateOutcomeMeta(r, D.gateLocks);
-                const isSkipped = D.gateLocks?.stages?.find(s => s.code === r.outcome)?.kind === "skip";
+                const outcome   = gateOutcomeMeta(r);
+                const isSkipped = r.badge_kind === "skip";
                 const locks     = getGateLockStates(r, D.gateLocks);
                 const hasDetail = !isSkipped && !!(r.lock3_reasoning || r.lock_leading_checks || r.l2_summary || r.macro_reason);
                 const isExpanded = expanded[i];

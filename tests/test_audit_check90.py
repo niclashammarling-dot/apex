@@ -10,7 +10,7 @@ def _run90(tmp_path, monkeypatch, gate_rows, trade_rows, today):
     (repo / "data").mkdir(parents=True, exist_ok=True)
     (repo / "data/apex.db").unlink(missing_ok=True)
     conn = sqlite3.connect(repo / "data/apex.db")
-    conn.execute("CREATE TABLE live_gate_history (timestamp TEXT, gate_decision TEXT, lock3_reasoning TEXT)")
+    conn.execute("CREATE TABLE live_gate_history (timestamp TEXT, lock3_pass INTEGER, stop_code TEXT)")
     conn.execute("CREATE TABLE live_trades (timestamp TEXT, notional REAL)")
     conn.executemany("INSERT INTO live_gate_history VALUES (?, ?, ?)", gate_rows)
     conn.executemany("INSERT INTO live_trades VALUES (?, ?)", trade_rows)
@@ -25,11 +25,16 @@ def _run90(tmp_path, monkeypatch, gate_rows, trade_rows, today):
     return [(f[2], f[4]) for f in core.findings if f[0] == 90]
 
 
-GATE = [("2026-10-01T15:00:00", "TRADE_EXECUTED", "ok"), ("2026-10-02T15:00:00", "FILTERED_L3", "hold"),
-        ("2026-10-05T15:00:00", "FILTERED_L3", "anthropic_unavailable: credit_exhausted"),   # excluded
-        ("2026-09-01T15:00:00", "TRADE_EXECUTED", "ok"),                                       # before window
-        ("2026-10-20T15:00:00", "TRADE_EXECUTED", "ok"), ("2026-10-21T15:00:00", "TRADE_EXECUTED", "ok"),
-        ("2026-10-21T16:00:00", "FILTERED_LEADING", None)]                                     # never reached L5
+# Rows as stored from lock labels phase 2 (the history migrated the same way): Claude's approval is lock3_pass 1,
+# Claude's rejection stop_code L6 claude; a fail-closed row (L6 unavailable) and a row that never reached L6 are
+# not Claude's judgement.
+APPROVED = (1, "TRADE_EXECUTED")
+HOLD = (0, "FILTERED_L6_REVIEW_CLAUDE")
+GATE = [("2026-10-01T15:00:00", *APPROVED), ("2026-10-02T15:00:00", *HOLD),
+        ("2026-10-05T15:00:00", 0, "FILTERED_L6_REVIEW_UNAVAILABLE"),                         # excluded
+        ("2026-09-01T15:00:00", *APPROVED),                                                    # before window
+        ("2026-10-20T15:00:00", *APPROVED), ("2026-10-21T15:00:00", *APPROVED),
+        ("2026-10-21T16:00:00", None, "FILTERED_L5_POSITIONING_LEADING")]                      # never reached L6
 TRADES = [("2026-10-01T15:00:00", 1200.0), ("2026-10-20T15:00:00", 900.0), ("2026-10-21T15:00:00", 1100.0)]
 
 
@@ -48,8 +53,8 @@ def test_silent_before_the_change_and_info_after_the_review(tmp_path, monkeypatc
 
 # The lock labels prompt (Niclas 10-26, review in two weeks): the check moves to the latest change, and
 # its "before" window stops at the previous change instead of mixing two prompts.
-GATE2 = GATE + [("2026-11-02T15:00:00", "FILTERED_L3", "hold"), ("2026-11-03T15:00:00", "TRADE_EXECUTED", "ok"),
-                ("2026-11-03T16:00:00", "FILTERED_L3", "anthropic_unavailable: credit_exhausted")]
+GATE2 = GATE + [("2026-11-02T15:00:00", *HOLD), ("2026-11-03T15:00:00", *APPROVED),
+                ("2026-11-03T16:00:00", 0, "FILTERED_L6_REVIEW_UNAVAILABLE")]
 TRADES2 = TRADES + [("2026-11-03T15:00:00", 700.0)]
 
 

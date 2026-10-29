@@ -286,6 +286,24 @@ def alert_gate_blocked(reason: str) -> None:
     _dispatch(title, body)
 
 
+def alert_gate_unknown(book: str, rows: list[dict]) -> bool:
+    """A gate cycle wrote FILTERED_UNKNOWN rows: outcomes no registered rule covers (lock labels phase 2; Niclas
+    2026-10-28: "om ett fel inte täcks av nuvarande regler och markörer så får vi ha en 'unknown', som direkt
+    flaggas och skickas till min mail. Därefter får det undersökas och rättas"). One mail per cycle, an event,
+    not a standing level: known history never mails. Returns whether a channel delivered."""
+    from loguru import logger
+    title = f"[APEX {book.upper()}] Gate outcome no rule covers — {len(rows)} row(s)"
+    lines = []
+    for r in rows:
+        states = r.get("rule_states") or {}
+        lines.append(f"{r.get('ticker')} at {r.get('timestamp')}: outcome_reason {r.get('outcome_reason')!r}; "
+                     f"rules that ran: {', '.join(f'{k}={v}' for k, v in states.items()) or 'none'}")
+    body = ("These rows are stored as FILTERED_UNKNOWN. Find what stopped each one, then register its rule in "
+            "backend/gate/lock_codes.py RULES.\n\n" + "\n".join(lines))
+    logger.error(f"{title} | " + " | ".join(lines))
+    return _dispatch(title, body)
+
+
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 
 def _dispatch(title: str, body: str) -> bool:

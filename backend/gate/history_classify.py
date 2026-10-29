@@ -109,6 +109,36 @@ def pass_flags(k: Class, row: dict) -> dict[str, int | None]:
     return {col: (row.get(col) if n <= k.reached else None) for n, col in lock_codes.FLAG_COLUMNS.items()}
 
 
+# The first eligibility-module rows (signals 2026-04-19 22:00 UTC, live_gate_history 2026-04-20; weekly_report
+# REFERENCE_START): before them a row's L1 regime and macro checks did not run in one module before the score.
+ELIGIBILITY_LIVE = "2026-04-20T00:00:00+00:00"
+_VERDICT_RULES = {"lock1_pass": (3, "threshold"), "lock2_pass": (4, "grok"), "lock_leading_pass": (5, "leading"),
+                  "lock3_pass": (6, "claude")}
+
+
+def history_rule_states(k: Class, row: dict, flags: dict) -> dict[str, str]:
+    """The rule verdicts a migrated row's own fields prove (basis inferred; Niclas 2026-10-29: "Håller med om
+    historiken här"), given its pass flags after ruling D (pass_flags): the stop's rule fails; a flag of 1 passes
+    its lock's verdict rule; a row that reached L3 after the eligibility module went live passed its regime and
+    macro-event checks, and its earnings check had no data (the date source never returned one, PRODUCTION_GAP
+    rows 8-9). Nothing else is claimed: VIX (it may have had no reading), the penalties, L0 and the execution
+    checks stay absent, so Terminal shows those locks partial or empty on history."""
+    states: dict[str, str] = {}
+    try:
+        owner, rule = lock_codes.parse_stop_code(k.stop_code)
+        states[lock_codes.rule_key(owner, rule)] = lock_codes.FAIL
+    except KeyError:
+        pass                                         # TRADE_EXECUTED, FILTERED_UNKNOWN, the test row
+    for col, (o, r) in _VERDICT_RULES.items():
+        if flags.get(col) == 1:
+            states.setdefault(lock_codes.rule_key(o, r), lock_codes.PASS)
+    if flags.get("lock1_pass") is not None and (row.get("timestamp") or "") >= ELIGIBILITY_LIVE:
+        for o, r in ((1, "regime"), (1, "macro_event")):
+            states.setdefault(lock_codes.rule_key(o, r), lock_codes.PASS)
+        states.setdefault(lock_codes.rule_key(2, "earnings"), lock_codes.NO_DATA)
+    return states
+
+
 def _positioning(table: str, row: dict) -> Class:
     """leading, or unavailable when a data error decided the failing group (the writer's rule from phase 2,
     read back from lock_leading_checks, which every positioning row carries)."""

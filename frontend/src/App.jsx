@@ -376,11 +376,11 @@ function adaptPositions(openPositions) {
 function adaptFunnel(funnel) {
   if (!funnel || Object.keys(funnel).length === 0) return [];
   // Stages, labels and counts are computed in the backend from the one lock table
-  // (backend/gate/lock_codes.py, /api/gate/locks; lock labels phase 1, 2026-10-26).
+  // (backend/gate/lock_codes.py funnel_stages: stops per lock L0–L6, then executed and unknown; lock labels
+  // phase 2). The executed row names how many entries used an overflow slot.
   const stages = (funnel.stages || []).map(s => ({
     stage: s.code,
-    // The execution-phase stage is overflow (L2 RISK): slots used / rejected.
-    label: s.kind === "execution" ? `${s.label} · ${funnel.overflow_executed}u/${s.count}r` : s.label,
+    label: s.kind === "executed" ? `${s.label} · ${funnel.overflow_executed} overflow` : s.label,
     count: s.count,
   }));
   return [{ stage: "POLLED", label: "Tickers polled", count: funnel.total_candidates ?? 0 }, ...stages];
@@ -405,7 +405,10 @@ function adaptGateRows(rows) {
     l2_summary:          r.l2_summary ?? null,
     lock_leading_checks: r.lock_leading_checks ?? null,
     lock3_reasoning:     r.lock3_reasoning ?? null,
+    stop_code:           r.stop_code ?? null,
     lock_states:         r.lock_states ?? null,
+    badge:               r.badge ?? null,
+    badge_kind:          r.badge_kind ?? null,
     reason_label:        r.reason_label ?? null,
   }));
 }

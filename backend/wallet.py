@@ -38,6 +38,10 @@ from backend.db import (
 from backend.demo_config import get_demo_config
 from backend.gate.lock_codes import FAIL, PASS, put
 
+# The smallest demo order (L1 notional_too_small): checked here at execution and by the gate runner before the
+# chain on the largest possible notional.
+MIN_ORDER = 50.0
+
 # ── Execution ────────────────────────────────────────────────────────────────
 
 def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = None,
@@ -107,7 +111,7 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
 
     max_position_size = cfg.get("max_position_size", MAX_POSITION_SIZE)
     amount = portfolio["cash"] * min(position, max_position_size)
-    if _check("notional_too_small", amount < 50):
+    if _check("notional_too_small", amount < MIN_ORDER):
         logger.warning(f"Trade rejected [{ticker}]: insufficient cash (${portfolio['cash']:.2f})")
         return None
 

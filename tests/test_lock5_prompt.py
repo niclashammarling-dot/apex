@@ -90,12 +90,16 @@ def test_gate_history_labels_in_the_prompt_are_the_ones_the_reader_writes():
     table does not carry would be a sentence about rows Claude never sees."""
     import inspect
 
+    from backend import db
     from backend.gate import chain, lock_codes
     from backend.gate.types import L5_UNAVAILABLE_PREFIX
-    labels = {s.label for s in lock_codes.STAGES}
+    labels = {lock_codes.lock_label(n) for n in lock_codes.LOCKS} | {"Executed"}
     for named in ("L4 · Sentiment", "L5 · Positioning", "L6 · Review", "Executed"):
         assert named in SYSTEM_PROMPT and named in labels
-    # FILTERED_L3 also carries the guard and fail-closed rows; the prompt names both by their detail text.
+    assert "lock_label(owner)" in inspect.getsource(db._ticker_gate_fails)     # the reader writes these labels
+    # Before lock labels phase 2 FILTERED_L3 also carried the guard and fail-closed rows, and the prompt names both
+    # by their detail text. From phase 2 the guard's rows read L0 · Portfolio and a fail-closed row is L6's
+    # `unavailable` with the same detail; the prompt's clause is kept as approved 2026-10-26 (review 2026-11-07).
     assert "mechanical pre-L5 guard" in inspect.getsource(chain) and "mechanical drawdown guard" in SYSTEM_PROMPT
     assert L5_UNAVAILABLE_PREFIX.startswith("anthropic_unavailable") and "anthropic_unavailable" in SYSTEM_PROMPT
 
