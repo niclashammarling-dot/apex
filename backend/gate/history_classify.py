@@ -4,9 +4,10 @@ gate/history_classify.py — what stopped each stored gate row, by the approved 
 Scope: vault raw/notes/2026-10/2026-10-26-apex-lock-labels-phase2-scope.md (§ What each stored code holds,
 rulings A-G, probes P1-P4 answered 2026-10-28). Phase 2 rewrites history so that "rätt lås har rätt namn
 och enbart sin egen historik" (Niclas 2026-10-26). This module only reads a row and names its class; it
-writes nothing. The migration (a later step) applies it to a copy first, then to production on a weekend.
+writes nothing. The migration (history_migrate.py) applies it to a copy first, then to production on a weekend,
+and writes each row's rule_states from history_rule_states.
 
-classify(table, row) → Class(code, stop_code, rule, basis, reached):
+classify(table, row, cooloff) → Class(code, stop_code, rule, basis, reached):
   - code       the new gate_decision: the owning lock's code (FILTERED_L1_ELIGIBILITY …), TRADE_EXECUTED
                unchanged, or UNKNOWN for an outcome no rule covers (ninth round, 2026-10-28);
   - stop_code  the code plus the rule (FILTERED_L1_ELIGIBILITY_MACRO_EVENT …); it starts with `code`
@@ -17,7 +18,8 @@ classify(table, row) → Class(code, stop_code, rule, basis, reached):
   - reached    the last chain lock with a pass flag that ran on the row, by the run order before phase 4
                (2 = none of L3..L6 ran). pass_flags() sets every flag after it to NULL (ruling D).
 
-Every outcome is owned by a lock (eighth round): the skips are L1 rules, and the execution phase's
+Every outcome is owned by a lock (eighth round): the skips are L1 rules (a cooloff skip is gate or exit cooloff,
+replayed by CooloffIndex at the time it was decided), and the execution phase's
 rejections are rules of their locks by the identifier the writer recorded. A rejection without one is
 UNKNOWN: the probe of 2026-10-28 found no open position at any of their times, so no rule can be inferred.
 

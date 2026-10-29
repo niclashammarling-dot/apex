@@ -714,8 +714,8 @@ function TestView({ D }) {
         </div>
         <div className="t-card">
           <div className="t-card-head">
-            <div className="t-card-title">LIVE REJECTIONS</div>
-            <div className="t-meta">REASONS · SECTOR CAP TESTS</div>
+            <div className="t-card-title">REFUSALS</div>
+            <div className="t-meta">LIVE AND DEMO · REASONS · LIVE SECTOR CAP TESTS</div>
           </div>
           <div className="t-card-body">
             <LiveRejectionsPanel />
