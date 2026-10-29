@@ -44,6 +44,7 @@ class GateCycle:
         return cls("unrecorded", "direct", datetime.now(timezone.utc).isoformat())
 
 
+# TODO(bundle 2026-10-29): a candidate whose evaluation raises leaves no gate row, the first UNKNOWN case (Niclas 2026-10-29: "ett första fall av unknown") — it vanishes from gate activity and the funnel, seen only as this cycle reason and a log line (0 cycles since 10-05, 0 log lines since 10-07), and the paths that can raise are traced (10-29) — scope: (1) both runners write FILTERED_UNKNOWN with the exception's type and text as its reason, in the cycle's UNKNOWN mail (lock labels phase 2 alert path); (2) close each traced path in its own lock, failing closed as that lock's `unavailable` with the cause, or fix the defect at its source: the options checks run outside the fetch's try (lock4_leading _check_put_call_ratio / _check_unusual_call_volume index openInterest / volume; pcr_threshold_for reads the DB), Grok's float(score) is outside its try (lock3_sentiment.py:290), Lock 5's payload is built before its try (lock5_claude.py:109), build_base_context indexes cfg keys and regime_bayes attributes, and _chain_to_gate_result json.dumps the L5 checks; (3) Lock 5 records a malformed answer (JSONDecodeError, a non-numeric confidence) as anthropic_unavailable: Claude did answer, so it gets its own cause; (4) tests: a raise on each path gives that lock's row, and a forced raise in _evaluate gives one UNKNOWN row and one mail
 def evaluated_reason(n_candidates: int, n_evaluated: int) -> str:
     if n_evaluated == 0:
         return "all_raised"
