@@ -229,9 +229,15 @@ def test_every_outcome_reason_live_emits_has_one_rule_owned_by_a_lock():
     src = (GATE / "gate_runner_live.py").read_text()
     pairs = re.findall(r'result\["outcome"\]\s*=\s*"(TRADE_\w+)"\s*\n\s*'
                        r'(?:#[^\n]*\n\s*)*result\["outcome_reason"\]\s*=\s*f?"(\w+)', src)
-    owners = {reason: lock_codes.rule_for(reason).owner for _, reason in pairs}
-    # Eighth round: open position and too small a notional are L1's, the sector cap L2's, the broker L6's.
-    assert owners == {"position_open": 1, "notional_too_small": 1, "sector_cap": 2, "broker_error": 6}
+    # From 2026-10-29 every execution-phase check also records its verdict through _put (rule_states), and
+    # _order_refusal returns the refusing identifier, so both are read.
+    checked = set(re.findall(r'_put\(result, "(\w+)"', src))
+    owners = {reason: lock_codes.rule_for(reason).owner for reason in {r for _, r in pairs} | checked}
+    # Eighth round: open position, too small a notional and a missing price are L1's, the sector cap L2's,
+    # the broker L6's.
+    assert owners == {"position_open": 1, "notional_too_small": 1, "price_missing": 1, "sector_cap": 2,
+                      "broker_error": 6}
+    assert {r for _, r in pairs} <= checked                     # every outcome_reason is also a recorded verdict
 
 
 def test_identifiers_and_names_are_unique_and_every_stop_code_parses_back():

@@ -35,6 +35,7 @@ from backend.gate.gate_runner import (
     PRE_ROTATION_FLOOR,
     _chain_to_gate_result,
     _compute_bayesian_multipliers,
+    _overflow_state,
     _persist_multiplier_stats,
     _run_l5_for_result,
 )
@@ -585,6 +586,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
         if result["outcome"] == "TRADE_QUEUED_PENDING_L5":
             sector         = signal.get("sector", "")
             base_threshold = (sector_thresholds or {}).get(sector, cfg["lock1_threshold"])
+            _put(result, "position_open", ticker in open_tickers)
             if ticker in open_tickers:
                 logger.info(f"Live trade skipped [{ticker}]: position already open (pre-L5)")
                 result["outcome"] = "TRADE_REJECTED"
@@ -594,6 +596,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
             elif open_count >= max_positions:
                 overflow_level     = open_count - max_positions + 1
                 overflow_threshold = round(base_threshold * (1 + overflow_level * overflow_increment), 4)
+                _overflow_state(result, signal["signal_score"] < overflow_threshold)
                 if signal["signal_score"] < overflow_threshold:
                     logger.warning(
                         f"Live gate [{ticker}]: overflow slot {overflow_level} rejected pre-L5 — "
@@ -622,6 +625,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
                 )
 
         if result["outcome"] == "TRADE_QUEUED":
+            _put(result, "position_open", ticker in open_tickers)
             if ticker in open_tickers:
                 logger.info(f"Live trade skipped [{ticker}]: position already open")
                 result["outcome"] = "TRADE_REJECTED"
@@ -632,6 +636,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
                 base_threshold     = (sector_thresholds or {}).get(sector, cfg["lock1_threshold"])
                 overflow_level     = open_count - max_positions + 1
                 overflow_threshold = round(base_threshold * (1 + overflow_level * overflow_increment), 4)
+                _overflow_state(result, signal["signal_score"] < overflow_threshold)
                 if signal["signal_score"] < overflow_threshold:
                     logger.warning(
                         f"Live gate [{ticker}]: overflow slot {overflow_level} rejected — "
@@ -643,15 +648,16 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
                     position_pct    = result["lock3"]["position_size_pct"] if result.get("lock3") else cfg["max_position_size"]
                     available_cash  = max(0.0, min(acct["equity"], acct["cash"]))
                     notional        = available_cash * min(position_pct, cfg["max_position_size"])
-                    if notional < 10:
-                        logger.warning(f"Live trade rejected [{ticker}]: notional too small (${notional:.2f})")
+                    refusal         = _order_refusal(result, ticker, notional, signal.get("price"))
+                    if refusal:
                         result["outcome"] = "TRADE_REJECTED"
-                        result["outcome_reason"] = "notional_too_small"
+                        result["outcome_reason"] = refusal
                     else:
                         sector    = signal.get("sector", "")
                         cap_check = _sector_cap_check(sector, notional, sector_exposure_live, dynamic_caps_live,
                                                       cfg.get("max_sector_exposure", 0.30), _starting_balance)
                         result["cap_check"] = cap_check
+                        _put(result, "sector_cap", cap_check["over_cap"])
                         sec_cap, projected = cap_check["cap"], cap_check["projected"]
                         if cap_check["over_cap"]:
                             logger.warning(
@@ -684,19 +690,21 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
                                 logger.error(f"Live trade failed [{ticker}]: {e}")
                                 result["outcome"] = "TRADE_FAILED"
                                 result["outcome_reason"] = f"broker_error: {e}"[:300]
+                                _put(result, "broker_error", True)
             else:
                 position_pct   = result["lock3"]["position_size_pct"] if result.get("lock3") else cfg["max_position_size"]
                 available_cash = max(0.0, min(acct["equity"], acct["cash"]))
                 notional       = available_cash * min(position_pct, cfg["max_position_size"])
-                if notional < 10:
-                    logger.warning(f"Live trade rejected [{ticker}]: notional too small (${notional:.2f})")
+                refusal        = _order_refusal(result, ticker, notional, signal.get("price"))
+                if refusal:
                     result["outcome"] = "TRADE_REJECTED"
-                    result["outcome_reason"] = "notional_too_small"
+                    result["outcome_reason"] = refusal
                 else:
                     sector    = signal.get("sector", "")
                     cap_check = _sector_cap_check(sector, notional, sector_exposure_live, dynamic_caps_live,
                                                   cfg.get("max_sector_exposure", 0.30), _starting_balance)
                     result["cap_check"] = cap_check
+                    _put(result, "sector_cap", cap_check["over_cap"])
                     sec_cap, projected = cap_check["cap"], cap_check["projected"]
                     if cap_check["over_cap"]:
                         logger.warning(
@@ -724,6 +732,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
                             logger.error(f"Live trade failed [{ticker}]: {e}")
                             result["outcome"] = "TRADE_FAILED"
                             result["outcome_reason"] = f"broker_error: {e}"[:300]
+                            _put(result, "broker_error", True)
 
         insert_live_gate_result({
             "cycle_started_at": ts,
@@ -793,6 +802,31 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
         result["_l5_context"]      = context
     return result
 
+
+
+def _put(result: dict, ident: str, refused: bool) -> None:
+    """A live execution-phase check's verdict in the row's rule_states (lock_codes.put)."""
+    lock_codes.put(result.setdefault("rule_states", {}), ident,
+                   lock_codes.FAIL if refused else lock_codes.PASS)
+
+
+def _order_refusal(result: dict, ticker: str, notional: float, price: float | None) -> str | None:
+    """L1's checks that the order can be bought, before the broker is called: a price, and a notional of at
+    least $10 that buys one whole share (bracket orders take whole shares; brokers/alpaca.py floors qty and
+    raises on 0). Until 2026-10-29 a below-one-share notional reached the broker and was recorded as a broker
+    error (LLY, 11 rows 10-12..10-16; Niclas 2026-10-28: "L1 måste kontrollera först att beloppet räcker").
+    Returns the refusing rule's identifier, or None."""
+    _put(result, "price_missing", not price)
+    if not price:
+        logger.warning(f"Live trade rejected [{ticker}]: no price ({price!r})")
+        return "price_missing"
+    too_small = notional < 10 or int(notional / price) < 1
+    _put(result, "notional_too_small", too_small)
+    if too_small:
+        logger.warning(f"Live trade rejected [{ticker}]: notional ${notional:.2f} buys no whole share "
+                       f"at ${price:.2f}")
+        return "notional_too_small"
+    return None
 
 
 def _sector_cap_check(sector: str, notional: float, exposure: dict[str, float],

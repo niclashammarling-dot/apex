@@ -129,3 +129,65 @@ def test_demo_gate_history_stores_outcome_reason():
     finally:
         conn.close()
     assert got == "loss_cap"
+
+
+# ── The live execution phase (writer 4) ───────────────────────────────────────────────────────────
+
+def _run_live(price=200.0, broker_raises=None, **kw):
+    from tests.test_gate_runners import _live_patches, _signal
+    patches = _live_patches(candidates=[_signal(price=price)], **kw)
+    with ExitStack() as st:
+        mocks = [st.enter_context(p) for p in patches]
+        if broker_raises is not None:
+            mocks[14].side_effect = broker_raises
+        from backend.gate import gate_runner_live
+        return gate_runner_live.run(), mocks
+
+
+def _stored(mocks) -> dict:
+    return mocks[9].call_args[0][0]                     # insert_live_gate_result's row
+
+
+LIVE_ORDER = ("position_open", "price_missing", "notional_too_small", "sector_cap")
+
+
+def test_an_executed_live_order_passed_every_execution_check():
+    results, mocks = _run_live()
+    assert results[0]["outcome"] == "TRADE_EXECUTED"
+    assert all(results[0]["rule_states"][KEY.get(i) or K(lock_codes.rule_for(i).owner, i)] == PASS
+               for i in LIVE_ORDER)
+    assert lock_codes.stop_of(results[0]["rule_states"]) is None
+
+
+def test_a_notional_below_one_share_is_refused_at_l1_before_the_broker():
+    # LLY 2026-10-12..10-16: $517-862 against a $1181-1272 share reached the broker as qty 0 (a "broker error").
+    results, mocks = _run_live(price=1200.0)            # notional 10 % of $10,000 = $1,000 < one share
+    mocks[14].assert_not_called()
+    assert results[0]["outcome"] == "TRADE_REJECTED" and _stored(mocks)["outcome_reason"] == "notional_too_small"
+    assert lock_codes.stop_of(results[0]["rule_states"]) == (1, "notional_too_small")
+    results, mocks = _run_live(price=999.0)             # one share fits: the order goes
+    assert results[0]["outcome"] == "TRADE_EXECUTED" and mocks[14].called
+
+
+def test_a_missing_price_is_refused_at_l1_before_the_broker():
+    results, mocks = _run_live(price=None)
+    mocks[14].assert_not_called()
+    assert _stored(mocks)["outcome_reason"] == "price_missing"
+    assert lock_codes.stop_of(results[0]["rule_states"]) == (1, "price_missing")
+
+
+def test_a_broker_refusal_is_l6_broker_error_and_does_not_cool_the_ticker():
+    results, mocks = _run_live(broker_raises=RuntimeError("insufficient buying power"))
+    assert results[0]["outcome"] == "TRADE_FAILED"
+    assert _stored(mocks)["outcome_reason"].startswith("broker_error: insufficient")
+    stop = lock_codes.stop_of(results[0]["rule_states"])
+    assert stop == (6, "broker_error") and lock_codes.stop_code(*stop) not in lock_codes.COOLOFF_STOPS
+
+
+def test_the_live_sector_cap_and_overflow_are_recorded():
+    results, _ = _run_live(cfg_overrides={"max_sector_exposure": 0.05})   # $1,000 of $10,000 is 10 % > 5 %
+    assert results[0]["outcome"] == "TRADE_REJECTED"
+    assert lock_codes.stop_of(results[0]["rule_states"]) == (2, "sector_cap")
+    held = [{"ticker": "AAPL", "cost_basis": 100.0}]
+    results, _ = _run_live(positions=held, cfg_overrides={"max_positions": 1})   # NVDA 0.65 ≥ 0.5 × 1.05
+    assert results[0]["rule_states"][K(2, "overflow")] == PASS and results[0]["outcome"] == "TRADE_EXECUTED"
