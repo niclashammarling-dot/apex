@@ -96,6 +96,22 @@ class TestBuild:
         bundle.build(now=self.W1)
         assert not (env / "bundle.json").exists()
 
+    def test_throughput_counts_closed_new_and_carried_against_the_previous_bundle(self, env):
+        a = bundle._item("finding:39:WARNING:a", "findings", "WARNING", "a", "carried")
+        b = bundle._item("finding:39:WARNING:b", "findings", "WARNING", "b", "closed by W2")
+        c = bundle._item("finding:39:WARNING:c", "findings", "WARNING", "c", "new in W2")
+        self.items = [a, b]
+        first = bundle.build(write=True, now=self.W1)
+        assert first["throughput"] == {"previous": None}
+        assert "no previous bundle" in bundle.render_text(first).splitlines()[3]
+        self.items = [a, c]
+        t = bundle.build(write=True, now=self.W2)["throughput"]
+        assert (t["closed"], t["new"], t["carried"]) == (1, 1, 1)
+        assert (t["oldest_key"], t["oldest_days"]) == ("finding:39:WARNING:a", 7)
+        line = bundle.render_text(json.loads((env / "bundle.json").read_text())).splitlines()[3]
+        assert line == ("THROUGHPUT since 2031-03-07: closed 1, new 1, carried 1; oldest 7 d "
+                        "(finding:39:WARNING:a)")
+
     def test_check88_is_evaluated_on_the_bundle_being_built(self, env):
         # The 10-30 shape: latest.json's CHECK 88 row described the 10-23 bundle ("4 without a scope") while
         # every item of the new bundle had one. Niclas 2026-10-31: "utvärdering efter bygget".

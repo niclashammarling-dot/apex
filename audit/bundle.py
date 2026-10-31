@@ -492,6 +492,36 @@ def _check88_after_build(kept: list[dict], first_seen: dict, today: str) -> list
     return kept
 
 
+def throughput(prev: dict, kept: list[dict], excepted: list[dict], today: str) -> dict:
+    """How fast items leave, against the previous bundle (2026-10-31). Niclas 2026-10-13: "We have always been
+    good at producing signals and finding information, but action has been slow … worth keeping an eye on".
+    Found 2026-10-31: the 10-30 bundle carried the 10-10 CHECK 54 pair and four drift items for three weeks and
+    nothing in it said so. Written here into bundle.json; read by render_text (the Friday mail's first line,
+    and the Saturday session's read). No previous bundle is stated as such, never as zero closed."""
+    if not prev.get("items") and not prev.get("generated_at"):
+        return {"previous": None}
+    before = {i["key"] for i in prev.get("items", [])}
+    now_keys = {i["key"] for i in kept}
+    held = {e["key"] for e in excepted}
+    oldest = min(kept, key=lambda i: i.get("first_seen") or today, default=None)
+    age = ((datetime.fromisoformat(today) - datetime.fromisoformat(oldest["first_seen"])).days
+           if oldest and oldest.get("first_seen") else None)
+    return {"previous": prev.get("generated_at"),
+            "closed": len(before - now_keys - held), "excepted": len(before & held),
+            "new": len(now_keys - before), "carried": len(before & now_keys),
+            "oldest_key": oldest["key"] if oldest else None, "oldest_days": age}
+
+
+def _throughput_line(t: dict | None) -> str:
+    if not t:
+        return "THROUGHPUT: not computed (bundle built before 2026-10-31)"
+    if t.get("previous") is None:
+        return "THROUGHPUT: no previous bundle to compare against"
+    oldest = f"; oldest {t['oldest_days']} d ({t['oldest_key']})" if t.get("oldest_key") else ""
+    return (f"THROUGHPUT since {t['previous'][:10]}: closed {t['closed']}, new {t['new']}, carried {t['carried']}"
+            + (f", moved to exceptions {t['excepted']}" if t.get("excepted") else "") + oldest)
+
+
 def build(write: bool = False, now: datetime | None = None, db: Path | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     today = now.astimezone(NY).date().isoformat()
@@ -521,7 +551,7 @@ def build(write: bool = False, now: datetime | None = None, db: Path | None = No
     except Exception:
         commit = None
     bundle = {"generated_at": now.isoformat(), "host_commit": commit, "items": kept,
-              "excepted": excepted, "config": snap,
+              "excepted": excepted, "config": snap, "throughput": throughput(prev, kept, excepted, today),
               "counts": {**{s: sum(1 for i in kept if i["section"] == s)
                             for s in ("findings", "todos", "parity", "config", "weekly", "signals")},
                          "no_scope": sum(1 for i in kept if not i["scope"])}}
@@ -531,11 +561,10 @@ def build(write: bool = False, now: datetime | None = None, db: Path | None = No
     return bundle
 
 
-# TODO(bundle 2026-10-13): the bundle shows what waits, not how fast items leave — Niclas 2026-10-13: "We have always been good at producing signals and finding information, but action has been slow … worth keeping an eye on" (entry fills: found 09-23, built 10-13) — scope: in build(), diff keys against the previous bundle.json: closed since last bundle, new, carried, and the oldest first_seen with its age in days; render one THROUGHPUT line at the top of the mail and the card; test with two synthetic bundles; first real read on the 10-16 → 10-23 pair
 def render_text(b: dict) -> str:
     lines = [f"APEX weekend bundle — built {b['generated_at'][:16]} UTC @ {b.get('host_commit')}",
              "Decide each item at weekend maintenance: fix, wire a reader, or keep with a reason and a date.",
-             "Nothing here is removed automatically.", ""]
+             "Nothing here is removed automatically.", _throughput_line(b.get("throughput")), ""]
     names = {"findings": "AUDIT FINDINGS (non-INFO)", "todos": "TODO MARKERS",
              "parity": "SIGNALS WITH NO READER", "config": "CONFIG CHANGED SINCE LAST BUNDLE",
              "weekly": "WEEKLY REPORT READ", "signals": "SIGNAL REGISTER (open hypotheses)"}
