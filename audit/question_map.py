@@ -29,6 +29,12 @@ GAPS = REPO / "backend" / "backtest" / "PRODUCTION_GAP.md"
 CHECKS = REPO / "audit" / "CHECKS.md"
 STATE = REPO / "audit" / "state" / "latest.json"
 PARAMS = REPO / "audit" / "PARAMETERS.json"
+VAULT_NOTES = Path("/mnt/c/Users/Nix/Niclas-KB/raw/notes")
+
+# Card verdicts (2026-10-31, pyramid ruling A of 2026-10-24): one word in the card's frontmatter. A question whose
+# cards all carry an unanswered verdict is a break in the chain, shown as such.
+CARD_VERDICTS = {"supported", "not-supported", "reverses", "unanswered", "pending", "instrument"}
+CARD_UNANSWERED = {"unanswered", "pending"}
 
 S_ANSWERED = {"adopted", "discarded"}
 GAP_ANSWERED = {"yes", "closed", "n/a"}
@@ -156,6 +162,51 @@ def answered(ref: str, state: str) -> bool:
     return False
 
 
+def _frontmatter(text: str) -> dict[str, str]:
+    if not text.startswith("---"):
+        return {}
+    end = text.find("\n---", 3)
+    fm = {}
+    for line in text[3:end].splitlines():
+        if ":" in line and not line.startswith((" ", "-")):
+            k, v = line.split(":", 1)
+            fm[k.strip()] = v.strip()
+    return fm
+
+
+def card_index(notes: Path = VAULT_NOTES) -> dict:
+    """Test cards by the question they answer (2026-10-31). Niclas 2026-10-24: "pyramiden visar att varje lager samlar
+    viss information för att svara på en fråga. Detta behöver kopplas från botten till toppen"; ruled A: every card's
+    frontmatter carries `answers:` (Q-/G- ids, comma-separated or a [list]), `delivers:` (one line, what it gives the
+    layer above), `verdict:` (one word of CARD_VERDICTS) and `next:` (the card or question it points to). Read from the
+    cards themselves, no hand-typed numbers. Returns {"cards": {qid: [card]}, "invalid": [...]}; an unreachable vault
+    raises RegisterUnread, never an empty map."""
+    if not notes.is_dir():
+        raise RegisterUnread(f"vault notes not reachable at {notes} (cards unread)")
+    by_q: dict[str, list[dict]] = {}
+    invalid = []
+    for f in sorted(notes.rglob("*.md")):
+        try:
+            fm = _frontmatter(f.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            continue
+        if "answers" not in fm:
+            continue
+        ids = [x.strip() for x in fm["answers"].strip("[]").split(",") if x.strip()]
+        card = {"slug": f.stem, "verdict": fm.get("verdict", ""), "delivers": fm.get("delivers", "").strip('"'),
+                "next": fm.get("next", "").strip('"'), "date": fm.get("date", "")}
+        bad = [i for i in ids if not REF.match(i) or not i.startswith(("Q-", "G", "O3"))]
+        if card["verdict"] not in CARD_VERDICTS or not ids or bad or not card["delivers"]:
+            invalid.append({"slug": f.stem, "why": f"verdict {card['verdict']!r}, answers {ids}, delivers "
+                                                   f"{'set' if card['delivers'] else 'missing'}"})
+            continue
+        for i in ids:
+            by_q.setdefault(i, []).append(card)
+    for cards in by_q.values():
+        cards.sort(key=lambda c: c["date"], reverse=True)
+    return {"cards": by_q, "invalid": invalid}
+
+
 def derive(m: dict, rows: dict[str, str], checks_all: list[str], params: dict[str, tuple[str, str]]) -> dict:
     """Roll every question up from its rows. rows: {ref: state} for S, GAP and CHECK."""
     qs = m["questions"]
@@ -224,6 +275,17 @@ def build(today: date | None = None) -> dict:
             **check_states(state, ids)}
     params = param_states(json.loads(PARAMS.read_text())["parameters"], today)
     out = derive(m, rows, [f"CHECK-{n}" for n in ids], params)
+    try:
+        ci = card_index()
+        for qid, q in out["questions"].items():
+            cards = ci["cards"].get(qid, [])
+            q["cards"] = cards
+            q["card_break"] = bool(cards) and all(c["verdict"] in CARD_UNANSWERED for c in cards)
+        out["cards_unread"] = None
+        out["cards_invalid"] = ci["invalid"]
+        out["cards_unmapped"] = sorted(set(ci["cards"]) - set(out["questions"]))
+    except RegisterUnread as e:   # the pyramid still renders from the registers; the missing cards say so
+        out["cards_unread"] = str(e)
     out["as_of"] = {"checks_run": state.get("generated_at"), "derived": today.isoformat(),
                     "checks_state_present": bool(state)}
     return out

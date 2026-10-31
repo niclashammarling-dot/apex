@@ -62,6 +62,24 @@ function Rows({ q }) {
   );
 }
 
+// Test cards that answer this question (2026-10-31, ruling A of 2026-10-24): read from each card's frontmatter
+// (answers, delivers, verdict, next) by audit/question_map.card_index, newest first. Nothing typed here.
+function Cards({ q }) {
+  if (!q.cards || !q.cards.length) return <Row label="CARDS">none answer this question yet</Row>;
+  return (
+    <Row label={q.card_break ? "CARDS · BREAK" : "CARDS"}>
+      {q.cards.map((c) => (
+        <div key={c.slug} style={{ marginBottom: 4 }}>
+          <Chip text={c.verdict} state={c.verdict === "supported" ? "answered" : c.verdict === "unanswered" || c.verdict === "pending" ? "open" : "partial"} />
+          <span style={{ marginLeft: 6, color: "var(--t-text-2)" }}>{c.slug}</span>
+          <div style={{ color: "var(--t-text-1)" }}>delivers: {c.delivers}</div>
+          {c.next && <div style={{ color: "var(--t-text-3)" }}>next: {c.next}</div>}
+        </div>
+      ))}
+    </Row>
+  );
+}
+
 function Band({ i, n, open, onToggle, title, q, children }) {
   // Width grows toward the base: top 40 %, base 100 %.
   const w = 40 + (60 * i) / (n - 1);
@@ -142,6 +160,7 @@ export default function OverviewPyramid() {
                 <Row label="ANSWERS UP">{Q[id].answers.join(", ")}</Row>
                 {Q[id].children.length > 0 && <Row label="VIA">{Q[id].children.join(", ")}</Row>}
                 <Rows q={Q[id]} />
+                <Cards q={Q[id]} />
               </Band>
             ))}
             <div className="t-meta" style={{ textAlign: "center", marginTop: 8 }}>
@@ -164,6 +183,12 @@ export default function OverviewPyramid() {
             <div className="t-meta" style={{ color: "var(--t-text-3)", marginTop: 6 }}>
               Open layers: {openQs.map(([name, q]) => `${name} (${q.state})`).join(", ") || "none"}
             </div>
+            <div className="t-meta" style={{ color: "var(--t-text-3)" }}>
+              Layers whose cards are all unanswered: {LAYERS.filter(([id]) => Q[id] && Q[id].card_break).map(([, name]) => name).join(", ") || "none"}
+            </div>
+            {data.cards_unread && <div className="t-meta" style={{ color: "var(--t-sev-medium, var(--t-text-1))" }}>cards unread: {data.cards_unread}</div>}
+            {data.cards_invalid && data.cards_invalid.length > 0 && (
+              <div className="t-meta">cards with a malformed frontmatter: {data.cards_invalid.map((c) => c.slug).join(", ")}</div>)}
           </div>
         </div>
       </div>

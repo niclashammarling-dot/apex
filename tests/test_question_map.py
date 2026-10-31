@@ -98,3 +98,43 @@ def test_endpoint_returns_the_derivation():
     from backend.routers.signals_router import get_pyramid
     out = get_pyramid()
     assert "O3" in out["questions"] and out["breaks"]
+
+
+# ── Cards (2026-10-31, ruling A of 2026-10-24): read from each card's frontmatter ─────────────────────
+
+def _card(d, name, fm):
+    (d / f"{name}.md").write_text("---\n" + "\n".join(f"{k}: {v}" for k, v in fm.items()) + "\n---\n\nbody\n")
+
+
+def test_card_index_maps_cards_by_question_and_lists_malformed_ones(tmp_path):
+    d = tmp_path / "2026-10"
+    d.mkdir()
+    _card(d, "s20-card", {"date": "2026-10-24", "answers": "[Q-SIG]", "verdict": "not-supported",
+                          "delivers": "no vol rank at 1-5 days", "next": "s20b-card"})
+    _card(d, "l3-m4-card", {"date": "2026-10-24", "answers": "Q-EXE, G7", "verdict": "supported",
+                            "delivers": "ALLCAP8 beats live at L3"})
+    _card(d, "bad-card", {"answers": "Q-SIG", "verdict": "maybe", "delivers": "x"})
+    _card(d, "plain-note", {"title": "not a card"})
+    ci = qm.card_index(tmp_path)
+    assert [c["slug"] for c in ci["cards"]["Q-SIG"]] == ["s20-card"]
+    assert {c["slug"] for c in ci["cards"]["G7"]} == {"l3-m4-card"}
+    assert [x["slug"] for x in ci["invalid"]] == ["bad-card"]
+
+
+def test_card_index_on_an_unreachable_vault_raises(tmp_path):
+    with pytest.raises(qm.RegisterUnread):
+        qm.card_index(tmp_path / "nowhere")
+
+
+def test_build_marks_a_layer_whose_cards_are_all_unanswered_as_a_break(tmp_path, monkeypatch):
+    d = tmp_path / "2026-10"
+    d.mkdir()
+    _card(d, "a", {"answers": "Q-SIG", "verdict": "unanswered", "delivers": "control failed"})
+    _card(d, "b", {"answers": "Q-SIG", "verdict": "pending", "delivers": "runner not built"})
+    _card(d, "c", {"answers": "Q-EXE", "verdict": "supported", "delivers": "one candidate"})
+    real = qm.card_index
+    monkeypatch.setattr(qm, "card_index", lambda notes=None: real(tmp_path))
+    out = qm.build(date(2026, 10, 31))
+    assert out["cards_unread"] is None
+    assert out["questions"]["Q-SIG"]["card_break"] is True
+    assert out["questions"]["Q-EXE"]["card_break"] is False
