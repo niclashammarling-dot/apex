@@ -710,11 +710,14 @@ _C74_REVIEWED: dict[str, tuple[str, str, str]] = {
         "reviewed 2026-09-10: young-entry tests use _recent_timestamp(); the fixed dates are fill dates "
         "that must postdate _open_trade's fixed entry, and time-stop tests want an old entry; re-reviewed "
         "2026-10-13 after adding filled_at = None to a fake order (no date change); re-reviewed 2026-10-24 after the "
-        "L0 loss-cap tests gained equity and starting_balance mocks (no date change)", "2027-04-10",
-        "9d43b0ee17d26e25"),
+        "L0 loss-cap tests gained equity and starting_balance mocks (no date change); re-reviewed 2026-10-31 after "
+        "the corroborated-exit test stubbed _current_price (Finding 5 Yahoo guard; no date change)", "2027-04-10",
+        "4b6641a1aa44bc58"),
     "tests/test_entry_fill.py": (
         "reviewed 2026-10-13: exit-check entries are an hour before now (_open_trade default); the fixed "
-        "dates are fill timestamps and CHECK 89 entries read with a fixed now", "2027-04-13", "fd384bc28f8724ab"),
+        "dates are fill timestamps and CHECK 89 entries read with a fixed now; re-reviewed 2026-10-31 after the "
+        "wide-fill tests (an entry on 2026-10-01 read with the same fixed now 2026-10-13: 12 days, never decays "
+        "into the 7-day window)", "2027-04-13", "d2fc7596f1ebfb32"),
     "tests/test_time_stop_fresh_reread.py": (
         "a time-stop test with an old fixed entry (2026-08-04): it only moves further past max_hold_days, "
         "never back into another branch", "2027-04-10", "cc6944083c4ccdb9"),
