@@ -828,12 +828,23 @@ def _reference_note(ref: dict, rdemo: dict, since: str) -> str:
 
 
 def build_report(recal_changes: dict[str, tuple[float, float]] | None = None,
-                 capture: dict | None = None) -> tuple[str, str, str]:
+                 capture: dict | None = None, snapshot: dict | None = None) -> tuple[str, str, str]:
     """Return (subject, html_body, plain_body). A dict passed as `capture` is filled
-    with the facts the DB cannot recompute later, for send_weekly_report to store."""
-    since  = _week_start_iso()
-    until  = (datetime.fromisoformat(since) + timedelta(days=7)).isoformat()
-    now    = datetime.now(timezone.utc)
+    with the facts the DB cannot recompute later, for send_weekly_report to store.
+
+    `snapshot` (2026-10-31): re-render a stored week (weekly_report_snapshots via
+    db.get_weekly_snapshot). Its window, commentary, optimizer, sweep, thresholds and
+    recal changes are used as stored, with no second model call; funnels and P&L come
+    from the DB, and unrealized prices are fetched again."""
+    if snapshot is not None:
+        since, until = snapshot["since"], snapshot["until"]
+        recal_changes = snapshot.get("recal_changes")
+        # The label and the footer use the time the week was stored (the send), so the render matches the mail.
+        now = datetime.fromisoformat(snapshot.get("_written_at") or until)
+    else:
+        since  = _week_start_iso()
+        until  = (datetime.fromisoformat(since) + timedelta(days=7)).isoformat()
+        now    = datetime.now(timezone.utc)
     week_label = now.strftime("Week ending %B %d, %Y")
     partials = _partial_sessions(since, until)
 
@@ -845,18 +856,24 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None,
     ref = _reference(since)
     rdemo, rlive = _ref_book(ref, "demo"), _ref_book(ref, "live")
     top_sector = _top_sector(since, until)
-    thresh_status = _threshold_status(since, until)
-    sweep_state, sweep_detail, sweep_top = _sweep_best()
-    if sweep_state != _SWEEP_OK:
-        logger.warning(f"Weekly report: sweep {sweep_state} — {sweep_detail}")
-    opt_state, opt_detail, opt = _optimizer_best()
-    if opt_state != _SWEEP_OK:
-        logger.warning(f"Weekly report: optimizer {opt_state} — {opt_detail}")
+    if snapshot is not None:
+        thresh_status = snapshot["thresholds"]
+        sweep_state, sweep_detail, sweep_top = (snapshot["sweep"][k] for k in ("state", "detail", "top"))
+        opt_state, opt_detail, opt = (snapshot["optimizer"][k] for k in ("state", "detail", "result"))
+        commentary = snapshot["commentary"]
+    else:
+        thresh_status = _threshold_status(since, until)
+        sweep_state, sweep_detail, sweep_top = _sweep_best()
+        if sweep_state != _SWEEP_OK:
+            logger.warning(f"Weekly report: sweep {sweep_state} — {sweep_detail}")
+        opt_state, opt_detail, opt = _optimizer_best()
+        if opt_state != _SWEEP_OK:
+            logger.warning(f"Weekly report: optimizer {opt_state} — {opt_detail}")
 
-    commentary = _gpt4o_commentary(
-        demo, live, dfunnel, lfunnel,
-        sector_pnl, thresh_status, sweep_top, recal_changes, partials, ref,
-    )
+        commentary = _gpt4o_commentary(
+            demo, live, dfunnel, lfunnel,
+            sector_pnl, thresh_status, sweep_top, recal_changes, partials, ref,
+        )
     if capture is not None:
         # Order (b) of the 10-03 read, second half: derive what the DB holds, store
         # only what it cannot give back. optimizer_results.json and sweep_results.json
@@ -1335,3 +1352,28 @@ def send_weekly_report() -> None:
             logger.info("Weekly report sent")
     except Exception as e:
         logger.error(f"Weekly report failed: {e}")
+
+
+def render_stored(week: str) -> str:
+    """The plain report for a stored week, from its snapshot (2026-10-31). The reader of
+    db.get_weekly_snapshot: the Saturday weekly read starts here. A week with no snapshot
+    raises; it never falls back to a fresh model call."""
+    from backend.db import get_weekly_snapshot
+    snap = get_weekly_snapshot(week)
+    if snap is None:
+        raise LookupError(f"no stored snapshot for {week} (weekly_report_snapshots)")
+    _, _, plain = build_report(snapshot={**snap["payload"], "_written_at": snap["written_at"]})
+    return plain
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) == 3 and sys.argv[1] == "--render":
+        try:
+            print(render_stored(sys.argv[2]))
+        except LookupError as e:
+            print(e, file=sys.stderr)
+            sys.exit(1)
+    else:
+        print("usage: python -m backend.weekly_report --render YYYY-Www", file=sys.stderr)
+        sys.exit(2)
