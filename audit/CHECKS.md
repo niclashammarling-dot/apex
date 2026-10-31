@@ -1,6 +1,6 @@
 # APEX Audit Check Registry
 
-**Retirement policy:** a check becomes a candidate when `last_triggered` is more than 90 days ago AND the files it covers have had at least one commit in that window (proving it was actively exercised, not just untouched). Retired checks move to the Retired section — the lesson stays in Claude memory, the check stops running.
+**Retirement policy (rewritten 2026-10-31; scope vault `raw/notes/2026-10/2026-10-14-apex-coded-retire-conditions-scope.md`):** silence alone is never grounds for retirement. A quiet check *with* a control is armed and stays. The weekend bundle's RETIREMENT section lists active checks with no trigger in 90 days **and** no control (`audit/bundle.py` `retirement_items`): each gets a control or is ruled obsolete by Niclas, and a retired row moves to the Retired section with its reason. The 90 days is a review cadence for that backlog, not evidence. Note: `last_triggered`/`last_clean` below stopped advancing with the CI audit (latest `last_clean` 2026-09-16); the bundle takes the later of these dates and the nightly state history (`origin/audit-state`, from 2026-09-12).
 
 Columns: `last_triggered` = most recent date the check found an issue. `last_clean` = most recent date the check ran with no findings.
 

@@ -32,6 +32,9 @@ Sections:
             list (Niclas: "Se till så att lördags sessioner framöver vet om production
             gap och signalistan och förhåller sig till den"); a register that cannot be
             read is a WARNING, never an empty section
+  retirement  Part B of the retire conditions (2026-10-31): active checks with no trigger in 90 days
+            and no control column, count and the 5 oldest; the last trigger is the later of the
+            CHECKS.md date and the nightly state history (origin/audit-state)
   weekly    the weekly report's named reader (2026-10-15): one item per week
             from WEEKLY_READ_START whose read is not filed in the vault
             (raw/notes/YYYY-MM/YYYY-MM-DD-apex-weekly-read-<ISO week>.md), with
@@ -59,7 +62,7 @@ import re
 import sqlite3
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -464,6 +467,73 @@ def signal_items() -> list[dict]:
             for sid, hyp, _info, data, status in rows if status.strip().lower().startswith("open")]
 
 
+# ── retirement (Part B: quiet and unarmed) ───────────────────────────────────
+
+QUIET_DAYS = 90       # a review cadence for the unarmed backlog, not evidence (scope 2026-10-14, Part B)
+STATE_BRANCH = "origin/audit-state"
+RETIRE_SCOPE = ("Silence without a control cannot be told from a broken check. Per check: give it a control (a test "
+                "that makes it fire, the positive-control column) or rule it obsolete and move its row to Retired with "
+                "the reason. Never retire on silence alone (scope 2026-10-14). Take the oldest first.")
+
+
+def _registry_rows() -> list[dict]:
+    """Active rows of audit/CHECKS.md: number, last_triggered (a date or None) and the control column."""
+    out = []
+    for line in (REPO / "audit" / "CHECKS.md").read_text(encoding="utf-8").splitlines():
+        m = re.match(r"\|\s*(\d+)\s*\|", line)
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if m and len(cells) == 8:
+            lt = cells[5] if re.match(r"\d{4}-\d{2}-\d{2}$", cells[5]) else None
+            out.append({"num": int(m.group(1)), "name": cells[1], "last": lt,
+                        "control": cells[7] if cells[7] not in ("", "—", "-") else None})
+    return out
+
+
+def _state_history_last() -> dict[int, str]:
+    """Most recent date each check had a non-INFO finding in the nightly state history (origin/audit-state,
+    one commit per publish since 2026-09-12). Raises when the branch cannot be read."""
+    shas = subprocess.run(["git", "log", "--format=%H %cI", STATE_BRANCH, "--", "latest.json"], cwd=REPO,
+                          capture_output=True, text=True, check=True).stdout.split("\n")
+    last: dict[int, str] = {}
+    for line in filter(None, shas):
+        sha, when = line.split(" ", 1)
+        raw = subprocess.run(["git", "show", f"{sha}:latest.json"], cwd=REPO, capture_output=True, text=True,
+                             check=True).stdout
+        day = when[:10]
+        for f in json.loads(raw).get("findings", []):
+            if len(f) > 2 and f[2] != "INFO":
+                n = int(f[0])
+                last[n] = max(last.get(n, ""), day)
+    return last
+
+
+def retirement_items(today: str) -> list[dict]:
+    """Part B (2026-10-31, Niclas: "gör B"): active checks quiet for QUIET_DAYS and without a control.
+
+    Built 2026-10-31 on a finding: CHECKS.md's last_triggered/last_clean stopped advancing with the CI audit
+    (latest last_clean 2026-09-16), so the registry alone would call every check quiet. The last trigger is
+    the later of the registry's date (kept until about 09-16) and the nightly state history (from 09-12)."""
+    try:
+        hist = _state_history_last()
+    except Exception as e:
+        return [_item("retirement:history_unreadable", "retirement", "WARNING", STATE_BRANCH,
+                      f"nightly state history unreadable ({str(e)[:80]}): quiet checks cannot be told; "
+                      f"fetch {STATE_BRANCH} on the host", scope=RETIRE_SCOPE)]
+    cutoff = (datetime.fromisoformat(today) - timedelta(days=QUIET_DAYS)).date().isoformat()
+    quiet = []
+    for r in _registry_rows():
+        last = max(filter(None, (r["last"], hist.get(r["num"]))), default=None)
+        if r["control"] is None and (last is None or last < cutoff):
+            quiet.append({**r, "last": last})
+    if not quiet:
+        return []
+    quiet.sort(key=lambda r: r["last"] or "")
+    oldest = "; ".join(f"CHECK {r['num']} {r['name'][:40]} (last {r['last'] or 'never'})" for r in quiet[:5])
+    return [_item("retirement:quiet_unarmed", "retirement", "WARNING", "audit/CHECKS.md",
+                  f"QUIET, UNARMED: {len(quiet)} active checks without a trigger in {QUIET_DAYS} days and without a "
+                  f"control — silence cannot be told from broken. Oldest: {oldest}", scope=RETIRE_SCOPE)]
+
+
 # ── scopes ────────────────────────────────────────────────────────────────────
 
 def _scope_for(it: dict) -> str | None:
@@ -537,7 +607,7 @@ def build(write: bool = False, now: datetime | None = None, db: Path | None = No
 
     snap = config_snapshot()
     items = (findings_items() + todo_items() + parity_items(db) + config_items(prev.get("config"), snap)
-             + weekly_items(now) + signal_items())
+             + weekly_items(now) + signal_items() + retirement_items(today))
     excepted = []
     kept = []
     for it in items:
@@ -560,7 +630,7 @@ def build(write: bool = False, now: datetime | None = None, db: Path | None = No
     bundle = {"generated_at": now.isoformat(), "host_commit": commit, "items": kept,
               "excepted": excepted, "config": snap, "throughput": throughput(prev, kept, excepted, today),
               "counts": {**{s: sum(1 for i in kept if i["section"] == s)
-                            for s in ("findings", "todos", "parity", "config", "weekly", "signals")},
+                            for s in ("findings", "todos", "parity", "config", "weekly", "signals", "retirement")},
                          "no_scope": sum(1 for i in kept if not i["scope"])}}
     if write:
         STATE.mkdir(parents=True, exist_ok=True)
@@ -574,7 +644,8 @@ def render_text(b: dict) -> str:
              "Nothing here is removed automatically.", _throughput_line(b.get("throughput")), ""]
     names = {"findings": "AUDIT FINDINGS (non-INFO)", "todos": "TODO MARKERS",
              "parity": "SIGNALS WITH NO READER", "config": "CONFIG CHANGED SINCE LAST BUNDLE",
-             "weekly": "WEEKLY REPORT READ", "signals": "SIGNAL REGISTER (open hypotheses)"}
+             "weekly": "WEEKLY REPORT READ", "signals": "SIGNAL REGISTER (open hypotheses)",
+             "retirement": "RETIREMENT (quiet and unarmed checks)"}
     for s, title in names.items():
         rows = [i for i in b["items"] if i["section"] == s]
         lines.append(f"{title} — {len(rows)}")

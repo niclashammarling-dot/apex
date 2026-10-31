@@ -63,8 +63,10 @@ class TestBuild:
         monkeypatch.setattr(bundle, "todo_items", lambda: [])
         monkeypatch.setattr(bundle, "parity_items", lambda db=None: [])
         monkeypatch.setattr(bundle, "signal_items", lambda: [])
+        monkeypatch.setattr(bundle, "retirement_items", lambda today: [])
         monkeypatch.setattr(bundle, "config_snapshot", lambda: dict(self.snap))
         monkeypatch.setattr(bundle, "weekly_items", lambda now: [])
+        monkeypatch.setattr(bundle, "retirement_items", lambda today: [])
         return tmp_path
 
     W1 = datetime(2031, 3, 7, 21, 33, tzinfo=timezone.utc)
@@ -285,6 +287,7 @@ class TestWeeklyRead:
         monkeypatch.setattr(bundle, "todo_items", lambda: [])
         monkeypatch.setattr(bundle, "parity_items", lambda db=None: [])
         monkeypatch.setattr(bundle, "signal_items", lambda: [])
+        monkeypatch.setattr(bundle, "retirement_items", lambda today: [])
         monkeypatch.setattr(bundle, "config_snapshot", lambda: {})
         (env / "data" / "weekly_report_sent.txt").write_text("2026-W43")
         b = bundle.build(now=self.FRI_W43)
@@ -312,3 +315,34 @@ def test_signal_register_rows_reach_the_bundle(tmp_path, monkeypatch):
     assert bundle.signal_items()[0]["severity"] == "WARNING"                 # unreadable is never empty
     (gap / "SIGNAL_REGISTER.md").unlink()
     assert bundle.signal_items()[0]["key"] == "signals:register-missing"
+
+
+
+class TestRetirementPartB:
+    ROWS = [{"num": 10, "name": "old quiet", "last": "2026-03-25", "control": None},
+            {"num": 11, "name": "quiet but armed", "last": "2026-03-25", "control": "tests/t.py::test_x"},
+            {"num": 12, "name": "registry stale, fired in the state history", "last": "2026-06-01", "control": None},
+            {"num": 13, "name": "never fired", "last": None, "control": None}]
+
+    def test_quiet_unarmed_counts_and_names_the_oldest(self, monkeypatch):
+        monkeypatch.setattr(bundle, "_registry_rows", lambda: list(self.ROWS))
+        monkeypatch.setattr(bundle, "_state_history_last", lambda: {12: "2026-10-20"})
+        [it] = bundle.retirement_items("2026-10-31")
+        assert it["section"] == "retirement" and it["scope"]
+        assert it["text"].startswith("QUIET, UNARMED: 2 active checks")
+        assert "CHECK 13" in it["text"] and "CHECK 10" in it["text"]
+        assert "CHECK 11" not in it["text"] and "CHECK 12" not in it["text"]   # armed; and fired 10-20
+
+    def test_unreadable_history_is_a_warning_not_an_empty_section(self, monkeypatch):
+        monkeypatch.setattr(bundle, "_registry_rows", lambda: list(self.ROWS))
+
+        def boom():
+            raise RuntimeError("unknown revision origin/audit-state")
+        monkeypatch.setattr(bundle, "_state_history_last", boom)
+        [it] = bundle.retirement_items("2026-10-31")
+        assert it["severity"] == "WARNING" and "unreadable" in it["text"]
+
+    def test_registry_parser_reads_the_real_table(self):
+        rows = bundle._registry_rows()
+        assert len(rows) > 50 and all(isinstance(r["num"], int) for r in rows)
+        assert any(r["control"] for r in rows) and any(r["control"] is None for r in rows)
