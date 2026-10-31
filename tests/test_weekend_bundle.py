@@ -96,6 +96,24 @@ class TestBuild:
         bundle.build(now=self.W1)
         assert not (env / "bundle.json").exists()
 
+    def test_check88_is_evaluated_on_the_bundle_being_built(self, env):
+        # The 10-30 shape: latest.json's CHECK 88 row described the 10-23 bundle ("4 without a scope") while
+        # every item of the new bundle had one. Niclas 2026-10-31: "utvärdering efter bygget".
+        stale = bundle._item("finding:88:WARNING:audit/bundle_scopes.py", "findings", "WARNING",
+                             "audit/bundle_scopes.py", "CHECK 88 weekend bundle built: 4 bundle item(s) without a "
+                             "proposed scope (first: finding:82:CRITICAL:scripts/market_window.sh)")
+        self.items = [stale, bundle._item("finding:39:WARNING:x", "findings", "WARNING", "x", "ADI")]
+        b = bundle.build(now=self.W1)
+        assert [i["key"] for i in b["items"]] == ["finding:39:WARNING:x"]
+        assert b["counts"]["no_scope"] == 0
+        # An item without a scope in this bundle: CHECK 88 counts it, and its own row carries a scope.
+        self.items = [stale, bundle._item("finding:9999:WARNING:y", "findings", "WARNING", "y", "new check")]
+        b = bundle.build(now=self.W1)
+        rows = [i for i in b["items"] if i["key"].startswith("finding:88:")]
+        assert len(rows) == 1 and "1 bundle item(s) without a proposed scope" in rows[0]["text"]
+        assert "evaluated after the build" in rows[0]["text"] and rows[0]["scope"]
+        assert b["counts"]["no_scope"] == 1
+
 
 class TestParityControls:
     def test_failed_control_is_an_item_not_an_empty_section(self, tmp_path, monkeypatch):

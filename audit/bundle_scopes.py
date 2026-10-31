@@ -16,6 +16,10 @@ BY_KIND:  defaults for parity items, by kind.
 """
 
 BY_CHECK: dict[int, str] = {
+    88: ("The weekend bundle's own content (evaluated on the bundle as built, 2026-10-31): items without a proposed "
+         "scope, or a parity scan that failed its known-present control. Scope: write each missing scope where its "
+         "item comes from (BY_CHECK / BY_KEY here, or the TODO's '— scope:' segment) while the context is live; a "
+         "broken scan is fixed in audit/bundle.py with its control test before the next bundle day. ~15 min each."),
     4: ("Config parity flags `live_account_since` as live-only. backend/maintenance.py already lists it in "
         "_LIVE_ONLY_KEYS with a reason; audit/checks_config.py CHECK 4 has no exception list, so the two disagree. "
         "Scope: make CHECK 4 read maintenance._LIVE_ONLY_KEYS (one exception list), suite. ~15 min."),

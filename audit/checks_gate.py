@@ -1756,6 +1756,25 @@ def check87() -> None:
 _C88_FIRST_DUE = "2026-10-16"   # first bundle day after the builder shipped (2026-10-10)
 
 
+def bundle_content_findings(items: list[dict]) -> list[tuple[str, str, str]]:
+    """CHECK 88's rules on a bundle's own items: (severity, where, text) per finding.
+
+    Shared by check88 (the stored bundle, read by the nightly audit) and bundle.build (the bundle being
+    built). Found 2026-10-31: on the bundle day the audit runs before the bundle is built, so check88's
+    rows described the previous week's bundle and build() copied them into the new one (the 10-30
+    bundle carried "4 items without a proposed scope", all from 10-23; its own count was 0). Niclas
+    2026-10-31: "utvärdering efter bygget".
+    """
+    out = [("WARNING", "audit/bundle.py", it["text"])
+           for it in items if it.get("key", "").startswith("parity:scan_broken:")]
+    no_scope = [it for it in items if not it.get("scope")]
+    if no_scope:
+        out.append(("WARNING", "audit/bundle_scopes.py",
+                    f"{len(no_scope)} bundle item(s) without a proposed scope — write them before the bundle day "
+                    f"(first: {no_scope[0].get('key')})"))
+    return out
+
+
 def check88() -> None:
     """
     CHECK 88 — the weekend bundle was built for the last completed bundle day.
@@ -1798,14 +1817,8 @@ def check88() -> None:
     if due and gen.date() < due[-1]:
         flag(88, name, "WARNING", "audit/state/bundle.json",
              f"last bundle built {gen.date()}, the one for {due[-1]} is missing — the week's faults have no reader")
-    for it in b.get("items", []):
-        if it.get("key", "").startswith("parity:scan_broken:"):
-            flag(88, name, "WARNING", "audit/bundle.py", it["text"])
-    no_scope = [it for it in b.get("items", []) if not it.get("scope")]
-    if no_scope:
-        flag(88, name, "WARNING", "audit/bundle_scopes.py",
-             f"{len(no_scope)} bundle item(s) without a proposed scope — write them before the bundle day "
-             f"(first: {no_scope[0].get('key')})")
+    for sev, where, text in bundle_content_findings(b.get("items", [])):
+        flag(88, name, sev, where, text)
     c = b.get("counts", {})
     flag(88, name, "INFO", "audit/state/bundle.json",
          f"built {gen.isoformat(timespec='minutes')} — " + ", ".join(f"{k} {v}" for k, v in c.items())

@@ -475,6 +475,23 @@ def _scope_for(it: dict) -> str | None:
 
 # ── build ─────────────────────────────────────────────────────────────────────
 
+def _check88_after_build(kept: list[dict], first_seen: dict, today: str) -> list[dict]:
+    """CHECK 88 is evaluated on the bundle being built, not copied from latest.json (2026-10-31).
+
+    The nightly audit runs before the bundle day's build, so latest.json's CHECK 88 rows describe the previous
+    bundle (and its age rule is moot for a bundle built now). They are dropped and the content rules
+    (audit.checks_gate.bundle_content_findings) run on this bundle's items instead."""
+    from audit.checks_gate import bundle_content_findings
+    kept = [i for i in kept if not i["key"].startswith("finding:88:")]
+    for sev, where, text in bundle_content_findings(kept):
+        key = f"finding:88:{sev}:{where}"
+        it = _item(key, "findings", sev, where, f"CHECK 88 weekend bundle built (evaluated after the build): {text}")
+        it["first_seen"] = first_seen.get(key, today)
+        it["scope"] = _scope_for(it)
+        kept.append(it)
+    return kept
+
+
 def build(write: bool = False, now: datetime | None = None, db: Path | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     today = now.astimezone(NY).date().isoformat()
@@ -496,6 +513,7 @@ def build(write: bool = False, now: datetime | None = None, db: Path | None = No
         it["first_seen"] = first_seen.get(it["key"], it.get("written") or today)
         it["scope"] = it.get("scope") or _scope_for(it)
         kept.append(it)
+    kept = _check88_after_build(kept, first_seen, today)
 
     try:
         commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=REPO,
