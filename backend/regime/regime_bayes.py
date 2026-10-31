@@ -106,6 +106,13 @@ LR_WARN_CEIL          = 10.0
 LR_CAP_FLOOR          = 0.1
 LR_CAP_CEIL           = 10.0
 
+# CHECK 65 option A (Niclas 2026-10-31, "gör A nu"): the IPO term enters the update at LR 1 until S18 decides it.
+# Healthcare's ceiling held itself: the clamped prior decays to 0.8641, a combined LR of about 3.0 re-pins it, and the
+# IPO term alone gave 2.4 from five small-biotech IPOs ((5+1)/(6+11) = 0.353). The engine already runs the term at 1
+# (engine_fast.REGIME_IPO_NEUTRAL_SHARE), so live now matches it. ipo_share and lr_ipo_raw stay in the trace.
+# Review 2026-11-14 (S18 inventory; vault raw/notes/2026-10/2026-10-31-apex-saturday-scopes.md § 6).
+IPO_LR_NEUTRAL        = True
+
 
 def _clamp_lr(v: float) -> float:
     return min(max(v, LR_CAP_FLOOR), LR_CAP_CEIL)
@@ -499,7 +506,7 @@ class RegimeBayes:
             lr_ticker = _clamp_lr(lr_ticker_raw)
             lr_etf    = _clamp_lr(lr_etf_raw)
             lr_rs     = _clamp_lr(lr_rs_raw)
-            lr_ipo    = _clamp_lr(lr_ipo_raw)
+            lr_ipo    = 1.0 if IPO_LR_NEUTRAL else _clamp_lr(lr_ipo_raw)
             lr_rank   = _clamp_lr(lr_rank_raw)
 
             # Prediction step: decay yesterday's posterior toward the base prior before

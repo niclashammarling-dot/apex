@@ -28,6 +28,13 @@ FIX    = Path(__file__).parent / "fixtures" / "regime_split"
 GOLDEN = FIX / "golden_parent_cf3db17.json"
 
 
+@pytest.fixture(autouse=True)
+def _ipo_term_as_recorded(monkeypatch):
+    # The golden was recorded with the IPO term in the update. Option A (2026-10-31) runs it at LR 1 in live;
+    # that path is tested in tests/test_regime_ipo_neutral.py against this same window.
+    monkeypatch.setattr(rbm, "IPO_LR_NEUTRAL", False)
+
+
 def _inputs():
     inp   = json.loads((FIX / "inputs.json").read_text())
     close = pd.read_parquet(FIX / "close_2026-06-10_10-15.parquet")
