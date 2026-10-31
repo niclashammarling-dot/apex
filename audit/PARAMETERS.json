@@ -1275,6 +1275,21 @@
       "source": "Retire conditions Part B (2026-10-31, Niclas \"gör B\"; scope vault raw/notes/2026-10/2026-10-14-apex-coded-retire-conditions-scope.md Part B): Niclas's 90-day point from 10-14, a review cadence for the quiet-and-unarmed backlog, not evidence. Lists only; nothing is retired on it.",
       "review": "2026-11-14",
       "date": "2026-10-31"
+    },
+    "audit/checks_data.py::C89_GAP_USD": {
+      "value": 1.0,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "CHECK 89 fill reconcile (2026-10-31): the bundle TODO's '$1' tolerance on the book-vs-broker gap; fees are reported beside, not netted, since no row's P&L holds them. TER/MSFT (2026-10-31) was $4.84.",
+      "review": "2026-11-14",
+      "date": "2026-10-31"
+    },
+    "audit/checks_data.py::C89_RECONCILE_MAX_AGE_DAYS": {
+      "value": 4,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "CHECK 89 fill reconcile (2026-10-31): written each publish Mon-Fri; Friday 16:33 ET to Monday's check is about 3 days, plus one missed night.",
+      "date": "2026-10-31"
     }
   }
 }

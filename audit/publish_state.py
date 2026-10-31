@@ -301,7 +301,20 @@ def publish_bundle(now: datetime | None = None) -> None:
         print(f"(weekend bundle dispatch failed: {e})", file=sys.stderr)
 
 
+def write_fill_reconcile() -> None:
+    """Before the checks, so CHECK 89 reads tonight's comparison (2026-10-31). A failure leaves the old file,
+    which CHECK 89 reports as stale; it never masks the publish."""
+    try:
+        sys.path.insert(0, str(REPO))
+        from audit import fill_reconcile
+        r = fill_reconcile.write()
+        print(f"Fill reconcile: {r['rows']} rows, gap entries {r['entry_gap']:+.2f} exits {r['exit_gap']:+.2f}")
+    except Exception as e:
+        print(f"(fill reconcile failed: {e!r})", file=sys.stderr)
+
+
 def main() -> int:
+    write_fill_reconcile()
     run_checks()
     stamp_alert_channel()
     commit = push_state()

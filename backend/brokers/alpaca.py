@@ -234,6 +234,25 @@ def get_activities(activity_type: str = "FILL", after: str | None = None,
 
 # ── Order placement ───────────────────────────────────────────────────────────
 
+def get_fee_activities(after: str) -> list[dict]:
+    """FEE activities since `after` (2026-10-31, for the fill reconcile): date, sub_type and the signed
+    net_amount. Same paged raw read as get_activities, which maps FILL rows and would drop net_amount.
+    Seen 2026-10-31 on the paper account: daily CAT fees of -$0.01 for each day with trades."""
+    out: list[dict] = []
+    page_token: str | None = None
+    while True:
+        params: dict = {"page_size": 100, "after": after}
+        if page_token:
+            params["page_token"] = page_token
+        page = _client().get("/account/activities/FEE", params) or []
+        if not page:
+            break
+        out.extend({"date": a.get("date"), "sub_type": a.get("activity_sub_type"),
+                    "net_amount": float(a.get("net_amount") or 0)} for a in page)
+        page_token = page[-1].get("id")
+    return out
+
+
 def place_bracket_order(
     ticker: str,
     notional: float,

@@ -1099,7 +1099,6 @@ def check78():
 C89_CAPTURE_GRACE_MIN = 30   # a market bracket fills in seconds; the tracker polls every few minutes
 
 
-# TODO(bundle 2026-10-13): CHECK 89 reads the DB only, so recorded realized vs broker fills and the fees are not compared — a capture can be right per row while the book still drifts (multi-order exits, fees) — scope: a host job after the close writes data/fill_reconcile.json (since-reset realized from /account/activities FILL, FIFO, vs recorded closed pnl; FEE activity total), CHECK 89 reads it (WARNING when the gap exceeds fees + $1, file missing = WARNING), live stats show fees as an account-level line; the 10-12 trace method is the reference (raw/notes/2026-10/2026-10-12-apex-recorded-entry-is-signal-price-not-fill.md)
 def check89(now: datetime | None = None) -> None:
     """
     CHECK 89 — every live entry since the paper reset carries its fill, not the quote.
@@ -1167,6 +1166,48 @@ def check89(now: datetime | None = None) -> None:
              f"({big[1]['ticker']} {big[1]['timestamp'][:10]}), {sum(1 for x, _ in slips if abs(x) > 0.01)} over 1%"
              + (f"; excepted: " + "; ".join(f"id={r['id']} {C89_EXCEPTED[r['id']]}" for r in excepted)
                 if excepted else ""))
+    _check89_reconcile(now)
+
+
+C89_RECONCILE_MAX_AGE_DAYS = 4     # written each publish (Mon–Fri); a weekend plus one missed night
+C89_GAP_USD = 1.0                  # per-row fill gaps sum; fees are not in any row's P&L, reported beside
+
+
+def _check89_reconcile(now: datetime) -> None:
+    """The book against the broker's fills (2026-10-31): reads data/fill_reconcile.json, written by
+    audit/fill_reconcile.py in publish_state before the checks. Found 2026-10-31: TER row 70 and MSFT row 47
+    were booked at one slice of a two-slice sell order ($4.84) and no reader compared the two ledgers; M4's
+    drawdown halt reads realised equity from these rows."""
+    from backend.db import ENTRY_FILL_EXCEPTED as C89_EXCEPTED
+    name = "live entry recorded at the fill"
+    f = REPO / "data/fill_reconcile.json"
+    if not f.exists():
+        flag(89, name, "WARNING", "data/fill_reconcile.json",
+             "fill reconcile missing — the book has not been compared with the broker's fills "
+             "(audit/fill_reconcile.py runs in publish_state)")
+        return
+    r = json.loads(f.read_text())
+    age = now - datetime.fromisoformat(r["generated_at"])
+    if age > timedelta(days=C89_RECONCILE_MAX_AGE_DAYS):
+        flag(89, name, "WARNING", "data/fill_reconcile.json",
+             f"fill reconcile is {age.days} days old (generated {r['generated_at'][:16]}) — the writer stopped")
+    unmatched = sorted(set(r.get("entry_unmatched", []) + r.get("exit_unmatched", [])) - set(C89_EXCEPTED))
+    if unmatched:
+        flag(89, name, "WARNING", "data/apex.db:live_trades",
+             f"{len(unmatched)} closed row(s) with no matching broker order to reconcile: ids {unmatched[:10]}")
+    gap = round(r["entry_gap"] + r["exit_gap"], 2)
+    rows = r.get("entry_rows", []) + r.get("exit_rows", [])
+    if abs(gap) > C89_GAP_USD:
+        flag(89, name, "WARNING", "data/apex.db:live_trades",
+             f"recorded book differs from broker fills by ${gap:+.2f} over {r['rows']} closed rows since {r['since']} "
+             f"(entries ${r['entry_gap']:+.2f}, exits ${r['exit_gap']:+.2f}): "
+             + ", ".join(f"{x['ticker']} id={x['id']} ${x['gap']:+.2f}" for x in rows[:8])
+             + " — correct with scripts/backfill_entry_fills.py (--exits for exits), backup and dry run first")
+    else:
+        flag(89, name, "INFO", "data/fill_reconcile.json",
+             f"book vs broker fills: {r['rows']} closed rows since {r['since']}, gap ${gap:+.2f} "
+             f"(entries ${r['entry_gap']:+.2f}, exits ${r['exit_gap']:+.2f}); fees ${r['fees_total']:+.2f} "
+             f"over {r['fee_days']} fee rows, not in row P&L")
 
 
 def run() -> None:

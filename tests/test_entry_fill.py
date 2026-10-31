@@ -156,6 +156,7 @@ class TestCheck89:
         monkeypatch.setattr(cd, "REPO", tmp_path)
         found = []
         monkeypatch.setattr(cd, "flag", lambda num, name, sev, where, msg: found.append((sev, msg)))
+        monkeypatch.setattr(cd, "_check89_reconcile", lambda now: None)   # its own tests: TestCheck89Reconcile
 
         def run():
             shutil.copy(db_module.DB_PATH, tmp_path / "data" / "apex.db")
@@ -186,3 +187,68 @@ class TestCheck89:
                            "alpaca_order_id": "ord-old", "entry_price": 50.0, "qty": 1, "notional": 50.0,
                            "tp_price": 53.0, "sl_price": 47.0})
         assert run89() == []
+
+
+
+class TestCheck89Reconcile:
+    """The book against the broker's fills (2026-10-31): audit/fill_reconcile.py writes, CHECK 89 reads."""
+    NOW = None
+
+    @pytest.fixture
+    def run(self, tmp_path, monkeypatch):
+        import json
+        from datetime import datetime, timezone
+
+        import audit.checks_data as cd
+        (tmp_path / "data").mkdir()
+        monkeypatch.setattr(cd, "REPO", tmp_path)
+        found = []
+        monkeypatch.setattr(cd, "flag", lambda num, name, sev, where, msg: found.append((sev, msg)))
+        now = datetime(2026, 11, 2, 21, 0, tzinfo=timezone.utc)
+
+        def go(payload=None):
+            if payload is not None:
+                (tmp_path / "data" / "fill_reconcile.json").write_text(json.dumps(payload))
+            found.clear()
+            cd._check89_reconcile(now)
+            return list(found)
+        return go
+
+    BASE = {"generated_at": "2026-11-02T20:30:00+00:00", "since": "2026-07-07", "rows": 63, "entry_gap": 0.0,
+            "entry_rows": [], "entry_unmatched": [43], "exit_gap": 0.0, "exit_rows": [], "exit_unmatched": [],
+            "fees_total": -1.56, "fee_days": 100}
+
+    def test_missing_file_warns(self, run):
+        f = run()
+        assert f[0][0] == "WARNING" and "missing" in f[0][1]
+
+    def test_clean_book_is_info_and_the_excepted_orphan_is_not_flagged(self, run):
+        f = run(dict(self.BASE))
+        assert [s for s, _ in f] == ["INFO"] and "gap $+0.00" in f[0][1] and "fees $-1.56" in f[0][1]
+
+    def test_the_ter_msft_gap_warns(self, run):
+        f = run({**self.BASE, "exit_gap": 4.84, "exit_rows": [{"id": 70, "ticker": "TER", "gap": 4.64},
+                                                            {"id": 47, "ticker": "MSFT", "gap": 0.2}]})
+        assert any(s == "WARNING" and "$+4.84" in m and "TER id=70" in m for s, m in f)
+
+    def test_stale_file_and_unmatched_rows_warn(self, run):
+        f = run({**self.BASE, "generated_at": "2026-10-25T20:30:00+00:00", "exit_unmatched": [88]})
+        assert any("days old" in m for _, m in f) and any("ids [88]" in m for _, m in f)
+
+
+def test_reconcile_core_finds_the_ter_exit_gap_and_matches_the_entry():
+    from audit.fill_reconcile import reconcile
+    row = {"id": 70, "ticker": "TER", "qty": 2.0, "entry_price": 377.95, "alpaca_order_id": "buy-ter",
+           "exit_price": 395.94, "exited_at": "2026-09-23T13:31:03.302004+00:00", "pnl": 35.98, "outcome": "WIN"}
+    fills = [{"ticker": "TER", "side": "buy", "qty": 1.0, "price": 379.17, "order_id": "buy-ter",
+              "filled_at": "2026-09-22T13:32:52Z"},
+             {"ticker": "TER", "side": "buy", "qty": 1.0, "price": 376.73, "order_id": "buy-ter",
+              "filled_at": "2026-09-22T13:33:24Z"},
+             {"ticker": "TER", "side": "sell", "qty": 1.0, "price": 395.94, "order_id": "s",
+              "filled_at": "2026-09-23T13:31:03.302004Z"},
+             {"ticker": "TER", "side": "sell", "qty": 1.0, "price": 391.30, "order_id": "s",
+              "filled_at": "2026-09-23T13:32:13.745827Z"}]
+    r = reconcile([row], fills, [{"date": "2026-09-23", "sub_type": "TAF", "net_amount": -0.01}])
+    assert r["entry_gap"] == 0.0 and r["entry_unmatched"] == []
+    assert r["exit_gap"] == 4.64 and r["exit_rows"] == [{"id": 70, "ticker": "TER", "gap": 4.64}]
+    assert r["fees_total"] == -0.01
