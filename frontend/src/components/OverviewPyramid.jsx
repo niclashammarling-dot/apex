@@ -189,6 +189,8 @@ export default function OverviewPyramid() {
             {data.cards_unread && <div className="t-meta" style={{ color: "var(--t-sev-medium, var(--t-text-1))" }}>cards unread: {data.cards_unread}</div>}
             {data.cards_invalid && data.cards_invalid.length > 0 && (
               <div className="t-meta">cards with a malformed frontmatter: {data.cards_invalid.map((c) => c.slug).join(", ")}</div>)}
+            {data.cards_unfielded && data.cards_unfielded.length > 0 && (
+              <div className="t-meta">cards that name no question: {data.cards_unfielded.join(", ")}</div>)}
           </div>
         </div>
       </div>

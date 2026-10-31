@@ -35,6 +35,7 @@ VAULT_NOTES = Path("/mnt/c/Users/Nix/Niclas-KB/raw/notes")
 # cards all carry an unanswered verdict is a break in the chain, shown as such.
 CARD_VERDICTS = {"supported", "not-supported", "reverses", "unanswered", "pending", "instrument"}
 CARD_UNANSWERED = {"unanswered", "pending"}
+CARD_FIELDS_FROM = "2026-10-24"   # cards from the 10-24 backfill on carry the fields; older notes predate the rule
 
 S_ANSWERED = {"adopted", "discarded"}
 GAP_ANSWERED = {"yes", "closed", "n/a"}
@@ -184,13 +185,16 @@ def card_index(notes: Path = VAULT_NOTES) -> dict:
     if not notes.is_dir():
         raise RegisterUnread(f"vault notes not reachable at {notes} (cards unread)")
     by_q: dict[str, list[dict]] = {}
-    invalid = []
+    invalid, unfielded = [], []
     for f in sorted(notes.rglob("*.md")):
         try:
             fm = _frontmatter(f.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError):
             continue
         if "answers" not in fm:
+            # A card that names no question is invisible to the pyramid: listed, so the gap shows (2026-10-31).
+            if f.stem.endswith(("-card", "-preregistration")) and f.stem >= CARD_FIELDS_FROM:
+                unfielded.append(f.stem)
             continue
         ids = [x.strip() for x in fm["answers"].strip("[]").split(",") if x.strip()]
         card = {"slug": f.stem, "verdict": fm.get("verdict", ""), "delivers": fm.get("delivers", "").strip('"'),
@@ -204,7 +208,7 @@ def card_index(notes: Path = VAULT_NOTES) -> dict:
             by_q.setdefault(i, []).append(card)
     for cards in by_q.values():
         cards.sort(key=lambda c: c["date"], reverse=True)
-    return {"cards": by_q, "invalid": invalid}
+    return {"cards": by_q, "invalid": invalid, "unfielded": unfielded}
 
 
 def derive(m: dict, rows: dict[str, str], checks_all: list[str], params: dict[str, tuple[str, str]]) -> dict:
@@ -283,6 +287,7 @@ def build(today: date | None = None) -> dict:
             q["card_break"] = bool(cards) and all(c["verdict"] in CARD_UNANSWERED for c in cards)
         out["cards_unread"] = None
         out["cards_invalid"] = ci["invalid"]
+        out["cards_unfielded"] = ci["unfielded"]
         out["cards_unmapped"] = sorted(set(ci["cards"]) - set(out["questions"]))
     except RegisterUnread as e:   # the pyramid still renders from the registers; the missing cards say so
         out["cards_unread"] = str(e)

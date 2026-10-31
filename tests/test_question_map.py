@@ -115,7 +115,9 @@ def test_card_index_maps_cards_by_question_and_lists_malformed_ones(tmp_path):
                             "delivers": "ALLCAP8 beats live at L3"})
     _card(d, "bad-card", {"answers": "Q-SIG", "verdict": "maybe", "delivers": "x"})
     _card(d, "plain-note", {"title": "not a card"})
+    _card(d, "2026-10-31-apex-new-card", {"title": "a card without its fields"})
     ci = qm.card_index(tmp_path)
+    assert ci["unfielded"] == ["2026-10-31-apex-new-card"]
     assert [c["slug"] for c in ci["cards"]["Q-SIG"]] == ["s20-card"]
     assert {c["slug"] for c in ci["cards"]["G7"]} == {"l3-m4-card"}
     assert [x["slug"] for x in ci["invalid"]] == ["bad-card"]
