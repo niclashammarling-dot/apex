@@ -63,13 +63,13 @@ def check_promote_exclusions() -> list[str]:
     """
     Account-size-specific config keys must not appear in the promotable set.
 
-    starting_balance and daily_loss_cap are calibrated to account size, not
+    starting_balance and l0_portfolio_loss_cap_max are calibrated to account size, not
     strategy. If either ends up in demo_thresholds(), Promote will overwrite
     the live values — corrupting the sector exposure denominator and the daily
     loss cap with demo-scale numbers.
     """
     from backend.live_config import _PROMOTE_EXCLUDE, demo_thresholds
-    required = {"starting_balance", "daily_loss_cap"}
+    required = {"starting_balance", "l0_portfolio_loss_cap_max"}
     issues = []
     promotable = set(demo_thresholds().keys())
     leaked = required - _PROMOTE_EXCLUDE

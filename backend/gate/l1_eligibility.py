@@ -55,7 +55,7 @@ _VIX_TTL   = 30 * 60   # 30 minutes
 # Imported at the top from backend/macro_calendar.py.
 
 # FOMC spans two meeting days; pre-event window is 2 to cover the full session.
-# CPI and NFP are single-day releases; their window comes from macro_event_blackout_days (cfg).
+# CPI and NFP are single-day releases; their window comes from l1_eligibility_macro_event_days (cfg).
 _FOMC_PRE_EVENT_DAYS = 2
 
 def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
@@ -81,9 +81,9 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
         ticker: Stock ticker symbol
         sector: Apex sector name
         cfg:    Config dict (demo_config or live_config) — supplies
-                vix_threshold, macro_event_blackout_days,
-                macro_earnings_blackout_days, macro_earnings_near_days,
-                macro_earnings_near_penalty
+                l1_eligibility_vix_max, l1_eligibility_macro_event_days,
+                l2_risk_earnings_days, l2_risk_earnings_near_days,
+                l2_risk_earnings_near_penalty
 
     Returns:
         LockResult with lock_id=1
@@ -167,17 +167,17 @@ def _evaluate(ticker: str, sector: str, cfg: dict, states: dict[str, str]) -> Lo
     states["regime"] = PASS
 
     # ── B. Macro filter ───────────────────────────────────────────────────────
-    _vt = cfg.get("vix_threshold")
-    vix_threshold     = 25.0 if _vt is None else _vt
-    _ep2 = cfg.get("macro_pre_event_penalty")
-    macro_pre_event_penalty = 0.05 if _ep2 is None else _ep2
+    _vt = cfg.get("l1_eligibility_vix_max")
+    l1_eligibility_vix_max     = 25.0 if _vt is None else _vt
+    _ep2 = cfg.get("l1_eligibility_macro_pre_event_penalty")
+    l1_eligibility_macro_pre_event_penalty = 0.05 if _ep2 is None else _ep2
     today             = date.today()
 
     vix = _get_vix()
-    if vix is not None and vix >= vix_threshold:
+    if vix is not None and vix >= l1_eligibility_vix_max:
         return LockResult.fail(
             lock_id=LOCK_ID,
-            reason=f"VIX={vix:.1f} >= threshold {vix_threshold}",
+            reason=f"VIX={vix:.1f} >= threshold {l1_eligibility_vix_max}",
             data={
                 "regime_available": True,
                 "adjusted_score":   adjusted_score,
@@ -188,7 +188,7 @@ def _evaluate(ticker: str, sector: str, cfg: dict, states: dict[str, str]) -> Lo
 
     states["vix"] = PASS if vix is not None else NO_DATA
 
-    _eb = cfg.get("macro_event_blackout_days")
+    _eb = cfg.get("l1_eligibility_macro_event_days")
     cpi_nfp_blackout = 1 if _eb is None else _eb
     macro_status, event_desc = _macro_status(today, _FOMC_PRE_EVENT_DAYS, cpi_nfp_blackout)
     if macro_status == "hard_block":
@@ -209,7 +209,7 @@ def _evaluate(ticker: str, sector: str, cfg: dict, states: dict[str, str]) -> Lo
         macro_penalty_data = {
             "macro_pre_event":         True,
             "macro_pre_event_event":   event_desc,
-            "macro_pre_event_penalty": macro_pre_event_penalty,
+            "l1_eligibility_macro_pre_event_penalty": l1_eligibility_macro_pre_event_penalty,
         }
 
     # L2 RISK's earnings rules (l2_risk.check_earnings), at the point they always ran.

@@ -711,8 +711,9 @@ _C74_REVIEWED: dict[str, tuple[str, str, str]] = {
         "that must postdate _open_trade's fixed entry, and time-stop tests want an old entry; re-reviewed "
         "2026-10-13 after adding filled_at = None to a fake order (no date change); re-reviewed 2026-10-24 after the "
         "L0 loss-cap tests gained equity and starting_balance mocks (no date change); re-reviewed 2026-10-31 after "
-        "the corroborated-exit test stubbed _current_price (Finding 5 Yahoo guard; no date change)", "2027-04-10",
-        "4b6641a1aa44bc58"),
+        "the corroborated-exit test stubbed _current_price (Finding 5 Yahoo guard; no date change); re-reviewed "
+        "2026-10-31 after the config mocks took the phase 3 key names (no date change)", "2027-04-10",
+        "b8695549da53539a"),
     "tests/test_entry_fill.py": (
         "reviewed 2026-10-13: exit-check entries are an hour before now (_open_trade default); the fixed "
         "dates are fill timestamps and CHECK 89 entries read with a fixed now; re-reviewed 2026-10-31 after the "
@@ -888,8 +889,8 @@ def check74():
 # one engine without the other is a new divergence and must be recorded here
 # and in PRODUCTION_GAP.md before this list is extended.
 CHECK76_ACCEPTED_SLOW_ONLY: set[str] = set()
-# etf_negative_floor / etf_negative_penalty left this list 2026-10-18: engine_fast has row 11.
-# macro_hard_block / macro_pre_event_penalty left this list 2026-10-17: engine_fast has rows 7/10.
+# l2_risk_etf_floor / l2_risk_etf_penalty left this list 2026-10-18: engine_fast has row 11.
+# macro_hard_block / l1_eligibility_macro_pre_event_penalty left this list 2026-10-17: engine_fast has rows 7/10.
 CHECK76_ACCEPTED_FAST_ONLY = {"precomputed", "regime_layer",   # regime_layer: rows 2/5/20/21, off by default (2026-10-17)
                               "random_entries",                  # RND placebo for the profit read, off by default (2026-10-17)
                               "kelly_factor",                    # H-V1 VIX sizing experiment, off by default (2026-10-17)
@@ -994,7 +995,7 @@ def check76():
         # Row 11 is compared at live's values (2026-10-18); off by default in both engines.
         from backend.live_config import get_live_config
         _lc = get_live_config()
-        etf_kw = dict(etf_negative_penalty=_lc["etf_negative_penalty"], etf_negative_floor=_lc["etf_negative_floor"])
+        etf_kw = dict(l2_risk_etf_penalty=_lc["l2_risk_etf_penalty"], l2_risk_etf_floor=_lc["l2_risk_etf_floor"])
         # Row 7 is no longer neutralised (2026-10-17): both engines read
         # backend/macro_calendar.py, so the macro blackout is compared, not removed.
         try:

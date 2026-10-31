@@ -149,7 +149,7 @@ def evaluate_chain(
         )
 
     # Macro pre-event penalty (CPI/NFP day-before): reduce signal_score before L2 sees it
-    macro_penalty = l1.data.get("macro_pre_event_penalty", 0.0)
+    macro_penalty = l1.data.get("l1_eligibility_macro_pre_event_penalty", 0.0)
     if macro_penalty:
         original = signal_score
         signal_score = signal_score * (1.0 - macro_penalty)
@@ -168,14 +168,14 @@ def evaluate_chain(
         return _chain_fail(ticker, sector, lock_results, exit_lock=2, states=states)
 
     # ── Lock 3: Sentiment ─────────────────────────────────────────────────────
-    l3 = lock3_evaluate(ticker, sentiment_min=cfg.get("lock2_sentiment_min"))
+    l3 = lock3_evaluate(ticker, sentiment_min=cfg.get("l4_sentiment_grok_min"))
     lock_results[3] = l3
     states.update(verdict_states(4, "grok", l3))
     if not l3.passed:
         return _chain_fail(ticker, sector, lock_results, exit_lock=3, states=states)
 
     # ── Lock 4: Leading ───────────────────────────────────────────────────────
-    l4 = lock4_evaluate(ticker, sector, pcr_mode=cfg.get("lock4_pcr_mode", "pooled_scalar"))
+    l4 = lock4_evaluate(ticker, sector, pcr_mode=cfg.get("l5_positioning_leading_mode", "pooled_scalar"))
     lock_results[4] = l4
     states.update(verdict_states(5, "leading", l4))
     if not l4.passed:
@@ -225,7 +225,7 @@ def evaluate_chain(
         sector,
         lock_results,
         context,
-        confidence_min=cfg.get("lock3_confidence_min"),
+        confidence_min=cfg.get("l6_review_claude_min"),
     )
     lock_results[5] = l5
     states.update(verdict_states(6, "claude", l5))
@@ -273,7 +273,7 @@ def _score_states(l1: LockResult, l2: LockResult, unpenalised_score: float) -> d
     own_fail  = (not l2.passed) and unpenalised_score < threshold
     penalty_fail = (not l2.passed) and not own_fail
     out = {lock_codes.rule_key(3, "threshold"): FAIL if own_fail else PASS}
-    for owner, rule, key in ((1, "macro_pre_event", "macro_pre_event_penalty"),
+    for owner, rule, key in ((1, "macro_pre_event", "l1_eligibility_macro_pre_event_penalty"),
                              (2, "earnings_near", "earnings_near_penalty")):
         out[lock_codes.rule_key(owner, rule)] = FAIL if (penalty_fail and l1.data.get(key)) else PASS
     return out
@@ -334,15 +334,17 @@ def build_base_context(
         "wallet_balance":  wallet_ctx["balance"],
         "open_positions":  wallet_ctx["open_positions"],
         "sector_exposure": wallet_ctx["sector_exposure"],
+        # Claude's context keeps its own names (the prompt reads risk_limits.max_positions …); a rename there
+        # is a prompt change for CHECK 90, not a key rename.
         "risk_limits": {
             "starting_balance":    starting_balance,
-            "max_positions":       cfg["max_positions"],
-            "sector_cap":          _caps.get(_sector, cfg["max_sector_exposure"]),
+            "max_positions":       cfg["l2_risk_max_positions_count"],
+            "sector_cap":          _caps.get(_sector, cfg["l2_risk_sector_cap_max"]),
             "sector_cap_source":   "dynamic" if _sector in _caps else "flat_fallback",
-            "max_sector_exposure": cfg["max_sector_exposure"],
+            "max_sector_exposure": cfg["l2_risk_sector_cap_max"],
             "max_position_size":   cfg["max_position_size"],
-            "daily_loss_cap":      cfg["daily_loss_cap"],
-            "max_drawdown_pct":    cfg.get("max_drawdown_pct", 0.20),
+            "daily_loss_cap":      cfg["l0_portfolio_loss_cap_max"],
+            "max_drawdown_pct":    cfg.get("l0_portfolio_drawdown_guard_max", 0.20),
         },
     }
     if mode_label is not None:

@@ -72,7 +72,7 @@ def backfill_sector_snapshots(start_date: str, end_date: str) -> int:
         candidates = _score_all_tickers(
             raw_data, today, ticker_sector, sector_etf,
             spy["regime"], spy["return_20d"],
-            lock1_threshold=0.0,
+            l3_score_threshold_min=0.0,
         )
 
         if not candidates:

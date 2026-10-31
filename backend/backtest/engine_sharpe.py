@@ -65,6 +65,7 @@ from backend.config import (
     TAKE_PROFIT_PCT,
     TIME_STOP_DAYS,
 )
+from backend.gate.lock_codes import accepts_legacy_keys
 
 # ── Vol targeting helpers ─────────────────────────────────────────────────────
 
@@ -140,6 +141,7 @@ def calculate_sharpe(
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
+@accepts_legacy_keys
 def run(
     start_date: str,
     end_date: str,
@@ -153,10 +155,10 @@ def run(
     stop_loss_pct: float | None = None,
     trailing_stop_pct: float | None = None,
     time_stop_days: int | None = None,
-    lock1_threshold: float | None = None,
+    l3_score_threshold_min: float | None = None,
     max_entries_per_day: int | None = None,
-    vix_threshold: float | None = None,
-    max_positions: int | None = None,
+    l1_eligibility_vix_max: float | None = None,
+    l2_risk_max_positions_count: int | None = None,
     use_leading_rs: bool = False,
     # Precomputed caches (reuse engine_fast.precompute() output)
     precomputed: dict | None = None,
@@ -183,9 +185,9 @@ def run(
     sl   = stop_loss_pct    if stop_loss_pct    is not None else STOP_LOSS_PCT
     tsl  = trailing_stop_pct
     tdays = time_stop_days  if time_stop_days   is not None else TIME_STOP_DAYS
-    l1   = lock1_threshold  if lock1_threshold  is not None else LOCK1_THRESHOLD
+    l1   = l3_score_threshold_min  if l3_score_threshold_min  is not None else LOCK1_THRESHOLD
     max_epd = max_entries_per_day
-    max_pos = max_positions if max_positions    is not None else MAX_POSITIONS
+    max_pos = l2_risk_max_positions_count if l2_risk_max_positions_count    is not None else MAX_POSITIONS
 
     # Unpack precomputed caches (identical structure to engine_fast)
     raw_data      = precomputed["raw_data"]
@@ -247,8 +249,8 @@ def run(
         # ── 3. Regime check ───────────────────────────────────────────────
         spy    = spy_cache.get(today_str, {"regime": 0.0, "return_20d": 0.0})
         vix_ok = (
-            vix_threshold is None
-            or vix_cache.get(today_str, 0.0) <= vix_threshold
+            l1_eligibility_vix_max is None
+            or vix_cache.get(today_str, 0.0) <= l1_eligibility_vix_max
         )
 
         # SPY regime gates position sizing: halve vol_mult in bear regime.
@@ -386,7 +388,7 @@ def _get_candidates_sharpe(
     signal_cache: dict,
     ticker_sector: dict[str, str],
     today_str: str,
-    lock1_threshold: float,
+    l3_score_threshold_min: float,
 ) -> list[dict]:
     """
     Same as engine_fast's _get_candidates_from_cache but returns only
@@ -399,7 +401,7 @@ def _get_candidates_sharpe(
         if sig is None:
             continue
         score = sig["signal_score"]
-        if score < lock1_threshold:
+        if score < l3_score_threshold_min:
             continue
         candidates.append({
             "ticker":       ticker,

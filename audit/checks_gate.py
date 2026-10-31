@@ -13,6 +13,7 @@ from datetime import date
 from itertools import pairwise
 
 from audit._audit_core import REPO, flag, require_data_file
+from backend.gate.lock_codes import upgrade_keys
 
 
 # ── CHECK 24 — Chain-runner wiring integrity ──────────────────────────────────
@@ -178,7 +179,7 @@ def check26():
     from the ticker_thresholds table via get_ticker_thresholds(), not from a static
     config value.
 
-    Prevented by: April 2026 incident where L2 used config.SECTORS['lock1_threshold']
+    Prevented by: April 2026 incident where L2 used config.SECTORS['l3_score_threshold_min']
     (static 0.70) while L1 already used calibrated per-sector values (0.54–0.62),
     causing 100% FILTERED_L1 rate across all sectors for an entire week.
     """
@@ -323,7 +324,7 @@ def check38():
     TRADE_EXECUTED events fire for N consecutive active trading days, surface a
     diagnostic with filter breakdown.
 
-    Three confirmed instances of this failure class: daily_loss_cap silent halt,
+    Three confirmed instances of this failure class: l0_portfolio_loss_cap_max silent halt,
     insider_cluster dead sub-check, promote-exclusion near-miss.
 
     N=5: one trading week of silence before surfacing.
@@ -546,8 +547,8 @@ def check53() -> None:
         if not path.exists():
             errors.append(f"{fname} not found")
             continue
-        data = json.loads(path.read_text())
-        for key in ("macro_earnings_near_days", "macro_earnings_near_penalty"):
+        data = upgrade_keys(json.loads(path.read_text()))
+        for key in ("l2_risk_earnings_near_days", "l2_risk_earnings_near_penalty"):
             if key not in data:
                 errors.append(f"{key} missing from {fname}")
 
@@ -1439,14 +1440,14 @@ def check84() -> None:
     2026-09-29 16:53 CEST: ADI's exit freed a slot, and KLAC and LRCX executed in
     one cycle. Lock 5's reasoning for BOTH says "7 of 8 max positions used (one slot
     available)": it reads the portfolio as of cycle start, so its rule 1
-    (open_positions == max_positions → reject) cannot bind the second same-cycle
+    (open_positions == l2_risk_max_positions_count → reject) cannot bind the second same-cycle
     candidate. The 09-27 cap article showed the same for sector exposure. This
     makes the position case a nightly count, not an anecdote: for each live
     TRADE_EXECUTED, the count Lock 5 cited vs the live_trades rows open at that
     trade's own execution (inserts are in execution order; gate-row timestamps are
     evaluation completions and are not).
 
-    Evidence, not a defect alarm: overflow entries above max_positions are designed
+    Evidence, not a defect alarm: overflow entries above l2_risk_max_positions_count are designed
     (2026-04-14). It feeds the decision to move limit enforcement out of Lock 5.
       WARNING  a mismatch in the last _C84_EVENT days (names ticker, cited, actual)
       INFO     tally over _C84_DAYS, incl. executions whose reasoning cites no count
@@ -1849,7 +1850,7 @@ def check90(today: date | None = None) -> None:
     cannot tell them apart: (1) the rationale clause ("allocation weighting is handled downstream" → the
     allocation acts upstream in Lock 1; the post-L5 multiplier is score-relative), the binding
     no-Bayesian-sizing sentence unchanged; (2) L5 judges risk_limits.sector_cap, the dynamic cap execution
-    enforces, instead of the flat max_sector_exposure. 2026-11-02: the lock labels prompt (approved by
+    enforces, instead of the flat l2_risk_sector_cap_max. 2026-11-02: the lock labels prompt (approved by
     Niclas 2026-10-26): the chain's names in the prompt and the lock_results keys, the gate history read by
     stage, and the note that the regime fields are one piece of evidence.
 

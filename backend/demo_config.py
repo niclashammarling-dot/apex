@@ -17,33 +17,33 @@ from loguru import logger
 _CONFIG_PATH = Path(__file__).parent.parent / "data" / "demo_config.json"
 
 _KEYS = [
-    "lock1_threshold",
-    "lock2_sentiment_min",
-    "lock3_confidence_min",
+    "l3_score_threshold_min",
+    "l4_sentiment_grok_min",
+    "l6_review_claude_min",
     "take_profit_pct",
     "stop_loss_pct",
-    "max_positions",
-    "overflow_quant_increment",
+    "l2_risk_max_positions_count",
+    "l2_risk_overflow_step",
     "max_position_size",
-    "daily_loss_cap",
+    "l0_portfolio_loss_cap_max",
     "max_hold_days",
-    "vix_threshold",
-    "macro_event_blackout_days",
-    "macro_earnings_blackout_days",
-    "gate_cooloff_hours",
-    "exit_cooloff_hours",
-    "tp_cooloff_hours",
-    "max_sector_exposure",
-    "lock4_pcr_mode",
+    "l1_eligibility_vix_max",
+    "l1_eligibility_macro_event_days",
+    "l2_risk_earnings_days",
+    "l1_eligibility_cooloff_hours",
+    "l1_eligibility_exit_cooloff_hours",
+    "l1_eligibility_exit_cooloff_win_hours",
+    "l2_risk_sector_cap_max",
+    "l5_positioning_leading_mode",
     "starting_balance",
-    "max_drawdown_pct",
+    "l0_portfolio_drawdown_guard_max",
     "profit_lock_trigger_pct",
     "profit_lock_trail_pct",
-    "etf_negative_floor",
-    "etf_negative_penalty",
-    "macro_earnings_near_days",
-    "macro_earnings_near_penalty",
-    "macro_pre_event_penalty",
+    "l2_risk_etf_floor",
+    "l2_risk_etf_penalty",
+    "l2_risk_earnings_near_days",
+    "l2_risk_earnings_near_penalty",
+    "l1_eligibility_macro_pre_event_penalty",
 ]
 
 
@@ -78,34 +78,48 @@ def _defaults() -> dict:
         TIME_STOP_DAYS,
     )
     return {
-        "lock1_threshold":              LOCK1_THRESHOLD,
-        "lock2_sentiment_min":          LOCK2_SENTIMENT_MIN,
-        "lock3_confidence_min":         LOCK3_CONFIDENCE_MIN,
+        "l3_score_threshold_min":              LOCK1_THRESHOLD,
+        "l4_sentiment_grok_min":          LOCK2_SENTIMENT_MIN,
+        "l6_review_claude_min":         LOCK3_CONFIDENCE_MIN,
         "take_profit_pct":              TAKE_PROFIT_PCT,
         "stop_loss_pct":                STOP_LOSS_PCT,
         "profit_lock_trigger_pct":      PROFIT_LOCK_TRIGGER_PCT,
         "profit_lock_trail_pct":        PROFIT_LOCK_TRAIL_PCT,
-        "max_positions":                MAX_POSITIONS,
-        "overflow_quant_increment":     OVERFLOW_QUANT_INCREMENT,
+        "l2_risk_max_positions_count":                MAX_POSITIONS,
+        "l2_risk_overflow_step":     OVERFLOW_QUANT_INCREMENT,
         "max_position_size":            MAX_POSITION_SIZE,
-        "daily_loss_cap":               DAILY_LOSS_CAP,
+        "l0_portfolio_loss_cap_max":               DAILY_LOSS_CAP,
         "max_hold_days":                TIME_STOP_DAYS,
-        "vix_threshold":                MACRO_VIX_THRESHOLD,
-        "macro_event_blackout_days":    MACRO_EVENT_BLACKOUT_DAYS,
-        "macro_earnings_blackout_days": MACRO_EARNINGS_BLACKOUT_DAYS,
-        "macro_earnings_near_days":     MACRO_EARNINGS_NEAR_DAYS,
-        "macro_earnings_near_penalty":  MACRO_EARNINGS_NEAR_PENALTY,
-        "macro_pre_event_penalty":      MACRO_PRE_EVENT_PENALTY,
-        "gate_cooloff_hours":           GATE_COOLOFF_HOURS,
-        "exit_cooloff_hours":           EXIT_COOLOFF_HOURS,
-        "tp_cooloff_hours":             TP_COOLOFF_HOURS,
-        "max_sector_exposure":          MAX_SECTOR_EXPOSURE,
-        "lock4_pcr_mode":               LOCK4_PCR_MODE,
+        "l1_eligibility_vix_max":                MACRO_VIX_THRESHOLD,
+        "l1_eligibility_macro_event_days":    MACRO_EVENT_BLACKOUT_DAYS,
+        "l2_risk_earnings_days": MACRO_EARNINGS_BLACKOUT_DAYS,
+        "l2_risk_earnings_near_days":     MACRO_EARNINGS_NEAR_DAYS,
+        "l2_risk_earnings_near_penalty":  MACRO_EARNINGS_NEAR_PENALTY,
+        "l1_eligibility_macro_pre_event_penalty":      MACRO_PRE_EVENT_PENALTY,
+        "l1_eligibility_cooloff_hours":           GATE_COOLOFF_HOURS,
+        "l1_eligibility_exit_cooloff_hours":           EXIT_COOLOFF_HOURS,
+        "l1_eligibility_exit_cooloff_win_hours":             TP_COOLOFF_HOURS,
+        "l2_risk_sector_cap_max":          MAX_SECTOR_EXPOSURE,
+        "l5_positioning_leading_mode":               LOCK4_PCR_MODE,
         "starting_balance":             STARTING_BALANCE,
-        "max_drawdown_pct":             LOCK3_MAX_DRAWDOWN_PCT,
-        "etf_negative_floor":           ETF_NEGATIVE_FLOOR,
-        "etf_negative_penalty":         ETF_NEGATIVE_PENALTY,
+        "l0_portfolio_drawdown_guard_max":             LOCK3_MAX_DRAWDOWN_PCT,
+        "l2_risk_etf_floor":           ETF_NEGATIVE_FLOOR,
+        "l2_risk_etf_penalty":         ETF_NEGATIVE_PENALTY,
     }
+
+
+_warned_legacy = False
+
+
+def _upgraded(stored: dict) -> dict:
+    """The stored or posted keys under their derived names (phase 3 part a: read the old name for one release, write
+    the new one). The first fallback is logged once per process."""
+    global _warned_legacy
+    from backend.gate.lock_codes import has_legacy_keys, upgrade_keys
+    if has_legacy_keys(stored) and not _warned_legacy:
+        _warned_legacy = True
+        logger.warning("demo_config: pre-phase-3 key names read and upgraded; the next save writes the derived names")
+    return upgrade_keys(stored)
 
 
 def get_demo_config() -> dict:
@@ -113,7 +127,7 @@ def get_demo_config() -> dict:
     if _CONFIG_PATH.exists():
         try:
             with open(_CONFIG_PATH) as f:
-                stored = json.load(f)
+                stored = _upgraded(json.load(f))
             cfg = _defaults()
             cfg.update({k: stored[k] for k in _KEYS if k in stored})
             return cfg
@@ -131,6 +145,7 @@ def get_demo_config() -> dict:
 def set_demo_config(updates: dict) -> dict:
     """Write updates to demo_config.json atomically. Returns the full resulting config."""
     current = get_demo_config()
+    updates = _upgraded(updates)
     for k in _KEYS:
         if k in updates:
             current[k] = updates[k]

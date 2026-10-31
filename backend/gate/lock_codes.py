@@ -30,6 +30,7 @@ history classifier, the migration and archived producers (T7) through the migrat
 """
 from __future__ import annotations
 
+import functools
 import json
 from dataclasses import dataclass
 
@@ -90,7 +91,7 @@ class Rule:
     books: tuple[str, ...] = BOOKS    # the books that run it
     check: bool = True                # a check that passes or fails; False for a failure mode (unavailable,
                                       # broker_error), which appears only as a fail
-    optional: bool = False            # runs only on some rows of its book (demo's max_positions, not on an
+    optional: bool = False            # runs only on some rows of its book (demo's l2_risk_max_positions_count, not on an
                                       # overflow slot), so a lock can show ✓ without it
 
 
@@ -111,61 +112,61 @@ class Rule:
 RULES: tuple[Rule, ...] = (
     Rule(0, "halt_m4_drawdown", ("halt_m4_drawdown",), books=("live",),
          source="M4 rule 1, l0_portfolio.HALT_DRAWDOWN: realised equity off its peak (live, cycle level)"),
-    Rule(0, "loss_cap", ("loss_cap",), ("daily_loss_cap",),
+    Rule(0, "loss_cap", ("loss_cap",), ("l0_portfolio_loss_cap_max",),
          "M4 rule 2 in live (l0_portfolio.HALT_LOSS_CAP, cycle level); wallet.execute_trade's fixed-dollar cap in demo"),
     Rule(0, "halt_m4_expectancy", ("halt_m4_expectancy",), books=("live",),
          source="M4 rule 3, l0_portfolio.HALT_EXPECTANCY: the trailing sample's expectancy (live, cycle level)"),
-    Rule(0, "drawdown_guard", config_keys=("max_drawdown_pct",), cooloff=True,
+    Rule(0, "drawdown_guard", config_keys=("l0_portfolio_drawdown_guard_max",), cooloff=True,
          source="chain.py mechanical pre-L5 guard (reason ends '(mechanical pre-L5 guard)')"),
     Rule(1, "blocklist", ("blocklist",), books=("live",),
          source="gate_runner_live: the live blocklist, before the chain"),
     Rule(1, "position_open", ("position_open",),
          source="both runners before the chain, and the execution re-check (gate_runner_live, wallet)"),
-    Rule(1, "cooloff", ("cooloff",), ("gate_cooloff_hours",),
+    Rule(1, "cooloff", ("cooloff",), ("l1_eligibility_cooloff_hours",),
          "both runners, before the chain: a recent L4/L6 stop (the gate cooloff; before 2026-10-31 SKIPPED_COOLOFF "
          "also held the exit cooloff)"),
-    Rule(1, "exit_cooloff", ("exit_cooloff",), ("exit_cooloff_hours",),
+    Rule(1, "exit_cooloff", ("exit_cooloff",), ("l1_eligibility_exit_cooloff_hours",),
          "both runners, before the chain: the ticker's own recent exit other than a TP/TSL win "
          "(db.get_recently_exited_*tickers; until phase 3 it also held the win window, as history rows do)"),
-    Rule(1, "exit_cooloff_win", ("exit_cooloff_win",), ("tp_cooloff_hours",),
+    Rule(1, "exit_cooloff_win", ("exit_cooloff_win",), ("l1_eligibility_exit_cooloff_win_hours",),
          "both runners, before the chain: the ticker's own recent TP/TSL win (its own rule from phase 3, Niclas "
          "2026-10-31: \"egen regel låter mer konsekvent\"; history before it is under exit_cooloff)"),
     Rule(1, "regime", ("regime", "excluded_sector", "regime_unavailable", "below_leaderboard_cutoff", "regime_floor"),
          source="l1_eligibility fail_type: the regime module's verdict on the sector"),
-    Rule(1, "vix", ("vix",), ("vix_threshold",), "l1_eligibility fail_type"),
-    Rule(1, "macro_event", ("macro_event",), ("macro_event_blackout_days",), "l1_eligibility fail_type"),
-    Rule(1, "macro_pre_event", ("macro_pre_event",), ("macro_pre_event_penalty",),
+    Rule(1, "vix", ("vix",), ("l1_eligibility_vix_max",), "l1_eligibility fail_type"),
+    Rule(1, "macro_event", ("macro_event",), ("l1_eligibility_macro_event_days",), "l1_eligibility fail_type"),
+    Rule(1, "macro_pre_event", ("macro_pre_event",), ("l1_eligibility_macro_pre_event_penalty",),
          "l1_eligibility data key; the penalty bites at the score re-test (chain.py)"),
     Rule(1, "notional_too_small", ("notional_too_small",),
          source="the order cannot buy: before the chain on the largest possible notional, and at execution "
                 "(live < $10 or no whole share, demo < $50)"),
     Rule(1, "price_missing", ("price_missing",), source="before the chain and at execution: no price"),
-    Rule(2, "earnings", ("earnings",), ("macro_earnings_blackout_days",),
+    Rule(2, "earnings", ("earnings",), ("l2_risk_earnings_days",),
          "l2_risk.check_earnings, called inside l1_eligibility (its fail_type)"),
-    Rule(2, "earnings_near", ("earnings_near_penalty",), ("macro_earnings_near_days", "macro_earnings_near_penalty"),
+    Rule(2, "earnings_near", ("earnings_near_penalty",), ("l2_risk_earnings_near_days", "l2_risk_earnings_near_penalty"),
          "l2_risk.check_earnings data key; the penalty bites at the score re-test (chain.py); never fired"),
-    Rule(2, "etf", config_keys=("etf_negative_penalty", "etf_negative_floor"),
+    Rule(2, "etf", config_keys=("l2_risk_etf_penalty", "l2_risk_etf_floor"),
          source="l2_risk.check_etf, called by chain.py after L5 (FILTERED_ETF_PENALTY before 2026-10-31)"),
-    Rule(2, "overflow", ("overflow",), ("overflow_quant_increment",),
-         "gate_runner*.py execution phase: a position beyond max_positions needs the escalated score; a free slot "
+    Rule(2, "overflow", ("overflow",), ("l2_risk_overflow_step",),
+         "gate_runner*.py execution phase: a position beyond l2_risk_max_positions_count needs the escalated score; a free slot "
          "passes"),
-    Rule(2, "max_positions", ("max_positions",), ("max_positions",), books=("demo",), optional=True,
+    Rule(2, "max_positions", ("max_positions",), ("l2_risk_max_positions_count",), books=("demo",), optional=True,
          source="wallet.execute_trade: demo max positions without an overflow slot"),
-    Rule(2, "sector_cap", ("sector_cap",), ("max_sector_exposure",),
+    Rule(2, "sector_cap", ("sector_cap",), ("l2_risk_sector_cap_max",),
          "execution phase: gate_runner_live, wallet.execute_trade"),
-    Rule(3, "threshold", config_keys=("lock1_threshold",), source="l3_score: score below the threshold"),
-    Rule(4, "grok", config_keys=("lock2_sentiment_min",), cooloff=True,
+    Rule(3, "threshold", config_keys=("l3_score_threshold_min",), source="l3_score: score below the threshold"),
+    Rule(4, "grok", config_keys=("l4_sentiment_grok_min",), cooloff=True,
          source="l4_sentiment: Grok's verdict (score at or below the minimum, or low conviction)"),
     Rule(4, "unavailable", cooloff=True, check=False,
          source="l4_sentiment 'Grok API unavailable — failing closed'"),
     Rule(4, "unavailable_inferred", cooloff=True, history_only=True, check=False,
          source="history: no summary and no reason"),
-    Rule(5, "leading", config_keys=("lock4_pcr_mode",),
+    Rule(5, "leading", config_keys=("l5_positioning_leading_mode",),
          source="l5_positioning: the leading-indicator checks (price and options groups; 2 of 4 before 2026-06-03)"),
     Rule(5, "unavailable", check=False,
          source="l5_positioning: a data error decided the failing group (price check error, or no options data "
                 "with a fetch error)"),
-    Rule(6, "claude", config_keys=("lock3_confidence_min",), cooloff=True,
+    Rule(6, "claude", config_keys=("l6_review_claude_min",), cooloff=True,
          source="l6_review: Claude's decision (HOLD, or confidence below the minimum)"),
     Rule(6, "unavailable", cooloff=True, check=False, source="l6_review L5_UNAVAILABLE_PREFIX"),
     Rule(6, "unavailable_inferred", cooloff=True, history_only=True, check=False,
@@ -374,6 +375,95 @@ def decorate_rows(rows: list[dict], book: str) -> list[dict]:
         r["badge_kind"] = badge_kind(r)
         r["reason_label"] = reason_label(r)
     return rows
+
+
+# Config keys (phase 3 part a; Niclas 2026-10-31: "alla namn är konsekvent efter kodschemat ... konsekvent och lätt
+# att härleda"): a rule's key is rule_key(owner, rule).lower() + "_" + one word from KEY_KINDS naming the value's kind
+# (min passes at or above, max at or below). LEGACY_KEYS holds the names before it. Stored forms written under them
+# (a config file not yet rewritten, an archived result, a call with the old keyword) are read through upgrade_keys;
+# a hash that identified something before the rename (a battery unit, a live shape) is taken over legacy_keys, so
+# every archived key stays reachable.
+KEY_KINDS = ("min", "max", "days", "hours", "penalty", "floor", "step", "mode", "count")
+LEGACY_KEYS: dict[str, str] = {
+    "daily_loss_cap": "l0_portfolio_loss_cap_max",
+    "max_drawdown_pct": "l0_portfolio_drawdown_guard_max",
+    "gate_cooloff_hours": "l1_eligibility_cooloff_hours",
+    "exit_cooloff_hours": "l1_eligibility_exit_cooloff_hours",
+    "tp_cooloff_hours": "l1_eligibility_exit_cooloff_win_hours",
+    "vix_threshold": "l1_eligibility_vix_max",
+    "macro_event_blackout_days": "l1_eligibility_macro_event_days",
+    "macro_pre_event_penalty": "l1_eligibility_macro_pre_event_penalty",
+    "macro_earnings_blackout_days": "l2_risk_earnings_days",
+    "macro_earnings_near_days": "l2_risk_earnings_near_days",
+    "macro_earnings_near_penalty": "l2_risk_earnings_near_penalty",
+    "etf_negative_penalty": "l2_risk_etf_penalty",
+    "etf_negative_floor": "l2_risk_etf_floor",
+    "overflow_quant_increment": "l2_risk_overflow_step",
+    "max_positions": "l2_risk_max_positions_count",
+    "max_sector_exposure": "l2_risk_sector_cap_max",
+    "lock1_threshold": "l3_score_threshold_min",
+    "lock2_sentiment_min": "l4_sentiment_grok_min",
+    "lock3_confidence_min": "l6_review_claude_min",
+    "lock4_pcr_mode": "l5_positioning_leading_mode",
+}
+_NEW_TO_LEGACY = {v: k for k, v in LEGACY_KEYS.items()}
+
+
+def config_key(owner: int, rule: str, kind: str) -> str:
+    """"l1_eligibility_vix_max": the derived config key of a registered rule's value of `kind`."""
+    if kind not in KEY_KINDS:
+        raise ValueError(f"{kind!r} is not in KEY_KINDS")
+    return f"{rule_key(owner, rule).lower()}_{kind}"
+
+
+def _rename(obj, names: dict[str, str]):
+    if isinstance(obj, dict):
+        return {names.get(k, k) if isinstance(k, str) else k: _rename(v, names) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_rename(v, names) for v in obj]
+    return obj
+
+
+def upgrade_keys(obj):
+    """A stored form read under the derived names: every dict key in LEGACY_KEYS renamed, recursively. Where a dict
+    holds both names, the derived one wins."""
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            new = LEGACY_KEYS.get(k, k) if isinstance(k, str) else k
+            if new != k and new in obj:
+                continue
+            out[new] = upgrade_keys(v)
+        return out
+    if isinstance(obj, list):
+        return [upgrade_keys(v) for v in obj]
+    return obj
+
+
+def legacy_keys(obj):
+    """The inverse of upgrade_keys, for hashes that identified a unit or a shape before phase 3."""
+    return _rename(obj, _NEW_TO_LEGACY)
+
+
+def has_legacy_keys(obj) -> bool:
+    if isinstance(obj, dict):
+        return any(k in LEGACY_KEYS for k in obj) or any(has_legacy_keys(v) for v in obj.values())
+    if isinstance(obj, list):
+        return any(has_legacy_keys(v) for v in obj)
+    return False
+
+
+def accepts_legacy_keys(fn):
+    """A function whose keywords took the derived names (the backtest engines) still takes the old keyword, so an
+    archived producer's call reproduces. Both names in one call is refused."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kw):
+        for old in [k for k in kw if k in LEGACY_KEYS]:
+            if LEGACY_KEYS[old] in kw:
+                raise TypeError(f"{fn.__qualname__}: both {old} and {LEGACY_KEYS[old]} given")
+            kw[LEGACY_KEYS[old]] = kw.pop(old)
+        return fn(*args, **kw)
+    return wrapper
 
 
 def config_labels() -> dict[str, str]:

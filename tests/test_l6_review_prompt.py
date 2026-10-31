@@ -42,17 +42,17 @@ def _ctx(dynamic_caps):
     from backend.gate.chain import build_base_context
     wallet = {"balance": 10_000.0, "open_positions": 2, "sector_exposure": {"Technology": 0.2},
               "dynamic_caps": dynamic_caps}
-    cfg = {"max_positions": 9, "max_sector_exposure": 0.30, "max_position_size": 0.15, "daily_loss_cap": 500}
+    cfg = {"l2_risk_max_positions_count": 9, "l2_risk_sector_cap_max": 0.30, "max_position_size": 0.15, "l0_portfolio_loss_cap_max": 500}
     return build_base_context({"ticker": "AAPL", "sector": "Technology"}, wallet, cfg,
                               starting_balance=10_000.0, gate_history_fn=lambda t, limit: [])
 
 
 def test_lock5_is_given_the_cap_execution_enforces():
-    """Until 2026-10-17 L5 judged the flat max_sector_exposure (0.30) while execution
+    """Until 2026-10-17 L5 judged the flat l2_risk_sector_cap_max (0.30) while execution
     enforced the dynamic cap (0.15–0.45; 0.45 on the last live row read)."""
     rl = _ctx({"Technology": 0.45})["risk_limits"]
     assert rl["sector_cap"] == 0.45 and rl["sector_cap_source"] == "dynamic"
-    assert rl["max_sector_exposure"] == 0.30                       # the base, still shown
+    assert rl["max_sector_exposure"] == 0.30                          # the base, still shown (Claude's name)
     rl = _ctx({})["risk_limits"]                                    # execution's fallback
     assert rl["sector_cap"] == 0.30 and rl["sector_cap_source"] == "flat_fallback"
     assert "against risk_limits.sector_cap" in SYSTEM_PROMPT

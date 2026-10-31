@@ -36,17 +36,17 @@ def test_gate_compares_the_rounded_percent_and_gates_only_below_the_threshold():
 def test_both_engines_take_the_same_parameters_off_by_default():
     for mod in (engine, engine_fast):
         p = inspect.signature(mod.run).parameters
-        assert p["etf_negative_penalty"].default is None and p["etf_negative_floor"].default == -1.0
+        assert p["l2_risk_etf_penalty"].default is None and p["l2_risk_etf_floor"].default == -1.0
         src = inspect.getsource(mod.run)
         assert "etf_penalty_fails(" in src and "etf_return_as_live(" in src
 
 
 def test_engine_fast_blocks_entries_when_on():
-    """Fails on the parent: engine_fast had no row 11 (0 hits for etf_negative_penalty)."""
+    """Fails on the parent: engine_fast had no row 11 (0 hits for l2_risk_etf_penalty)."""
     pre = synthetic_precomputed()
     run = lambda **x: engine_fast.run(START.isoformat(), END.isoformat(), precomputed=pre, **{**RUN_KW, **x})
     off = run()
-    on = run(etf_negative_penalty=0.99, etf_negative_floor=100.0)   # every ETF day is "below", nothing clears
+    on = run(l2_risk_etf_penalty=0.99, l2_risk_etf_floor=100.0)   # every ETF day is "below", nothing clears
     assert off["etf_penalty_blocked"] == [] and off["total_trades"] > 0
     assert on["total_trades"] == 0 and len(on["etf_penalty_blocked"]) > 0
     b = on["etf_penalty_blocked"][0]

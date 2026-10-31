@@ -34,19 +34,19 @@ def _signal(ticker="NVDA", sector="Technology", score=0.65, price=200.0, sid=1):
 
 def _demo_cfg(**overrides):
     base = {
-        "lock1_threshold":              0.5,
-        "lock2_sentiment_min":          0.2,
-        "lock3_confidence_min":         0.6,
-        "vix_threshold":                25.0,
-        "macro_event_blackout_days":    1,
-        "macro_earnings_blackout_days": 3,
-        "gate_cooloff_hours":           4,
-        "max_positions":                4,
-        "max_sector_exposure":          0.25,
+        "l3_score_threshold_min":              0.5,
+        "l4_sentiment_grok_min":          0.2,
+        "l6_review_claude_min":         0.6,
+        "l1_eligibility_vix_max":                25.0,
+        "l1_eligibility_macro_event_days":    1,
+        "l2_risk_earnings_days": 3,
+        "l1_eligibility_cooloff_hours":           4,
+        "l2_risk_max_positions_count":                4,
+        "l2_risk_sector_cap_max":          0.25,
         "max_position_size":            0.15,
-        "daily_loss_cap":               500.0,
+        "l0_portfolio_loss_cap_max":               500.0,
         "starting_balance":             10000.0,
-        "max_drawdown_pct":             0.20,
+        "l0_portfolio_drawdown_guard_max":             0.20,
         "take_profit_pct":              0.08,
         "stop_loss_pct":                0.04,
     }
@@ -57,8 +57,8 @@ def _demo_cfg(**overrides):
 def _live_cfg(**overrides):
     base = _demo_cfg()
     base.update({
-        "daily_loss_cap":    500.0,
-        "max_positions":     5,
+        "l0_portfolio_loss_cap_max":    500.0,
+        "l2_risk_max_positions_count":     5,
         "max_position_size": 0.10,
         "starting_balance":  10000.0,
     })
@@ -501,7 +501,7 @@ class TestLiveGateRunner:
             results, mocks = _run_live(candidates=[_signal()],
                                    account=_account(day_pnl=-600.0),
                                    apex_day_pnl=-600.0,
-                                   cfg_overrides={"daily_loss_cap": 500.0})
+                                   cfg_overrides={"l0_portfolio_loss_cap_max": 500.0})
         clear_alert_latch("loss_cap:2026-08-11")
         assert results == []
         mocks[15].assert_called_once()   # alert_daily_loss_cap
@@ -516,7 +516,7 @@ class TestLiveGateRunner:
             results, mocks = _run_live(candidates=[_signal()],
                                    account=_account(day_pnl=-500.0),
                                    apex_day_pnl=-500.0,
-                                   cfg_overrides={"daily_loss_cap": 500.0})
+                                   cfg_overrides={"l0_portfolio_loss_cap_max": 500.0})
         clear_alert_latch("loss_cap:2026-08-12")
         assert results == []
         mocks[15].assert_called_once()
@@ -525,7 +525,7 @@ class TestLiveGateRunner:
     def test_daily_loss_below_cap_continues(self):
         results, _ = _run_live(candidates=[_signal()],
                                account=_account(day_pnl=-100.0),
-                               cfg_overrides={"daily_loss_cap": 500.0})
+                               cfg_overrides={"l0_portfolio_loss_cap_max": 500.0})
         assert len(results) == 1
 
     def test_no_candidates_returns_empty(self):
@@ -613,7 +613,7 @@ class TestLiveGateRunner:
         positions = [{"ticker": f"T{i}"} for i in range(5)]
         # score=0.50 < overflow_threshold=0.525 (base 0.50 × 1.05) → overflow rejection
         results, mocks = _run_live(candidates=[_signal(score=0.50)], positions=positions,
-                                   cfg_overrides={"max_positions": 5})
+                                   cfg_overrides={"l2_risk_max_positions_count": 5})
         assert results[0]["stop_code"] == "FILTERED_L2_RISK_OVERFLOW"
         mocks[14].assert_not_called()
 
@@ -654,7 +654,7 @@ class TestLiveGateRunner:
         positions = [{"ticker": f"T{i}"} for i in range(5)]
         # score=0.50 < overflow_threshold → L2 overflow, counted under L2 · Risk in the funnel
         results, mocks = _run_live(candidates=[_signal(score=0.50)], positions=positions,
-                                   cfg_overrides={"max_positions": 5})
+                                   cfg_overrides={"l2_risk_max_positions_count": 5})
         saved = mocks[9].call_args[0][0]
         assert saved["gate_decision"] == "FILTERED_L2_RISK" and saved["stop_code"] == "FILTERED_L2_RISK_OVERFLOW"
 
@@ -719,7 +719,7 @@ class TestLiveGateRunner:
 class TestMechanicalDrawdownGuard:
     """
     The drawdown guard in evaluate_chain must reject before calling L5 when
-    (starting_balance - wallet_balance) / starting_balance > max_drawdown_pct.
+    (starting_balance - wallet_balance) / starting_balance > l0_portfolio_drawdown_guard_max.
 
     This prevents the L5 failure mode observed on 2026-07-02 (BA 16:42):
     Claude returned 'REJECT on drawdown grounds' in its reasoning but 'BUY'

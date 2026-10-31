@@ -9,10 +9,10 @@ from backend.backtest.live_shape import live_cooloff_days
 
 def test_hours_round_up_to_days():
     with patch("backend.live_config.get_live_config",
-               return_value={"exit_cooloff_hours": 24, "tp_cooloff_hours": 168}):
+               return_value={"l1_eligibility_exit_cooloff_hours": 24, "l1_eligibility_exit_cooloff_win_hours": 168}):
         assert live_cooloff_days() == (1, 7)
     with patch("backend.live_config.get_live_config",
-               return_value={"exit_cooloff_hours": 30, "tp_cooloff_hours": 0}):
+               return_value={"l1_eligibility_exit_cooloff_hours": 30, "l1_eligibility_exit_cooloff_win_hours": 0}):
         assert live_cooloff_days() == (2, 0)
 
 

@@ -285,7 +285,7 @@ function LockChain({ D, mode }) {
 
 function Positions({ D, mode }) {
   const positions = mode === "live" ? (D.livePositions || []) : (D.positions || []);
-  const maxPos = mode === "live" ? (D.settings?.live?.max_positions ?? 6) : (D.settings?.demo?.max_positions ?? 6);
+  const maxPos = mode === "live" ? (D.settings?.live?.l2_risk_max_positions_count ?? 6) : (D.settings?.demo?.l2_risk_max_positions_count ?? 6);
   return (
     <div className="t-card">
       <div className="t-card-head">

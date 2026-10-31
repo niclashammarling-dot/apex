@@ -32,7 +32,7 @@ BASE_KWARGS = dict(
     profit_lock_trail_pct   = 0.01,
     sl_cooldown_days  = 1,
     tp_cooldown_days  = 7,
-    max_positions     = 10,
+    l2_risk_max_positions_count     = 10,
 )
 
 PENALTIES = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40]
@@ -54,17 +54,17 @@ def main() -> None:
     results: list[tuple[str, dict]] = []
 
     print("Running no_filter baseline …")
-    r = run(**BASE_KWARGS, macro_hard_block=False, macro_pre_event_penalty=None)
+    r = run(**BASE_KWARGS, macro_hard_block=False, l1_eligibility_macro_pre_event_penalty=None)
     results.append(("no_filter   ", r))
 
     print("Running hard_block baseline …")
-    r = run(**BASE_KWARGS, macro_hard_block=True, macro_pre_event_penalty=None)
+    r = run(**BASE_KWARGS, macro_hard_block=True, l1_eligibility_macro_pre_event_penalty=None)
     results.append(("hard_block  ", r))
 
     for p in PENALTIES:
         label = f"penalty_{p:.2f}"
         print(f"Running {label} …")
-        r = run(**BASE_KWARGS, macro_hard_block=False, macro_pre_event_penalty=p)
+        r = run(**BASE_KWARGS, macro_hard_block=False, l1_eligibility_macro_pre_event_penalty=p)
         results.append((label, r))
 
     print()

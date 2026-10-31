@@ -410,16 +410,16 @@ def _run(cycle: GateCycle) -> list[dict]:
     from backend.db import live_sample_rows
     from backend.gate import l0_portfolio
     l0 = l0_portfolio.evaluate(acct, live_sample_rows(), cfg["starting_balance"])
-    cfg["daily_loss_cap"] = l0["daily_loss_cap"]
+    cfg["l0_portfolio_loss_cap_max"] = l0["l0_portfolio_loss_cap_max"]
     if l0["reason"]:
         today = _ny_today()
         logger.warning(f"Live gate: L0 halt {l0['reason']} — day loss ${l0['day_loss']:.2f} / cap "
-                       f"${l0['daily_loss_cap']:.2f}; realised drawdown {l0['drawdown']['drawdown']:.2%}; "
+                       f"${l0['l0_portfolio_loss_cap_max']:.2f}; realised drawdown {l0['drawdown']['drawdown']:.2%}; "
                        f"expectancy {l0['expectancy']}")
         if set_alert_latch(f"{l0['reason']}:{today}"):
             if l0["reason"] == l0_portfolio.HALT_LOSS_CAP:
                 from backend.alerts import alert_daily_loss_cap
-                alert_daily_loss_cap(l0["day_loss"], l0["daily_loss_cap"])
+                alert_daily_loss_cap(l0["day_loss"], l0["l0_portfolio_loss_cap_max"])
             else:
                 from backend.alerts import alert_gate_blocked
                 alert_gate_blocked(f"L0 {l0['reason']}: realised drawdown {l0['drawdown']['drawdown']:.2%} "
@@ -432,7 +432,7 @@ def _run(cycle: GateCycle) -> list[dict]:
         lock_codes.put(l0_states, ident, verdict)
 
     stale: list[dict] = []
-    candidates = get_lock1_candidates(threshold=cfg["lock1_threshold"],
+    candidates = get_lock1_candidates(threshold=cfg["l3_score_threshold_min"],
                                       sector_thresholds=sector_thresholds,
                                       stale_out=stale)
     record_stale(cycle, stale, "Live gate runner")
@@ -448,10 +448,10 @@ def _run(cycle: GateCycle) -> list[dict]:
     # holds, not signal-quality exclusions; see backend/config.py).
     from backend.config import LIVE_TICKER_BLOCKLIST
     open_tickers    = get_open_live_tickers()
-    failed_tickers  = get_recently_failed_live_tickers(cfg.get("gate_cooloff_hours", 4))
+    failed_tickers  = get_recently_failed_live_tickers(cfg.get("l1_eligibility_cooloff_hours", 4))
     exited_tickers, won_tickers = get_recently_exited_live_tickers(
-        sl_hours=cfg.get("exit_cooloff_hours", 24),
-        tp_hours=cfg.get("tp_cooloff_hours", 168),
+        sl_hours=cfg.get("l1_eligibility_exit_cooloff_hours", 24),
+        tp_hours=cfg.get("l1_eligibility_exit_cooloff_win_hours", 168),
     )
     blocklisted_tickers = set(LIVE_TICKER_BLOCKLIST)
     blocked = open_tickers | failed_tickers | exited_tickers | won_tickers | blocklisted_tickers
@@ -527,7 +527,7 @@ def _run(cycle: GateCycle) -> list[dict]:
     regime_bayes_result = _get_regime_bayes().last_result()
 
     sector_exposure_live: dict[str, float] = dict(_sector_exposure)
-    dynamic_caps_live    = compute_dynamic_caps(cfg.get("max_sector_exposure", 0.30),
+    dynamic_caps_live    = compute_dynamic_caps(cfg.get("l2_risk_sector_cap_max", 0.30),
                                                 regime_result=regime_bayes_result)
     # Lock 5 judges the cap execution enforces, not the flat base (2026-10-17).
     wallet_ctx["dynamic_caps"] = dynamic_caps_live
@@ -537,11 +537,11 @@ def _run(cycle: GateCycle) -> list[dict]:
     watching_sectors = {w["sector"] for w in forecast.get("watching", [])}
     if watching_sectors:
         pr_sector_thresholds = {
-            s: (sector_thresholds or {}).get(s, cfg["lock1_threshold"]) * PRE_ROTATION_FLOOR
+            s: (sector_thresholds or {}).get(s, cfg["l3_score_threshold_min"]) * PRE_ROTATION_FLOOR
             for s in watching_sectors
         }
         pr_candidates = get_lock1_candidates(
-            threshold=cfg["lock1_threshold"] * PRE_ROTATION_FLOOR,
+            threshold=cfg["l3_score_threshold_min"] * PRE_ROTATION_FLOOR,
             sector_thresholds=pr_sector_thresholds,
             stale_out=stale,
         )
@@ -612,8 +612,8 @@ def _run(cycle: GateCycle) -> list[dict]:
     open_tickers   = {p["ticker"] for p in open_positions}
 
     evaluated.sort(key=lambda x: (0 if x[0].get("pre_rotation") else 1, x[0].get("signal_score", 0)), reverse=True)
-    max_positions        = cfg["max_positions"]
-    overflow_increment   = cfg.get("overflow_quant_increment", 0.05)
+    l2_risk_max_positions_count        = cfg["l2_risk_max_positions_count"]
+    overflow_increment   = cfg.get("l2_risk_overflow_step", 0.05)
     open_count           = len(open_positions)  # snapshot; incremented on each executed trade
     bayesian_multipliers = _compute_bayesian_multipliers(evaluated, regime_bayes_result)
 
@@ -624,7 +624,7 @@ def _run(cycle: GateCycle) -> list[dict]:
         # L5 deferred path — run Claude only when a slot is confirmed available.
         if result["outcome"] == "TRADE_QUEUED_PENDING_L5":
             sector         = signal.get("sector", "")
-            base_threshold = (sector_thresholds or {}).get(sector, cfg["lock1_threshold"])
+            base_threshold = (sector_thresholds or {}).get(sector, cfg["l3_score_threshold_min"])
             _put(result, "position_open", ticker in open_tickers)
             if ticker in open_tickers:
                 logger.info(f"Live trade skipped [{ticker}]: position already open (pre-L5)")
@@ -632,8 +632,8 @@ def _run(cycle: GateCycle) -> list[dict]:
                 result["outcome_reason"] = "position_open"
                 result.pop("_l5_lock_results", None)
                 result.pop("_l5_context", None)
-            elif open_count >= max_positions:
-                overflow_level     = open_count - max_positions + 1
+            elif open_count >= l2_risk_max_positions_count:
+                overflow_level     = open_count - l2_risk_max_positions_count + 1
                 overflow_threshold = round(base_threshold * (1 + overflow_level * overflow_increment), 4)
                 _overflow_state(result, signal["signal_score"] < overflow_threshold)
                 if signal["signal_score"] < overflow_threshold:
@@ -670,11 +670,11 @@ def _run(cycle: GateCycle) -> list[dict]:
                 logger.info(f"Live trade skipped [{ticker}]: position already open")
                 result["outcome"] = STOPPED
                 result["outcome_reason"] = "position_open"
-            elif open_count >= max_positions:
+            elif open_count >= l2_risk_max_positions_count:
                 # Overflow slot — check escalating quant threshold
                 sector             = signal.get("sector", "")
-                base_threshold     = (sector_thresholds or {}).get(sector, cfg["lock1_threshold"])
-                overflow_level     = open_count - max_positions + 1
+                base_threshold     = (sector_thresholds or {}).get(sector, cfg["l3_score_threshold_min"])
+                overflow_level     = open_count - l2_risk_max_positions_count + 1
                 overflow_threshold = round(base_threshold * (1 + overflow_level * overflow_increment), 4)
                 _overflow_state(result, signal["signal_score"] < overflow_threshold)
                 if signal["signal_score"] < overflow_threshold:
@@ -695,7 +695,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                     else:
                         sector    = signal.get("sector", "")
                         cap_check = _sector_cap_check(sector, notional, sector_exposure_live, dynamic_caps_live,
-                                                      cfg.get("max_sector_exposure", 0.30), _starting_balance)
+                                                      cfg.get("l2_risk_sector_cap_max", 0.30), _starting_balance)
                         result["cap_check"] = cap_check
                         _put(result, "sector_cap", cap_check["over_cap"])
                         sec_cap, projected = cap_check["cap"], cap_check["projected"]
@@ -743,7 +743,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                 else:
                     sector    = signal.get("sector", "")
                     cap_check = _sector_cap_check(sector, notional, sector_exposure_live, dynamic_caps_live,
-                                                  cfg.get("max_sector_exposure", 0.30), _starting_balance)
+                                                  cfg.get("l2_risk_sector_cap_max", 0.30), _starting_balance)
                     result["cap_check"] = cap_check
                     _put(result, "sector_cap", cap_check["over_cap"])
                     sec_cap, projected = cap_check["cap"], cap_check["projected"]
@@ -883,7 +883,7 @@ def _sector_cap_check(sector: str, notional: float, exposure: dict[str, float],
     One cap since 2026-10-17: Lock 5 is shown risk_limits.sector_cap, the same
     dynamic cap execution enforces here (falling back to the flat value when
     compute_dynamic_caps returned nothing for the sector). Until then L5 judged
-    the flat max_sector_exposure while execution enforced the dynamic cap. Observe
+    the flat l2_risk_sector_cap_max while execution enforced the dynamic cap. Observe
     only (2026-09-27): `over_flat` records whether the flat cap would have
     rejected this trade, so rows where the two disagree are countable. The
     enforced test is `over_cap`, unchanged.

@@ -50,7 +50,7 @@ def realised_drawdown(rows: list[dict], starting_balance: float) -> dict:
     return {"equity": round(eq, 2), "peak": round(peak, 2), "drawdown": dd}
 
 
-def daily_loss_cap(equity: float) -> float:
+def l0_portfolio_loss_cap_max(equity: float) -> float:
     return float(equity) * M4_DAILY_LOSS_CAP_PCT
 
 
@@ -69,7 +69,7 @@ def expectancy(rows: list[dict]) -> dict:
 def evaluate(acct: dict, rows: list[dict], starting_balance: float) -> dict:
     """The L0 verdict for one cycle: reason (None = pass), the effective dollar cap, and the evidence."""
     dd = realised_drawdown(rows, starting_balance)
-    cap = daily_loss_cap(acct["equity"])
+    cap = l0_portfolio_loss_cap_max(acct["equity"])
     day_loss = abs(min(float(acct["day_pnl"]), 0.0))
     exp = expectancy(rows)
     reason = None
@@ -79,7 +79,7 @@ def evaluate(acct: dict, rows: list[dict], starting_balance: float) -> dict:
         reason = HALT_LOSS_CAP
     elif exp["breached"]:
         reason = HALT_EXPECTANCY
-    return {"reason": reason, "daily_loss_cap": round(cap, 2), "day_loss": round(day_loss, 2),
+    return {"reason": reason, "l0_portfolio_loss_cap_max": round(cap, 2), "day_loss": round(day_loss, 2),
             "drawdown": dd, "expectancy": exp}
 
 
@@ -90,6 +90,6 @@ def rule_verdicts(v: dict) -> dict[str, str]:
     exp = v["expectancy"]
     return {
         HALT_DRAWDOWN:   FAIL if v["drawdown"]["drawdown"] >= M4_DRAWDOWN_PCT else PASS,
-        HALT_LOSS_CAP:   FAIL if v["day_loss"] >= v["daily_loss_cap"] else PASS,
+        HALT_LOSS_CAP:   FAIL if v["day_loss"] >= v["l0_portfolio_loss_cap_max"] else PASS,
         HALT_EXPECTANCY: FAIL if exp["breached"] else NO_DATA if exp["n"] < exp["needed"] else PASS,
     }

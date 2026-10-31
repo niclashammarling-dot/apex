@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 import pandas as pd
+from backend.gate.lock_codes import upgrade_keys
 
 WINDOW = ("2019-01-02", "2026-10-16")
 FOLDS = {
@@ -37,14 +38,14 @@ def incumbent_from_live() -> dict:
     c = get_live_config()
     sl, tp = live_cooloff_days()
     return dict(
-        lock1_threshold=c["lock1_threshold"], take_profit_pct=c["take_profit_pct"],
+        l3_score_threshold_min=c["l3_score_threshold_min"], take_profit_pct=c["take_profit_pct"],
         stop_loss_pct=c["stop_loss_pct"], profit_lock_trigger_pct=c["profit_lock_trigger_pct"],
-        profit_lock_trail_pct=c["profit_lock_trail_pct"], max_positions=c["max_positions"],
-        time_stop_days=c["max_hold_days"], vix_threshold=c["vix_threshold"],
-        max_sector_exposure=c["max_sector_exposure"],
+        profit_lock_trail_pct=c["profit_lock_trail_pct"], l2_risk_max_positions_count=c["l2_risk_max_positions_count"],
+        time_stop_days=c["max_hold_days"], l1_eligibility_vix_max=c["l1_eligibility_vix_max"],
+        l2_risk_sector_cap_max=c["l2_risk_sector_cap_max"],
         sl_cooldown_days=sl, tp_cooldown_days=tp,
-        macro_pre_event_penalty=c["macro_pre_event_penalty"],   # row 10, Niclas 10-17: "ja"
-        etf_negative_penalty=c["etf_negative_penalty"], etf_negative_floor=c["etf_negative_floor"],   # row 11, 2026-10-18
+        l1_eligibility_macro_pre_event_penalty=c["l1_eligibility_macro_pre_event_penalty"],   # row 10, Niclas 10-17: "ja"
+        l2_risk_etf_penalty=c["l2_risk_etf_penalty"], l2_risk_etf_floor=c["l2_risk_etf_floor"],   # row 11, 2026-10-18
     )
 
 
@@ -102,7 +103,7 @@ def main(outdir: Path) -> None:
     for name, kw in RUNS.items():
         f = outdir / f"{name}.json"
         if f.exists():
-            results[name] = json.loads(f.read_text())
+            results[name] = upgrade_keys(json.loads(f.read_text()))
             print(f"{name} loaded", flush=True)
             continue
         t1 = time.time()

@@ -63,11 +63,11 @@ Demo and live runners should be structurally identical except for thresholds and
 
 ### CHECK 9 — Config value drift against documented constraints
 Flag any value outside these bounds:
-- `lock1_threshold` demo: >= 0.65. Warn if < 0.65, CRITICAL if < 0.60.
-- `lock1_threshold` live: >= 0.65.
-- `vix_threshold`: >= 30.
+- `l3_score_threshold_min` demo: >= 0.65. Warn if < 0.65, CRITICAL if < 0.60.
+- `l3_score_threshold_min` live: >= 0.65.
+- `l1_eligibility_vix_max`: >= 30.
 - `take_profit_pct`: <= 0.08.
-- `max_positions` demo: <= 15. This is user-controlled; do not revert it.
+- `l2_risk_max_positions_count` demo: <= 15. This is user-controlled; do not revert it.
 - SKIP CONDITION (2026-05-27): When compressed signals hold ≥ 50% of total aggregator weight, spread signal ratio sweeps will be flat regardless of individual signal IQR. Mechanism: the compressed block attenuates spread signal score deltas to below the reordering threshold; individual signal IQR measures spread in isolation, not after attenuation through the aggregator weight structure. Do not run a spread signal weight ratio sweep if the compressed block exceeds 50% — it will be invariant by construction. The correct prior sweep is the budget sweep (Q2), which varies the compressed/spread allocation directly.
 - PATTERN (2026-05-27, updated with full series close): Parameter review series complete. Full evidence base: RSI discount (inversion, closed 2026-05-24); momentum split (invariant, component co-movement post-L1); volume divisor (invariant, source compression 89% normal-volume); ev_norm (invariant, formula truncation at 0.27, IQR 1.6%); aggregator trend/rs split Q1 (invariant, compressed block at 0.65 weight suppresses spread signal delta); aggregator budget Q2 (regime-dependent — training 2023-2026 peaked at b=0.25-0.30, held-out 2021-2023 peaked at b=0.15-0.25 and degraded at training optimum; peaks move in opposite directions across regimes; no weight change warranted). Architectural finding: the aggregator's optimal weight distribution is regime-dependent. Regime-conditioned weights implemented 2026-05-28: bull (mean top-3 posterior ≥ 0.75) uses higher spread budget (trend=0.35, rs=0.30); bear (< 0.60) uses lower budget (trend=0.25, rs=0.20); neutral = current calibrated weights. Thresholds constructed from single-snapshot analysis — empirical validation requires ≥ 4 weeks of sector_posterior_history data (see CHECK 44). Do not change weight vectors until CHECK 44 validation gate is cleared.
 - `backend/signals/momentum.py` RSI discount: the 70-80 linear discount was removed 2026-05-24. The absence of `RSI_DISCOUNT_START` and the discount branch is intentional — 2023-2026 backtest showed 70-80 band PF 1.57 vs 60-70 PF 1.36; the discount was inverting the signal. Do not restore it. The hard cap at RSI >= 80 (`RSI_HARD_CAP`) is intentional and should remain.
@@ -85,7 +85,7 @@ Flag any value outside these bounds:
 
 ### CHECK 11 — NaN/null config pipeline
 - Frontend `frontend/src/App.jsx`: find any `parseFloat(val)` without empty-string guard. `parseFloat("")` = NaN; `NaN ?? ""` does not fall back. Correct: `val === "" ? null : parseFloat(val)`.
-- Backend `backend/gate/l1_eligibility.py`: find `cfg.get(key, default)` for numeric fields used in comparisons. Stored None bypasses the default. Check: `macro_event_blackout_days`, `macro_earnings_blackout_days`, `vix_threshold`, `gate_cooloff_hours`.
+- Backend `backend/gate/l1_eligibility.py`: find `cfg.get(key, default)` for numeric fields used in comparisons. Stored None bypasses the default. Check: `l1_eligibility_macro_event_days`, `l2_risk_earnings_days`, `l1_eligibility_vix_max`, `l1_eligibility_cooloff_hours`.
 
 ### Output format
 
@@ -150,7 +150,7 @@ Every `.py` script in `audit/` must be explicitly called somewhere in these inst
 Account-size-specific config keys must not appear in the promotable set.
 - Run `python3 -c "from backend.maintenance import check_promote_exclusions; r = check_promote_exclusions(); print(r)"`.
 - Flag any non-empty result as CRITICAL — a leaked key means the next Promote will overwrite live account-specific constants with demo-scale values, silently corrupting sector exposure calculations or daily loss limits.
-- Specifically: `starting_balance` (sector exposure denominator; demo=$2k, live=$100k) and `daily_loss_cap` (absolute dollars; demo=$100 → near-zero daily limit on $100k account) must be in `_PROMOTE_EXCLUDE` and absent from `demo_thresholds()`.
+- Specifically: `starting_balance` (sector exposure denominator; demo=$2k, live=$100k) and `l0_portfolio_loss_cap_max` (absolute dollars; demo=$100 → near-zero daily limit on $100k account) must be in `_PROMOTE_EXCLUDE` and absent from `demo_thresholds()`.
 
 ### CHECK 38 — Live entry absence-of-activity
 

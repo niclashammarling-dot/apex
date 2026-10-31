@@ -51,14 +51,14 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
     Returns the trade record dict, or None if rejected by risk checks.
 
     dynamic_caps: optional {sector: cap_fraction} from sector_caps.compute_dynamic_caps().
-    If provided, the per-sector cap is used instead of the flat max_sector_exposure.
+    If provided, the per-sector cap is used instead of the flat l2_risk_sector_cap_max.
 
-    overflow: if True, skip the max_positions check. The gate runner has already
+    overflow: if True, skip the l2_risk_max_positions_count check. The gate runner has already
     verified that the ticker cleared the escalating overflow quant threshold.
 
     Every check that runs is recorded in gate_result["rule_states"] (lock_codes.put), and a refusal sets
     gate_result["outcome_reason"] to its rule's identifier, as the live runner does (lock labels phase 2,
-    2026-10-28: "demo = live except trading"): max_positions and sector_cap (L2), loss_cap (L0),
+    2026-10-28: "demo = live except trading"): l2_risk_max_positions_count and sector_cap (L2), loss_cap (L0),
     position_open, notional_too_small and price_missing (L1).
     """
     states = gate_result.setdefault("rule_states", {})
@@ -75,13 +75,13 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
     portfolio = get_portfolio_summary()
 
     cfg = get_demo_config()
-    base_cap       = cfg.get("max_sector_exposure", MAX_SECTOR_EXPOSURE)
+    base_cap       = cfg.get("l2_risk_sector_cap_max", MAX_SECTOR_EXPOSURE)
     max_sector_exp = dynamic_caps.get(sector, base_cap) if dynamic_caps else base_cap
-    max_positions  = cfg.get("max_positions", MAX_POSITIONS)
+    l2_risk_max_positions_count  = cfg.get("l2_risk_max_positions_count", MAX_POSITIONS)
 
     # Risk checks
-    if not overflow and _check("max_positions", portfolio["open_position_count"] >= max_positions):
-        logger.warning(f"Trade rejected [{ticker}]: max positions ({max_positions}) reached")
+    if not overflow and _check("max_positions", portfolio["open_position_count"] >= l2_risk_max_positions_count):
+        logger.warning(f"Trade rejected [{ticker}]: max positions ({l2_risk_max_positions_count}) reached")
         return None
 
     # Check projected sector exposure (current + this trade).
@@ -98,9 +98,9 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
 
     # Daily loss cap
     daily_loss     = _daily_realized_loss()
-    daily_loss_cap = cfg.get("daily_loss_cap", DAILY_LOSS_CAP)
-    if _check("loss_cap", daily_loss >= daily_loss_cap):
-        logger.warning(f"Trade rejected [{ticker}]: daily loss cap hit (${daily_loss:.2f} >= ${daily_loss_cap})")
+    l0_portfolio_loss_cap_max = cfg.get("l0_portfolio_loss_cap_max", DAILY_LOSS_CAP)
+    if _check("loss_cap", daily_loss >= l0_portfolio_loss_cap_max):
+        logger.warning(f"Trade rejected [{ticker}]: daily loss cap hit (${daily_loss:.2f} >= ${l0_portfolio_loss_cap_max})")
         return None
 
     # Already holding this ticker?

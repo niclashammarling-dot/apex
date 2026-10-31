@@ -43,7 +43,7 @@ def test_daily_cap_is_a_share_of_current_equity():
     cap = M4_DAILY_LOSS_CAP_PCT * 20_000
     assert l0.evaluate({"equity": 20_000, "day_pnl": -(cap - 1)}, [], 10_000)["reason"] is None
     v = l0.evaluate({"equity": 20_000, "day_pnl": -cap}, [], 10_000)
-    assert v["reason"] == l0.HALT_LOSS_CAP and v["daily_loss_cap"] == cap
+    assert v["reason"] == l0.HALT_LOSS_CAP and v["l0_portfolio_loss_cap_max"] == cap
     assert l0.evaluate({"equity": 20_000, "day_pnl": +5_000}, [], 10_000)["reason"] is None
 
 
@@ -79,7 +79,7 @@ def test_live_runner_stops_before_l1_on_an_l0_halt():
         s.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
         s.enter_context(patch("backend.gate.gate_runner_live._compute_apex_day_pnl", return_value=(0.0, [], {})))
         s.enter_context(patch("backend.live_config.get_live_config",
-                              return_value={"daily_loss_cap": 500.0, "starting_balance": 10_000.0}))
+                              return_value={"l0_portfolio_loss_cap_max": 500.0, "starting_balance": 10_000.0}))
         s.enter_context(patch("backend.db.get_ticker_thresholds", return_value={}))
         s.enter_context(patch("backend.db.live_sample_rows", return_value=[_t(-(M4_DRAWDOWN_PCT * 10_000))]))
         s.enter_context(patch("backend.gate.gate_runner_live.set_alert_latch", return_value=True))

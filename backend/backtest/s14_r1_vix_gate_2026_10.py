@@ -37,7 +37,7 @@ from backend.backtest import engine_fast as ef
 from backend.backtest import exits_l3_m4_2026_10 as l3
 from backend.backtest import ladder_2026_10 as ld
 from backend.backtest.archive_guard import fingerprint
-from backend.backtest.candidate_ledger_2026_10 import VIX_LEVEL   # live's vix_threshold, one source
+from backend.backtest.candidate_ledger_2026_10 import VIX_LEVEL   # live's l1_eligibility_vix_max, one source
 from backend.backtest.exit_rules import POLLED_PEAK_GAP
 from backend.backtest.s14_episodes_probe_2026_10_21 import episodes
 
@@ -175,7 +175,7 @@ def over(arm: str) -> dict:
     R1UNIT control is the battery's R1 with only the peak model, so it must equal ON."""
     if arm == "R1UNIT":
         return {"peak_from_high": True, "peak_haircut": POLLED_PEAK_GAP}
-    return {**l3.over("STATIC"), "vix_threshold": VIX_LEVEL if arm == "ON" else None}
+    return {**l3.over("STATIC"), "l1_eligibility_vix_max": VIX_LEVEL if arm == "ON" else None}
 
 
 def period_rows(trade_log: list[dict], vix: dict[str, float]) -> dict:
@@ -273,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
         ld._R = b.Runner(b.Store(a.battery), commit[:7])
         ld._R._window("IS")
         ld._R.frozen = True
-        log(f"incumbent vix_threshold {ld._R.incumbent().get('vix_threshold')} (the card's 30)")
+        log(f"incumbent l1_eligibility_vix_max {ld._R.incumbent().get('l1_eligibility_vix_max')} (the card's 30)")
         jobs = [(arm, s, "") for arm in ARMS for s in b.RND_STARTS] + [("ON", 0, "twice"), ("R1UNIT", 0, "")]
         R: dict = {}
         with mp.get_context("fork").Pool(a.workers) as pool:

@@ -48,7 +48,7 @@ export default function BacktestPanel({ onResult }) {
     stop_loss_pct: "",
     trailing_stop_pct: "",
     time_stop_days: "",
-    lock1_threshold: "",
+    l3_score_threshold_min: "",
     atr_exits: false,
     earnings_filter: false,
     earnings_filter_days: "7",
@@ -78,7 +78,7 @@ export default function BacktestPanel({ onResult }) {
     if (form.stop_loss_pct)     body.stop_loss_pct     = normPct(form.stop_loss_pct);
     if (form.trailing_stop_pct) body.trailing_stop_pct = normPct(form.trailing_stop_pct);
     if (form.time_stop_days)    body.time_stop_days    = parseInt(form.time_stop_days);
-    if (form.lock1_threshold)   body.lock1_threshold   = parseFloat(form.lock1_threshold);
+    if (form.l3_score_threshold_min)   body.l3_score_threshold_min   = parseFloat(form.l3_score_threshold_min);
     if (form.atr_exits)         body.atr_exits         = true;
     if (form.earnings_filter)   body.earnings_filter_days = parseInt(form.earnings_filter_days) || 7;
     return body;
@@ -191,7 +191,7 @@ export default function BacktestPanel({ onResult }) {
             { name: "stop_loss_pct",     label: "Stop loss",         type: "number", placeholder: "default", title: "Hard exit when price falls this % below entry. 0.05 = -5%. Tighter stops reduce loss size but increase whipsaw exits." },
             { name: "trailing_stop_pct", label: "Trailing stop",     type: "number", placeholder: "off",     title: "Trails the stop up as price rises, locking in gains. 0.05 = stop trails 5% below peak. Leave blank to disable." },
             { name: "time_stop_days",    label: "Time stop (days)",  type: "number", placeholder: "5",       title: "Force-exit after this many days regardless of P&L. Prevents capital being stuck in stalled trades." },
-            { name: "lock1_threshold",   label: "Score threshold",   type: "number", placeholder: "default", title: "Minimum quantitative signal score to enter a trade. Uses per-sector calibrated thresholds by default. Dead zone below 0.65 — the filter has no effect under that value." },
+            { name: "l3_score_threshold_min",   label: "Score threshold",   type: "number", placeholder: "default", title: "Minimum quantitative signal score to enter a trade. Uses per-sector calibrated thresholds by default. Dead zone below 0.65 — the filter has no effect under that value." },
           ].map(({ name, label, type, placeholder, title }) => (
             <div key={name} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
               <label title={title} style={{ fontFamily: "'Inconsolata', monospace", fontSize: 11, color: "var(--text-3)", letterSpacing: "0.06em", cursor: title ? "help" : "default", borderBottom: title ? "1px dotted #404040" : "none" }}>

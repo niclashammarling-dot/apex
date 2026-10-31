@@ -89,7 +89,7 @@ def _yf_slot():
 # pass rate of 24.8%, own-P25 would deliver ~13.8%; the options group (PCR ∪ unusual calls)
 # moves 32.2% → 31.3% because UC absorbs the difference.
 # BUILT 2026-09-17: backend/gate/pcr_baseline.py (partial-pooled per-ticker P25, K=3), selected
-# per config by lock4_pcr_mode — demo default "per_ticker_p25", live default "pooled_scalar"
+# per config by l5_positioning_leading_mode — demo default "per_ticker_p25", live default "pooled_scalar"
 # until CHECK 80 (demo PCR-channel rate + per-ticker composition) has read out; Promote
 # carries the key. This constant is the pooled_scalar mode and the fallback when the
 # baseline table is empty — the fallback is a counted row in CHECK 80, not a silent one.

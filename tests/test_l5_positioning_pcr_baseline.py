@@ -98,17 +98,17 @@ def test_chain_passes_cfg_mode_to_lock4():
          patch("backend.gate.chain.lock3_evaluate", return_value=LockResult.pass_(lock_id=3, score=0.9, reason="", data={})), \
          patch("backend.gate.chain.lock4_evaluate", return_value=LockResult.fail(lock_id=4, reason="x", data={})) as m4:
         from backend.gate.chain import evaluate_chain
-        evaluate_chain("A", "Energy", 0.9, {}, {"lock4_pcr_mode": "per_ticker_p25"})
+        evaluate_chain("A", "Energy", 0.9, {}, {"l5_positioning_leading_mode": "per_ticker_p25"})
     assert m4.call_args.kwargs["pcr_mode"] == "per_ticker_p25"
 
 
 def test_demo_and_live_defaults_are_demo_first():
     from backend.demo_config import _defaults as demo
     from backend.live_config import _defaults as live
-    assert demo()["lock4_pcr_mode"] == "per_ticker_p25"
-    assert live()["lock4_pcr_mode"] == "pooled_scalar"
+    assert demo()["l5_positioning_leading_mode"] == "per_ticker_p25"
+    assert live()["l5_positioning_leading_mode"] == "pooled_scalar"
     from backend.live_config import _PROMOTE_EXCLUDE
-    assert "lock4_pcr_mode" not in _PROMOTE_EXCLUDE   # promote carries it, deliberately
+    assert "l5_positioning_leading_mode" not in _PROMOTE_EXCLUDE   # promote carries it, deliberately
 
 
 # ── CHECK 80 ──────────────────────────────────────────────────────────────────

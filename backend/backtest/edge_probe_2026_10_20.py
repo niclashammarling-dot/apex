@@ -36,6 +36,7 @@ import numpy as np
 
 from backend.backtest import battery_2026_10 as b
 from backend.backtest import profit_metrics as pm
+from backend.gate.lock_codes import upgrade_keys
 
 _R: "b.Runner | None" = None
 _REFS: dict[str, dict] = {}
@@ -60,7 +61,7 @@ def _engine(arm: str, base: dict, over: dict, seed: int | None) -> dict:
         res = run(days[0].isoformat(), days[-1].isoformat(), initial_balance=10_000.0,
                   precomputed=pre_u, **kw, **extra)
     return {"trade_log": res["trade_log"], "equity_curve": res["equity_curve"],
-            "max_pos": kw["max_positions"], "days": [d.isoformat() for d in days]}
+            "max_pos": kw["l2_risk_max_positions_count"], "days": [d.isoformat() for d in days]}
 
 
 def metrics(res: dict, ref: dict | None) -> dict:
@@ -191,7 +192,7 @@ def main() -> None:
     a = ap.parse_args()
     store = b.Store(a.battery_dir)
     if a.summary is not None:
-        a.summary.write_text(json.dumps(summarize(json.loads(a.out.read_text()), store), indent=1))
+        a.summary.write_text(json.dumps(summarize(upgrade_keys(json.loads(a.out.read_text())), store), indent=1))
         print(f"summary written: {a.summary}", flush=True)
         return
     _R = b.Runner(store, "probe")
@@ -202,9 +203,9 @@ def main() -> None:
     arms = {
         "base_R1": (b.R1, {}),
         "base_R2": (b.R2, {}),
-        "hardcap_R1": (b.R1, {"overflow_quant_increment": math.inf}),
+        "hardcap_R1": (b.R1, {"l2_risk_overflow_step": math.inf}),
         "fixed10_R1": (b.R1, {"size_fixed": 0.10}),
-        "hardcap_fixed10_R1": (b.R1, {"overflow_quant_increment": math.inf, "size_fixed": 0.10}),
+        "hardcap_fixed10_R1": (b.R1, {"l2_risk_overflow_step": math.inf, "size_fixed": 0.10}),
     }
     out: dict = {}
     for arm, (base, over) in arms.items():
@@ -212,7 +213,7 @@ def main() -> None:
             ref = store.get(b.unit("IS", base, 0))
             _REFS[arm] = ref
             res = {"trade_log": ref["trade_log"], "equity_curve": ref["equity_curve"],
-                   "max_pos": ref["kwargs"]["max_positions"], "days": ref["trading_days"]}
+                   "max_pos": ref["kwargs"]["l2_risk_max_positions_count"], "days": ref["trading_days"]}
         else:
             res = _engine(arm, base, over, None)
             _REFS[arm] = {"entries_per_day": b._entries_per_day(res["trade_log"]),

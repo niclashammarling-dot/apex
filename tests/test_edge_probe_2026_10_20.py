@@ -13,7 +13,7 @@ def test_slot_audit_splits_short_days_by_cause():
 
 
 def test_slot_audit_cap_is_at_least_max_positions():
-    # The reference held 5 after entries, but RND's roof is still max_positions (9): 7 open is not slot-bound.
+    # The reference held 5 after entries, but RND's roof is still l2_risk_max_positions_count (9): 7 open is not slot-bound.
     out = slot_audit({"d": 2}, {"d": 5}, {"d": 0}, {"d": 7}, max_pos=9)
     assert out["short_slot_bound"] == 0 and out["short_pool_bound"] == 1
 

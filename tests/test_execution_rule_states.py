@@ -19,7 +19,7 @@ from backend.gate.lock_codes import FAIL, PASS
 from backend.gate.lock_codes import rule_key as K
 
 ROOT = Path(__file__).resolve().parents[1]
-CFG = {"max_sector_exposure": 0.30, "max_positions": 4, "daily_loss_cap": 100.0, "max_position_size": 0.15}
+CFG = {"l2_risk_sector_cap_max": 0.30, "l2_risk_max_positions_count": 4, "l0_portfolio_loss_cap_max": 100.0, "max_position_size": 0.15}
 ORDER = ("max_positions", "sector_cap", "loss_cap", "position_open", "notional_too_small", "price_missing")
 KEY = {i: K(lock_codes.rule_for(i).owner, i) for i in ORDER}
 
@@ -74,7 +74,7 @@ def test_every_identifier_the_wallet_emits_has_one_rule_owned_by_a_lock():
 
 # ── The demo runner ───────────────────────────────────────────────────────────────────────────────
 
-def _run_demo(score=0.65, open_tickers=(), max_positions=4, refuse=None):
+def _run_demo(score=0.65, open_tickers=(), l2_risk_max_positions_count=4, refuse=None):
     from tests.test_gate_runners import _chain_pass, _demo_patches, _signal
 
     def execute(gr, price, **kw):              # the wallet's contract: a refusal records its rule and reason
@@ -84,7 +84,7 @@ def _run_demo(score=0.65, open_tickers=(), max_positions=4, refuse=None):
             return None
         return {"id": 1}
     patches = _demo_patches(candidates=[_signal(score=score)], open_tickers=set(open_tickers),
-                            chain_result=_chain_pass(), cfg_overrides={"max_positions": max_positions})
+                            chain_result=_chain_pass(), cfg_overrides={"l2_risk_max_positions_count": l2_risk_max_positions_count})
     with ExitStack() as st:
         mocks = [st.enter_context(p) for p in patches]
         mocks[10].side_effect = execute
@@ -116,10 +116,10 @@ def test_a_wallet_refusal_without_a_rule_is_unknown_and_mailed():
 
 def test_the_demo_runner_records_overflow_beyond_max_positions():
     # One position open (AAPL), max 1: NVDA needs an overflow slot at 0.5 × 1.05 = 0.525.
-    results, mocks = _run_demo(score=0.51, open_tickers=("AAPL",), max_positions=1)
+    results, mocks = _run_demo(score=0.51, open_tickers=("AAPL",), l2_risk_max_positions_count=1)
     assert results[0]["stop_code"] == "FILTERED_L2_RISK_OVERFLOW"
     assert results[0]["rule_states"][K(2, "overflow")] == FAIL
-    results, _ = _run_demo(score=0.65, open_tickers=("AAPL",), max_positions=1)
+    results, _ = _run_demo(score=0.65, open_tickers=("AAPL",), l2_risk_max_positions_count=1)
     assert results[0]["outcome"] == "TRADE_EXECUTED" and results[0]["rule_states"][K(2, "overflow")] == PASS
     results, _ = _run_demo(score=0.65)                                  # a free slot passes overflow
     assert results[0]["rule_states"][K(2, "overflow")] == PASS
@@ -211,9 +211,9 @@ def test_a_broker_refusal_is_l6_broker_error_and_does_not_cool_the_ticker():
 
 
 def test_the_live_sector_cap_and_overflow_are_recorded():
-    results, _ = _run_live(cfg_overrides={"max_sector_exposure": 0.05})   # $1,000 of $10,000 is 10 % > 5 %
+    results, _ = _run_live(cfg_overrides={"l2_risk_sector_cap_max": 0.05})   # $1,000 of $10,000 is 10 % > 5 %
     assert results[0]["outcome"] == "FILTERED_L2_RISK"
     assert lock_codes.stop_of(results[0]["rule_states"]) == (2, "sector_cap")
     held = [{"ticker": "AAPL", "cost_basis": 100.0}]
-    results, _ = _run_live(positions=held, cfg_overrides={"max_positions": 1})   # NVDA 0.65 ≥ 0.5 × 1.05
+    results, _ = _run_live(positions=held, cfg_overrides={"l2_risk_max_positions_count": 1})   # NVDA 0.65 ≥ 0.5 × 1.05
     assert results[0]["rule_states"][K(2, "overflow")] == PASS and results[0]["outcome"] == "TRADE_EXECUTED"

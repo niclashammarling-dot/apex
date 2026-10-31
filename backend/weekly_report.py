@@ -21,6 +21,7 @@ from loguru import logger
 from backend.backtest.live_shape import describe_varied
 from backend.db import LIVE_VERIFIED_EXIT
 from backend.gate import lock_codes
+from backend.gate.lock_codes import upgrade_keys
 
 _SENT_MARKER = Path(__file__).parent.parent / "data" / "weekly_report_sent.txt"
 
@@ -385,7 +386,7 @@ def _threshold_status(since: str, until: str) -> dict:
     from backend.demo_config import get_demo_config
     from backend.ticker_config import get_sectors
 
-    flat = get_demo_config().get("lock1_threshold", 0.45)
+    flat = get_demo_config().get("l3_score_threshold_min", 0.45)
     calibrated = get_ticker_thresholds()
     all_sectors = sorted(get_sectors().keys())
 
@@ -475,7 +476,7 @@ def _shape_lines(path: Path, kind: str) -> list[tuple[str, bool]]:
     """
     from backend.backtest.live_shape import shape_label
     try:
-        data = json.loads(path.read_text())
+        data = upgrade_keys(json.loads(path.read_text()))
     except Exception:
         return []
     out: list[tuple[str, bool]] = []
@@ -514,7 +515,7 @@ def _sweep_best() -> tuple[str, str, list[dict] | None]:
         return _SWEEP_ABSENT, "no data/sweep_results.json — weekly_research has not written one", None
     try:
         with open(_SWEEP_PATH) as f:
-            data = json.load(f)
+            data = upgrade_keys(json.load(f))
         from backend.backtest.live_shape import collapse_by_outcome
         from backend.backtest.weekend_sweep import GRID
         saved = data.get("top_configs", [])
@@ -543,7 +544,7 @@ def _optimizer_best() -> tuple[str, str, dict | None]:
         return _SWEEP_ABSENT, "no data/optimizer_results.json — weekly_research has not written one", None
     try:
         with open(_OPT_PATH) as f:
-            data = json.load(f)
+            data = upgrade_keys(json.load(f))
         if data.get("best_score") is None or not data.get("best_params"):
             return _SWEEP_UNREADABLE, "file parsed but has no best_score/best_params", None
         from backend.backtest.optimizer import NOISE_FLOOR, noise_floor_valid
@@ -568,7 +569,7 @@ def _walkforward_last() -> str:
     try:
         from datetime import datetime, timezone
         with open(_WF_PATH) as f:
-            d = json.load(f)
+            d = upgrade_keys(json.load(f))
         when = d.get("generated_at") or datetime.fromtimestamp(_WF_PATH.stat().st_mtime, timezone.utc).isoformat()
         c2 = d.get("criterion_2") or {}
         c1 = d.get("criterion_1") or {}
@@ -585,9 +586,9 @@ def _walkforward_last() -> str:
 
 def _sweep_config(r: dict) -> str:
     """Every grid axis, as the sweep mail prints it."""
-    return (f"score_thr={r.get('lock1_threshold')} TP={r.get('take_profit_pct', 0)*100:.0f}% "
+    return (f"score_thr={r.get('l3_score_threshold_min')} TP={r.get('take_profit_pct', 0)*100:.0f}% "
             f"SL={r.get('stop_loss_pct', 0)*100:.0f}% hold={r.get('time_stop_days')}d "
-            f"pos={r.get('max_positions')} vix={r.get('vix_threshold') or 'off'} "
+            f"pos={r.get('l2_risk_max_positions_count')} vix={r.get('l1_eligibility_vix_max') or 'off'} "
             f"rs={'on' if r.get('use_leading_rs') else 'off'}")
 
 
@@ -698,10 +699,10 @@ def _gpt4o_commentary(
             ],
             "calibration": _calibration_fact(thresh_status, recal_changes),
             "current_config": {
-                "lock1_threshold":    cfg.get("lock1_threshold"),
-                "take_profit_pct":    cfg.get("take_profit_pct"),
-                "max_positions":      cfg.get("max_positions"),
-                "vix_threshold":      cfg.get("vix_threshold"),
+                "l3_score_threshold_min":      cfg.get("l3_score_threshold_min"),
+                "take_profit_pct":             cfg.get("take_profit_pct"),
+                "l2_risk_max_positions_count": cfg.get("l2_risk_max_positions_count"),
+                "l1_eligibility_vix_max":      cfg.get("l1_eligibility_vix_max"),
             },
             "sweep_best": sweep_top[0]["row"] if sweep_top else None,
         }
@@ -712,7 +713,8 @@ def _gpt4o_commentary(
             max_tokens=300,
             messages=[
                 {"role": "system", "content": _COMMENTARY_SYSTEM},
-                {"role": "user",   "content": json.dumps(payload, indent=2)},
+                # The model reads the names it read before phase 3 (a prompt change is not a key rename).
+                {"role": "user",   "content": json.dumps(lock_codes.legacy_keys(payload), indent=2)},
             ],
         )
         commentary = resp.choices[0].message.content.strip()
@@ -1130,9 +1132,9 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None,
         </p>
         <p style='color:#9ca3af;font-size:12px;margin:4px 0;'>
           One sample from a flat optimum, not a recommendation — Sharpe saturates at 2.0 in the composite and
-          six cold-start runs disagreed on max_positions (2–5), L1 (0.64–0.76) and trade count (37–105):
-          L1={bp.get('lock1_threshold')} TP={bp.get('take_profit_pct', 0)*100:.0f}% SL={bp.get('stop_loss_pct', 0)*100:.0f}%
-          TSL={bp.get('trailing_stop_pct')} hold={bp.get('time_stop_days')}d maxpos={bp.get('max_positions')} VIX={bp.get('vix_threshold')}
+          six cold-start runs disagreed on l2_risk_max_positions_count (2–5), L1 (0.64–0.76) and trade count (37–105):
+          L1={bp.get('l3_score_threshold_min')} TP={bp.get('take_profit_pct', 0)*100:.0f}% SL={bp.get('stop_loss_pct', 0)*100:.0f}%
+          TSL={bp.get('trailing_stop_pct')} hold={bp.get('time_stop_days')}d maxpos={bp.get('l2_risk_max_positions_count')} VIX={bp.get('l1_eligibility_vix_max')}
           → Sharpe {fm.get('sharpe', 0):.2f}, PF {fm.get('profit_factor', 0):.2f}, WR {_pct(fm.get('win_rate'))}, DD {_pct(fm.get('max_drawdown'))}, n={fm.get('total_trades')}
           <span style='color:#6b7280;'>({opt_detail})</span>
         </p>"""
@@ -1268,8 +1270,8 @@ LOCK 2 QUANT THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
         else:
             plain += "  start score not recorded (results file predates 2026-09-14)\n"
         plain += (f"  one sample from a flat optimum (Sharpe capped at 2.0 in composite), not a recommendation: "
-                  f"score_thr={bp.get('lock1_threshold')} TP={bp.get('take_profit_pct', 0)*100:.0f}% SL={bp.get('stop_loss_pct', 0)*100:.0f}% "
-                  f"TSL={bp.get('trailing_stop_pct')} hold={bp.get('time_stop_days')}d maxpos={bp.get('max_positions')} VIX={bp.get('vix_threshold')} "
+                  f"score_thr={bp.get('l3_score_threshold_min')} TP={bp.get('take_profit_pct', 0)*100:.0f}% SL={bp.get('stop_loss_pct', 0)*100:.0f}% "
+                  f"TSL={bp.get('trailing_stop_pct')} hold={bp.get('time_stop_days')}d maxpos={bp.get('l2_risk_max_positions_count')} VIX={bp.get('l1_eligibility_vix_max')} "
                   f"-> Sharpe {fm.get('sharpe', 0):.2f} PF {fm.get('profit_factor', 0):.2f} WR {_pct(fm.get('win_rate'))} n={fm.get('total_trades')}\n")
     elif opt_state == _SWEEP_ABSENT:
         plain += f"\nAUTORESEARCH OPTIMIZER: none — {opt_detail}\n"
@@ -1362,7 +1364,8 @@ def render_stored(week: str) -> str:
     snap = get_weekly_snapshot(week)
     if snap is None:
         raise LookupError(f"no stored snapshot for {week} (weekly_report_snapshots)")
-    _, _, plain = build_report(snapshot={**snap["payload"], "_written_at": snap["written_at"]})
+    # A week stored before phase 3 holds the old key names; the renderer reads the derived ones.
+    _, _, plain = build_report(snapshot={**upgrade_keys(snap["payload"]), "_written_at": snap["written_at"]})
     return plain
 
 

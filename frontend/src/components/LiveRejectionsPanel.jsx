@@ -6,7 +6,7 @@ import React, { useEffect, useState } from "react";
 // Observe-only evidence for the two-caps decision (2026-09-27).
 const REASON_CLS = {
   sector_cap:         "t-sev-high",
-  max_positions:      "t-sev-medium",
+  l2_risk_max_positions_count:      "t-sev-medium",
   loss_cap:           "t-sev-high",
   notional_too_small: "t-sev-medium",
   price_missing:      "t-sev-medium",

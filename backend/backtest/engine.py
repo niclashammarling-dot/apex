@@ -7,7 +7,7 @@ Lock 1 as the sole entry filter. This lets you validate whether the quant
 signal engine has genuine predictive value before attributing edge to the LLMs.
 
 Two additional lock proxies CAN be backtested from historical data:
-  - vix_threshold: skip new entries when VIX >= N (Lock 1 B1, as live)
+  - l1_eligibility_vix_max: skip new entries when VIX >= N (Lock 1 B1, as live)
   - use_leading_rs: only enter if ticker outperforms its sector ETF over 5d (Leading lock RS proxy)
 
 Usage:
@@ -55,6 +55,7 @@ from backend.backtest.live_shape import (etf_penalty_fails, etf_return_as_live, 
                                           overflow_admits, reentry_cooloff_days)
 from backend.signals import aggregator, momentum, relative_strength, trend, volume
 from backend.signals.ev_kelly import compute as ev_kelly_compute
+from backend.gate.lock_codes import accepts_legacy_keys
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -96,7 +97,7 @@ class BacktestResult(TypedDict):
     spy_return_pct: float | None
     equity_curve: list[dict]
     trade_log: list[TradeRecord]
-    # ETF penalty tracking: populated when etf_negative_penalty is set.
+    # ETF penalty tracking: populated when l2_risk_etf_penalty is set.
     # Each entry is {"date": str, "ticker": str, "sector": str,
     #                "original_score": float, "penalized_score": float, "etf_ret_pct": float}.
     # Counterfactual outcome (what the trade would have returned) is NOT computed here —
@@ -106,6 +107,7 @@ class BacktestResult(TypedDict):
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
+@accepts_legacy_keys
 def run(
     start_date: str,
     end_date: str,
@@ -118,21 +120,21 @@ def run(
     atr_exits:          bool        = False,
     earnings_filter_days: int | None = None,
     time_stop_days:     int   | None = None,
-    lock1_threshold:    float | None = None,
+    l3_score_threshold_min:    float | None = None,
     max_entries_per_day: int  | None = None,
-    vix_threshold:      float | None = None,
+    l1_eligibility_vix_max:      float | None = None,
     use_leading_rs:     bool        = False,
-    max_positions:      int   | None = None,
+    l2_risk_max_positions_count:      int   | None = None,
     sl_cooldown_days:   int   | None = None,   # None: live config (live_shape.live_cooloff_days)
     tp_cooldown_days:   int   | None = None,
-    max_sector_exposure: float | None = None,   # None: config MAX_SECTOR_EXPOSURE
-    daily_loss_cap:     float | None = None,   # None: DAILY_LOSS_CAP_PCT × initial_balance
+    l2_risk_sector_cap_max: float | None = None,   # None: config MAX_SECTOR_EXPOSURE
+    l0_portfolio_loss_cap_max:     float | None = None,   # None: DAILY_LOSS_CAP_PCT × initial_balance
     macro_hard_block:   bool        = False,
-    macro_pre_event_penalty: float | None = None,
-    macro_event_blackout_days: int | None = None,   # None: live config (live_shape.live_macro_event_blackout_days)
-    etf_negative_penalty: float | None = None,
-    etf_negative_floor:   float        = -1.0,
-    overflow_quant_increment: float | None = None,  # row 14: None = live (0.05); math.inf = hard stop at max_positions
+    l1_eligibility_macro_pre_event_penalty: float | None = None,
+    l1_eligibility_macro_event_days: int | None = None,   # None: live config (live_shape.live_macro_event_blackout_days)
+    l2_risk_etf_penalty: float | None = None,
+    l2_risk_etf_floor:   float        = -1.0,
+    l2_risk_overflow_step: float | None = None,  # row 14: None = live (0.05); math.inf = hard stop at l2_risk_max_positions_count
     intraday_stops:     bool        = True,
     ratchet_from_high:  bool        = False,
     stop_slip:          tuple[float, float] | None = None,   # None: exit_rules' measured R7 values (EXIT_PARITY.md)
@@ -155,11 +157,11 @@ def run(
         atr_exits:           Use per-trade ATR-based TP/SL (2x ATR take-profit, 1x ATR stop-loss)
         earnings_filter_days: Skip entry if earnings within N days (e.g. 3). None disables.
         time_stop_days:      Override TIME_STOP_DAYS (e.g. 15)
-        lock1_threshold:     Override LOCK1_THRESHOLD (e.g. 0.72)
+        l3_score_threshold_min:     Override LOCK1_THRESHOLD (e.g. 0.72)
         max_entries_per_day: Cap new positions opened on a single day (e.g. 2)
-        vix_threshold:       Skip new entries when VIX is at or above this level (live's `>=`). None disables.
+        l1_eligibility_vix_max:       Skip new entries when VIX is at or above this level (live's `>=`). None disables.
         use_leading_rs:      Only enter if ticker's 5d return > its sector ETF's 5d return.
-        max_positions:       Override MAX_POSITIONS (e.g. 3). Lower = more concentrated portfolio.
+        l2_risk_max_positions_count:       Override MAX_POSITIONS (e.g. 3). Lower = more concentrated portfolio.
 
     Returns:
         BacktestResult dict with performance metrics and full trade log.
@@ -170,10 +172,10 @@ def run(
     pl_trig  = profit_lock_trigger_pct
     pl_trail = profit_lock_trail_pct
     tdays    = time_stop_days     if time_stop_days     is not None else TIME_STOP_DAYS
-    l1       = lock1_threshold    if lock1_threshold    is not None else LOCK1_THRESHOLD
+    l1       = l3_score_threshold_min    if l3_score_threshold_min    is not None else LOCK1_THRESHOLD
     max_epd  = max_entries_per_day  # None means unlimited
-    max_pos  = max_positions      if max_positions      is not None else MAX_POSITIONS
-    overflow_inc = overflow_quant_increment if overflow_quant_increment is not None else live_overflow_increment()
+    max_pos  = l2_risk_max_positions_count      if l2_risk_max_positions_count      is not None else MAX_POSITIONS
+    overflow_inc = l2_risk_overflow_step if l2_risk_overflow_step is not None else live_overflow_increment()
 
     start = date.fromisoformat(start_date)
     end   = date.fromisoformat(end_date)
@@ -195,7 +197,7 @@ def run(
     # Download full history for all tickers + SPY + sector ETFs (+ VIX if macro filter active)
     lookback_start = start - timedelta(days=130)  # 130d buffer for 90d rolling indicators + MA50
     etf_tickers    = [cfg["etf"] for cfg in SECTORS.values()]
-    vix_ticker     = "^VIX" if vix_threshold is not None else None
+    vix_ticker     = "^VIX" if l1_eligibility_vix_max is not None else None
     all_tickers    = (
         [SPY_TICKER]
         + ([vix_ticker] if vix_ticker else [])
@@ -230,9 +232,9 @@ def run(
         earnings_dates = _fetch_earnings_dates(stock_tickers, start, end)
         logger.info(f"Backtest: loaded earnings dates for {len(earnings_dates)} tickers")
 
-    if macro_event_blackout_days is None:
+    if l1_eligibility_macro_event_days is None:
         from backend.backtest.live_shape import live_macro_event_blackout_days
-        macro_event_blackout_days = live_macro_event_blackout_days()
+        l1_eligibility_macro_event_days = live_macro_event_blackout_days()
     if sl_cooldown_days is None or tp_cooldown_days is None:
         from backend.backtest.live_shape import live_cooloff_days
         _live_sl, _live_tp = live_cooloff_days()
@@ -244,8 +246,8 @@ def run(
     # demo $100 on $2,000). Until 2026-10-17 the engines used config's $100 on a
     # $10,000 simulation: 1 %, five times stricter than live.
     from backend.backtest.live_shape import DAILY_LOSS_CAP_PCT
-    loss_cap   = daily_loss_cap if daily_loss_cap is not None else DAILY_LOSS_CAP_PCT * initial_balance
-    sector_max = max_sector_exposure if max_sector_exposure is not None else MAX_SECTOR_EXPOSURE
+    loss_cap   = l0_portfolio_loss_cap_max if l0_portfolio_loss_cap_max is not None else DAILY_LOSS_CAP_PCT * initial_balance
+    sector_max = l2_risk_sector_cap_max if l2_risk_sector_cap_max is not None else MAX_SECTOR_EXPOSURE
 
     # Simulate day by day
     balance      = initial_balance
@@ -254,7 +256,7 @@ def run(
     equity_curve = [{"date": start_date, "balance": round(balance, 2)}]
     daily_losses:        dict[str, float] = {}  # date_str → realized losses
     sl_cooldown:         dict[str, date]  = {}  # ticker → earliest re-entry date after SL
-    etf_penalty_blocked: list[dict]       = []  # populated when etf_negative_penalty is set
+    etf_penalty_blocked: list[dict]       = []  # populated when l2_risk_etf_penalty is set
 
     for today in trading_days:
         today_str = today.isoformat()
@@ -303,18 +305,18 @@ def run(
         entries_today    = 0
 
         # Macro lock proxy: skip new entries on high-VIX days
-        vix_blocked = vix_threshold is not None and _vix_on(raw_data, today) >= vix_threshold  # live: `>=`
+        vix_blocked = l1_eligibility_vix_max is not None and _vix_on(raw_data, today) >= l1_eligibility_vix_max  # live: `>=`
 
         # Macro calendar filter
-        macro_day = _macro_status(today, macro_event_blackout_days)
+        macro_day = _macro_status(today, l1_eligibility_macro_event_days)
         if macro_hard_block and macro_day in ("hard_block", "pre_event"):
             candidates = []
         elif macro_day == "hard_block":
             candidates = []
-        elif macro_day == "pre_event" and macro_pre_event_penalty is not None:
+        elif macro_day == "pre_event" and l1_eligibility_macro_pre_event_penalty is not None:
             penalized = []
             for sig in candidates:
-                new_score = sig["signal_score"] * (1.0 - macro_pre_event_penalty)
+                new_score = sig["signal_score"] * (1.0 - l1_eligibility_macro_pre_event_penalty)
                 floor = SECTOR_THRESHOLD_FLOORS.get(sig["sector"], 0.0)
                 if new_score >= max(l1, floor):
                     penalized.append({**sig, "signal_score": round(new_score, 4), "raw_score": sig["signal_score"]})
@@ -347,18 +349,18 @@ def run(
             # Row 11: live's ETF negative penalty, after Lock 4 (chain.py:156-187), on the
             # return live's Lock 4 reads (7 intervals; 5 until 2026-10-18). Gates only, as
             # live: the penalised score is not carried on (it replaced sig's until 10-18).
-            if etf_negative_penalty:
+            if l2_risk_etf_penalty:
                 _etf    = sector_etf.get(sig["sector"], "")
                 etf_ret = (etf_return_as_live(raw_data[_etf]["Close"], today)
                            if _etf and _etf in raw_data.columns.get_level_values(0) else None)
-                if etf_penalty_fails(sig["signal_score"], etf_ret, etf_negative_penalty, etf_negative_floor,
+                if etf_penalty_fails(sig["signal_score"], etf_ret, l2_risk_etf_penalty, l2_risk_etf_floor,
                                      max(l1, SECTOR_THRESHOLD_FLOORS.get(sig["sector"], 0.0))):
                     etf_penalty_blocked.append({
                         "date":             today_str,
                         "ticker":           sig["ticker"],
                         "sector":           sig["sector"],
                         "original_score":   round(sig["signal_score"], 4),
-                        "penalized_score":  round(sig["signal_score"] * (1.0 - etf_negative_penalty), 4),
+                        "penalized_score":  round(sig["signal_score"] * (1.0 - l2_risk_etf_penalty), 4),
                         "etf_ret_pct":      round(etf_ret * 100, 2),
                     })
                     continue
@@ -449,7 +451,7 @@ def _score_all_tickers(
     sector_etf: dict[str, str],
     spy_regime: float,
     spy_return_20d: float,
-    lock1_threshold: float,
+    l3_score_threshold_min: float,
     rolling_win_rate: float | None = None,
 ) -> list[dict]:
     # Compute ETF regime once per sector (not per ticker)
@@ -466,7 +468,7 @@ def _score_all_tickers(
             spy_regime, spy_return_20d,
             etf_mults.get(sector, 1.0), rolling_win_rate,
         )
-        effective_threshold = max(lock1_threshold, SECTOR_THRESHOLD_FLOORS.get(sector, 0.0))
+        effective_threshold = max(l3_score_threshold_min, SECTOR_THRESHOLD_FLOORS.get(sector, 0.0))
         if sig and sig["signal_score"] >= effective_threshold:
             candidates.append(sig)
     return candidates

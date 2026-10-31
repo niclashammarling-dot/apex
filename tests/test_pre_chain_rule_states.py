@@ -31,11 +31,11 @@ def test_each_pre_chain_check_gives_its_own_verdict():
 
 
 def test_m4_verdicts_per_rule_and_expectancy_is_no_data_below_its_sample():
-    v = {"drawdown": {"drawdown": 0.0}, "day_loss": 0.0, "daily_loss_cap": 500.0,
+    v = {"drawdown": {"drawdown": 0.0}, "day_loss": 0.0, "l0_portfolio_loss_cap_max": 500.0,
          "expectancy": {"n": 1, "needed": 40, "breached": False}}
     assert l0_portfolio.rule_verdicts(v) == {l0_portfolio.HALT_DRAWDOWN: PASS, l0_portfolio.HALT_LOSS_CAP: PASS,
                                              l0_portfolio.HALT_EXPECTANCY: NO_DATA}
-    v = {"drawdown": {"drawdown": 0.07}, "day_loss": 600.0, "daily_loss_cap": 500.0,
+    v = {"drawdown": {"drawdown": 0.07}, "day_loss": 600.0, "l0_portfolio_loss_cap_max": 500.0,
          "expectancy": {"n": 40, "needed": 40, "breached": True}}
     states = {}
     for ident, verdict in l0_portfolio.rule_verdicts(v).items():
@@ -50,7 +50,7 @@ def test_m4_verdicts_agree_with_the_halt_evaluate_names():
     for dd, loss, breached, reason in ((0.07, 0.0, False, l0_portfolio.HALT_DRAWDOWN),
                                        (0.0, 600.0, False, l0_portfolio.HALT_LOSS_CAP),
                                        (0.0, 0.0, True, l0_portfolio.HALT_EXPECTANCY)):
-        v = {"drawdown": {"drawdown": dd}, "day_loss": loss, "daily_loss_cap": 500.0,
+        v = {"drawdown": {"drawdown": dd}, "day_loss": loss, "l0_portfolio_loss_cap_max": 500.0,
              "expectancy": {"n": 40, "needed": 40, "breached": breached}}
         assert [i for i, x in l0_portfolio.rule_verdicts(v).items() if x == FAIL] == [reason]
 

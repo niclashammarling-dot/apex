@@ -30,13 +30,13 @@ _RESULTS_PATH = Path(__file__).parent.parent.parent / "data" / "sweep_results.js
 # ── Parameter grid ────────────────────────────────────────────────────────────
 
 GRID = {
-    "lock1_threshold":  [0.55, 0.60, 0.65, 0.70, 0.75],
+    "l3_score_threshold_min":  [0.55, 0.60, 0.65, 0.70, 0.75],
     "take_profit_pct":  [0.06, 0.08, 0.10, 0.12],
     "stop_loss_pct":    [0.04, 0.05, 0.06],
     "time_stop_days":   [20, 25, 35],
-    "vix_threshold":    [None, 30, 35],
+    "l1_eligibility_vix_max":    [None, 30, 35],
     "use_leading_rs":   [False, True],
-    "max_positions":    [3, 4, 6],
+    "l2_risk_max_positions_count":    [3, 4, 6],
 }
 
 MIN_TRADES = 5       # discard configs with too few trades
@@ -62,13 +62,13 @@ def run_sweep() -> None:
 
     start_date, end_date = _date_range()
     combos = list(itertools.product(
-        GRID["lock1_threshold"],
+        GRID["l3_score_threshold_min"],
         GRID["take_profit_pct"],
         GRID["stop_loss_pct"],
         GRID["time_stop_days"],
-        GRID["vix_threshold"],
+        GRID["l1_eligibility_vix_max"],
         GRID["use_leading_rs"],
-        GRID["max_positions"],
+        GRID["l2_risk_max_positions_count"],
     ))
     total = len(combos)
     logger.info(f"Weekend sweep: {total} combos over {start_date} → {end_date}")
@@ -84,25 +84,25 @@ def run_sweep() -> None:
                 start_date=start_date,
                 end_date=end_date,
                 initial_balance=10_000.0,
-                lock1_threshold=l1,
+                l3_score_threshold_min=l1,
                 take_profit_pct=tp,
                 stop_loss_pct=sl,
                 time_stop_days=hold,
-                vix_threshold=vix,
+                l1_eligibility_vix_max=vix,
                 use_leading_rs=rs,
-                max_positions=mpos,
+                l2_risk_max_positions_count=mpos,
                 precomputed=pc,
             )
             if r["total_trades"] < MIN_TRADES:
                 continue
             results.append({
-                "lock1_threshold":  l1,
+                "l3_score_threshold_min":  l1,
                 "take_profit_pct":  tp,
                 "stop_loss_pct":    sl,
                 "time_stop_days":   hold,
-                "vix_threshold":    vix,
+                "l1_eligibility_vix_max":    vix,
                 "use_leading_rs":   rs,
-                "max_positions":    mpos,
+                "l2_risk_max_positions_count":    mpos,
                 "sharpe":           r["sharpe"],
                 "total_return_pct": r["total_return_pct"],
                 "win_rate":         r["win_rate"],
@@ -143,11 +143,11 @@ def run_sweep() -> None:
 
     logger.info(
         f"Sweep complete: {len(results)} valid configs. "
-        f"Best: L1={results[0]['lock1_threshold']} "
+        f"Best: L1={results[0]['l3_score_threshold_min']} "
         f"TP={results[0]['take_profit_pct']*100:.0f}% "
         f"SL={results[0]['stop_loss_pct']*100:.0f}% "
         f"hold={results[0]['time_stop_days']}d "
-        f"maxpos={results[0]['max_positions']} "
+        f"maxpos={results[0]['l2_risk_max_positions_count']} "
         f"Sharpe={results[0]['sharpe']:.2f} "
         f"return={results[0]['total_return_pct']*100:.1f}%"
     )
@@ -171,7 +171,7 @@ def _notify_sweep(ranked: list[dict], start_date: str, end_date: str, payload: d
         f"Distinct outcomes: {payload['distinct_outcomes']} of {payload['valid_combos']} valid combos"
         + (f"; never changed a result: {', '.join(payload['inert_axes'])}" if payload["inert_axes"] else ""),
         "",
-        f"Current demo config: L1={current['lock1_threshold']} "
+        f"Current demo config: L1={current['l3_score_threshold_min']} "
         f"TP={current['take_profit_pct']*100:.0f}% "
         f"SL={current['stop_loss_pct']*100:.0f}% "
         f"hold={current['max_hold_days']}d",
@@ -184,11 +184,11 @@ def _notify_sweep(ranked: list[dict], start_date: str, end_date: str, payload: d
         if r["spy_return_pct"] is not None:
             alpha = f"  alpha={( r['total_return_pct'] - r['spy_return_pct'])*100:+.1f}%"
         lines.append(
-            f"  #{i}: L1={r['lock1_threshold']} "
+            f"  #{i}: L1={r['l3_score_threshold_min']} "
             f"TP={r['take_profit_pct']*100:.0f}% "
             f"SL={r['stop_loss_pct']*100:.0f}% "
             f"hold={r['time_stop_days']}d "
-            f"pos={r['max_positions']} vix={r['vix_threshold'] or 'off'} rs={'on' if r['use_leading_rs'] else 'off'} | "
+            f"pos={r['l2_risk_max_positions_count']} vix={r['l1_eligibility_vix_max'] or 'off'} rs={'on' if r['use_leading_rs'] else 'off'} | "
             f"Sharpe={r['sharpe']:.2f}  return={r['total_return_pct']*100:.1f}%"
             f"  WR={r['win_rate']*100:.0f}% (n={r['total_trades']})"
             f"{alpha}"

@@ -84,13 +84,13 @@ def synthetic_precomputed() -> dict:
     }
 
 
-# daily_loss_cap=100, the default sector cap and zero stop slip are the parent's values: the
+# l0_portfolio_loss_cap_max=100, the default sector cap and zero stop slip are the parent's values: the
 # golden pins the parent's arithmetic, so the 2026-10-17 default changes (5 % of start, R7
 # slip) and the 2026-10-18 ones (R8 intraday take-profit, row 14 overflow slots) are passed
 # out here.
-RUN_KW = dict(sl_cooldown_days=5, tp_cooldown_days=0, lock1_threshold=0.45, max_positions=6,
-              daily_loss_cap=100.0, stop_slip=(0.0, 0.0), intraday_tp=False, peak_from_high=False,
-              overflow_quant_increment=math.inf)
+RUN_KW = dict(sl_cooldown_days=5, tp_cooldown_days=0, l3_score_threshold_min=0.45, l2_risk_max_positions_count=6,
+              l0_portfolio_loss_cap_max=100.0, stop_slip=(0.0, 0.0), intraday_tp=False, peak_from_high=False,
+              l2_risk_overflow_step=math.inf)
 
 
 def _summary(res: dict) -> dict:

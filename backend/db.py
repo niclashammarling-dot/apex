@@ -437,7 +437,7 @@ def init_db() -> None:
         _add_column_if_missing(conn, "demo_gate_history", "days_to_earnings",  "INTEGER")
         _add_column_if_missing(conn, "live_gate_history", "earnings_near",     "INTEGER")
         _add_column_if_missing(conn, "live_gate_history", "days_to_earnings",  "INTEGER")
-        # overflow_slot: 1 when the trade executed into a slot beyond max_positions
+        # overflow_slot: 1 when the trade executed into a slot beyond l2_risk_max_positions_count
         _add_column_if_missing(conn, "live_gate_history", "overflow_slot",     "INTEGER DEFAULT 0")
         _add_column_if_missing(conn, "demo_gate_history", "overflow_slot",     "INTEGER DEFAULT 0")
         # outcome_reason: why a live TRADE_REJECTED / TRADE_FAILED happened — position_open |
@@ -2261,7 +2261,7 @@ def get_latest_sector_scores(as_of: str | None = None) -> dict[str, float]:
     Rows older than _sector_score_floor(as_of) are ignored — the same query had
     no lower bound, which is how the fossils survived. A polled sector with no
     row inside the bound is omitted and logged: compute_dynamic_caps then gives
-    it the flat max_sector_exposure and leaves it out of the mean; RegimeBayes
+    it the flat l2_risk_sector_cap_max and leaves it out of the mean; RegimeBayes
     reads it as aggregate_score 0.0, so it cannot lead or qualify that day.
 
     Ties on (sector, timestamp) resolve to the highest id — the historical

@@ -50,7 +50,7 @@ def test_own_label_rows_are_flagged(tmp_path, monkeypatch):
 
 # C, added after the phase 1 review (R5): master's Terminal detail panel and Settings labels.
 DETAIL_PANEL = '<span style={{ color: "var(--t-text-3)", marginRight: 8 }}>L5:</span>\n'
-SETTINGS_LABEL = '  { key: "lock2_sentiment_min",  label: "Lock 2 Sentiment Min",  step: 0.01 },\n'
+SETTINGS_LABEL = '  { key: "l4_sentiment_grok_min",  label: "Lock 2 Sentiment Min",  step: 0.01 },\n'
 COMMENT_ONLY = '// The lock prefix of a Settings/Promote label comes from the backend table.\n'
 
 

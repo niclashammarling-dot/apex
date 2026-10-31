@@ -230,29 +230,30 @@ def test_lock_owned_config_keys_follow_the_approved_chain():
     # Chain approved 2026-10-24, amended 2026-10-26 (Niclas): macro to L1 ("flytta makro till l1"),
     # the drawdown guard to L0 ("dd är före allt annat"). L2 RISK keeps ETF, earnings, concentration.
     labels = lock_codes.config_labels()
-    for k in ("macro_earnings_blackout_days", "macro_earnings_near_days", "macro_earnings_near_penalty",
-              "max_sector_exposure", "etf_negative_penalty", "overflow_quant_increment"):
+    for k in ("l2_risk_earnings_days", "l2_risk_earnings_near_days", "l2_risk_earnings_near_penalty",
+              "l2_risk_sector_cap_max", "l2_risk_etf_penalty", "l2_risk_overflow_step"):
         assert labels[k].startswith("L2 · Risk"), k
-    for k in ("vix_threshold", "macro_event_blackout_days", "macro_pre_event_penalty", "gate_cooloff_hours",
-              "exit_cooloff_hours", "tp_cooloff_hours"):
+    for k in ("l1_eligibility_vix_max", "l1_eligibility_macro_event_days", "l1_eligibility_macro_pre_event_penalty", "l1_eligibility_cooloff_hours",
+              "l1_eligibility_exit_cooloff_hours", "l1_eligibility_exit_cooloff_win_hours"):
         assert labels[k] == "L1 · Eligibility", k
-    assert labels["max_drawdown_pct"] == labels["daily_loss_cap"] == "L0 · Portfolio"
+    assert labels["l0_portfolio_drawdown_guard_max"] == labels["l0_portfolio_loss_cap_max"] == "L0 · Portfolio"
     assert lock_codes.LOCKS[2][1] == "ETF, earnings, concentration, overflow"   # overflow: ruling E, 10-26
     assert "macro" in lock_codes.LOCKS[1][1] and "macro" not in lock_codes.LOCKS[2][1]
 
 
-def test_every_macro_key_the_code_reads_is_owned_by_the_lock_its_rule_belongs_to():
-    """The macro_* keys l1_eligibility reads: the calendar's (no earnings in the name) are L1's, the
-    earnings ones L2's. A new macro key that is read but not owned would get no lock prefix."""
+def test_every_key_the_eligibility_and_risk_modules_read_is_owned_by_the_lock_its_name_says():
+    """The keys l1_eligibility and l2_risk read carry their lock (phase 3 part a), and the lock that owns each one in
+    the register is that lock. A key read but not owned, or owned by another lock, fails."""
     import inspect
     import re
 
-    from backend.gate import l1_eligibility
-    read = set(re.findall(r'cfg\.get\("(macro_[a-z_]+)"\)', inspect.getsource(l1_eligibility)))
-    assert read, "positive control: the reader must be found"
+    from backend.gate import l1_eligibility, l2_risk
+    read = {k for mod in (l1_eligibility, l2_risk)
+            for k in re.findall(r'cfg(?:\.get\(|\[)"(l\d_[a-z_]+)"', inspect.getsource(mod))}
+    assert {"l1_eligibility_vix_max", "l2_risk_earnings_days"} <= read, "positive control: the readers must be found"
     labels = lock_codes.config_labels()
     for k in read:
-        assert labels.get(k) == lock_codes.lock_label(2 if "earnings" in k else 1), k
+        assert labels.get(k) == lock_codes.lock_label(int(k[1])), k
 
 
 def test_owned_keys_are_real_config_keys():
@@ -326,6 +327,6 @@ def test_l2_risk_rules_live_in_l2_risk():
     root = Path(__file__).parent.parent / "backend/gate"
     l1, chain, l2 = ((root / f).read_text() for f in ("l1_eligibility.py", "chain.py", "l2_risk.py"))
     assert "macro_earnings_" not in l1.split('"""', 2)[2].split("def _evaluate", 1)[1] and "_get_earnings_date" not in l1
-    assert "etf_negative_penalty" not in chain and "etf_negative_floor" not in chain
+    assert "l2_risk_etf_penalty" not in chain and "l2_risk_etf_floor" not in chain
     assert "def check_earnings" in l2 and "def check_etf" in l2
     assert "l2_risk.check_earnings(" in l1 and "l2_risk.check_etf(" in chain

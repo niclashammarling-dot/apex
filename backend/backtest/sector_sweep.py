@@ -13,7 +13,7 @@ otherwise builds it fresh (cached to Parquet on first run).
 METHODOLOGY NOTE (2026-05-18):
 This script runs full portfolio backtests and slices the trade log per sector.
 Per-sector PF is therefore contaminated by portfolio slot competition: changing
-the L1 threshold shifts which trades across ALL sectors compete for max_positions
+the L1 threshold shifts which trades across ALL sectors compete for l2_risk_max_positions_count
 slots, so a sector's trade set and PnL are not isolated to its own signals. This
 produces non-monotonic trade counts and inflated/deflated per-sector PF at
 thresholds far from baseline.
@@ -106,7 +106,7 @@ def main() -> None:
     results: dict[float, list] = {}
     for thresh in THRESHOLDS:
         logger.info(f"  L1 = {thresh:.2f}…")
-        r = backtest_run(START, END, lock1_threshold=thresh, precomputed=sliced_pc)
+        r = backtest_run(START, END, l3_score_threshold_min=thresh, precomputed=sliced_pc)
         results[thresh] = r["trade_log"]
 
     # Print per sector

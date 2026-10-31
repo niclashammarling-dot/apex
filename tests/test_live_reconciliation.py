@@ -1368,7 +1368,7 @@ class TestGateRefusal:
                                            return_value=(-480.0, [], {})))
                 stack.enter_context(patch(
                     "backend.live_config.get_live_config",
-                    return_value={"daily_loss_cap": 100.0, "starting_balance": 10000.0},
+                    return_value={"l0_portfolio_loss_cap_max": 100.0, "starting_balance": 10000.0},
                 ))
                 stack.enter_context(patch("backend.db.get_ticker_thresholds", return_value={}))
                 stack.enter_context(patch("backend.gate.gate_runner_live._ny_today", return_value=day))
@@ -1419,7 +1419,7 @@ class TestDataQualityDivergence:
             stack.enter_context(patch("backend.gate.gate_runner_live._compute_apex_day_pnl",
                                        return_value=(apex_pnl, missing, {})))
             stack.enter_context(patch(
-                "backend.live_config.get_live_config", return_value={"daily_loss_cap": cap, "starting_balance": 10000.0},
+                "backend.live_config.get_live_config", return_value={"l0_portfolio_loss_cap_max": cap, "starting_balance": 10000.0},
             ))
             stack.enter_context(patch("backend.db.get_ticker_thresholds", return_value={}))
             stack.enter_context(patch("backend.gate.gate_runner_live._ny_today", return_value=latch_day))
@@ -1529,7 +1529,7 @@ class TestDataQualityDivergence:
             stack.enter_context(patch(
                 "backend.brokers.alpaca.get_positions", side_effect=Exception("timeout")))
             stack.enter_context(patch(
-                "backend.live_config.get_live_config", return_value={"daily_loss_cap": 500.0}))
+                "backend.live_config.get_live_config", return_value={"l0_portfolio_loss_cap_max": 500.0}))
             stack.enter_context(patch("backend.db.get_ticker_thresholds", return_value={}))
             stack.enter_context(patch(
                 "backend.gate.gate_runner_live._ny_today", return_value="2026-08-11"))
@@ -1567,7 +1567,7 @@ class TestDataQualityDivergence:
                 "backend.gate.gate_runner_live._compute_apex_day_pnl",
                 side_effect=Exception("db locked")))
             stack.enter_context(patch(
-                "backend.live_config.get_live_config", return_value={"daily_loss_cap": 500.0}))
+                "backend.live_config.get_live_config", return_value={"l0_portfolio_loss_cap_max": 500.0}))
             stack.enter_context(patch("backend.db.get_ticker_thresholds", return_value={}))
             stack.enter_context(patch(
                 "backend.gate.gate_runner_live._ny_today", return_value="2026-08-11"))

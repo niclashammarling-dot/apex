@@ -425,15 +425,15 @@ function adaptAlerts(alerts) {
 // ── Settings modal ────────────────────────────────────────────────────────────
 
 const SETTINGS_FIELDS = [
-  { key: "lock1_threshold",      label: "Fallback Threshold", step: 0.01, min: 0,    max: 1,
+  { key: "l3_score_threshold_min",      label: "Fallback Threshold", step: 0.01, min: 0,    max: 1,
     hint: "Fallback only — applies to sectors with insufficient history for calibration. Dead zone below 0.65.",
     warnBelow: 0.65, critBelow: 0.60,
     warnMsg: v => v < 0.60 ? "Critical: in dead zone (< 0.60)" : "Below recommended minimum (0.65)" },
-  { key: "lock2_sentiment_min",  label: "Sentiment Min",  step: 0.01, min: -1, max: 1,
+  { key: "l4_sentiment_grok_min",  label: "Sentiment Min",  step: 0.01, min: -1, max: 1,
     hint: "Minimum Grok sentiment score to pass. 0.0 = neutral or better." },
-  { key: "lock3_confidence_min", label: "Confidence Min", step: 0.01, min: 0, max: 1,
+  { key: "l6_review_claude_min", label: "Confidence Min", step: 0.01, min: 0, max: 1,
     hint: "Minimum Claude confidence score to pass. At 0.7 Claude must be fairly certain." },
-  { key: "max_drawdown_pct",     label: "Max Drawdown Guard",        step: 0.01, min: 0.01, max: 1,
+  { key: "l0_portfolio_drawdown_guard_max",     label: "Max Drawdown Guard",        step: 0.01, min: 0.01, max: 1,
     hint: "Mechanical guard before the review: once the balance is this far below the starting balance every candidate is rejected. Also passed to Claude. Recorded as a review rejection until lock labels phase 2 re-codes it to the Portfolio lock; the check moves before Eligibility in phase 4. Not M4's 6 % realised-drawdown halt, which the Portfolio lock runs separately." },
   { key: "take_profit_pct",      label: "Take Profit %",         step: 0.01, min: 0.01, max: 1, nullable: false,
     hint: "At 15% only 28% of trades hit target — 6–8% hits 55%+",
@@ -444,31 +444,31 @@ const SETTINGS_FIELDS = [
     hint: "Once peak gain reaches this level, tighten trailing stop to Profit-Lock Trail %." },
   { key: "profit_lock_trail_pct",   label: "Profit-Lock Trail %",   step: 0.005, min: 0.005, max: 0.5, nullable: true,
     hint: "Trailing stop distance after profit-lock activates." },
-  { key: "max_positions",        label: "Max Positions",         step: 1, min: 1, max: 20,
+  { key: "l2_risk_max_positions_count",        label: "Max Positions",         step: 1, min: 1, max: 20,
     hint: "Above 6 dilutes signal quality", warnAbove: 6, warnMsg: () => "Above 6 — signal quality degrades" },
-  { key: "overflow_quant_increment", label: "Overflow Quant Step", step: 0.01, min: 0, max: 0.5,
-    hint: "Each position beyond max_positions raises the quant threshold by this multiplier." },
+  { key: "l2_risk_overflow_step", label: "Overflow Quant Step", step: 0.01, min: 0, max: 0.5,
+    hint: "Each position beyond l2_risk_max_positions_count raises the quant threshold by this multiplier." },
   { key: "max_position_size",    label: "Max Position Size",     step: 0.01, min: 0.01, max: 0.5,
     hint: "Maximum fraction of account balance in a single position." },
-  { key: "daily_loss_cap",       label: "Daily Loss Cap ($)",    step: 10,   min: 10,   max: 10000,
+  { key: "l0_portfolio_loss_cap_max",       label: "Daily Loss Cap ($)",    step: 10,   min: 10,   max: 10000,
     hint: "Demo: stops new entries for the rest of the day once losses hit this amount. Live: not read since 2026-10-24 — the Portfolio lock sets the cap at 5 % of current equity (M4)." },
   { key: "starting_balance",     label: "Starting Balance ($)",  step: 100,  min: 100,  max: 10000000,
     hint: "Account starting balance for position sizing and drawdown calculations." },
   { key: "max_hold_days",        label: "Time Stop (days)",      step: 1,    min: 1,    max: 90,
     hint: "Force-exits a position after this many calendar days." },
-  { key: "vix_threshold",        label: "VIX Block Threshold",   step: 1,    min: 10,   max: 80,
+  { key: "l1_eligibility_vix_max",        label: "VIX Block Threshold",   step: 1,    min: 10,   max: 80,
     hint: "At 25 blocked 52–61% of trading days in 2020/2022", warnBelow: 30, warnMsg: () => "Below 30 — blocks recovery rallies" },
-  { key: "macro_event_blackout_days",    label: "CPI/NFP Pre-Event Penalty Window (days)", step: 1, min: 0, max: 5,
-    hint: "CPI and NFP block new entries on the release day only. In the N days before, entries are not blocked: the score takes the pre-event penalty (macro_pre_event_penalty) before the score test. FOMC blocks from 2 days before through the decision day. Post-event sessions are never blocked." },
-  { key: "macro_earnings_blackout_days", label: "Earnings Hard Block (days)", step: 1, min: 0, max: 7,
+  { key: "l1_eligibility_macro_event_days",    label: "CPI/NFP Pre-Event Penalty Window (days)", step: 1, min: 0, max: 5,
+    hint: "CPI and NFP block new entries on the release day only. In the N days before, entries are not blocked: the score takes the pre-event penalty (l1_eligibility_macro_pre_event_penalty) before the score test. FOMC blocks from 2 days before through the decision day. Post-event sessions are never blocked." },
+  { key: "l2_risk_earnings_days", label: "Earnings Hard Block (days)", step: 1, min: 0, max: 7,
     hint: "Hard block: new entries within this many days of earnings are rejected. Pre-event only. Pairs with the near-term window below. Not firing in live: the earnings date never arrives (PRODUCTION_GAP row 8)." },
-  { key: "macro_earnings_near_days",    label: "Earnings Near-Term Window (days)", step: 1, min: 0, max: 30,
+  { key: "l2_risk_earnings_near_days",    label: "Earnings Near-Term Window (days)", step: 1, min: 0, max: 30,
     hint: "Entries within this window (but outside the hard block) pass but receive a score penalty. Range: hard_block+1 to near_days." },
-  { key: "macro_earnings_near_penalty", label: "Earnings Near-Term Penalty", step: 0.05, min: 0, max: 0.5,
+  { key: "l2_risk_earnings_near_penalty", label: "Earnings Near-Term Penalty", step: 0.05, min: 0, max: 0.5,
     hint: "Score multiplier reduction applied in the near-term window. 0.15 = 15% score reduction before the score test. Neither earnings rule has fired in live: the earnings date never arrives (PRODUCTION_GAP rows 8-9; shadow-mode fix pending)." },
-  { key: "gate_cooloff_hours",   label: "Gate Cooloff (hours)",  step: 1,    min: 0,   max: 24,
+  { key: "l1_eligibility_cooloff_hours",   label: "Gate Cooloff (hours)",  step: 1,    min: 0,   max: 24,
     hint: "Prevents gate from re-evaluating same ticker within this many hours." },
-  { key: "max_sector_exposure",  label: "Max Sector Exposure",   step: 0.05, min: 0.05, max: 1,
+  { key: "l2_risk_sector_cap_max",  label: "Max Sector Exposure",   step: 0.05, min: 0.05, max: 1,
     hint: "Maximum fraction of total account value in a single sector." },
 ];
 
@@ -637,7 +637,7 @@ function SettingsModal({ settings, tickers, locks, onSave, onTickerAdd, onTicker
             <div className="settings-grid">
               <SettingsCol title="Demo" config={settings?.demo} accentColor="var(--text-2)" locks={locks} onSave={vals => onSave("demo", vals)} />
               <SettingsCol title="Live" config={settings?.live} accentColor="var(--green)"  locks={locks} onSave={vals => onSave("live", vals)} />
-              <SectorThresholds fallback={settings?.demo?.lock1_threshold} />
+              <SectorThresholds fallback={settings?.demo?.l3_score_threshold_min} />
             </div>
           </>
         )}
@@ -658,24 +658,24 @@ function SettingsModal({ settings, tickers, locks, onSave, onTickerAdd, onTicker
 // ── Promote modal ─────────────────────────────────────────────────────────────
 
 const PROMOTE_LABELS = {
-  lock1_threshold: "Fallback Threshold", lock2_sentiment_min: "Sentiment Min",
-  lock3_confidence_min: "Confidence Min",
-  max_drawdown_pct: "Max Drawdown Guard", take_profit_pct: "Take Profit %", stop_loss_pct: "Stop Loss %",
+  l3_score_threshold_min: "Fallback Threshold", l4_sentiment_grok_min: "Sentiment Min",
+  l6_review_claude_min: "Confidence Min",
+  l0_portfolio_drawdown_guard_max: "Max Drawdown Guard", take_profit_pct: "Take Profit %", stop_loss_pct: "Stop Loss %",
   profit_lock_trigger_pct: "Profit-Lock Trigger %",
-  profit_lock_trail_pct: "Profit-Lock Trail %", max_positions: "Max Positions",
-  overflow_quant_increment: "Overflow Quant Step", max_position_size: "Max Position Size",
-  max_hold_days: "Time Stop (days)", vix_threshold: "VIX Block Threshold",
-  macro_event_blackout_days: "CPI/NFP Pre-Event Penalty Window (days)", macro_earnings_blackout_days: "Earnings Hard Block (days)",
-  macro_earnings_near_days: "Earnings Near-Term Window (days)", macro_earnings_near_penalty: "Earnings Near-Term Penalty",
-  gate_cooloff_hours: "Gate Cooloff (hours)", max_sector_exposure: "Max Sector Exposure",
-  lock4_pcr_mode: "PCR Threshold Mode",
+  profit_lock_trail_pct: "Profit-Lock Trail %", l2_risk_max_positions_count: "Max Positions",
+  l2_risk_overflow_step: "Overflow Quant Step", max_position_size: "Max Position Size",
+  max_hold_days: "Time Stop (days)", l1_eligibility_vix_max: "VIX Block Threshold",
+  l1_eligibility_macro_event_days: "CPI/NFP Pre-Event Penalty Window (days)", l2_risk_earnings_days: "Earnings Hard Block (days)",
+  l2_risk_earnings_near_days: "Earnings Near-Term Window (days)", l2_risk_earnings_near_penalty: "Earnings Near-Term Penalty",
+  l1_eligibility_cooloff_hours: "Gate Cooloff (hours)", l2_risk_sector_cap_max: "Max Sector Exposure",
+  l5_positioning_leading_mode: "PCR Threshold Mode",
 };
 
 function PromoteModal({ config, locks, onConfirm, onCancel }) {
   const { live, demo } = config;
   const pct = v => `${(v * 100).toFixed(1)}%`;
   const fmt = (key, v) => {
-    if (key === "max_positions")  return v;
+    if (key === "l2_risk_max_positions_count")  return v;
     if (typeof v === "number" && v < 2) return pct(v);
     return v;
   };

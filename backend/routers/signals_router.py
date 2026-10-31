@@ -271,7 +271,7 @@ def gate_history():
 
     rows = get_demo_gate_history(since=market_open)
     thresholds = get_ticker_thresholds()
-    flat = get_demo_config().get("lock1_threshold", 0.5)
+    flat = get_demo_config().get("l3_score_threshold_min", 0.5)
     for row in rows:
         row["l1_threshold"] = thresholds.get(row["sector"], flat)
         if row.get("lock_leading_checks"):
@@ -310,7 +310,7 @@ class BacktestRequest(BaseModel):
     atr_exits:              bool       = False
     earnings_filter_days:   int | None = None
     time_stop_days:         int | None = None
-    lock1_threshold:     float | None = None
+    l3_score_threshold_min:     float | None = None
     max_entries_per_day: int   | None = None
 
     @field_validator("initial_balance")
@@ -348,11 +348,11 @@ class BacktestRequest(BaseModel):
             raise ValueError("time_stop_days must be >= 1")
         return v
 
-    @field_validator("lock1_threshold")
+    @field_validator("l3_score_threshold_min")
     @classmethod
     def l1_range(cls, v: float | None) -> float | None:
         if v is not None and not (0.0 <= v <= 1.0):
-            raise ValueError("lock1_threshold must be between 0.0 and 1.0")
+            raise ValueError("l3_score_threshold_min must be between 0.0 and 1.0")
         return v
 
     @field_validator("max_entries_per_day")
@@ -437,7 +437,7 @@ def run_backtest(req: BacktestRequest):
             atr_exits=req.atr_exits,
             earnings_filter_days=req.earnings_filter_days,
             time_stop_days=req.time_stop_days,
-            lock1_threshold=req.lock1_threshold,
+            l3_score_threshold_min=req.l3_score_threshold_min,
             max_entries_per_day=req.max_entries_per_day,
         )
         return result
@@ -473,7 +473,7 @@ def run_backtest_ab(req: BacktestABRequest):
             stop_loss_pct=req.stop_loss_pct,
             trailing_stop_pct=req.trailing_stop_pct,
             time_stop_days=req.time_stop_days,
-            lock1_threshold=req.lock1_threshold,
+            l3_score_threshold_min=req.l3_score_threshold_min,
             max_entries_per_day=req.max_entries_per_day,
             precomputed=pc,
         )
@@ -708,7 +708,7 @@ def calibrate_ticker_thresholds():
 def get_ticker_thresholds():
     """Return currently active per-sector thresholds. `default_fallback` is sector_regime's default
     for a sector with no calibrated row, not the score lock's fallback (l3_score falls back to
-    LOCK1_THRESHOLD, the pre-filter to the config's lock1_threshold): three defaults, unified in lock
+    LOCK1_THRESHOLD, the pre-filter to the config's l3_score_threshold_min): three defaults, unified in lock
     labels phase 3. None bites while every sector is calibrated (15 of 15 on 2026-10-28)."""
     from backend.db import get_ticker_thresholds
     from backend.sector_regime import TICKER_THRESHOLD_DEFAULT
@@ -1127,7 +1127,7 @@ def get_live_rejections(days: int = 10):
     """
     Why orders were refused or failed after the candidate was chosen, per book, and what live's sector cap test
     saw (2026-09-27). Per day: refusals counted by outcome_reason, the refusing rule's identifier (position_open,
-    notional_too_small, price_missing, sector_cap, broker_error; demo's wallet adds max_positions and loss_cap);
+    notional_too_small, price_missing, sector_cap, broker_error; demo's wallet adds l2_risk_max_positions_count and loss_cap);
     FILTERED_UNKNOWN rows count as "unknown" (the 19 reasonless rejections of 05-25..08-10 in history, and any
     new outcome no rule covers). Demo writes outcome_reason from lock labels phase 2 (2026-10-31: "demo = live
     except trading"). Cap rows: every live decision where the execution-side cap test ran, with the enforced cap

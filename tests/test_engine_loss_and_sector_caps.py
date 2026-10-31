@@ -12,7 +12,7 @@ from tests.test_engine_flag_off_parity import END, RUN_KW, START, synthetic_prec
 def test_both_engines_take_both_parameters_with_the_same_defaults():
     for mod in (engine, engine_fast):
         p = inspect.signature(mod.run).parameters
-        assert p["daily_loss_cap"].default is None and p["max_sector_exposure"].default is None
+        assert p["l0_portfolio_loss_cap_max"].default is None and p["l2_risk_sector_cap_max"].default is None
         src = inspect.getsource(mod.run)
         assert "DAILY_LOSS_CAP_PCT * initial_balance" in src
         assert "if projected > sector_max" in src or "sector_cap = day_caps.get(sector, sector_max)" in src
@@ -21,9 +21,9 @@ def test_both_engines_take_both_parameters_with_the_same_defaults():
 
 def test_both_parameters_reach_the_decision():
     pre = synthetic_precomputed()
-    kw = {k: v for k, v in RUN_KW.items() if k != "daily_loss_cap"}
+    kw = {k: v for k, v in RUN_KW.items() if k != "l0_portfolio_loss_cap_max"}
     run = lambda **x: engine_fast.run(START.isoformat(), END.isoformat(), precomputed=pre, **{**kw, **x})
-    assert run()["trade_log"] == run(daily_loss_cap=500.0)["trade_log"]       # default = 5 % of 10,000
-    assert run(daily_loss_cap=0.0)["total_trades"] == 0 or \
-           run(daily_loss_cap=0.0)["trade_log"] != run()["trade_log"]
-    assert run(max_sector_exposure=0.05)["trade_log"] != run(max_sector_exposure=0.6)["trade_log"]
+    assert run()["trade_log"] == run(l0_portfolio_loss_cap_max=500.0)["trade_log"]       # default = 5 % of 10,000
+    assert run(l0_portfolio_loss_cap_max=0.0)["total_trades"] == 0 or \
+           run(l0_portfolio_loss_cap_max=0.0)["trade_log"] != run()["trade_log"]
+    assert run(l2_risk_sector_cap_max=0.05)["trade_log"] != run(l2_risk_sector_cap_max=0.6)["trade_log"]

@@ -42,6 +42,6 @@ def test_battery_reader_refuses_an_unexplained_pair_and_accepts_the_hv1_one():
     cell = b.Cell("t", "note", [u1, u2], lambda s: {})
     with pytest.raises(ag.IdenticalArms, match="sl_cooldown_days"):
         b.identical_refs(cell, _Store({u1.key(): rec, u2.key(): rec}))
-    v1, v2 = b.unit("OOS", b.R2, vix9d_kelly=True), b.unit("OOS", b.R2, vix9d_kelly=True, vix_threshold=None)
+    v1, v2 = b.unit("OOS", b.R2, vix9d_kelly=True), b.unit("OOS", b.R2, vix9d_kelly=True, l1_eligibility_vix_max=None)
     out = b.identical_refs(b.Cell("h", "note", [v1, v2], lambda s: {}), _Store({v1.key(): rec, v2.key(): rec}))
     assert len(out) == 1 and "nothing to stop" in out[0]["explained"]

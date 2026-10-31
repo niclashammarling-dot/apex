@@ -49,7 +49,7 @@ TABLES = ("live_gate_history", "demo_gate_history", "signals")
 # Macro pre-event penalty went live 2026-06-16 (fdd1a7a); before it no penalty existed, so a score
 # rejection was the threshold itself (the earnings penalty, 6d9f497 06-09, never fired: PRODUCTION_GAP 8-9).
 MACRO_PENALTY_LIVE = "2026-06-16"
-# The pre-event penalty multiplies the score by 1 - macro_pre_event_penalty (0.05 in both configs since it
+# The pre-event penalty multiplies the score by 1 - l1_eligibility_macro_pre_event_penalty (0.05 in both configs since it
 # shipped): the reason's score ÷ signal_score is 0.95 on every reasoned row (172 of 172, probed 10-28).
 PRE_EVENT_RATIO = 0.95
 # P3 (2026-10-28): the only reasonless score rows after 06-16 are 2026-07-02, a pre-event day under the
@@ -64,7 +64,7 @@ TEST_ROW_CODE = "REMOVE_TEST_ROW"
 SKIPS = {"SKIPPED_BLOCKLIST": "blocklist", "SKIPPED_COOLOFF": "cooloff", "SKIPPED_OPEN": "position_open"}
 # The gate cooloff set held FILTERED_MACRO, the April macro gate's code, until 6794433 (2026-05-12 16:33 CEST).
 MACRO_COOLOFF_UNTIL = "2026-05-12T14:33:12+00:00"
-# gate_cooloff_hours per book and the exit windows (exit_cooloff_hours after any exit, tp_cooloff_hours after a
+# l1_eligibility_cooloff_hours per book and the exit windows (l1_eligibility_exit_cooloff_hours after any exit, l1_eligibility_exit_cooloff_win_hours after a
 # TP/TSL win), as the configs hold them since they are tracked (2026-06-26). Replayed with these and the set in
 # force, every cooloff skip in the three tables is explained (probe 2026-10-29: live 1432 gate / 1869 exit / 3 both
 # after the 133 April rows the macro code explains; demo 1846 / 2395 / 71).
@@ -183,7 +183,7 @@ def _at(ts: str) -> datetime:
 
 class CooloffIndex:
     """Which cooloff stopped each SKIPPED_COOLOFF row, replayed at the time it was decided: a gate stop (an L4/L6
-    decision, and FILTERED_MACRO until MACRO_COOLOFF_UNTIL) within gate_cooloff_hours → `cooloff`; the ticker's
+    decision, and FILTERED_MACRO until MACRO_COOLOFF_UNTIL) within l1_eligibility_cooloff_hours → `cooloff`; the ticker's
     own exit within its window → `exit_cooloff`; both → `cooloff`, first in the register (ruling 2026-10-29).
     Live reads live_gate_history and live_trades; demo reads demo_gate_history (the demo runner read the `signals`
     copy, whose row is overwritten by each cycle's decision, so a stop can be gone from it) and trades. A

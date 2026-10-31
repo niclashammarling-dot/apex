@@ -31,7 +31,7 @@ a loss cap or a block guard) has no equivalent mechanism in demo at all.
 
 ## Principle 2 — Threshold and configuration differences
 
-Demo and live configs intentionally differ on thresholds (lock1_threshold, notional floors,
+Demo and live configs intentionally differ on thresholds (l3_score_threshold_min, notional floors,
 etc.). Do not flag threshold value differences — they are documented in config files and
 tested separately.
 

@@ -76,12 +76,12 @@ try:
 except ValidationError:
     check("time_stop_days < 1 rejected",     True)
 
-# lock1_threshold out of range
+# l3_score_threshold_min out of range
 try:
-    BacktestRequest(start_date="2024-01-01", end_date="2024-12-31", lock1_threshold=1.5)
-    check("lock1_threshold > 1.0 rejected",  False, "should have raised")
+    BacktestRequest(start_date="2024-01-01", end_date="2024-12-31", l3_score_threshold_min=1.5)
+    check("l3_score_threshold_min > 1.0 rejected",  False, "should have raised")
 except ValidationError:
-    check("lock1_threshold > 1.0 rejected",  True)
+    check("l3_score_threshold_min > 1.0 rejected",  True)
 
 # max_entries_per_day < 1
 try:
@@ -95,7 +95,7 @@ try:
     req = BacktestRequest(
         start_date="2024-01-01", end_date="2024-12-31",
         take_profit_pct=0.08, stop_loss_pct=0.03,
-        time_stop_days=10, lock1_threshold=0.72,
+        time_stop_days=10, l3_score_threshold_min=0.72,
         max_entries_per_day=2, initial_balance=50_000.0,
     )
     check("valid override request accepted", True)

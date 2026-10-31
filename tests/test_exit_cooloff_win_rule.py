@@ -54,5 +54,5 @@ def test_both_windows_stop_on_exit_cooloff_first_in_the_register():
 
 
 def test_each_rule_carries_one_window_key():
-    assert lock_codes.rule_for("exit_cooloff").config_keys == ("exit_cooloff_hours",)
-    assert lock_codes.rule_for("exit_cooloff_win").config_keys == ("tp_cooloff_hours",)
+    assert lock_codes.rule_for("exit_cooloff").config_keys == ("l1_eligibility_exit_cooloff_hours",)
+    assert lock_codes.rule_for("exit_cooloff_win").config_keys == ("l1_eligibility_exit_cooloff_win_hours",)

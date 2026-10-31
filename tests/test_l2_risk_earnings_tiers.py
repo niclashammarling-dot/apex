@@ -37,15 +37,15 @@ def _make_regime(sector: str = "Technology"):
 
 def _cfg(blackout: int = 3, near_days: int = 14, near_penalty: float = 0.15) -> dict:
     return {
-        "vix_threshold":                 99.0,   # VIX never blocks
-        "macro_event_blackout_days":     0,       # macro events never block
-        "macro_earnings_blackout_days":  blackout,
-        "macro_earnings_near_days":      near_days,
-        "macro_earnings_near_penalty":   near_penalty,
-        "max_positions":                 4,
-        "max_sector_exposure":           0.25,
+        "l1_eligibility_vix_max":                 99.0,   # VIX never blocks
+        "l1_eligibility_macro_event_days":     0,       # macro events never block
+        "l2_risk_earnings_days":  blackout,
+        "l2_risk_earnings_near_days":      near_days,
+        "l2_risk_earnings_near_penalty":   near_penalty,
+        "l2_risk_max_positions_count":                 4,
+        "l2_risk_sector_cap_max":           0.25,
         "max_position_size":             0.15,
-        "daily_loss_cap":                100.0,
+        "l0_portfolio_loss_cap_max":                100.0,
     }
 
 

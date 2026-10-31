@@ -1,0 +1,91 @@
+"""Phase 3 part a: every gate config key derives from its rule (Niclas 2026-10-31: "alla namn är konsekvent efter
+kodschemat ... konsekvent och lätt att härleda"), and every stored form under the old names stays readable: config
+files and posted settings (upgrade_keys), the engines' keywords (accepts_legacy_keys), and the hashes that named a
+battery unit or a live shape before the rename (legacy_keys)."""
+import hashlib
+import json
+
+import pytest
+
+from backend.gate import lock_codes
+from backend.gate.lock_codes import KEY_KINDS, LEGACY_KEYS, RULES, config_key, legacy_keys, upgrade_keys
+
+
+def test_every_rule_key_derives_from_its_rule_with_one_kind():
+    for r in RULES:
+        for k in r.config_keys:
+            stem = lock_codes.rule_key(r.owner, r.name).lower() + "_"
+            assert k.startswith(stem) and k[len(stem):] in KEY_KINDS, k
+            assert config_key(r.owner, r.name, k[len(stem):]) == k
+
+
+def test_the_legacy_map_covers_exactly_the_rule_keys():
+    assert set(LEGACY_KEYS.values()) == {k for r in RULES for k in r.config_keys}
+    assert not set(LEGACY_KEYS) & set(LEGACY_KEYS.values())
+
+
+def test_a_kind_outside_the_closed_list_is_refused():
+    with pytest.raises(ValueError):
+        config_key(1, "vix", "threshold")
+
+
+def test_upgrade_and_legacy_are_inverse_and_recursive():
+    old = {"vix_threshold": 30, "runs": [{"lock1_threshold": 0.65, "take_profit_pct": 0.06}]}
+    new = upgrade_keys(old)
+    assert new == {"l1_eligibility_vix_max": 30,
+                   "runs": [{"l3_score_threshold_min": 0.65, "take_profit_pct": 0.06}]}
+    assert legacy_keys(new) == old
+
+
+def test_the_derived_name_wins_when_both_are_stored():
+    assert upgrade_keys({"vix_threshold": 25, "l1_eligibility_vix_max": 30}) == {"l1_eligibility_vix_max": 30}
+
+
+@pytest.mark.parametrize("book", ["live", "demo"])
+def test_a_config_file_under_the_old_names_is_read_and_rewritten_under_the_new(book, tmp_path, monkeypatch):
+    import importlib
+    mod = importlib.import_module(f"backend.{book}_config")
+    path = tmp_path / f"{book}_config.json"
+    path.write_text(json.dumps({"lock1_threshold": 0.71, "tp_cooloff_hours": 100, "max_positions": 3}))
+    monkeypatch.setattr(mod, "_CONFIG_PATH", path)
+    get = getattr(mod, f"get_{book}_config")
+    cfg = get()
+    assert (cfg["l3_score_threshold_min"], cfg["l1_eligibility_exit_cooloff_win_hours"],
+            cfg["l2_risk_max_positions_count"]) == (0.71, 100, 3)
+    assert not lock_codes.has_legacy_keys(cfg)
+    getattr(mod, f"set_{book}_config")({"vix_threshold": 28})      # an old client posting the old name
+    stored = json.loads(path.read_text())
+    assert stored["l1_eligibility_vix_max"] == 28 and stored["l3_score_threshold_min"] == 0.71
+    assert not lock_codes.has_legacy_keys(stored)
+
+
+def test_the_engines_take_the_old_keyword():
+    from backend.backtest import engine, engine_fast, engine_sharpe
+    for mod in (engine, engine_fast, engine_sharpe):
+        assert mod.run.__wrapped__                                  # accepts_legacy_keys
+
+    @lock_codes.accepts_legacy_keys
+    def run(*, l3_score_threshold_min=None, l1_eligibility_vix_max=None):
+        return l3_score_threshold_min, l1_eligibility_vix_max
+
+    assert run(lock1_threshold=0.7, vix_threshold=30) == (0.7, 30)
+    with pytest.raises(TypeError):
+        run(lock1_threshold=0.7, l3_score_threshold_min=0.6)
+
+
+def test_a_battery_unit_keeps_the_key_it_had_before_the_rename():
+    from backend.backtest.battery_2026_10 import Unit, _frozen, unit
+    old = {"lock1_threshold": 0.65, "max_positions": 9, "take_profit_pct": 0.06}
+    before = Unit("IS", 0, _frozen(old))          # the parent hashed self.kw, which held the old names
+    after = unit("IS", upgrade_keys(old))
+    assert after.kwargs == upgrade_keys(old)
+    assert after.key() == before.key()
+    assert unit("IS", old).key() == before.key()  # an old-named base is upgraded on the way in
+
+
+def test_a_live_shape_keeps_the_hash_it_had_before_the_rename():
+    from backend.backtest.live_shape import LIVE_SHAPE_KEYS, live_shape_hash
+    new = {k: 1 for k in LIVE_SHAPE_KEYS}
+    old = legacy_keys(new)
+    assert "max_positions" in old
+    assert live_shape_hash(new) == hashlib.sha256(json.dumps(old, sort_keys=True).encode()).hexdigest()[:8]

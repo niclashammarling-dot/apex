@@ -29,10 +29,10 @@ from backend.gate.types import LockResult
 SECTOR = "Technology"
 THRESHOLDS = {SECTOR: 0.65}
 CFG = {
-    "vix_threshold": 30.0, "macro_event_blackout_days": 1, "macro_pre_event_penalty": 0.05,
-    "macro_earnings_blackout_days": 3, "macro_earnings_near_days": 14, "macro_earnings_near_penalty": 0.15,
-    "etf_negative_penalty": 0.20, "etf_negative_floor": -1.0,
-    "lock2_sentiment_min": 0.3, "lock3_confidence_min": 0.6, "lock4_pcr_mode": "pooled_scalar",
+    "l1_eligibility_vix_max": 30.0, "l1_eligibility_macro_event_days": 1, "l1_eligibility_macro_pre_event_penalty": 0.05,
+    "l2_risk_earnings_days": 3, "l2_risk_earnings_near_days": 14, "l2_risk_earnings_near_penalty": 0.15,
+    "l2_risk_etf_penalty": 0.20, "l2_risk_etf_floor": -1.0,
+    "l4_sentiment_grok_min": 0.3, "l6_review_claude_min": 0.6, "l5_positioning_leading_mode": "pooled_scalar",
 }
 GUARD_OK = {"risk_limits": {"starting_balance": 10000, "max_drawdown_pct": 0.20}, "wallet_balance": 9500}
 GUARD_HIT = {"risk_limits": {"starting_balance": 10000, "max_drawdown_pct": 0.20}, "wallet_balance": 7000}
@@ -272,4 +272,4 @@ def test_exit_cooloff_and_the_m4_rules_are_registered_under_their_locks():
     for ident in (l0_portfolio.HALT_DRAWDOWN, l0_portfolio.HALT_LOSS_CAP, l0_portfolio.HALT_EXPECTANCY):
         assert lock_codes.rule_for(ident).owner == 0       # M4's own identifiers, read from its module
     labels = lock_codes.config_labels()
-    assert labels["exit_cooloff_hours"].startswith("L1 ") and labels["tp_cooloff_hours"].startswith("L1 ")
+    assert labels["l1_eligibility_exit_cooloff_hours"].startswith("L1 ") and labels["l1_eligibility_exit_cooloff_win_hours"].startswith("L1 ")

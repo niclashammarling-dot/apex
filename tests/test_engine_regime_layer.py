@@ -102,9 +102,9 @@ def test_row21_cap_factors_bind_on_the_runs_base(pre, monkeypatch):
     same  = _run(_forced(pre, allocation=ALL_IN, cap_factors=unit), regime_layer=True)
     assert same["trade_log"] == flat["trade_log"]                               # control
     t = _run(_forced(pre, allocation=ALL_IN, cap_factors=tight), regime_layer=True,
-             max_sector_exposure=0.10)
+             l2_risk_sector_cap_max=0.10)
     l = _run(_forced(pre, allocation=ALL_IN, cap_factors=unit), regime_layer=True,
-             max_sector_exposure=0.10)
+             l2_risk_sector_cap_max=0.10)
     tech = lambda r: sum(x["amount"] for x in r["trade_log"] if x["sector"] == "Technology")
     assert tech(t) < tech(l)
 
@@ -183,5 +183,5 @@ def test_rnd_draws_k_entries_per_day_from_the_unthresholded_pool(pre):
     assert sum(got.values()) >= 0.8 * sum(per_day.values())       # capacity rarely binds
     # Below-threshold tickers enter: the pool is not the signal's candidate set.
     scores = [t["signal_score"] for t in a["trade_log"]]
-    assert min(scores) < RUN_KW["lock1_threshold"]
+    assert min(scores) < RUN_KW["l3_score_threshold_min"]
     assert _run(pre, regime_layer=True, random_entries={"seed": 1, "per_day": {}})["total_trades"] == 0

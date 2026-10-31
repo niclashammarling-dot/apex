@@ -112,7 +112,7 @@ LOCK4_PCR_MODE      = "per_ticker_p25"
 LIVE_LOCK4_PCR_MODE = "pooled_scalar"
 
 # --- Portfolio roof overflow ---
-# For each position slot beyond max_positions, the quant threshold multiplies by
+# For each position slot beyond l2_risk_max_positions_count, the quant threshold multiplies by
 # (1 + overflow_level * OVERFLOW_QUANT_INCREMENT).
 # Position 6 = ×1.05, position 7 = ×1.10, etc. No hard cap — the escalating bar
 # is self-limiting.

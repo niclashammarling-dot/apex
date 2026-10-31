@@ -131,7 +131,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
 
     sector_thresholds = get_ticker_thresholds()
     stale: list[dict] = []
-    candidates = get_lock1_candidates(threshold=cfg["lock1_threshold"],
+    candidates = get_lock1_candidates(threshold=cfg["l3_score_threshold_min"],
                                       sector_thresholds=sector_thresholds,
                                       stale_out=stale)
     record_stale(cycle, stale, "Gate runner")
@@ -145,10 +145,10 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
 
     # Skip tickers already held, in gate cooloff, or in exit cooloff
     open_tickers   = get_open_tickers()
-    failed_tickers = get_recently_failed_tickers(cfg.get("gate_cooloff_hours", 4))
+    failed_tickers = get_recently_failed_tickers(cfg.get("l1_eligibility_cooloff_hours", 4))
     exited_tickers, won_tickers = get_recently_exited_tickers(
-        sl_hours=cfg.get("exit_cooloff_hours", 24),
-        tp_hours=cfg.get("tp_cooloff_hours", 168),
+        sl_hours=cfg.get("l1_eligibility_exit_cooloff_hours", 24),
+        tp_hours=cfg.get("l1_eligibility_exit_cooloff_win_hours", 168),
     )
     blocked = open_tickers | failed_tickers | exited_tickers | won_tickers
     pre_checks = {"position_open": open_tickers, "cooloff": failed_tickers, "exit_cooloff": exited_tickers,
@@ -201,7 +201,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
         get_rotation_forecast,
     )
     regime_bayes_result = _get_regime_bayes().last_result()
-    dynamic_caps    = compute_dynamic_caps(cfg.get("max_sector_exposure", MAX_SECTOR_EXPOSURE),
+    dynamic_caps    = compute_dynamic_caps(cfg.get("l2_risk_sector_cap_max", MAX_SECTOR_EXPOSURE),
                                            regime_result=regime_bayes_result)
     wallet_ctx = {**wallet_ctx, "dynamic_caps": dynamic_caps}   # Lock 5 judges the enforced cap (2026-10-17)
     sector_regime   = compute_sector_regime()
@@ -215,11 +215,11 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     watching_sectors = {w["sector"] for w in forecast.get("watching", [])}
     if watching_sectors:
         pr_sector_thresholds = {
-            s: (sector_thresholds or {}).get(s, cfg["lock1_threshold"]) * PRE_ROTATION_FLOOR
+            s: (sector_thresholds or {}).get(s, cfg["l3_score_threshold_min"]) * PRE_ROTATION_FLOOR
             for s in watching_sectors
         }
         pr_candidates = get_lock1_candidates(
-            threshold=cfg["lock1_threshold"] * PRE_ROTATION_FLOOR,
+            threshold=cfg["l3_score_threshold_min"] * PRE_ROTATION_FLOOR,
             sector_thresholds=pr_sector_thresholds,
             stale_out=stale,
         )
@@ -288,8 +288,8 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     cycle.reason = evaluated_reason(len(candidates), len(evaluated))
 
     evaluated.sort(key=lambda x: (0 if x[0].get("pre_rotation") else 1, x[0].get("signal_score", 0)), reverse=True)
-    max_positions        = cfg["max_positions"]
-    overflow_increment   = cfg.get("overflow_quant_increment", 0.05)
+    l2_risk_max_positions_count        = cfg["l2_risk_max_positions_count"]
+    overflow_increment   = cfg.get("l2_risk_overflow_step", 0.05)
     open_count           = len(open_tickers)  # snapshot; incremented on each executed trade
     bayesian_multipliers = _compute_bayesian_multipliers(evaluated, regime_bayes_result)
     # Count queued outcomes before the serial loop mutates them to EXECUTED/REJECTED.
@@ -304,7 +304,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
         # L5 deferred path — run Claude only when a slot is confirmed available.
         if result["outcome"] == "TRADE_QUEUED_PENDING_L5":
             sector         = signal.get("sector", "")
-            base_threshold = (sector_thresholds or {}).get(sector, cfg["lock1_threshold"])
+            base_threshold = (sector_thresholds or {}).get(sector, cfg["l3_score_threshold_min"])
             states = result.setdefault("rule_states", {})
             lock_codes.put(states, "position_open", lock_codes.FAIL if ticker in open_tickers else lock_codes.PASS)
             if ticker in open_tickers:
@@ -313,8 +313,8 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
                 result["outcome_reason"] = "position_open"
                 result.pop("_l5_lock_results", None)
                 result.pop("_l5_context", None)
-            elif open_count >= max_positions:
-                overflow_level     = open_count - max_positions + 1
+            elif open_count >= l2_risk_max_positions_count:
+                overflow_level     = open_count - l2_risk_max_positions_count + 1
                 overflow_threshold = round(base_threshold * (1 + overflow_level * overflow_increment), 4)
                 _overflow_state(result, signal["signal_score"] < overflow_threshold)
                 if signal["signal_score"] < overflow_threshold:
@@ -347,11 +347,11 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
                 )
 
         if result["outcome"] == "TRADE_QUEUED":
-            if open_count >= max_positions:
+            if open_count >= l2_risk_max_positions_count:
                 # Overflow slot — check escalating quant threshold
                 sector           = signal.get("sector", "")
-                base_threshold   = (sector_thresholds or {}).get(sector, cfg["lock1_threshold"])
-                overflow_level   = open_count - max_positions + 1
+                base_threshold   = (sector_thresholds or {}).get(sector, cfg["l3_score_threshold_min"])
+                overflow_level   = open_count - l2_risk_max_positions_count + 1
                 overflow_threshold = round(base_threshold * (1 + overflow_level * overflow_increment), 4)
                 _overflow_state(result, signal["signal_score"] < overflow_threshold)
                 if signal["signal_score"] < overflow_threshold:
@@ -435,8 +435,8 @@ def _pre_chain_states(ticker: str, checks: dict[str, set[str]]) -> dict[str, str
 
 
 def _overflow_state(result: dict, refused: bool) -> None:
-    """L2 overflow's verdict on a candidate beyond max_positions (both runners' execution phase). With a slot
-    free the rule does not run: the row's L2 stays open until max_positions is reached (ruling E, 2026-10-26)."""
+    """L2 overflow's verdict on a candidate beyond l2_risk_max_positions_count (both runners' execution phase). With a slot
+    free the rule does not run: the row's L2 stays open until l2_risk_max_positions_count is reached (ruling E, 2026-10-26)."""
     lock_codes.put(result.setdefault("rule_states", {}), "overflow", lock_codes.FAIL if refused else lock_codes.PASS)
 
 
@@ -452,7 +452,7 @@ def _run_l5_for_result(signal: dict, result: dict, cfg: dict) -> None:
     context      = result.pop("_l5_context", {})
 
     l5      = lock5_evaluate(ticker, sector, lock_results, context,
-                             confidence_min=cfg.get("lock3_confidence_min"))
+                             confidence_min=cfg.get("l6_review_claude_min"))
     l5_data = l5.data if l5 else {}
 
     result["lock3"] = {
