@@ -73,6 +73,13 @@ CODE_DIRS = ("backend", "frontend/src", "audit", "scripts")
 
 # Parity items kept on purpose: key -> (reason, expiry YYYY-MM-DD).
 EXCEPTIONS: dict[str, tuple[str, str]] = {
+    # The drift monitor is empty and is rebuilt as demo/live/real parity (Niclas 2026-10-31: "Den ska samla parity
+    # mellan demo, live och senare även real money"; scope: vault raw/notes/2026-10/2026-10-31-apex-saturday-scopes.md
+    # section 3). Its unread parts are kept until the rebuild is scoped with Niclas's list of known differences.
+    **{k: ("drift monitor rebuilt as demo/live/real parity (ruled 2026-10-31); kept until the rebuild scope",
+           "2026-11-21")
+       for k in ("parity:route:POST /api/drift/alerts/{alert_id}/acknowledge", "parity:route:POST /api/drift/seed",
+                 "parity:route:POST /api/drift/run", "parity:function:backend/drift_monitor.py:format_drift_context")},
     **{f"parity:column:signals.{c}": (
         "writes stopped 2026-10-10, history kept (Niclas: \"Stop the 6, store info\")", "2027-04-10")
        for c in ("high_60d", "low_60d", "avg_vol_30d", "macd_hist", "effective_sl")},
