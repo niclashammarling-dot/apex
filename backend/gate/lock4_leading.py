@@ -191,7 +191,9 @@ def evaluate(ticker: str, sector: str, pcr_mode: str = "pooled_scalar") -> LockR
         logger.warning(f"Lock 4 [{ticker}] options fetch: {e}")
         options_chains = []
         msg = str(e)
-        if "curl" in msg.lower() or "tls" in msg.lower():
+        if isinstance(e, MissingChainError):
+            options_fetch_err = msg[:80]
+        elif "curl" in msg.lower() or "tls" in msg.lower():
             options_fetch_err = "curl TLS error"
         elif "429" in msg or "rate" in msg.lower():
             options_fetch_err = "Yahoo 429 rate limit"
@@ -286,14 +288,24 @@ def evaluate(ticker: str, sector: str, pcr_mode: str = "pooled_scalar") -> LockR
 
 # ── Sub-checks ────────────────────────────────────────────────────────────────
 
+class MissingChainError(Exception):
+    """A listed expiry's chain did not arrive on any attempt: the rest is half the input (2026-10-31)."""
+
+
 def _fetch_options_chains(ticker: str) -> list[tuple]:
     """
     Fetch near-term options chains once per ticker per Lock 4 evaluation.
-    Returns [(calls_df, puts_df), ...] for the first 2 expiries.
+    Returns [(calls_df, puts_df, expiry), ...] for the first 2 expiries.
     Both put_call_ratio and unusual_calls consume this shared list.
 
     Retries once on curl TLS errors and on silently-empty t.options — both are
     intermittent under concurrent load via the shared curl_cffi BoringSSL singleton.
+
+    A listed expiry whose chain is missing (None calls/puts, or a fetch exception) retries the whole
+    fetch, and raises MissingChainError when the last attempt is still short, so the options group
+    decides L5 `unavailable` instead of evaluating on half its input. Found 2026-10-29: the nearest
+    expiry's chain came back None in EOG 9 of 12 and TMO 6 of 12 cycles, skipped without a log, and
+    both options checks ran on the second expiry alone (vault phase 2 scope note, fifteenth round).
     """
     _RETRY_DELAYS = [1.5, 3.0]  # seconds before attempt 2, 3
     last_exc: Exception | None = None
@@ -313,17 +325,19 @@ def _fetch_options_chains(ticker: str) -> list[tuple]:
                 for exp in expiries[:2]:
                     try:
                         chain = t.option_chain(exp)
-                        # Under concurrent session reuse, .calls/.puts can be None
-                        # instead of an empty DataFrame — guard before appending.
-                        if chain.calls is not None and chain.puts is not None:
-                            chains.append((chain.calls, chain.puts))
                     except Exception as e:
-                        logger.warning(f"Lock 4 [{ticker}] chain fetch {exp}: {e}")
+                        raise MissingChainError(f"missing chain {exp}: {str(e)[:60]}") from e
+                    # Under concurrent session reuse, .calls/.puts can be None
+                    # instead of an empty DataFrame.
+                    if chain.calls is None or chain.puts is None:
+                        raise MissingChainError(f"missing chain {exp}")
+                    chains.append((chain.calls, chain.puts, exp))
                 return chains
         except Exception as e:
             last_exc = e
             if attempt < 2:
                 logger.warning(f"Lock 4 [{ticker}] options attempt {attempt + 1} failed ({e}), retrying")
+    logger.warning(f"Lock 4 [{ticker}] options fetch failed after 3 attempts: {last_exc}")
     raise last_exc  # type: ignore[misc]
 
 
@@ -398,9 +412,13 @@ def _check_put_call_ratio(chains: list[tuple], fetch_err: str | None = None,
         return {"pass": False, "reason": "no options data (no listed expiries)"}
 
     call_oi = put_oi = 0
-    for calls, puts in chains:
-        call_oi += int(calls["openInterest"].fillna(0).sum())
-        put_oi  += int(puts["openInterest"].fillna(0).sum())
+    by_expiry: dict[str, list[int]] = {}   # stored so each decision can be re-derived from its row
+    for calls, puts, *exp in chains:
+        c, p = int(calls["openInterest"].fillna(0).sum()), int(puts["openInterest"].fillna(0).sum())
+        call_oi += c
+        put_oi  += p
+        if exp:
+            by_expiry[exp[0]] = [c, p]
 
     if call_oi + put_oi == 0:
         return {"pass": False, "reason": "zero open interest"}
@@ -431,6 +449,7 @@ def _check_put_call_ratio(chains: list[tuple], fetch_err: str | None = None,
         "put_oi":         put_oi,
         "threshold":      round(threshold, 4),
         "threshold_mode": threshold_mode,
+        **({"oi_by_expiry": by_expiry} if by_expiry else {}),
         **extra,
         "reason":         f"P/C {pc:.2f} vs threshold {threshold:.2f} [{threshold_mode}] "
                           f"({'bullish' if passed else 'neutral/bearish'})",
@@ -445,7 +464,7 @@ def _check_unusual_call_volume(chains: list[tuple], fetch_err: str | None = None
         return {"pass": False, "reason": "no options data (no listed expiries)"}
 
     call_vol = put_vol = 0
-    for calls, puts in chains:
+    for calls, puts, *_ in chains:
         call_vol += int(calls["volume"].fillna(0).sum())
         put_vol  += int(puts["volume"].fillna(0).sum())
 
