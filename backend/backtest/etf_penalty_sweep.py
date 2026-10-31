@@ -59,8 +59,9 @@ passes the criterion across multiple floors over the single highest-PF cell.
 
 Post-sweep step
 ---------------
-Once a floor/rate pair is chosen, FILTERED_ETF_PENALTY labels (available from
-2026-07-16) give cleanly-attributed live rejections. A week or two of labeled
+Once a floor/rate pair is chosen, the L2 etf stop_code (FILTERED_L2_RISK_ETF; the
+ETF re-test's rows are attributable from 2026-07-13, re-coded by lock labels phase 2)
+gives cleanly-attributed live rejections. A week or two of labeled
 log accumulation lets you check whether the historical optimum behaves as designed
 in the current regime.
 

@@ -253,7 +253,7 @@ function LockChain({ D, mode }) {
   return (
     <div className="t-card">
       <div className="t-card-head">
-        <div className="t-card-title">GATE FUNNEL · 5-LOCK</div>
+        <div className="t-card-title">GATE FUNNEL</div>
         <div className="t-meta">SESSION</div>
       </div>
       <div className="t-card-body">
@@ -477,28 +477,18 @@ function Legend({ swatch, label, border }) {
   );
 }
 
-const GATE_OUTCOME = {
-  TRADE_EXECUTED:          { label: "EXECUTED",  cls: "t-gate-x"    },
-  TRADE_REJECTED:          { label: "REJECTED",  cls: "t-gate-filt" },
-  FILTERED_ELIGIBILITY:    { label: "L1 FAIL",   cls: "t-gate-filt" },
-  FILTERED_L1:             { label: "L2 FAIL",   cls: "t-gate-filt" },
-  FILTERED_L2:             { label: "L3 FAIL",   cls: "t-gate-filt" },
-  FILTERED_LEADING:        { label: "L4 FAIL",   cls: "t-gate-filt" },
-  FILTERED_L3:             { label: "L5 FAIL",   cls: "t-gate-filt" },
-  // Cleared L1-L5 but rejected by the escalating overflow quant threshold — never traded.
-  FILTERED_OVERFLOW_QUANT: { label: "OVERFLOW PASS", cls: "t-gate-filt" },
-  SKIPPED_OPEN:            { label: "HELD",      cls: "t-gate-skip" },
-  SKIPPED_COOLOFF:         { label: "COOLOFF",   cls: "t-gate-skip" },
-};
-
-// Executed via the overflow slot path (open_count already at max_positions) —
-// same green as a normal EXECUTED, but distinct label so it isn't read as
-// FILTERED_OVERFLOW_QUANT (which passed gates but never traded).
+// Badges, lock columns and per-row marks come from the backend lock table (D.gateLocks and the row's badge and
+// lock_states, from backend/gate/lock_codes.py; lock labels phase 2). Only the styling is decided here.
 function gateOutcomeMeta(r) {
-  if (r.outcome === "TRADE_EXECUTED" && r.overflow_slot) {
-    return { label: "OVERFLOW", cls: "t-gate-x" };
+  if (r.badge_kind === "executed" && r.overflow_slot) {
+    // Executed into an overflow slot — green, but distinct from an L2 overflow stop.
+    return { label: "EXECUTED · OVERFLOW", cls: "t-gate-x" };
   }
-  return GATE_OUTCOME[r.outcome] ?? { label: r.outcome, cls: "t-gate-filt" };
+  const cls = r.badge_kind === "executed" ? "t-gate-x"
+    : r.badge_kind === "skip" ? "t-gate-skip"
+    : r.badge_kind === "unknown" ? "t-sev-high"      // FILTERED_UNKNOWN: no rule covers it, mailed when written
+    : "t-gate-filt";
+  return { label: r.badge ?? r.outcome, cls };
 }
 
 const GATE_LEADING_LABELS = {
@@ -508,19 +498,17 @@ const GATE_LEADING_LABELS = {
   volume_accumulation: "VA",
 };
 
-function getGateLockStates(decision) {
-  if (decision === "FILTERED_ELIGIBILITY") return [false, null,  null,  null,  null];
-  if (decision === "FILTERED_L1")          return [true,  false, null,  null,  null];
-  if (decision === "FILTERED_L2")          return [true,  true,  false, null,  null];
-  if (decision === "FILTERED_LEADING")     return [true,  true,  true,  false, null];
-  if (decision === "FILTERED_L3")          return [true,  true,  true,  true,  false];
-  return                                          [true,  true,  true,  true,  true ];
+// Per-row marks from the backend (lock_codes.lock_marks: "pass", "fail", "n/a", "partial", or null where no rule
+// of the lock ran); a row without them is shown as not known, never as passed.
+function getGateLockStates(r, locks) {
+  return r.lock_states ?? (locks?.columns ?? []).map(() => null);
 }
 
 function GateFeed({ D, mode }) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState({});
   const rows = mode === "live" ? (D.liveGateRows || []) : (D.gateRows || []);
+  const cols = D.gateLocks?.columns ?? [];
   if (rows.length === 0) {
     if (mode === "live" && D.liveGateBlocked) {
       return (
@@ -540,8 +528,9 @@ function GateFeed({ D, mode }) {
 
   const grouped = rows.reduce((acc, r) => {
     const prev = acc[acc.length - 1];
-    if (prev && prev.sym === r.sym && prev.outcome === r.outcome
-        && !!prev.overflow_slot === !!r.overflow_slot) {
+    if (prev && prev.sym === r.sym && prev.outcome === r.outcome && prev.stop_code === r.stop_code
+        && !!prev.overflow_slot === !!r.overflow_slot
+        && JSON.stringify(prev.lock_states) === JSON.stringify(r.lock_states)) {
       prev._count = (prev._count || 1) + 1;
       prev._lastTs = r.ts;
     } else {
@@ -551,8 +540,10 @@ function GateFeed({ D, mode }) {
   }, []);
 
   const fmtTs = ts => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
-  const lockColor = pass => pass === true ? "var(--t-accent)" : pass === false ? "var(--t-red)" : "var(--t-text-3)";
-  const lockIcon  = pass => pass === true ? "✓" : pass === false ? "✗" : "·";
+  const marks     = D.gateLocks?.marks ?? {};
+  const lockColor = m => m === "pass" ? "var(--t-accent)" : m === "fail" ? "var(--t-red)"
+    : m === "n/a" ? "var(--t-amber)" : m === "partial" ? "var(--t-text-2)" : "var(--t-text-3)";
+  const lockIcon  = m => marks[m ?? "none"] ?? "·";
 
   return (
     <div className="t-card">
@@ -571,19 +562,17 @@ function GateFeed({ D, mode }) {
                 <th>TIME</th>
                 <th>SYM</th>
                 <th>SCORE</th>
-                <th style={{ textAlign: "center" }}>L1</th>
-                <th style={{ textAlign: "center" }}>L2</th>
-                <th style={{ textAlign: "center" }}>L3</th>
-                <th style={{ textAlign: "center" }}>L4</th>
-                <th style={{ textAlign: "center" }}>L5</th>
+                {cols.map(c => (
+                  <th key={c.lock} style={{ textAlign: "center" }} title={c.label}>{c.head}</th>
+                ))}
                 <th>OUTCOME</th>
               </tr>
             </thead>
             <tbody>
               {grouped.map((r, i) => {
                 const outcome   = gateOutcomeMeta(r);
-                const isSkipped = r.outcome === "SKIPPED_OPEN" || r.outcome === "SKIPPED_COOLOFF";
-                const locks     = getGateLockStates(r.outcome);
+                const isSkipped = r.badge_kind === "skip";
+                const locks     = getGateLockStates(r, D.gateLocks);
                 const hasDetail = !isSkipped && !!(r.lock3_reasoning || r.lock_leading_checks || r.l2_summary || r.macro_reason);
                 const isExpanded = expanded[i];
                 const time = r._count > 1 ? `${fmtTs(r.ts)}–${fmtTs(r._lastTs)}` : fmtTs(r.ts);
@@ -620,7 +609,7 @@ function GateFeed({ D, mode }) {
                   </tr>,
                   isExpanded && hasDetail && (
                     <tr key={`${i}-d`}>
-                      <td colSpan={9} style={{
+                      <td colSpan={4 + cols.length} style={{
                         padding: "8px 16px 12px",
                         background: "color-mix(in oklab, var(--t-bg) 60%, #000)",
                         borderTop: "1px solid var(--t-border)",
@@ -630,19 +619,19 @@ function GateFeed({ D, mode }) {
                       }}>
                         {r.macro_reason && (
                           <div style={{ marginBottom: 6 }}>
-                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>L1:</span>
+                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>{D.gateLocks?.detail_labels?.macro_reason}:</span>
                             <span style={{ color: "var(--t-text-2)" }}>{r.macro_reason}</span>
                           </div>
                         )}
                         {r.l2_summary && (
                           <div style={{ marginBottom: 6 }}>
-                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>L3:</span>
+                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>{D.gateLocks?.detail_labels?.l2_summary}:</span>
                             <span style={{ color: "var(--t-text-2)" }}>{r.l2_summary}</span>
                           </div>
                         )}
                         {r.lock_leading_checks && (
                           <div style={{ marginBottom: 6 }}>
-                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>L4:</span>
+                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>{D.gateLocks?.detail_labels?.lock_leading_checks}:</span>
                             {Object.entries(GATE_LEADING_LABELS).map(([key, lbl]) => {
                               const c = r.lock_leading_checks[key];
                               if (!c) return null;
@@ -659,7 +648,7 @@ function GateFeed({ D, mode }) {
                         )}
                         {r.lock3_reasoning && (
                           <div>
-                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>L5:</span>
+                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>{r.reason_label ?? "Reason"}:</span>
                             <span style={{ color: "var(--t-text-2)" }}>{r.lock3_reasoning}</span>
                           </div>
                         )}
@@ -725,8 +714,8 @@ function TestView({ D }) {
         </div>
         <div className="t-card">
           <div className="t-card-head">
-            <div className="t-card-title">LIVE REJECTIONS</div>
-            <div className="t-meta">REASONS · SECTOR CAP TESTS</div>
+            <div className="t-card-title">REFUSALS</div>
+            <div className="t-meta">LIVE AND DEMO · REASONS · LIVE SECTOR CAP TESTS</div>
           </div>
           <div className="t-card-body">
             <LiveRejectionsPanel />

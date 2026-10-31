@@ -79,3 +79,28 @@ def test_dated_window_builds_from_the_battery_start_to_end(monkeypatch):
     assert seen[0] == (rc.WINDOW_START, "2026-11-19")
     latest = pd.Timestamp(seen[1][1])
     assert seen[1][0] == rc.WINDOW_START and latest.weekday() < 5 and latest < pd.Timestamp.now().normalize()
+
+
+def test_gate_rows_read_the_old_code_from_the_migration_record_and_new_rows_by_stop_code():
+    # Lock labels phase 2: after the 2026-10-31 migration the stored codes are owner codes, so the frozen layers
+    # are read from gate_code_migration.old_code (the archived result reproduces) and new rows by stop_code.
+    import sqlite3
+    con = sqlite3.connect(":memory:")
+    con.execute("CREATE TABLE live_gate_history (id INTEGER PRIMARY KEY, ticker TEXT, timestamp TEXT, "
+                "gate_decision TEXT, stop_code TEXT)")
+    con.execute("CREATE TABLE gate_code_migration (tbl TEXT, row_id INTEGER, old_code TEXT)")
+    con.executemany("INSERT INTO live_gate_history VALUES (?, ?, ?, ?, ?)", [
+        (1, "AAA", "2026-08-03T14:00:00", "FILTERED_L1_ELIGIBILITY", "FILTERED_L1_ELIGIBILITY_MACRO_PRE_EVENT"),
+        (2, "BBB", "2026-11-03T14:00:00", "FILTERED_L4_SENTIMENT", "FILTERED_L4_SENTIMENT_GROK")])
+    con.execute("INSERT INTO gate_code_migration VALUES ('live_gate_history', 1, 'FILTERED_L1')")
+    rows = rc.gate_rows(con, "2026-01-01", "2026-12-31")
+    assert sorted(rows) == [("AAA", "2026-08-03T14:00:00", "FILTERED_L1"),
+                            ("BBB", "2026-11-03T14:00:00", "FILTERED_L4_SENTIMENT_GROK")]
+    td = rc.label_ticker_days(rows)
+    assert dict(zip(td.ticker, td.layer)) == {"AAA": "quant", "BBB": "sentiment"}
+
+
+def test_every_registered_rule_has_a_frozen_layer_or_is_dropped_on_purpose():
+    from backend.gate import lock_codes
+    rules = {(r.owner, r.name) for r in lock_codes.RULES}
+    assert rules == set(rc._LAYER_OF_RULE) | rc.DROPPED_RULES and not set(rc._LAYER_OF_RULE) & rc.DROPPED_RULES

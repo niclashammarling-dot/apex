@@ -105,7 +105,6 @@ ETF_NEGATIVE_PENALTY          = 0.0   # score multiplier reduction when ETF is b
                                       # since moved. Not validated, not invalidated; re-run queued in apex-moc OT.
 
 # --- Lock Leading ---
-LOCK_LEADING_MIN_PASS = 2      # checks that must pass (out of 4) to advance
 # PCR sub-check threshold form: "pooled_scalar" (PCR_THRESHOLD=0.85 for every ticker) or
 # "per_ticker_p25" (partial-pooled per-ticker P25, backend/gate/pcr_baseline.py). Demo runs
 # per-ticker first (2026-09-17); live stays pooled until CHECK 80 has read out on demo.

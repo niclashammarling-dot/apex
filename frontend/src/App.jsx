@@ -375,30 +375,21 @@ function adaptPositions(openPositions) {
 
 function adaptFunnel(funnel) {
   if (!funnel || Object.keys(funnel).length === 0) return [];
-  const total      = funnel.total_candidates ?? 0;
-  const skippedO   = funnel.skipped_open ?? 0;
-  const skippedC   = funnel.skipped_cooloff ?? 0;
-  const evaluated  = funnel.evaluated ?? 0;
-  const eligibilityFail = funnel.eligibility_fail ?? 0;
-  const l1Fail     = funnel.l1_fail ?? 0;
-  const l2Fail     = funnel.l2_fail ?? 0;
-  const leadFail   = funnel.leading_fail ?? 0;
-  const l3Fail     = funnel.l3_fail ?? 0;
-  const overFail   = funnel.overflow_fail ?? 0;
-  const overUsed   = funnel.overflow_executed ?? 0;
-  const executed   = funnel.executed ?? 0;
-  return [
-    { stage: "POLLED",                label: "Tickers polled",    count: total          },
-    { stage: "SKIPPED_OPEN",          label: "Position open",     count: skippedO       },
-    { stage: "SKIPPED_COOLOFF",       label: "Cooloff",           count: skippedC       },
-    { stage: "FILTERED_ELIGIBILITY",  label: "L0 · Eligibility",  count: eligibilityFail },
-    { stage: "FILTERED_L1",           label: "L1 · Score",        count: l1Fail         },
-    { stage: "FILTERED_L2",           label: "L2 · Quant",        count: l2Fail         },
-    { stage: "FILTERED_LEADING",      label: "L4 · Leading",      count: leadFail       },
-    { stage: "FILTERED_L3",           label: "L5 · Claude",       count: l3Fail         },
-    { stage: "FILTERED_OVERFLOW",     label: `Overflow · ${overUsed}u/${overFail}r`, count: overFail },
-    { stage: "TRADE_EXECUTED",        label: "Trade executed",    count: executed       },
-  ];
+  // Stages, labels and counts are computed in the backend from the one lock table
+  // (backend/gate/lock_codes.py funnel_stages: stops per lock L0–L6, then executed and unknown; lock labels
+  // phase 2). The executed row names how many entries used an overflow slot.
+  const stages = (funnel.stages || []).map(s => ({
+    stage: s.code,
+    label: s.kind === "executed" ? `${s.label} · ${funnel.overflow_executed} overflow` : s.label,
+    count: s.count,
+  }));
+  return [{ stage: "POLLED", label: "Tickers polled", count: funnel.total_candidates ?? 0 }, ...stages];
+}
+
+// The lock prefix of a Settings/Promote label comes from the backend table, never a copy here.
+function lockLabel(locks, key, label) {
+  const lock = locks?.config_labels?.[key];
+  return lock ? `${lock} — ${label}` : label;
 }
 
 function adaptGateRows(rows) {
@@ -414,6 +405,11 @@ function adaptGateRows(rows) {
     l2_summary:          r.l2_summary ?? null,
     lock_leading_checks: r.lock_leading_checks ?? null,
     lock3_reasoning:     r.lock3_reasoning ?? null,
+    stop_code:           r.stop_code ?? null,
+    lock_states:         r.lock_states ?? null,
+    badge:               r.badge ?? null,
+    badge_kind:          r.badge_kind ?? null,
+    reason_label:        r.reason_label ?? null,
   }));
 }
 
@@ -429,18 +425,16 @@ function adaptAlerts(alerts) {
 // ── Settings modal ────────────────────────────────────────────────────────────
 
 const SETTINGS_FIELDS = [
-  { key: "lock1_threshold",      label: "Lock 1 Fallback Threshold", step: 0.01, min: 0,    max: 1,
+  { key: "lock1_threshold",      label: "Fallback Threshold", step: 0.01, min: 0,    max: 1,
     hint: "Fallback only — applies to sectors with insufficient history for calibration. Dead zone below 0.65.",
     warnBelow: 0.65, critBelow: 0.60,
     warnMsg: v => v < 0.60 ? "Critical: in dead zone (< 0.60)" : "Below recommended minimum (0.65)" },
-  { key: "lock2_sentiment_min",  label: "Lock 2 Sentiment Min",  step: 0.01, min: -1, max: 1,
-    hint: "Minimum Grok sentiment score to pass Lock 2. 0.0 = neutral or better." },
-  { key: "lock3_confidence_min", label: "Lock 5 (Claude) Confidence Min", step: 0.01, min: 0, max: 1,
-    hint: "Minimum Claude confidence score to pass Lock 5. At 0.7 Claude must be fairly certain." },
-  { key: "lock_leading_min_pass", label: "Lock 4 (Leading) Min Checks", step: 1, min: 1, max: 4,
-    hint: "Minimum sub-checks that must pass in Lock 4. Out of 4. Default 2 = majority required." },
-  { key: "max_drawdown_pct",     label: "Max Drawdown Alert",        step: 0.01, min: 0.01, max: 1,
-    hint: "Drawdown threshold passed to Claude in Lock 5 context." },
+  { key: "lock2_sentiment_min",  label: "Sentiment Min",  step: 0.01, min: -1, max: 1,
+    hint: "Minimum Grok sentiment score to pass. 0.0 = neutral or better." },
+  { key: "lock3_confidence_min", label: "Confidence Min", step: 0.01, min: 0, max: 1,
+    hint: "Minimum Claude confidence score to pass. At 0.7 Claude must be fairly certain." },
+  { key: "max_drawdown_pct",     label: "Max Drawdown Guard",        step: 0.01, min: 0.01, max: 1,
+    hint: "Mechanical guard before the review: once the balance is this far below the starting balance every candidate is rejected. Also passed to Claude. Recorded as a review rejection until lock labels phase 2 re-codes it to the Portfolio lock; the check moves before Eligibility in phase 4. Not M4's 6 % realised-drawdown halt, which the Portfolio lock runs separately." },
   { key: "take_profit_pct",      label: "Take Profit %",         step: 0.01, min: 0.01, max: 1, nullable: false,
     hint: "At 15% only 28% of trades hit target — 6–8% hits 55%+",
     warnAbove: 0.08, warnMsg: () => "Above 8% — most trades won't reach target" },
@@ -457,21 +451,21 @@ const SETTINGS_FIELDS = [
   { key: "max_position_size",    label: "Max Position Size",     step: 0.01, min: 0.01, max: 0.5,
     hint: "Maximum fraction of account balance in a single position." },
   { key: "daily_loss_cap",       label: "Daily Loss Cap ($)",    step: 10,   min: 10,   max: 10000,
-    hint: "Stops new entries for the rest of the day once losses hit this amount." },
+    hint: "Demo: stops new entries for the rest of the day once losses hit this amount. Live: not read since 2026-10-24 — the Portfolio lock sets the cap at 5 % of current equity (M4)." },
   { key: "starting_balance",     label: "Starting Balance ($)",  step: 100,  min: 100,  max: 10000000,
     hint: "Account starting balance for position sizing and drawdown calculations." },
   { key: "max_hold_days",        label: "Time Stop (days)",      step: 1,    min: 1,    max: 90,
     hint: "Force-exits a position after this many calendar days." },
   { key: "vix_threshold",        label: "VIX Block Threshold",   step: 1,    min: 10,   max: 80,
     hint: "At 25 blocked 52–61% of trading days in 2020/2022", warnBelow: 30, warnMsg: () => "Below 30 — blocks recovery rallies" },
-  { key: "macro_event_blackout_days",    label: "CPI/NFP Pre-Event Block (days)", step: 1, min: 0, max: 5,
-    hint: "Blocks new entries N days before CPI and NFP releases only. FOMC always uses a fixed 2-day pre-event window — post-event sessions are never blocked." },
+  { key: "macro_event_blackout_days",    label: "CPI/NFP Pre-Event Penalty Window (days)", step: 1, min: 0, max: 5,
+    hint: "CPI and NFP block new entries on the release day only. In the N days before, entries are not blocked: the score takes the pre-event penalty (macro_pre_event_penalty) before the score test. FOMC blocks from 2 days before through the decision day. Post-event sessions are never blocked." },
   { key: "macro_earnings_blackout_days", label: "Earnings Hard Block (days)", step: 1, min: 0, max: 7,
-    hint: "Hard block: new entries within this many days of earnings are rejected. Pre-event only. Pairs with the near-term window below." },
+    hint: "Hard block: new entries within this many days of earnings are rejected. Pre-event only. Pairs with the near-term window below. Not firing in live: the earnings date never arrives (PRODUCTION_GAP row 8)." },
   { key: "macro_earnings_near_days",    label: "Earnings Near-Term Window (days)", step: 1, min: 0, max: 30,
     hint: "Entries within this window (but outside the hard block) pass but receive a score penalty. Range: hard_block+1 to near_days." },
   { key: "macro_earnings_near_penalty", label: "Earnings Near-Term Penalty", step: 0.05, min: 0, max: 0.5,
-    hint: "Score multiplier reduction applied in the near-term window. 0.15 = 15% score reduction before L2." },
+    hint: "Score multiplier reduction applied in the near-term window. 0.15 = 15% score reduction before the score test. Neither earnings rule has fired in live: the earnings date never arrives (PRODUCTION_GAP rows 8-9; shadow-mode fix pending)." },
   { key: "gate_cooloff_hours",   label: "Gate Cooloff (hours)",  step: 1,    min: 0,   max: 24,
     hint: "Prevents gate from re-evaluating same ticker within this many hours." },
   { key: "max_sector_exposure",  label: "Max Sector Exposure",   step: 0.05, min: 0.05, max: 1,
@@ -527,7 +521,7 @@ function SectorThresholds({ fallback }) {
   );
 }
 
-function SettingsCol({ title, config, accentColor, onSave }) {
+function SettingsCol({ title, config, accentColor, onSave, locks }) {
   const [vals, setVals] = React.useState({});
   const [saved, setSaved] = React.useState(false);
 
@@ -557,7 +551,7 @@ function SettingsCol({ title, config, accentColor, onSave }) {
         return (
           <div className="settings-field" key={f.key}>
             <div className="settings-label">
-              {f.label}
+              {lockLabel(locks, f.key, f.label)}
               {f.hint && <span style={{ marginLeft: 6, opacity: 0.5, fontSize: 9, fontStyle: "italic" }} title={f.hint}>?</span>}
             </div>
             <input
@@ -627,7 +621,7 @@ function TickersTab({ tickers, onAdd, onRemove }) {
   );
 }
 
-function SettingsModal({ settings, tickers, onSave, onTickerAdd, onTickerRemove, onClose }) {
+function SettingsModal({ settings, tickers, locks, onSave, onTickerAdd, onTickerRemove, onClose }) {
   const [activeTab, setActiveTab] = React.useState("thresholds");
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -641,8 +635,8 @@ function SettingsModal({ settings, tickers, onSave, onTickerAdd, onTickerRemove,
           <>
             <div className="modal-sub" style={{ marginBottom: 16 }}>Changes take effect on the next gate cycle. No restart required.</div>
             <div className="settings-grid">
-              <SettingsCol title="Demo" config={settings?.demo} accentColor="var(--text-2)" onSave={vals => onSave("demo", vals)} />
-              <SettingsCol title="Live" config={settings?.live} accentColor="var(--green)"  onSave={vals => onSave("live", vals)} />
+              <SettingsCol title="Demo" config={settings?.demo} accentColor="var(--text-2)" locks={locks} onSave={vals => onSave("demo", vals)} />
+              <SettingsCol title="Live" config={settings?.live} accentColor="var(--green)"  locks={locks} onSave={vals => onSave("live", vals)} />
               <SectorThresholds fallback={settings?.demo?.lock1_threshold} />
             </div>
           </>
@@ -664,20 +658,20 @@ function SettingsModal({ settings, tickers, onSave, onTickerAdd, onTickerRemove,
 // ── Promote modal ─────────────────────────────────────────────────────────────
 
 const PROMOTE_LABELS = {
-  lock1_threshold: "Lock 1 Threshold", lock2_sentiment_min: "Lock 2 Sentiment Min",
-  lock3_confidence_min: "Lock 5 (Claude) Confidence Min", lock_leading_min_pass: "Lock 4 (Leading) Min Checks",
-  max_drawdown_pct: "Max Drawdown Alert", take_profit_pct: "Take Profit %", stop_loss_pct: "Stop Loss %",
+  lock1_threshold: "Fallback Threshold", lock2_sentiment_min: "Sentiment Min",
+  lock3_confidence_min: "Confidence Min",
+  max_drawdown_pct: "Max Drawdown Guard", take_profit_pct: "Take Profit %", stop_loss_pct: "Stop Loss %",
   profit_lock_trigger_pct: "Profit-Lock Trigger %",
   profit_lock_trail_pct: "Profit-Lock Trail %", max_positions: "Max Positions",
   overflow_quant_increment: "Overflow Quant Step", max_position_size: "Max Position Size",
   max_hold_days: "Time Stop (days)", vix_threshold: "VIX Block Threshold",
-  macro_event_blackout_days: "CPI/NFP Pre-Event Block (days)", macro_earnings_blackout_days: "Earnings Hard Block (days)",
+  macro_event_blackout_days: "CPI/NFP Pre-Event Penalty Window (days)", macro_earnings_blackout_days: "Earnings Hard Block (days)",
   macro_earnings_near_days: "Earnings Near-Term Window (days)", macro_earnings_near_penalty: "Earnings Near-Term Penalty",
   gate_cooloff_hours: "Gate Cooloff (hours)", max_sector_exposure: "Max Sector Exposure",
-  lock4_pcr_mode: "Lock 4 PCR Threshold Mode",
+  lock4_pcr_mode: "PCR Threshold Mode",
 };
 
-function PromoteModal({ config, onConfirm, onCancel }) {
+function PromoteModal({ config, locks, onConfirm, onCancel }) {
   const { live, demo } = config;
   const pct = v => `${(v * 100).toFixed(1)}%`;
   const fmt = (key, v) => {
@@ -698,7 +692,7 @@ function PromoteModal({ config, onConfirm, onCancel }) {
               const changed = liveVal !== demoVal;
               return (
                 <tr key={key}>
-                  <td>{PROMOTE_LABELS[key]}</td>
+                  <td>{lockLabel(locks, key, PROMOTE_LABELS[key])}</td>
                   <td>{demoVal != null ? fmt(key, demoVal) : "—"}</td>
                   <td className={changed ? "changed" : ""}>{liveVal != null ? fmt(key, liveVal) : "—"}</td>
                 </tr>
@@ -814,6 +808,7 @@ export default function App() {
       gateRows:      adaptGateRows(gateHist.rows),
       liveGateRows:    adaptGateRows(liveGateHist.rows),
       liveGateBlocked: liveGateHist.blocked_reason || null,
+      gateLocks:     gateHist.locks || liveGateHist.locks || null,
       positions:     adaptPositions(wallet?.open_positions ?? []),
       livePositions: adaptPositions(livePositions),
       wallet:        adaptWallet(wallet, eq),
@@ -861,6 +856,7 @@ export default function App() {
         <SettingsModal
           settings={settings}
           tickers={tickers}
+          locks={gateHist.locks || liveGateHist.locks}
           onSave={(side, updates) => {
             fetch(`/api/settings/${side}`, {
               method: "POST", headers: { "Content-Type": "application/json" },
@@ -880,6 +876,7 @@ export default function App() {
       {showPromote && settings && (
         <PromoteModal
           config={settings}
+          locks={gateHist.locks || liveGateHist.locks}
           onConfirm={async () => {
             await fetch("/api/live/config/promote", { method: "POST" });
             setShowPromote(false);

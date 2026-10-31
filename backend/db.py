@@ -444,6 +444,15 @@ def init_db() -> None:
         # rejected) — enforced cap and its source, the flat cap, projected exposure, and
         # whether each cap would reject. Observe-only evidence for the two-caps decision.
         _add_column_if_missing(conn, "live_gate_history", "outcome_reason",    "TEXT")
+        # Demo from lock labels phase 2 (2026-10-29: "demo = live except trading"): the wallet's refusal or the
+        # runner's pre-L5 position check, by its rule identifier (lock_codes.RULES). NULL on older demo rows.
+        _add_column_if_missing(conn, "demo_gate_history", "outcome_reason",    "TEXT")
+        # Lock labels phase 2 (2026-10-31): stop_code = "FILTERED_" + the stopping rule's key, and rule_states, the
+        # JSON of every rule that ran with its verdict (lock_codes; ruling B 2026-10-26, Niclas 2026-10-29). Written
+        # by both runners; the history migration fills them on older rows.
+        for _t in ("live_gate_history", "demo_gate_history", "signals"):
+            _add_column_if_missing(conn, _t, "stop_code",   "TEXT")
+            _add_column_if_missing(conn, _t, "rule_states", "TEXT")
         _add_column_if_missing(conn, "live_gate_history", "cap_check",         "TEXT")
         # One value per gate cycle, shared by every row it writes (2026-09-30): CHECK 83
         # keyed on row minutes and read one slow cycle (09-28, 1m40s under weekly_research)
@@ -475,17 +484,9 @@ def init_db() -> None:
         _add_column_if_missing(conn, "live_trades", "entry_filled_at", "TEXT")
         conn.execute("UPDATE live_trades SET signal_price = entry_price WHERE signal_price IS NULL")
 
-        # Migrate old gate_decision values to canonical FILTERED_* form
-        conn.executescript("""
-            UPDATE signals SET gate_decision = 'TRADE_EXECUTED' WHERE gate_decision = 'BUY';
-            UPDATE signals SET gate_decision = 'FILTERED_L3'    WHERE gate_decision = 'HOLD';
-            UPDATE signals SET gate_decision = 'FILTERED_L3'    WHERE gate_decision = 'SELL';
-            UPDATE signals SET gate_decision = 'FILTERED_L1'    WHERE gate_decision = 'L1_FAIL';
-            UPDATE signals SET gate_decision = 'FILTERED_L2'    WHERE gate_decision = 'L2_FAIL';
-            UPDATE live_gate_history SET gate_decision = 'TRADE_EXECUTED' WHERE gate_decision = 'BUY';
-            UPDATE live_gate_history SET gate_decision = 'FILTERED_L3'    WHERE gate_decision = 'HOLD';
-            UPDATE live_gate_history SET gate_decision = 'FILTERED_L3'    WHERE gate_decision = 'SELL';
-        """)
+        # The startup rewrite of BUY / HOLD / SELL / L1_FAIL / L2_FAIL into the pre-phase-2 codes was retired with
+        # lock labels phase 2 (2026-10-31): 0 such rows in all three tables (probe 2026-10-28), and left in place it
+        # would have written old codes into the migrated history.
         # Profit-lock ratchet tracking — one-way flag per live trade.
         # True means the bracket SL leg has been moved up to the profit-lock
         # trail level. Never reset within a trade's lifetime: regime changes,
@@ -747,17 +748,22 @@ def update_signal_gate(signal_id: int, result: dict) -> None:
                 lock_leading_checks = :lock_leading_checks,
                 lock3_pass          = :lock3_pass,
                 gate_decision       = :gate_decision,
+                stop_code           = :stop_code,
+                rule_states         = :rule_states,
                 lock3_reasoning     = :lock3_reasoning,
                 l2_summary          = :l2_summary,
                 macro_reason        = :macro_reason
             WHERE id = :id
         """, {
-            "lock1_pass":          result["lock1_pass"],
-            "lock2_pass":          result["lock2_pass"],
-            "lock_leading_pass":   result.get("lock_leading_pass", 0),
+            # Flags NULL where the lock did not run (ruling D); the schema's DEFAULT 0 is never relied on.
+            "lock1_pass":          result.get("lock1_pass"),
+            "lock2_pass":          result.get("lock2_pass"),
+            "lock_leading_pass":   result.get("lock_leading_pass"),
             "lock_leading_checks": result.get("lock_leading_checks"),
-            "lock3_pass":          result["lock3_pass"],
+            "lock3_pass":          result.get("lock3_pass"),
             "gate_decision":       result["gate_decision"],
+            "stop_code":           result.get("stop_code"),
+            "rule_states":         json.dumps(result["rule_states"]) if result.get("rule_states") is not None else None,
             "lock3_reasoning":     result.get("claude_reasoning"),
             "l2_summary":          result.get("l2_summary"),
             "macro_reason":        result.get("macro_reason"),
@@ -927,14 +933,18 @@ def get_open_tickers() -> set[str]:
 
 
 def get_recently_failed_tickers(hours: float) -> set[str]:
-    """Return tickers that failed L2, L3, or MACRO in the demo gate within the last N hours."""
+    """Tickers the demo gate cooled within the last N hours: a stop by a rule marked cooloff in lock_codes.RULES
+    (COOLOFF_STOPS: every L4 and L6 decision and the L0 drawdown guard, not a broker error). That is the set
+    {FILTERED_L2, FILTERED_L3} held before lock labels phase 2 (ruling 6, 2026-10-24), the same row ids on the
+    migrated history (identity check)."""
+    from backend.gate.lock_codes import COOLOFF_STOPS, sql_in
     from datetime import datetime, timedelta, timezone
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
     conn = get_db()
     try:
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT DISTINCT ticker FROM signals
-            WHERE gate_decision IN ('FILTERED_L2', 'FILTERED_L3')
+            WHERE stop_code IN ({sql_in(COOLOFF_STOPS)})
             AND timestamp > ?
         """, (cutoff,)).fetchall()
         return {r[0] for r in rows}
@@ -978,22 +988,32 @@ def get_open_live_tickers() -> set[str]:
         conn.close()
 
 
-def get_ticker_gate_fails(ticker: str, limit: int = 5) -> list[dict]:
+def _ticker_gate_fails(table: str, ticker: str, limit: int) -> list[dict]:
     """
-    Recent non-skip gate decisions for a ticker from the demo signals table.
-    Returns up to `limit` rows newest-first, with the most relevant fail detail
-    collapsed into a single 'detail' string for Lock 3 context injection.
+    Recent gate decisions for a ticker, newest first, skips left out (lock_codes.is_skip: stopped before any
+    chain lock ran, no judgement on the candidate), for L6 REVIEW's (lock5_claude) ticker_gate_history. Each
+    row: date, the stored code (`outcome`: the owner's lock code or TRADE_EXECUTED), the stage it stopped at
+    (`stage`: the owner's lock label, the names the Lock 5 prompt uses) and `detail`, the reason recorded.
+
+    `detail` is lock3_reasoning first: the writers put the stopping lock's reason there, and Claude's reasoning
+    once L6 ran (gate_runner._chain_to_gate_result, _run_l5_for_result). Only when it is empty does it fall back
+    to the owner's own column: L1's macro_reason, L4's summary, L5's checks. An execution-phase stop before L6
+    (overflow) has none, so its detail is None and `stage` says what stopped it. From lock labels phase 2
+    (2026-10-31) the stage is the lock that owns the stop, so the guard reads L0 · Portfolio and an unavailable
+    source reads as its lock's `unavailable` rule (the Lock 5 prompt approved 2026-10-26 is unchanged; review 11-07).
     """
     import json as _json
+
+    from backend.gate.lock_codes import TRADE_EXECUTED, lock_label, parse_stop_code, skip_sql
     conn = get_db()
     try:
-        rows = conn.execute("""
-            SELECT timestamp, gate_decision, l2_summary, macro_reason,
+        rows = conn.execute(f"""
+            SELECT timestamp, gate_decision, stop_code, l2_summary, macro_reason,
                    lock_leading_checks, lock3_reasoning
-            FROM signals
+            FROM {table}
             WHERE ticker = ?
               AND gate_decision IS NOT NULL
-              AND gate_decision NOT IN ('SKIPPED_OPEN', 'SKIPPED_COOLOFF')
+              AND NOT {skip_sql()}
             ORDER BY timestamp DESC
             LIMIT ?
         """, (ticker, limit)).fetchall()
@@ -1001,14 +1021,17 @@ def get_ticker_gate_fails(ticker: str, limit: int = 5) -> list[dict]:
         conn.close()
 
     result = []
-    for r in rows:
-        decision = r["gate_decision"]
-        detail = None
-        if r["l2_summary"]:
-            detail = r["l2_summary"]
-        elif r["macro_reason"]:
+    for r in (dict(x) for x in rows):
+        detail = r["lock3_reasoning"]
+        try:
+            owner, rule = parse_stop_code(r["stop_code"] or "")
+        except KeyError:
+            owner, rule = None, None
+        if not detail and owner == 1:
             detail = r["macro_reason"]
-        elif r["lock_leading_checks"]:
+        elif not detail and owner == 4:
+            detail = r["l2_summary"]
+        elif not detail and owner == 5 and r["lock_leading_checks"]:
             try:
                 checks = _json.loads(r["lock_leading_checks"])
                 failed = [k for k, v in checks.items() if not v.get("pass")]
@@ -1016,72 +1039,40 @@ def get_ticker_gate_fails(ticker: str, limit: int = 5) -> list[dict]:
                 detail = "leading failed: " + "; ".join(reasons) if reasons else "leading checks failed"
             except Exception:
                 detail = "leading checks failed"
-        elif r["lock3_reasoning"]:
-            detail = r["lock3_reasoning"]
+        stage = (lock_label(owner) if owner is not None
+                 else "Executed" if r["gate_decision"] == TRADE_EXECUTED else r["gate_decision"])
         result.append({
             "date":     r["timestamp"][:10],
-            "outcome":  decision,
+            "outcome":  r["gate_decision"],
+            "stage":    stage,
             "detail":   detail,
         })
     return result
+
+
+def get_ticker_gate_fails(ticker: str, limit: int = 5) -> list[dict]:
+    """Demo: _ticker_gate_fails over the signals table."""
+    return _ticker_gate_fails("signals", ticker, limit)
 
 
 def get_live_ticker_gate_fails(ticker: str, limit: int = 5) -> list[dict]:
-    """
-    Recent non-skip gate decisions for a ticker from live_gate_history.
-    Same shape as get_ticker_gate_fails for consistent context injection.
-    """
-    import json as _json
-    conn = get_db()
-    try:
-        rows = conn.execute("""
-            SELECT timestamp, gate_decision, l2_summary, macro_reason,
-                   lock_leading_checks, lock3_reasoning
-            FROM live_gate_history
-            WHERE ticker = ?
-              AND gate_decision IS NOT NULL
-              AND gate_decision NOT IN ('SKIPPED_OPEN', 'SKIPPED_COOLOFF')
-            ORDER BY timestamp DESC
-            LIMIT ?
-        """, (ticker, limit)).fetchall()
-    finally:
-        conn.close()
-
-    result = []
-    for r in rows:
-        decision = r["gate_decision"]
-        detail = None
-        if r["l2_summary"]:
-            detail = r["l2_summary"]
-        elif r["macro_reason"]:
-            detail = r["macro_reason"]
-        elif r["lock_leading_checks"]:
-            try:
-                checks = _json.loads(r["lock_leading_checks"])
-                failed = [k for k, v in checks.items() if not v.get("pass")]
-                reasons = [checks[k].get("reason", "") for k in failed if checks[k].get("reason")]
-                detail = "leading failed: " + "; ".join(reasons) if reasons else "leading checks failed"
-            except Exception:
-                detail = "leading checks failed"
-        elif r["lock3_reasoning"]:
-            detail = r["lock3_reasoning"]
-        result.append({
-            "date":     r["timestamp"][:10],
-            "outcome":  decision,
-            "detail":   detail,
-        })
-    return result
+    """Live: _ticker_gate_fails over live_gate_history (same shape)."""
+    return _ticker_gate_fails("live_gate_history", ticker, limit)
 
 
 def get_recently_failed_live_tickers(hours: float) -> set[str]:
-    """Return tickers that failed L2, L3, or MACRO in the live gate within the last N hours."""
+    """Tickers the live gate cooled within the last N hours: a stop by a rule marked cooloff in lock_codes.RULES
+    (COOLOFF_STOPS: every L4 and L6 decision and the L0 drawdown guard, not a broker error). That is the set
+    {FILTERED_L2, FILTERED_L3} held before lock labels phase 2 (ruling 6, 2026-10-24), the same row ids on the
+    migrated history (identity check)."""
+    from backend.gate.lock_codes import COOLOFF_STOPS, sql_in
     from datetime import datetime, timedelta, timezone
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
     conn = get_db()
     try:
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT DISTINCT ticker FROM live_gate_history
-            WHERE gate_decision IN ('FILTERED_L2', 'FILTERED_L3')
+            WHERE stop_code IN ({sql_in(COOLOFF_STOPS)})
             AND timestamp > ?
         """, (cutoff,)).fetchall()
         return {r[0] for r in rows}
@@ -1136,17 +1127,19 @@ def insert_demo_gate_result(row: dict) -> None:
                  lock3_pass, gate_decision, lock3_reasoning, l2_summary,
                  lock3_sentiment_score, lock3_conviction, macro_reason, ticker_signal,
                  earnings_near, days_to_earnings, overflow_slot, cycle_started_at,
-                 signal_ts, bar_date)
+                 signal_ts, bar_date, outcome_reason, stop_code, rule_states)
             VALUES
                 (:timestamp, :ticker, :sector, :signal_score,
                  :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
                  :lock3_pass, :gate_decision, :lock3_reasoning, :l2_summary,
                  :lock3_sentiment_score, :lock3_conviction, :macro_reason, :ticker_signal,
                  :earnings_near, :days_to_earnings, :overflow_slot, :cycle_started_at,
-                 :signal_ts, :bar_date)
+                 :signal_ts, :bar_date, :outcome_reason, :stop_code, :rule_states)
         """
         _assert_insert_fields("insert_demo_gate_result", _SQL, row)
         conn.execute(_SQL, {**row,
+              "stop_code":             row.get("stop_code"),
+              "rule_states":           json.dumps(row["rule_states"]) if row.get("rule_states") is not None else None,
               "lock3_sentiment_score": row.get("lock3_sentiment_score"),
               "lock3_conviction":      row.get("lock3_conviction"),
               "ticker_signal":         row.get("ticker_signal"),
@@ -1155,7 +1148,8 @@ def insert_demo_gate_result(row: dict) -> None:
               "overflow_slot":         1 if row.get("overflow_slot") else 0,
               "cycle_started_at":      row.get("cycle_started_at"),
               "signal_ts":             row.get("signal_ts"),
-              "bar_date":              row.get("bar_date")})
+              "bar_date":              row.get("bar_date"),
+              "outcome_reason":        row.get("outcome_reason")})
         conn.commit()
     finally:
         conn.close()
@@ -1169,10 +1163,10 @@ def get_demo_gate_history(since: str | None = None, limit: int | None = 500) -> 
         limit_clause = f"LIMIT {int(limit)}" if limit else ""
         rows = conn.execute(f"""
             SELECT ticker, sector, timestamp, signal_score,
-                   gate_decision, lock1_pass, lock2_pass, lock_leading_pass,
+                   gate_decision, stop_code, rule_states, lock1_pass, lock2_pass, lock_leading_pass,
                    lock_leading_checks, lock3_pass, lock3_reasoning,
                    l2_summary, lock3_sentiment_score, lock3_conviction, macro_reason,
-                   ticker_signal, earnings_near, days_to_earnings, overflow_slot
+                   ticker_signal, earnings_near, days_to_earnings, overflow_slot, outcome_reason
             FROM demo_gate_history
             {where}
             ORDER BY timestamp DESC
@@ -1183,31 +1177,42 @@ def get_demo_gate_history(since: str | None = None, limit: int | None = 500) -> 
         conn.close()
 
 
-def get_demo_gate_funnel_counts(since: str | None = None) -> dict:
+def _gate_funnel_counts(table: str, since: str | None = None) -> dict:
+    """The dashboard funnel for one gate table: stops per lock and rule from the one lock table
+    (lock_codes.funnel_stages, counted by stop_code), the candidate total, and how many trades went into an
+    overflow slot.
+
+    One function for demo and live (2026-10-28, lock labels review R14): the two hand-written
+    versions had drifted. Demo never returned `overflow_executed`, so its funnel showed "0u" with 2
+    overflow entries in demo_gate_history, and demo's `executed` counted TRADE_REJECTED too. Since
+    phase 1 the frontend reads only `stages`, `total_candidates` and `overflow_executed`; the
+    named per-code keys (l1_fail …) had no reader left and are gone.
+    """
+    from backend.gate.lock_codes import funnel_stages
+    where = "WHERE gate_decision IS NOT NULL"
+    params: tuple = ()
+    if since:
+        where += " AND timestamp >= ?"
+        params = (since,)
     conn = get_db()
     try:
-        where = "WHERE timestamp >= ?" if since else ""
-        params = (since,) if since else ()
-        row = conn.execute(f"""
-            SELECT
-                count(*)                                                         AS total_candidates,
-                sum(gate_decision = 'SKIPPED_OPEN')                              AS skipped_open,
-                sum(gate_decision = 'SKIPPED_COOLOFF')                           AS skipped_cooloff,
-                sum(gate_decision NOT IN ('SKIPPED_OPEN','SKIPPED_COOLOFF'))     AS evaluated,
-                sum(gate_decision = 'FILTERED_ELIGIBILITY')                      AS eligibility_fail,
-                sum(gate_decision = 'FILTERED_L1')                               AS l1_fail,
-                sum(gate_decision = 'FILTERED_L2')                               AS l2_fail,
-                sum(gate_decision = 'FILTERED_LEADING')                          AS leading_fail,
-                sum(gate_decision = 'FILTERED_L3')                               AS l3_fail,
-                sum(gate_decision = 'FILTERED_OVERFLOW_QUANT')                   AS overflow_fail,
-                sum(gate_decision IN ('TRADE_EXECUTED','TRADE_REJECTED'))         AS executed
-            FROM demo_gate_history
-            {where}
-        """, params).fetchone()
-        return dict(row) if row else {}
+        counts = {r["code"]: r["cnt"] for r in conn.execute(f"""
+            SELECT stop_code AS code, COUNT(*) AS cnt FROM {table} {where} GROUP BY stop_code
+        """, params).fetchall()}
+        overflow_executed = conn.execute(f"""
+            SELECT COUNT(*) FROM {table} {where} AND gate_decision = 'TRADE_EXECUTED' AND overflow_slot = 1
+        """, params).fetchone()[0]
     finally:
         conn.close()
+    return {
+        "total_candidates":  sum(counts.values()),
+        "overflow_executed": overflow_executed,
+        "stages":            funnel_stages(counts),
+    }
 
+
+def get_demo_gate_funnel_counts(since: str | None = None) -> dict:
+    return _gate_funnel_counts("demo_gate_history", since)
 
 def get_equity_curve(current_prices: dict[str, float] | None = None) -> list[dict]:
     """
@@ -1378,18 +1383,20 @@ def insert_live_gate_result(row: dict) -> int:
                lock3_pass, gate_decision, lock3_reasoning, alpaca_order_id,
                l2_summary, lock3_sentiment_score, lock3_conviction, macro_reason,
                ticker_signal, earnings_near, days_to_earnings, overflow_slot,
-               outcome_reason, cap_check, cycle_started_at, signal_ts, bar_date)
+               outcome_reason, cap_check, cycle_started_at, signal_ts, bar_date, stop_code, rule_states)
             VALUES
               (:timestamp, :ticker, :sector, :signal_score,
                :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
                :lock3_pass, :gate_decision, :lock3_reasoning, :alpaca_order_id,
                :l2_summary, :lock3_sentiment_score, :lock3_conviction, :macro_reason,
                :ticker_signal, :earnings_near, :days_to_earnings, :overflow_slot,
-               :outcome_reason, :cap_check, :cycle_started_at, :signal_ts, :bar_date)
+               :outcome_reason, :cap_check, :cycle_started_at, :signal_ts, :bar_date, :stop_code, :rule_states)
         """
         _assert_insert_fields("insert_live_gate_result", _SQL, row)
         cur = conn.execute(_SQL, {**row,
-              "lock_leading_pass":      row.get("lock_leading_pass", 0),
+              "lock_leading_pass":      row.get("lock_leading_pass"),
+              "stop_code":              row.get("stop_code"),
+              "rule_states":            json.dumps(row["rule_states"]) if row.get("rule_states") is not None else None,
               "lock_leading_checks":    row.get("lock_leading_checks"),
               "l2_summary":             row.get("l2_summary"),
               "lock3_sentiment_score":  row.get("lock3_sentiment_score"),
@@ -1429,61 +1436,7 @@ def get_live_gate_history(since: str | None = None, limit: int | None = 500) -> 
 
 def get_live_gate_funnel_counts(since: str | None = None) -> dict:
     """Full funnel counts for the live gate, including pre-gate skips."""
-    conn = get_db()
-    try:
-        where = "WHERE gate_decision IS NOT NULL"
-        params: tuple = ()
-        if since:
-            where += " AND timestamp >= ?"
-            params = (since,)
-
-        rows = conn.execute(f"""
-            SELECT gate_decision, COUNT(*) AS cnt
-            FROM live_gate_history
-            {where}
-            GROUP BY gate_decision
-        """, params).fetchall()
-
-        overflow_executed_row = conn.execute(f"""
-            SELECT COUNT(*) AS cnt
-            FROM live_gate_history
-            {where} AND gate_decision = 'TRADE_EXECUTED' AND overflow_slot = 1
-        """, params).fetchone()
-
-        counts = {r["gate_decision"]: r["cnt"] for r in rows}
-        skipped_open      = counts.get("SKIPPED_OPEN", 0)
-        skipped_cooloff   = counts.get("SKIPPED_COOLOFF", 0)
-        l1_fail           = counts.get("FILTERED_L1", 0)
-        eligibility_fail  = counts.get("FILTERED_ELIGIBILITY", 0)
-        l2_fail           = counts.get("FILTERED_L2", 0)
-        leading_fail      = counts.get("FILTERED_LEADING", 0)
-        l3_fail           = counts.get("FILTERED_L3", 0)
-        overflow_fail     = counts.get("FILTERED_OVERFLOW_QUANT", 0)
-        overflow_executed = overflow_executed_row["cnt"] if overflow_executed_row else 0
-        executed          = counts.get("TRADE_EXECUTED", 0)
-        rejected          = counts.get("TRADE_REJECTED", 0)
-
-        total_candidates = sum(counts.values())
-        evaluated = total_candidates - skipped_open - skipped_cooloff
-
-        return {
-            "total_candidates":  total_candidates,
-            "skipped_open":      skipped_open,
-            "skipped_cooloff":   skipped_cooloff,
-            "evaluated":         evaluated,
-            "l1_fail":           l1_fail,
-            "eligibility_fail":  eligibility_fail,
-            "l2_fail":           l2_fail,
-            "leading_fail":      leading_fail,
-            "l3_fail":           l3_fail,
-            "overflow_fail":     overflow_fail,
-            "overflow_executed": overflow_executed,
-            "executed":          executed,
-            "rejected":          rejected,
-        }
-    finally:
-        conn.close()
-
+    return _gate_funnel_counts("live_gate_history", since)
 
 def insert_pcr_observation(
     ticker: str,

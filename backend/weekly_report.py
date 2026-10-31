@@ -20,6 +20,7 @@ from loguru import logger
 
 from backend.backtest.live_shape import describe_varied
 from backend.db import LIVE_VERIFIED_EXIT
+from backend.gate import lock_codes
 
 _SENT_MARKER = Path(__file__).parent.parent / "data" / "weekly_report_sent.txt"
 
@@ -52,7 +53,7 @@ Rules:
 - Synthesise — do not restate numbers verbatim (they appear in the tables below)
 - Lead with the most notable finding, positive or negative
 - Every count in the data carries its n. Fewer than {COMMENTARY_MIN_N} trades or candidates is a description, not a finding: say what happened, do not infer a trend, edge or risk from it
-- Gate funnel: each lock has the number that reached it and the number it filtered. Name the lock that filtered the most, with its counts
+- Gate funnel: each candidate is counted once, under the lock whose rule stopped it (stops_by_lock, per rule), or as entered or unknown. Name the lock that stopped the most, with its count of the candidates. A lock's count is not a pass rate: until phase 4 the locks do not run in chain order
 - `reference` holds the prior weeks recomputed from the DB: pooled lock and win rates with their n, and the median and range of weekly counts and P&L. Call a number high or low only against its reference, and only when this week's n and the reference n are both at least {COMMENTARY_MIN_N}. Config changed inside the reference window, so a difference describes the system as it ran, not a cause
 - Thresholds: pass rates are this week's rows against a threshold computed over the sector's full history (window_share = this week's fraction of it). Do not attribute a pass rate to a market move, a selloff or the regime floor, and do not suggest recalibration — what calibration did this week is in `calibration`
 - Concentration: only from open_positions_by_sector, never from thresholds or scores
@@ -207,29 +208,13 @@ def _live_stats(since: str, until: str) -> dict:
         conn.close()
 
 
-# The funnel reads gate_decision only. The lock1/2/3_pass columns changed meaning
-# when the lock chain came in (gate_runner._chain_to_gate_result: lock1_pass =
-# Quant, lock2_pass = Sentiment, lock3_pass = Claude), and the old query built on
-# them counted open/cooloff skips as "L1 pass" and gated eligibility on
-# lock1_pass=1, which has never occurred (report for 10-02: L1 83% shown, 41%
-# true; eligibility 0 shown, 180 true). Locks 1–4 run in sequence (gate/chain.py
-# exit_lock 1–4), so each has a true "reached" count. After Leading the order is
-# not fixed — on the deferred-L5 path overflow is checked before Claude
-# (gate_runner.py, TRADE_QUEUED_PENDING_L5) — so those outcomes are split, not
-# chained.
-_FUNNEL_SKIPS = ("SKIPPED_OPEN", "SKIPPED_COOLOFF", "SKIPPED_BLOCKLIST")
-_FUNNEL_LOCKS = (
-    ("Lock 1 Eligibility", ("FILTERED_ELIGIBILITY",)),
-    ("Lock 2 Quant",       ("FILTERED_L1",)),
-    ("Lock 3 Sentiment",   ("FILTERED_L2",)),
-    ("Lock 4 Leading",     ("FILTERED_LEADING", "FILTERED_ETF_PENALTY")),
-)
-_FUNNEL_AFTER_LEADING = (
-    ("Lock 5 Claude filtered",  ("FILTERED_L3",)),
-    ("Overflow filtered",       ("FILTERED_OVERFLOW_QUANT",)),
-    ("Not filled (rejected/failed)", ("TRADE_REJECTED", "TRADE_FAILED")),
-    ("Entered",                 ("TRADE_EXECUTED",)),
-)
+# The funnel counts each row once, by the rule that stopped it (stop_code; lock labels phase 2, 2026-10-31): per
+# lock in chain order L0..L6 with each rule's stops, then the entries, then FILTERED_UNKNOWN. Stages and labels come
+# from backend/gate/lock_codes.py (funnel_stages), the same as the dashboard funnel. A row's code names the lock that
+# owns its stop, not how far it got: until phase 4 a lock's rules run in several places (L2's earnings before L3, its
+# ETF re-test after L5), so no "reached" count is chained here. The skips are L1's rules (blocklist, position_open,
+# cooloff, exit_cooloff, affordability). Before phase 2 the funnel chained the module stages by their numbered codes,
+# which named the wrong lock for a third of the history (scope note 2026-10-26).
 _FUNNEL_TABLES = {"demo": "signals", "live": "live_gate_history"}
 
 
@@ -240,41 +225,27 @@ def _funnel(book: str, since: str, until: str) -> dict:
     conn = get_db()
     try:
         rows = conn.execute(f"""
-            SELECT gate_decision, COUNT(*) AS cnt FROM {table}
+            SELECT stop_code, COUNT(*) AS cnt FROM {table}
             WHERE timestamp >= ? AND timestamp < ? AND gate_decision IS NOT NULL
-            GROUP BY gate_decision
+            GROUP BY stop_code
         """, (since, until)).fetchall()
     finally:
         conn.close()
-    counts = {r["gate_decision"]: r["cnt"] for r in rows}
-    known = set(_FUNNEL_SKIPS)
-    for _, decs in _FUNNEL_LOCKS + _FUNNEL_AFTER_LEADING:
-        known.update(decs)
-
-    skipped = {d: counts.get(d, 0) for d in _FUNNEL_SKIPS}
+    counts = {r["stop_code"]: r["cnt"] for r in rows}
+    stages = lock_codes.funnel_stages(counts)
+    locks = [st for st in stages if st["kind"] == "lock"]
+    other = {st["code"]: st["count"] for st in stages if st["kind"] == "unregistered"}
+    entered = next(st["count"] for st in stages if st["kind"] == "executed")
+    unknown = next(st["count"] for st in stages if st["kind"] == "unknown")
     total = sum(counts.values())
-    reached_gate = total - sum(skipped.values())
-    locks = []
-    n = reached_gate
-    for label, decs in _FUNNEL_LOCKS:
-        failed = sum(counts.get(d, 0) for d in decs)
-        locks.append({"stage": label, "reached": n, "failed": failed, "passed": n - failed})
-        n -= failed
-    after = [{"outcome": label, "n": sum(counts.get(d, 0) for d in decs)}
-             for label, decs in _FUNNEL_AFTER_LEADING]
-    # Anything the stages above don't name is shown, never dropped: a new
-    # decision string must not vanish from the totals.
-    other = {d: c for d, c in counts.items() if d not in known}
     return {
-        "total":          total,
-        "skipped":        skipped,
-        "reached_gate":   reached_gate,
-        "locks":          locks,
-        "passed_leading": n,
-        "after_leading":  after,
-        "entered":        counts.get("TRADE_EXECUTED", 0),
-        "other":          other,
-        "balanced":       n == sum(a["n"] for a in after) + sum(other.values()),
+        "total":    total,
+        "locks":    locks,
+        "entered":  entered,
+        "unknown":  unknown,
+        "other":    other,
+        # Every row is in exactly one line; a code nothing names would break this, and is listed under other.
+        "balanced": total == sum(st["count"] for st in locks) + entered + unknown + sum(other.values()),
     }
 
 
@@ -326,9 +297,9 @@ def _sector_pnl(since: str, until: str) -> dict:
 # 10-02 week's 6 entered, short enough to stay near the current config.
 # Revisit at the 2026-10-29 mechanism review.
 REFERENCE_WEEKS = 8
-# First Monday after the first FILTERED_ELIGIBILITY row (signals 2026-04-19
-# 22:00 UTC, live_gate_history 2026-04-20; measured 2026-10-15). Before it the
-# lock-chain decision strings did not exist, and a funnel would read as "other".
+# First Monday after the first eligibility-module row (signals 2026-04-19 22:00 UTC, live_gate_history
+# 2026-04-20; measured 2026-10-15). Before it the lock-chain decisions did not exist, and a funnel would read as
+# "other"; the phase 2 migration (2026-10-31) re-coded every row since by its owner, so the weeks compare.
 REFERENCE_START = "2026-04-20T00:00:00+00:00"
 
 
@@ -374,9 +345,8 @@ def _ref_book(ref: dict, book: str) -> dict:
         "closed":   _spread([c["closed_total"] for c in closed]),
         "pnl":      _spread([c["realized_pnl"] for c in closed]),
         "entered":  _spread([f["entered"] for f in funnels]),
-        "locks":    [{"stage":   locks[0]["stage"],
-                      "reached": sum(lk["reached"] for lk in locks),
-                      "failed":  sum(lk["failed"] for lk in locks)}
+        "candidates": sum(f["total"] for f in funnels),
+        "locks":    [{"label": locks[0]["label"], "count": sum(lk["count"] for lk in locks)}
                      for locks in zip(*stages)] if stages else [],
     }
 
@@ -615,7 +585,7 @@ def _walkforward_last() -> str:
 
 def _sweep_config(r: dict) -> str:
     """Every grid axis, as the sweep mail prints it."""
-    return (f"L1={r.get('lock1_threshold')} TP={r.get('take_profit_pct', 0)*100:.0f}% "
+    return (f"score_thr={r.get('lock1_threshold')} TP={r.get('take_profit_pct', 0)*100:.0f}% "
             f"SL={r.get('stop_loss_pct', 0)*100:.0f}% hold={r.get('time_stop_days')}d "
             f"pos={r.get('max_positions')} vix={r.get('vix_threshold') or 'off'} "
             f"rs={'on' if r.get('use_leading_rs') else 'off'}")
@@ -627,12 +597,6 @@ def _pct(v: float | None) -> str:
 
 def _pnl_color(v: float) -> str:
     return "#22c55e" if v >= 0 else "#ef4444"
-
-
-def _funnel_rate(numer: int | None, denom: int | None) -> str:
-    if not denom:
-        return "—"
-    return f"{(numer or 0) / denom * 100:.0f}%"
 
 
 def _td(content: str, bold: bool = False, color: str = "") -> str:
@@ -680,13 +644,12 @@ def _gpt4o_commentary(
         demo_return = (demo["balance"] - demo["starting"]) / demo["starting"]
 
         def funnel_payload(f: dict) -> dict:
+            # Stops per lock and rule (lock labels phase 2): the code names the owner, not how far the row got.
             return {
                 "candidates":        f["total"],
-                "skipped":           f["skipped"],
-                "reached_gate":      f["reached_gate"],
-                "locks":             f["locks"],
-                "passed_leading":    f["passed_leading"],
-                "after_leading":     {a["outcome"]: a["n"] for a in f["after_leading"]},
+                "stops_by_lock":     {st["label"]: {r["rule"]: r["count"] for r in st["rules"]} for st in f["locks"]},
+                "entered":           f["entered"],
+                "unknown":           f["unknown"],
                 "other_decisions":   f["other"],
             }
 
@@ -789,19 +752,18 @@ def _partial_sessions(since: str, until: str) -> list[str]:
     return out
 
 
+def _rules_text(st: dict) -> str:
+    return ", ".join(f"{r['rule']} {r['count']}" for r in st["rules"])
+
+
 def _plain_funnel(book: str, f: dict) -> str:
-    out = (f"GATE FUNNEL ({book})\n  Candidates {f['total']} | skipped open {f['skipped']['SKIPPED_OPEN']}, "
-           f"cooloff {f['skipped']['SKIPPED_COOLOFF']}")
-    if f["skipped"]["SKIPPED_BLOCKLIST"]:
-        out += f", blocklist {f['skipped']['SKIPPED_BLOCKLIST']}"
-    out += f" | reached the gate {f['reached_gate']}\n"
+    out = f"GATE FUNNEL ({book})\n  Candidates {f['total']} | entered {f['entered']} | unknown {f['unknown']}\n"
     for st in f["locks"]:
-        out += f"  {st['stage']:20s} {st['failed']} of {st['reached']} filtered\n"
-    out += f"  Passed Leading {f['passed_leading']}: " + ", ".join(f"{a['outcome']} {a['n']}" for a in f["after_leading"]) + "\n"
+        out += f"  {st['label']:18s} {st['count']} stopped" + (f" ({_rules_text(st)})" if st["rules"] else "") + "\n"
     if f["other"]:
         out += "  Other decisions: " + ", ".join(f"{k} {v}" for k, v in f["other"].items()) + "\n"
     if not f["balanced"]:
-        out += "  WARNING: counts after Leading do not sum to Passed Leading\n"
+        out += "  WARNING: the lines do not sum to the candidates\n"
     return out
 
 
@@ -845,11 +807,11 @@ def _reference_rows(demo: dict, live: dict, dfunnel: dict, lfunnel: dict,
          str(lfunnel["entered"]), _spread_text(rlive["entered"])),
     ]
     for i, (dst, lst) in enumerate(zip(dfunnel["locks"], lfunnel["locks"])):
-        rd = rdemo["locks"][i] if rdemo["locks"] else {"failed": 0, "reached": 0}
-        rl = rlive["locks"][i] if rlive["locks"] else {"failed": 0, "reached": 0}
-        rows.append((f"{dst['stage']} filtered", _ratio_text(dst["failed"], dst["reached"]),
-                     _ratio_text(rd["failed"], rd["reached"]),
-                     _ratio_text(lst["failed"], lst["reached"]), _ratio_text(rl["failed"], rl["reached"])))
+        rd = rdemo["locks"][i] if rdemo["locks"] else {"count": 0}
+        rl = rlive["locks"][i] if rlive["locks"] else {"count": 0}
+        rows.append((f"{dst['label']} stopped / candidates", _ratio_text(dst["count"], dfunnel["total"]),
+                     _ratio_text(rd["count"], rdemo.get("candidates", 0)),
+                     _ratio_text(lst["count"], lfunnel["total"]), _ratio_text(rl["count"], rlive.get("candidates", 0))))
     return rows
 
 
@@ -955,33 +917,25 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None,
       </tbody>
     </table>"""
 
-    # Gate funnel table — every rate shown with the count it is a rate of
+    # Gate funnel table — each lock's stops per rule, in chain order (lock_codes.funnel_stages)
     def _lock_cell(st: dict) -> str:
-        if not st["reached"]:
-            return _td("0 reached", color="#6b7280")
-        return _td(f"{st['failed']} of {st['reached']} filtered ({_funnel_rate(st['passed'], st['reached'])} pass)")
+        if not st["count"]:
+            return _td("0", color="#6b7280")
+        return _td(f"{st['count']} ({_rules_text(st)})")
 
-    funnel_rows = [
-        _row(_td('Candidates'), _td(str(dfunnel['total'])), _td(str(lfunnel['total']))),
-        _row(_td('Skipped — open position'), _td(str(dfunnel['skipped']['SKIPPED_OPEN'])), _td(str(lfunnel['skipped']['SKIPPED_OPEN']))),
-        _row(_td('Skipped — cooloff'), _td(str(dfunnel['skipped']['SKIPPED_COOLOFF'])), _td(str(lfunnel['skipped']['SKIPPED_COOLOFF']))),
-    ]
-    if dfunnel['skipped']['SKIPPED_BLOCKLIST'] or lfunnel['skipped']['SKIPPED_BLOCKLIST']:
-        funnel_rows.append(_row(_td('Skipped — live blocklist'), _td(str(dfunnel['skipped']['SKIPPED_BLOCKLIST'])), _td(str(lfunnel['skipped']['SKIPPED_BLOCKLIST']))))
-    funnel_rows.append(_row(_td('Reached the gate', bold=True), _td(str(dfunnel['reached_gate']), bold=True), _td(str(lfunnel['reached_gate']), bold=True)))
+    funnel_rows = [_row(_td('Candidates'), _td(str(dfunnel['total'])), _td(str(lfunnel['total'])))]
     for dst, lst in zip(dfunnel['locks'], lfunnel['locks']):
-        funnel_rows.append(_row(_td(dst['stage']), _lock_cell(dst), _lock_cell(lst)))
-    funnel_rows.append(_row(_td('Passed Leading', bold=True), _td(str(dfunnel['passed_leading']), bold=True), _td(str(lfunnel['passed_leading']), bold=True)))
-    for da, la in zip(dfunnel['after_leading'], lfunnel['after_leading']):
-        funnel_rows.append(_row(_td(f"&nbsp;&nbsp;{da['outcome']}", bold=da['outcome'] == 'Entered'),
-                                _td(str(da['n']), bold=da['outcome'] == 'Entered'),
-                                _td(str(la['n']), bold=la['outcome'] == 'Entered')))
+        funnel_rows.append(_row(_td(dst['label']), _lock_cell(dst), _lock_cell(lst)))
+    funnel_rows.append(_row(_td('Entered', bold=True), _td(str(dfunnel['entered']), bold=True),
+                            _td(str(lfunnel['entered']), bold=True)))
+    funnel_rows.append(_row(_td('Unknown (no rule)', color='#ef4444' if dfunnel['unknown'] or lfunnel['unknown'] else ''),
+                            _td(str(dfunnel['unknown'])), _td(str(lfunnel['unknown']))))
     for book, f in (("Demo", dfunnel), ("Live", lfunnel)):
         if f['other']:
             funnel_rows.append(_row(_td(f"{book}: other decisions", color='#f59e0b'),
                                     _td(', '.join(f"{k} {v}" for k, v in f['other'].items()), color='#f59e0b'), _td('')))
         if not f['balanced']:
-            funnel_rows.append(_row(_td(f"{book}: counts after Leading do not sum to Passed Leading", color='#ef4444'), _td(''), _td('')))
+            funnel_rows.append(_row(_td(f"{book}: the lines do not sum to the candidates", color='#ef4444'), _td(''), _td('')))
 
     funnel_table = f"""
     <p style='color:#6b7280;font-size:12px;margin:0 0 6px 0;'>
@@ -1297,7 +1251,7 @@ LOCK 2 QUANT THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
         else:
             plain += "  start score not recorded (results file predates 2026-09-14)\n"
         plain += (f"  one sample from a flat optimum (Sharpe capped at 2.0 in composite), not a recommendation: "
-                  f"L1={bp.get('lock1_threshold')} TP={bp.get('take_profit_pct', 0)*100:.0f}% SL={bp.get('stop_loss_pct', 0)*100:.0f}% "
+                  f"score_thr={bp.get('lock1_threshold')} TP={bp.get('take_profit_pct', 0)*100:.0f}% SL={bp.get('stop_loss_pct', 0)*100:.0f}% "
                   f"TSL={bp.get('trailing_stop_pct')} hold={bp.get('time_stop_days')}d maxpos={bp.get('max_positions')} VIX={bp.get('vix_threshold')} "
                   f"-> Sharpe {fm.get('sharpe', 0):.2f} PF {fm.get('profit_factor', 0):.2f} WR {_pct(fm.get('win_rate'))} n={fm.get('total_trades')}\n")
     elif opt_state == _SWEEP_ABSENT:

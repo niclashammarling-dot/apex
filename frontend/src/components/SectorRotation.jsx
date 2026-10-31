@@ -78,6 +78,7 @@ export default function SectorRotation() {
   });
   const [normalized,    setNormalized] = useState(false);
   const [thresholds,    setThresholds] = useState({});
+  const [fallback,      setFallback]   = useState(null);   // backend sector_regime.TICKER_THRESHOLD_DEFAULT, served
 
   const [showBackfill, setShowBackfill] = useState(false);
   const [bfStart,      setBfStart]      = useState("2020-01-01");
@@ -90,7 +91,7 @@ export default function SectorRotation() {
   useEffect(() => {
     fetch("/api/calibrate/ticker-thresholds")
       .then(r => r.ok ? r.json() : {})
-      .then(d => setThresholds(d.thresholds ?? {}))
+      .then(d => { setThresholds(d.thresholds ?? {}); setFallback(d.default_fallback ?? null); })
       .catch(() => {});
   }, []);
 
@@ -103,14 +104,13 @@ export default function SectorRotation() {
       .catch(e => { setError(`Failed to load sector history (${e})`); setLoading(false); });
   }, [days]);
 
-  const FLAT_THRESHOLD = 0.55;
   const sectors = [...new Set(rawData.map(r => r.sector))].sort();
   const tsMap = {};
   for (const row of rawData) {
     if (!tsMap[row.timestamp]) tsMap[row.timestamp] = { timestamp: row.timestamp };
     const score = row.avg_score;
     if (normalized) {
-      const thr = thresholds[row.sector] ?? FLAT_THRESHOLD;
+      const thr = thresholds[row.sector] ?? fallback;
       tsMap[row.timestamp][row.sector] = thr > 0 ? Math.round((score / thr) * 1000) / 1000 : score;
     } else {
       tsMap[row.timestamp][row.sector] = score;
@@ -166,7 +166,7 @@ export default function SectorRotation() {
           <button
             className="t-btn"
             onClick={() => setNormalized(v => !v)}
-            title={normalized ? "Show raw scores" : "Normalize by L1 threshold — makes sectors comparable"}
+            title={normalized ? "Show raw scores" : "Normalize by each sector's score threshold — makes sectors comparable"}
             style={normalized ? { color: "var(--t-accent)", borderColor: "var(--t-accent)", marginRight: 8 } : { marginRight: 8 }}
           >NORM</button>
           {RANGES.map(r => (
@@ -274,7 +274,7 @@ export default function SectorRotation() {
                 tickFormatter={v => normalized ? `${v.toFixed(1)}×` : v.toFixed(1)}
               />
               <Tooltip content={<ChartTooltip />} />
-              <ReferenceLine y={normalized ? 1.0 : 0.55} stroke="var(--t-border)" strokeDasharray="3 3" />
+              <ReferenceLine y={normalized ? 1.0 : (fallback ?? 0)} stroke="var(--t-border)" strokeDasharray="3 3" />
               {sectors
                 .filter(s => !hiddenSectors.has(s))
                 .map(s => (
@@ -293,8 +293,8 @@ export default function SectorRotation() {
 
         <div className="t-meta" style={{ marginTop: 8 }}>
           {normalized
-            ? "Normalized: score ÷ per-sector L1 threshold. 1.0× = at threshold."
-            : "Raw scores. Dashed line = 0.55. Click sectors to toggle."}
+            ? "Normalized: score ÷ the sector's calibrated score threshold (the sector-regime default where a sector has none). 1.0× = at threshold."
+            : `Raw scores. Dashed line = ${fallback ?? "—"}, the sector-regime default for a sector without a calibrated threshold; the score lock tests each sector's calibrated one. Click sectors to toggle.`}
         </div>
       </div>
     </div>

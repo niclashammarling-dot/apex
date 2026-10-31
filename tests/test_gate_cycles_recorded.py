@@ -156,7 +156,7 @@ def test_rows_carry_the_cycle_start_and_their_own_timestamp():
                      open_tickers={"NVDA"})
     rows = [c.args[0] for c in mocks[8].call_args_list]              # insert_demo_gate_result
     assert [r["cycle_started_at"] for r in rows] == [T0, T0]
-    skip = next(r for r in rows if r["gate_decision"] == "SKIPPED_OPEN")
+    skip = next(r for r in rows if r["stop_code"] == "FILTERED_L1_ELIGIBILITY_POSITION_OPEN")
     assert skip["timestamp"] != T0
     _, mocks = _live(GateCycle("run_live_gate", "scheduler", T0),
                      candidates=[_signal("NVDA", sid=1)], open_tickers={"NVDA"})

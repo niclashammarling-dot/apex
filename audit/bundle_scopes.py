@@ -29,11 +29,12 @@ BY_CHECK: dict[int, str] = {
          "lock1_eligibility's calendar aliases are imported by tests/test_lock1_macro_blackout.py; kept with a "
          "noqa and a reason). `with get_db() as conn` leaks: `conn = get_db(); try: … finally: conn.close()`. "
          "One commit, ruff clean on the touched files, full suite. ~20 min."),
-    54: ("Dashboard funnel labels use the old lock numbering (FILTERED_L1 = Lock 2 Quant shown as 'L1 · Score', "
-         "FILTERED_L2 = Lock 3 Sentiment shown as 'L2 · Quant'; no L3 row). Scope (ruled: frontend reflects backend): "
-         "serve the lock chain from the backend (number, name, decision strings, config keys) and render adaptFunnel, "
-         "the Settings labels ('Lock 1 Fallback Threshold', 'Lock 2 Sentiment Min', App.jsx:673 map) and the "
-         "threshold panel from it; CHECK 54 goes clean. Half a day."),
+    54: ("Gate lock labels have one source (backend/gate/lock_codes.py, served at /api/gate/locks; lock labels "
+         "phase 1, 2026-10-26). A finding is either the table disagreeing with the approved chain (A: a filter stage's "
+         "label or a missing exit_lock), or the frontend holding a vocabulary of its own (B: a FILTERED_* code paired "
+         "with a label; C: a lock number written as text in any frontend/src .jsx file, 'L1 threshold' and '5-LOCK' included). Scope: render the named string from the table (as_api: "
+         "labels, badges, columns, config_labels, detail_labels) or correct the table row; never add a frontend map. "
+         "Verify: CHECK 54 clean, tests/test_audit_check54.py. ~30 min."),
     63: ("Composite dilution monitor (level check, standing since the ticker additions). Scope: read per-ticker "
          "scores since each addition vs the sector baseline; options per sector — keep the ticker, remove it, or "
          "convert the monitor to event severity (new crossings only; memory: level alerts become wallpaper). Decide "
@@ -48,7 +49,7 @@ BY_CHECK: dict[int, str] = {
          "may move the term): no action if the merge bounds the family, else a bound on _lr_ipo_cluster with a "
          "replay of the three pinned days. A third pin within 5 sessions before then = read first in the week. ~30 min."),
     67: ("Industrials composite below its critical floor after the ETN/PWR/TT additions. Scope: as CHECK 63; the "
-         "sector currently has no allocation (all FILTERED_ELIGIBILITY 10-05..10-09), so no live exposure — decide "
+         "sector currently has no allocation (all L1 eligibility `regime` stops 10-05..10-09), so no live exposure — decide "
          "ticker changes or event conversion."),
     68: ("Defense composite 0.27 vs floor 0.6 after AXON/HWM. Scope: as CHECK 63; also no allocation this week."),
     69: ("Technology composite below 0.56 after ANET. Scope: as CHECK 63 — Technology holds 5 of 9 live positions, "

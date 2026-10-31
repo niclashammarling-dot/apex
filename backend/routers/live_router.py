@@ -162,7 +162,8 @@ def live_gate_history():
         except Exception:
             pass
 
-    return {"rows": rows, "funnel": funnel, "blocked_reason": blocked_reason}
+    from backend.gate.lock_codes import as_api, decorate_rows
+    return {"rows": decorate_rows(rows, "live"), "funnel": funnel, "blocked_reason": blocked_reason, "locks": as_api()}
 
 
 @router.post("/config/promote")
@@ -173,8 +174,9 @@ def promote_demo_to_live():
     by demo_thresholds() via _PROMOTE_EXCLUDE:
       - starting_balance: demo=$2k, live=$100k — different denominators;
         leaked into live would corrupt sector exposure checks (notional/2000 = 1500%)
-      - daily_loss_cap: absolute dollars calibrated to account size; promoting
-        demo's $100 to live would impose a near-zero daily limit on a $100k account
+      - daily_loss_cap: absolute dollars calibrated to account size (demo's wallet reads it; the
+        live gate has not since 2026-10-24: L0 Portfolio sets 5 % of equity, portfolio_l0.py), kept
+        out of Promote so the live value stays account-scaled if L0's cap is ever removed
 
     Any new config key must be deliberately placed in _KEYS (promotable) or
     _PROMOTE_EXCLUDE (account-specific). Default-in-_KEYS means it gets promoted.

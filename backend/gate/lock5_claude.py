@@ -1,12 +1,14 @@
 """
-gate/lock5_claude.py — Lock 5: Claude Synthesis
+gate/lock5_claude.py — Lock 5: Claude Synthesis (L6 REVIEW in the chain, backend/gate/lock_codes.py)
 
-The final and most contextual gate in the apex lock chain.
-By the time a ticker reaches here it has passed:
-    Lock 1 — sector is actively allocated, macro conditions clear
-    Lock 2 — quant signal above sector threshold
-    Lock 3 — sentiment is not strongly negative
-    Lock 4 — leading signals confirm direction
+The final and most contextual gate in the apex lock chain. Module numbers and chain locks differ
+until the module rename (lock labels phase 3); by the time a ticker reaches here it has passed:
+    lock1_eligibility — L1 ELIGIBILITY (sector allocated, VIX, macro-event calendar) and L2 RISK's earnings block
+    lock2_quant       — L3 SCORE: signal score above the sector threshold, after L1's macro and L2's earnings penalties
+    lock3_sentiment   — L4 SENTIMENT: sentiment is not strongly negative
+    lock4_leading     — L5 POSITIONING: leading signals confirm direction
+    chain.py          — L2 RISK's sector-ETF penalty re-test of the score
+Claude sees the chain names (the prompt and the lock_results keys, _PAYLOAD_KEYS) since 2026-10-26.
 
 Claude's role is synthesis — does everything together make sense
 given the current portfolio state?
@@ -52,20 +54,25 @@ def _get_anthropic() -> anthropic.Anthropic:
 
 
 SYSTEM_PROMPT = """You are the final decision layer in an automated stock trading system.
-By the time a ticker reaches you it has already passed four independent filters:
-Lock 1 (regime eligibility + macro), Lock 2 (quantitative signal), Lock 3 (sentiment),
-and Lock 4 (leading indicators). Do NOT re-evaluate those — trust that they have done their job.
+By the time a ticker reaches you it has passed, in this order: L1 eligibility (market and sector state,
+the macro-event calendar) with L2 risk's earnings block, L3 score (price and volume against the sector
+threshold, after L1's macro-event and L2 risk's earnings penalties), L4 sentiment (what is said: analysts, news, social),
+L5 positioning (what is done with money: options, accumulation), and a re-test of the score after L2 risk's
+sector-ETF penalty. Their results are in lock_results (l1_eligibility, l3_score, l4_sentiment, l5_positioning).
+Do NOT re-evaluate those — trust that they have done their job.
 
 Your sole responsibilities are:
 1. Portfolio risk — compare open_positions against risk_limits.max_positions. Compute drawdown as (risk_limits.starting_balance - wallet_balance) / risk_limits.starting_balance. Reject if positions are at the limit or drawdown exceeds risk_limits.max_drawdown_pct.
 2. Sector concentration — compare this ticker's sector value in sector_exposure against risk_limits.sector_cap, the cap execution enforces for this sector today (dynamic: the flat base risk_limits.max_sector_exposure weighted by sector score, trend duration and regime allocation; sector_cap_source says whether the dynamic value or the flat fallback applies). Reject if at or near risk_limits.sector_cap.
-3. Sentiment synthesis — given the sentiment score and themes from Lock 3, is there any macro or qualitative reason NOT to enter this specific ticker right now?
-4. Gate history — if ticker_gate_history is provided, treat it as a pattern signal. Repeated L3 fails indicate persistent sentiment weakness. Repeated L4 fails indicate smart money is not positioning. A recent TRADE_EXECUTED means the ticker was entered recently and may still be in play.
+3. Sentiment synthesis — given the sentiment score and themes in lock_results.l4_sentiment, is there any macro or qualitative reason NOT to enter this specific ticker right now?
+4. Gate history — if ticker_gate_history is provided, treat it as a pattern signal. It lists this ticker's recent outcomes, newest first; `stage` is where each attempt stopped and `detail` the reason that stage recorded. Repeated stops at L4 · Sentiment indicate persistent sentiment weakness; at L5 · Positioning, that money is not positioning. Stops at L6 · Review are earlier rejections at your stage: your own, unless `detail` names the mechanical drawdown guard or anthropic_unavailable; for your own, approve now only if you can name what has changed. A recent Executed means the ticker was entered recently and may still be in play.
 5. When genuinely uncertain across all factors, output HOLD.
 
 For `position_size_pct`: if your decision is BUY, set this to risk_limits.max_position_size unless a specific portfolio risk factor (high drawdown, near position limit, sector near capacity) warrants reduction. Do NOT factor regime_bayes_allocation, regime_bayes_posterior, regime_bayes_adjusted_score, regime_bayes_qualified, regime_bayes_rank, or any Bayesian allocation field into your size. The regime allocation has already acted upstream: Lock 1 admits only sectors with allocation > 0, which is why this ticker reached you. After this gate the system rescales your size by this ticker's signal score relative to the other trades queued in its sector this cycle, and weights the sector cap by the allocation. Your sizing is pure portfolio risk management.
 
 Two regime fields form one statement. `market_leader` is the snapshot answer (highest raw sector score). `bayes_margin` is the trust-qualifier: 0 means conviction confirms the leader; above the signal threshold (~0.10) means the conviction layer has meaningfully higher belief in a different sector — in that case `bayes_conviction_leader` names it. Near-zero margin means treat the snapshot as trustworthy; high margin means treat the snapshot with caution and weigh the conviction leader more heavily. Do not manufacture a third signal from these two; they are one statement: state / confidence.
+
+market_leader, the rotation fields and the regime_bayes fields all derive from the same sector scores, so agreement among them is one piece of evidence, not three; independent confirmation comes only from sentiment and positioning.
 
 Return ONLY valid JSON with exactly these keys:
 {
@@ -145,11 +152,21 @@ def _fail_closed(cause: str) -> LockResult:
         lock_id=LOCK_ID,
         reason=reason,
         data={"decision": "HOLD", "confidence": 0.0, "position_size_pct": 0.0,
-              "reasoning": reason, "model": None},
+              "reasoning": reason, "model": None,
+              "unavailable": True},   # the rule is `unavailable`, not Claude's decision (lock_codes.RULES)
     )
 
 
 # ── Context payload ───────────────────────────────────────────────────────────
+
+# lock_results keys by module lock id: the chain's names, as the prompt uses them. Until 2026-10-26
+# they were the module names (lock1_eligibility … lock4_leading) while the prompt said Lock 1–4.
+_PAYLOAD_KEYS = {1: "l1_eligibility", 2: "l3_score", 3: "l4_sentiment", 4: "l5_positioning"}
+# The chain's bookkeeping in a lock's data (lock labels phase 2, 2026-10-29): which rules ran and whether a data
+# error decided the lock. It names rows; it is not evidence about the candidate, and the Lock 5 prompt approved
+# 2026-10-26 was written without it, so Claude's input stays as it was.
+_BOOKKEEPING = ("rule_states", "unavailable", "options_errors")
+
 
 def _build_context_payload(
     ticker:       str,
@@ -162,15 +179,14 @@ def _build_context_payload(
     Merges lock results summary into the existing runner context dict.
     """
     lock_summary = {}
-    lock_names   = {1: "Eligibility", 2: "Quant", 3: "Sentiment", 4: "Leading"}
-    for lid, name in lock_names.items():
+    for lid, key in _PAYLOAD_KEYS.items():
         r = lock_results.get(lid)
         if r:
-            lock_summary[f"lock{lid}_{name.lower()}"] = {
+            lock_summary[key] = {
                 "passed": r.passed,
                 "score":  round(r.score, 4),
                 "reason": r.reason,
-                "data":   r.data,
+                "data":   {k: v for k, v in r.data.items() if k not in _BOOKKEEPING},
             }
 
     payload = {

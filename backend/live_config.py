@@ -36,7 +36,6 @@ _KEYS = [
     "exit_cooloff_hours",
     "tp_cooloff_hours",
     "max_sector_exposure",
-    "lock_leading_min_pass",
     "lock4_pcr_mode",
     "starting_balance",
     "max_drawdown_pct",
@@ -67,7 +66,6 @@ def _defaults() -> dict:
         LIVE_STOP_LOSS_PCT,
         LIVE_TAKE_PROFIT_PCT,
         LOCK3_MAX_DRAWDOWN_PCT,
-        LOCK_LEADING_MIN_PASS,
         LIVE_LOCK4_PCR_MODE,
         MACRO_EARNINGS_BLACKOUT_DAYS,
         MACRO_EARNINGS_NEAR_DAYS,
@@ -105,7 +103,6 @@ def _defaults() -> dict:
         "exit_cooloff_hours":           EXIT_COOLOFF_HOURS,
         "tp_cooloff_hours":             TP_COOLOFF_HOURS,
         "max_sector_exposure":          LIVE_MAX_SECTOR_EXPOSURE,
-        "lock_leading_min_pass":        LOCK_LEADING_MIN_PASS,
         "lock4_pcr_mode":               LIVE_LOCK4_PCR_MODE,
         "starting_balance":             LIVE_STARTING_BALANCE,
         "max_drawdown_pct":             LOCK3_MAX_DRAWDOWN_PCT,
@@ -167,7 +164,8 @@ def _write_atomic(cfg: dict) -> None:
 
 # Settings that must never be promoted from demo — account-size specific.
 # starting_balance: demo=$2k, live=$100k — completely different denominator
-# daily_loss_cap:   absolute dollars calibrated to account size; demo=$100, live=$1000
+# daily_loss_cap:   absolute dollars calibrated to account size; demo=$100 (read by the demo wallet);
+#                   live is not read by the gate since 2026-10-24 (L0 Portfolio: 5 % of equity)
 _PROMOTE_EXCLUDE = {"starting_balance", "daily_loss_cap"}
 
 

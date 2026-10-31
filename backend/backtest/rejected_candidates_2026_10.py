@@ -39,8 +39,12 @@ N_B5        = 50                    # vol-matched draws per ticker-day (10 for e
 SD_ASSUMED  = 0.045                 # the card's pre-run power assumption
 EXIT        = {**ld.LIVE_EXIT, "pl": list(ld.LIVE_EXIT["pl"])}
 
-# gate_decision -> (stage rank, layer). The codes are numbered one behind the funnel's locks
-# (weekly_report._FUNNEL_LOCKS); the layer names are the funnel's. Niclas 10-20: fix Friday.
+# code -> (stage rank, layer): the card's frozen layers, by the place in the run where a row stopped. The codes
+# stored before lock labels phase 2 (2026-10-31) are numbered one behind the locks; after the migration they are
+# read from gate_code_migration.old_code, so a re-run reproduces the archived result. Rows written after it carry
+# a stop_code, mapped here to the same layers (STOP_LAYERS); skips, refusals after the review, broker errors and
+# unknown rows carry no judgment on the candidate and are dropped, as SKIPPED_*, TRADE_REJECTED and TRADE_FAILED
+# were. Every registered stop_code is in STOP_LAYERS or DROPPED_STOPS (test).
 STAGES = {
     "FILTERED_ELIGIBILITY":    (1, "eligibility"),
     "FILTERED_L1":             (2, "quant"),
@@ -51,20 +55,61 @@ STAGES = {
     "FILTERED_L3":             (6, "l5"),
     "TRADE_EXECUTED":          (9, "entered"),
 }
+_LAYER_OF_RULE = {
+    (1, "regime"): "FILTERED_ELIGIBILITY", (1, "vix"): "FILTERED_ELIGIBILITY",
+    (1, "macro_event"): "FILTERED_ELIGIBILITY", (2, "earnings"): "FILTERED_ELIGIBILITY",
+    (1, "macro_pre_event"): "FILTERED_L1", (2, "earnings_near"): "FILTERED_L1", (3, "threshold"): "FILTERED_L1",
+    (4, "grok"): "FILTERED_L2", (4, "unavailable"): "FILTERED_L2", (4, "unavailable_inferred"): "FILTERED_L2",
+    (5, "leading"): "FILTERED_LEADING", (5, "unavailable"): "FILTERED_LEADING", (2, "etf"): "FILTERED_ETF_PENALTY",
+    (2, "overflow"): "FILTERED_OVERFLOW_QUANT",
+    (6, "claude"): "FILTERED_L3", (6, "unavailable"): "FILTERED_L3", (6, "unavailable_inferred"): "FILTERED_L3",
+    (0, "drawdown_guard"): "FILTERED_L3",
+}
+DROPPED_RULES = {(0, "halt_m4_drawdown"), (0, "loss_cap"), (0, "halt_m4_expectancy"), (1, "blocklist"),
+                 (1, "position_open"), (1, "cooloff"), (1, "exit_cooloff"), (1, "notional_too_small"),
+                 (1, "price_missing"), (2, "max_positions"), (2, "sector_cap"), (6, "broker_error")}
+
+
+def _stop_layers() -> dict[str, tuple[int, str]]:
+    from backend.gate.lock_codes import TRADE_EXECUTED, stop_code
+    out = {stop_code(o, r): STAGES[old] for (o, r), old in _LAYER_OF_RULE.items()}
+    out[TRADE_EXECUTED] = STAGES["TRADE_EXECUTED"]
+    return out
+
+
+STOP_LAYERS = _stop_layers()
 TESTED   = ("l5", "sentiment", "leading")       # Holm family
 REPORTED = ("eligibility", "quant", "capacity")
 
 
+def gate_rows(con, since: str, until: str) -> list[tuple[str, str, str]]:
+    """(ticker, timestamp, code) for live_gate_history in [since, until): the code stored before phase 2 (from the
+    migration record where the row was migrated, else the stored gate_decision on a database not yet migrated),
+    or the stop_code of a row written after it."""
+    tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    cols = {r[1] for r in con.execute("PRAGMA table_info(live_gate_history)")}
+    code = "g.gate_decision"
+    join = ""
+    if "gate_code_migration" in tables:
+        join = "LEFT JOIN gate_code_migration m ON m.tbl = 'live_gate_history' AND m.row_id = g.id"
+        code = "COALESCE(m.old_code, g.stop_code, g.gate_decision)" if "stop_code" in cols else "COALESCE(m.old_code, g.gate_decision)"
+    elif "stop_code" in cols:
+        code = "COALESCE(g.stop_code, g.gate_decision)"
+    return con.execute(f"SELECT g.ticker, g.timestamp, {code} FROM live_gate_history g {join} "
+                       "WHERE g.timestamp >= ? AND g.timestamp < ?", (since, until)).fetchall()
+
+
 def label_ticker_days(rows: list[tuple[str, str, str]]) -> pd.DataFrame:
-    """rows: (ticker, utc timestamp, gate_decision). One row per ticker-day: the furthest stage
-    reached that day; SKIPPED_* and unknown codes carry no judgment and are dropped."""
+    """rows: (ticker, utc timestamp, code). One row per ticker-day: the furthest stage reached that day; codes
+    with no judgment on the candidate (skips, refusals after the review, broker errors, unknown) are dropped."""
     best: dict[tuple[str, str], tuple[int, str]] = {}
     for ticker, ts, dec in rows:
-        if dec not in STAGES:
+        stage = STAGES.get(dec) or STOP_LAYERS.get(dec)
+        if stage is None:
             continue
         key = (ticker, ts[:10])
-        if key not in best or STAGES[dec][0] > best[key][0]:
-            best[key] = STAGES[dec]
+        if key not in best or stage[0] > best[key][0]:
+            best[key] = stage
     return pd.DataFrame([{"ticker": t, "d": d, "layer": s[1]} for (t, d), s in sorted(best.items())],
                         columns=["ticker", "d", "layer"])
 
@@ -247,8 +292,7 @@ def main(argv: list[str] | None = None) -> int:
     P = ld.panels(pre)
     until = until_for(P["days"]) if a.end else UNTIL
     con = sqlite3.connect(f"file:{LIVE_DB}?mode=ro", uri=True)
-    rows = con.execute("SELECT ticker, timestamp, gate_decision FROM live_gate_history "
-                       "WHERE timestamp >= ? AND timestamp < ?", (since, until)).fetchall()
+    rows = gate_rows(con, since, until)
     import backend.db as db                          # canonical live sample, same DB, read only
     db.DB_PATH = LIVE_DB
     live = db.live_sample_rows(since=since)

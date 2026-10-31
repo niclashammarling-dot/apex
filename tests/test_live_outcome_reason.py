@@ -5,7 +5,9 @@ TRADE_REJECTED covered three causes and TRADE_FAILED any broker error; only
 the log said which, and logs are kept 14 days — the 13 rejections from
 2026-05-25..08-10 can never be attributed. These tests assert the reason on
 the row written to the DB (the insert mock's argument, not the return value),
-and the observe-only cap evidence the two-caps decision reads.
+and the observe-only cap evidence the two-caps decision reads. From lock labels phase 2 (2026-10-29) the row's
+code is the lock that owns the refusal (position_open and notional_too_small L1, sector_cap L2, broker_error L6),
+and outcome_reason keeps the identifier and the broker's message.
 """
 import json
 from contextlib import ExitStack
@@ -31,21 +33,22 @@ def _run(caps=None, extra=(), **kwargs):
 def test_position_open_reason():
     results, saved = _run(candidates=[_signal("NVDA")],
                           positions=[{"ticker": "NVDA", "cost_basis": 200.0}])
-    assert saved["gate_decision"] == "TRADE_REJECTED"
+    assert saved["stop_code"] == "FILTERED_L1_ELIGIBILITY_POSITION_OPEN"
     assert saved["outcome_reason"] == "position_open"
     assert saved["cap_check"] is None
 
 
 def test_notional_too_small_reason():
+    # Refused before the chain: the largest notional ($0.10) is below $10.
     results, saved = _run(candidates=[_signal()], account=_account(equity=1.0, buying_power=1.0))
-    assert saved["gate_decision"] == "TRADE_REJECTED"
+    assert saved["stop_code"] == "FILTERED_L1_ELIGIBILITY_NOTIONAL_TOO_SMALL"
     assert saved["outcome_reason"] == "notional_too_small"
 
 
 def test_sector_cap_reason_and_evidence():
     # notional = 10000 × 0.10 = 1000 → projected 0.10 of a 10000 book; dynamic cap 0.05
     results, saved = _run(candidates=[_signal()], caps={"Technology": 0.05})
-    assert saved["gate_decision"] == "TRADE_REJECTED"
+    assert saved["stop_code"] == "FILTERED_L2_RISK_SECTOR_CAP"
     assert saved["outcome_reason"] == "sector_cap"
     cc = saved["cap_check"]
     assert cc["source"] == "dynamic" and cc["cap"] == 0.05
@@ -65,7 +68,7 @@ def test_executed_trade_records_cap_check_with_flat_fallback():
 def test_broker_error_reason():
     boom = patch("backend.brokers.alpaca.place_bracket_order", side_effect=Exception("insufficient buying power"))
     results, saved = _run(candidates=[_signal()], extra=[boom])
-    assert saved["gate_decision"] == "TRADE_FAILED"
+    assert saved["stop_code"] == "FILTERED_L6_REVIEW_BROKER_ERROR"
     assert saved["outcome_reason"] == "broker_error: insufficient buying power"
 
 
@@ -80,14 +83,21 @@ def test_rejections_endpoint_round_trip():
             "lock3_reasoning": None, "alpaca_order_id": None}
     cc = {"source": "dynamic", "cap": 0.05, "flat": 0.30, "before": 0.0,
           "projected": 0.10, "over_cap": True, "over_flat": False}
-    db.insert_live_gate_result({**base, "ticker": "ZZA", "gate_decision": "TRADE_REJECTED",
-                                "outcome_reason": "sector_cap", "cap_check": cc})
-    # pre-2026-09-27 shape: no reason
-    db.insert_live_gate_result({**base, "ticker": "ZZB", "gate_decision": "TRADE_REJECTED"})
+    db.insert_live_gate_result({**base, "ticker": "ZZA", "gate_decision": "FILTERED_L2_RISK",
+                                "stop_code": "FILTERED_L2_RISK_SECTOR_CAP", "outcome_reason": "sector_cap",
+                                "cap_check": cc})
+    # A reasonless rejection (05-25..08-10 in history) is FILTERED_UNKNOWN after the migration.
+    db.insert_live_gate_result({**base, "ticker": "ZZB", "gate_decision": "FILTERED_UNKNOWN",
+                                "stop_code": "FILTERED_UNKNOWN"})
+    db.insert_demo_gate_result({**base, "ticker": "ZZC", "gate_decision": "FILTERED_L0_PORTFOLIO",
+                                "stop_code": "FILTERED_L0_PORTFOLIO_LOSS_CAP", "outcome_reason": "loss_cap",
+                                "lock_leading_pass": 1, "lock_leading_checks": None, "l2_summary": None,
+                                "macro_reason": None})
 
     out = get_live_rejections(days=1)
     reasons = out["days"][0]["reasons"]
-    assert reasons.get("sector_cap", 0) >= 1 and reasons.get("unattributed", 0) >= 1
+    assert reasons.get("sector_cap", 0) >= 1 and reasons.get("unknown", 0) >= 1
+    assert out["demo_days"][0]["reasons"].get("loss_cap", 0) >= 1          # demo writes its reason from phase 2
     row = next(c for c in out["caps"] if c["ticker"] == "ZZA")
     assert row["over_cap"] is True and row["over_flat"] is False
     assert out["summary"]["dynamic_rejects_flat_allows"] >= 1

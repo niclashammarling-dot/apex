@@ -2,9 +2,10 @@
 Pins the weekly-report fixes from the 2026-10-03 read against the DB
 (raw/notes/2026-10/2026-10-03-apex-weekly-report-read-against-db.md):
 
-- The funnel is built from gate_decision per lock, with each stage's reached
-  count. The old query counted open/cooloff skips as "L1 pass" and gated the
-  eligibility row on lock1_pass=1, which has never occurred.
+- The funnel counts each row once, under the lock and rule that stopped it
+  (stop_code; lock labels phase 2, 2026-10-29). The old query counted open/cooloff
+  skips as "L1 pass" and gated the eligibility row on lock1_pass=1, which has
+  never occurred; the skips are L1's rules now.
 - Decisions the stages don't name are shown, never dropped.
 - Per-sector closed P&L uses the same population as the totals.
 - Threshold rows state measured facts; the cause labels ("selloff",
@@ -16,18 +17,26 @@ can't land in it.
 import backend.config as config_module
 import backend.weekly_report as wr
 from backend.db import close_live_trade, get_db, init_db, insert_live_trade
+from backend.gate import lock_codes
 
 init_db()
 
 
-def _gate_rows(table: str, since: str, decisions: dict[str, int], sector: str = "Technology"):
+def _code(stop: str) -> str:
+    try:
+        return lock_codes.lock_code(lock_codes.parse_stop_code(stop)[0])
+    except KeyError:
+        return stop                                  # TRADE_EXECUTED, FILTERED_UNKNOWN, or a code no rule has
+
+
+def _gate_rows(table: str, since: str, stops: dict[str, int], sector: str = "Technology"):
     conn = get_db()
     try:
-        for decision, n in decisions.items():
+        for stop, n in stops.items():
             for i in range(n):
                 conn.execute(
-                    f"INSERT INTO {table} (timestamp, ticker, sector, gate_decision) VALUES (?, ?, ?, ?)",
-                    (since.replace("00:00:00", "15:00:00"), f"T{i}", sector, decision),
+                    f"INSERT INTO {table} (timestamp, ticker, sector, gate_decision, stop_code) VALUES (?, ?, ?, ?, ?)",
+                    (since.replace("00:00:00", "15:00:00"), f"T{i}", sector, _code(stop), stop),
                 )
         conn.commit()
     finally:
@@ -49,41 +58,47 @@ def _closed_live(tag: str, sector: str, exited_at: str, pnl: float, confidence: 
         conn.close()
 
 
-# Shape of the 09-28 demo week (measured 2026-10-03), plus one unknown decision.
+# Shape of the 09-28 demo week (measured 2026-10-03), by the rule that stopped each row after phase 2's
+# migration: the skips are L1 position_open / cooloff, every score row that week a macro pre-event bite.
 WEEK = {
-    "SKIPPED_OPEN": 426, "SKIPPED_COOLOFF": 373,
-    "FILTERED_ELIGIBILITY": 180, "FILTERED_L1": 6, "FILTERED_L2": 14,
-    "FILTERED_LEADING": 101, "FILTERED_L3": 5, "FILTERED_OVERFLOW_QUANT": 3,
-    "TRADE_EXECUTED": 6,
+    "FILTERED_L1_ELIGIBILITY_POSITION_OPEN": 426, "FILTERED_L1_ELIGIBILITY_COOLOFF": 373,
+    "FILTERED_L1_ELIGIBILITY_REGIME": 180, "FILTERED_L1_ELIGIBILITY_MACRO_PRE_EVENT": 6,
+    "FILTERED_L4_SENTIMENT_GROK": 14, "FILTERED_L5_POSITIONING_LEADING": 101, "FILTERED_L6_REVIEW_CLAUDE": 5,
+    "FILTERED_L2_RISK_OVERFLOW": 3, "TRADE_EXECUTED": 6,
 }
 
 
 class TestFunnel:
-    def test_stages_reproduce_the_hand_count(self):
+    def test_each_row_is_counted_once_under_its_lock_and_rule(self):
         since, until = "2031-03-03T00:00:00+00:00", "2031-03-10T00:00:00+00:00"
         _gate_rows("signals", since, WEEK)
         f = wr._funnel("demo", since, until)
-        assert f["reached_gate"] == 315
-        assert [(s["reached"], s["failed"]) for s in f["locks"]] == [(315, 180), (135, 6), (129, 14), (115, 101)]
-        assert f["passed_leading"] == 14
-        assert {a["outcome"]: a["n"] for a in f["after_leading"]}["Entered"] == 6
+        assert f["total"] == 1114
+        assert [(s["label"], s["count"]) for s in f["locks"]] == [
+            ("L0 · Portfolio", 0), ("L1 · Eligibility", 985), ("L2 · Risk", 3), ("L3 · Score", 0),
+            ("L4 · Sentiment", 14), ("L5 · Positioning", 101), ("L6 · Review", 5)]
+        assert {r["rule"]: r["count"] for r in f["locks"][1]["rules"]} == {
+            "position_open": 426, "cooloff": 373, "regime": 180, "macro_pre_event": 6}
+        assert f["entered"] == 6 and f["unknown"] == 0
         assert f["balanced"] and not f["other"]
 
-    def test_skips_never_count_as_passing_a_lock(self):
+    def test_skips_are_l1_rules_and_never_pass_a_lock(self):
         since, until = "2031-03-17T00:00:00+00:00", "2031-03-24T00:00:00+00:00"
-        _gate_rows("live_gate_history", since, {"SKIPPED_OPEN": 50, "SKIPPED_COOLOFF": 20, "SKIPPED_BLOCKLIST": 2})
+        _gate_rows("live_gate_history", since, {"FILTERED_L1_ELIGIBILITY_POSITION_OPEN": 50,
+                                                "FILTERED_L1_ELIGIBILITY_EXIT_COOLOFF": 20,
+                                                "FILTERED_L1_ELIGIBILITY_BLOCKLIST": 2})
         f = wr._funnel("live", since, until)
-        assert f["reached_gate"] == 0
-        assert all(s["reached"] == 0 for s in f["locks"])
+        assert [s["count"] for s in f["locks"]] == [0, 72, 0, 0, 0, 0, 0] and f["entered"] == 0
 
-    def test_unknown_decision_is_shown_not_dropped(self):
+    def test_unknown_and_unregistered_codes_are_shown_not_dropped(self):
         since, until = "2031-03-31T00:00:00+00:00", "2031-04-07T00:00:00+00:00"
-        _gate_rows("live_gate_history", since, {"FILTERED_L3": 1, "FILTERED_SOMETHING_NEW": 2})
+        _gate_rows("live_gate_history", since, {"FILTERED_L6_REVIEW_CLAUDE": 1, "FILTERED_UNKNOWN": 1,
+                                                "FILTERED_SOMETHING_NEW": 2})
         f = wr._funnel("live", since, until)
-        assert f["other"] == {"FILTERED_SOMETHING_NEW": 2}
+        assert f["other"] == {"FILTERED_SOMETHING_NEW": 2} and f["unknown"] == 1
         assert f["balanced"]
         plain = wr._plain_funnel("Live", f)
-        assert "FILTERED_SOMETHING_NEW 2" in plain
+        assert "FILTERED_SOMETHING_NEW 2" in plain and "unknown 1" in plain
 
 
 class TestSectorPnl:
@@ -114,7 +129,8 @@ class TestReportText:
             assert "regime floor" not in text
             assert "drifted up" not in text
             assert "no recalibration needed" not in text
-        assert "180 of 315 filtered" in html and "180 of 315 filtered" in plain
+        assert "985 (position_open 426, cooloff 373, regime 180, macro_pre_event 6)" in html
+        assert "985 stopped (position_open 426, cooloff 373, regime 180, macro_pre_event 6)" in plain
         assert "no threshold moved" in plain
 
     def test_calibration_fact_states_what_happened(self):

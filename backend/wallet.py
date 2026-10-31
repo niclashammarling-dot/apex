@@ -36,6 +36,11 @@ from backend.db import (
     update_trade_peak_price,
 )
 from backend.demo_config import get_demo_config
+from backend.gate.lock_codes import FAIL, PASS, put
+
+# The smallest demo order (L1 notional_too_small): checked here at execution and by the gate runner before the
+# chain on the largest possible notional.
+MIN_ORDER = 50.0
 
 # ── Execution ────────────────────────────────────────────────────────────────
 
@@ -50,7 +55,20 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
 
     overflow: if True, skip the max_positions check. The gate runner has already
     verified that the ticker cleared the escalating overflow quant threshold.
+
+    Every check that runs is recorded in gate_result["rule_states"] (lock_codes.put), and a refusal sets
+    gate_result["outcome_reason"] to its rule's identifier, as the live runner does (lock labels phase 2,
+    2026-10-28: "demo = live except trading"): max_positions and sector_cap (L2), loss_cap (L0),
+    position_open, notional_too_small and price_missing (L1).
     """
+    states = gate_result.setdefault("rule_states", {})
+
+    def _check(ident: str, refused: bool) -> bool:
+        put(states, ident, FAIL if refused else PASS)
+        if refused:
+            gate_result["outcome_reason"] = ident
+        return refused
+
     ticker   = gate_result["ticker"]
     sector   = gate_result["sector"]
     position = gate_result["lock3"]["position_size_pct"] if gate_result.get("lock3") else 0.10
@@ -62,7 +80,7 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
     max_positions  = cfg.get("max_positions", MAX_POSITIONS)
 
     # Risk checks
-    if not overflow and portfolio["open_position_count"] >= max_positions:
+    if not overflow and _check("max_positions", portfolio["open_position_count"] >= max_positions):
         logger.warning(f"Trade rejected [{ticker}]: max positions ({max_positions}) reached")
         return None
 
@@ -71,7 +89,7 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
     # so compute the new trade's contribution on the same denominator.
     new_trade_exposure = (portfolio["cash"] * position) / STARTING_BALANCE
     projected_exp = portfolio["sector_exposure"].get(sector, 0.0) + new_trade_exposure
-    if projected_exp > max_sector_exp:
+    if _check("sector_cap", projected_exp > max_sector_exp):
         logger.warning(
             f"Trade rejected [{ticker}]: {sector} projected at {projected_exp:.0%} "
             f"(cap {max_sector_exp:.0%})"
@@ -81,23 +99,23 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
     # Daily loss cap
     daily_loss     = _daily_realized_loss()
     daily_loss_cap = cfg.get("daily_loss_cap", DAILY_LOSS_CAP)
-    if daily_loss >= daily_loss_cap:
+    if _check("loss_cap", daily_loss >= daily_loss_cap):
         logger.warning(f"Trade rejected [{ticker}]: daily loss cap hit (${daily_loss:.2f} >= ${daily_loss_cap})")
         return None
 
     # Already holding this ticker?
     open_tickers = {t["ticker"] for t in get_open_trades()}
-    if ticker in open_tickers:
+    if _check("position_open", ticker in open_tickers):
         logger.info(f"Trade skipped [{ticker}]: position already open")
         return None
 
     max_position_size = cfg.get("max_position_size", MAX_POSITION_SIZE)
     amount = portfolio["cash"] * min(position, max_position_size)
-    if amount < 50:
+    if _check("notional_too_small", amount < MIN_ORDER):
         logger.warning(f"Trade rejected [{ticker}]: insufficient cash (${portfolio['cash']:.2f})")
         return None
 
-    if not price:
+    if _check("price_missing", not price):
         logger.warning(f"Trade rejected [{ticker}]: price is {price!r}")
         return None
 

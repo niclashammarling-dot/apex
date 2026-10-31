@@ -10,11 +10,13 @@ ticker ahead of a move?":
   4. volume_accumulation  — up/down volume ratio > 1.2 over 20 days (equity-market
                             accumulation; independent of options and price momentum)
 
-Passes when at least min_pass (default 2) of the 4 checks pass.
+Passes when both groups pass: price (relative strength, volume accumulation; no data error)
+and options (put/call ratio, unusual calls). Until 2026-06-03 it passed at 2 of the 4 checks
+(min_pass); that flat rule let the CRM/NVDA/FDX entries through (CHECK 49, 50).
 
 Public API:
     from gate.lock4_leading import evaluate
-    result = evaluate(ticker, sector, min_pass=2)
+    result = evaluate(ticker, sector)
 """
 from __future__ import annotations
 
@@ -54,7 +56,6 @@ _YF_CALL_TIMEOUT_S      = 15
 _YF_SEMAPHORE_TIMEOUT_S = 20
 
 LOCK_ID  = 4
-MIN_PASS = 2
 
 
 class _YfSemaphoreBusy(Exception):
@@ -141,8 +142,7 @@ VOL_ACCUM_THRESHOLD = 1.2
 VOL_ACCUM_WINDOW    = 20  # trading days
 
 
-def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS,
-             pcr_mode: str = "pooled_scalar") -> LockResult:
+def evaluate(ticker: str, sector: str, pcr_mode: str = "pooled_scalar") -> LockResult:
     """
     Evaluate leading signals for a ticker.
 
@@ -153,16 +153,13 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS,
           no errors, ≥1 pass → price group PASS
       OPTIONS group (put_call_ratio, unusual_calls):
           ≥1 pass → options group PASS
-          (options errors surface at the shared fetch level, not per-check)
+          (options errors surface at the shared fetch level: a failed fetch marks both checks
+           `error`, so a fail it decides is L5 `unavailable`, data["unavailable"])
       LD passes only when BOTH groups pass.
-
-    The min_pass parameter is kept for backward compat with chain.py's cfg lookup
-    but is no longer used in the pass logic.
 
     Args:
         ticker:   Stock ticker symbol
         sector:   Apex sector name
-        min_pass: Unused — retained for caller compat only
 
     Returns:
         LockResult with lock_id=4
@@ -194,7 +191,9 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS,
         logger.warning(f"Lock 4 [{ticker}] options fetch: {e}")
         options_chains = []
         msg = str(e)
-        if "curl" in msg.lower() or "tls" in msg.lower():
+        if isinstance(e, MissingChainError):
+            options_fetch_err = msg[:80]
+        elif "curl" in msg.lower() or "tls" in msg.lower():
             options_fetch_err = "curl TLS error"
         elif "429" in msg or "rate" in msg.lower():
             options_fetch_err = "Yahoo 429 rate limit"
@@ -234,6 +233,7 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS,
     options_checks = [checks["put_call_ratio"],     checks["unusual_calls"]]
 
     price_errors      = sum(1 for c in price_checks   if c and c.get("error"))
+    options_errors    = sum(1 for c in options_checks if c and c.get("error"))
     price_passes      = sum(1 for c in price_checks   if c and c.get("pass"))
     options_passes    = sum(1 for c in options_checks if c and c.get("pass"))
 
@@ -248,11 +248,15 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS,
     data = {
         "checks":              checks,
         "pass_count":          pass_count,
-        "min_pass":            min_pass,
         "failed_checks":       failed_checks,
         "price_group_pass":    price_group_pass,
         "options_group_pass":  options_group_pass,
         "price_errors":        price_errors,
+        "options_errors":      options_errors,
+        # A data error decided the failing group: the rule is `unavailable`, not `leading` (lock_codes.RULES).
+        # The price group fails on any error; the options group decides only when the price group passed.
+        "unavailable":         (not passed) and ((not price_group_pass and price_errors > 0)
+                                                 or (price_group_pass and options_errors > 0)),
         # Kept for DB compat (lock_leading_checks serialised as JSON)
         "sub_checks":          checks,
     }
@@ -266,6 +270,8 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS,
             )
         elif not price_group_pass:
             reason = "price group failed — neither RS nor VA passed"
+        elif options_errors > 0:
+            reason = f"options group failed ({options_errors} error(s)) — {checks['put_call_ratio']['reason'][:60]}"
         else:
             reason = "options group failed — neither PCR nor unusual calls passed"
         logger.debug(f"Lock 4 [{ticker}] FAIL — {reason}")
@@ -282,14 +288,24 @@ def evaluate(ticker: str, sector: str, min_pass: int = MIN_PASS,
 
 # ── Sub-checks ────────────────────────────────────────────────────────────────
 
+class MissingChainError(Exception):
+    """A listed expiry's chain did not arrive on any attempt: the rest is half the input (2026-10-31)."""
+
+
 def _fetch_options_chains(ticker: str) -> list[tuple]:
     """
     Fetch near-term options chains once per ticker per Lock 4 evaluation.
-    Returns [(calls_df, puts_df), ...] for the first 2 expiries.
+    Returns [(calls_df, puts_df, expiry), ...] for the first 2 expiries.
     Both put_call_ratio and unusual_calls consume this shared list.
 
     Retries once on curl TLS errors and on silently-empty t.options — both are
     intermittent under concurrent load via the shared curl_cffi BoringSSL singleton.
+
+    A listed expiry whose chain is missing (None calls/puts, or a fetch exception) retries the whole
+    fetch, and raises MissingChainError when the last attempt is still short, so the options group
+    decides L5 `unavailable` instead of evaluating on half its input. Found 2026-10-29: the nearest
+    expiry's chain came back None in EOG 9 of 12 and TMO 6 of 12 cycles, skipped without a log, and
+    both options checks ran on the second expiry alone (vault phase 2 scope note, fifteenth round).
     """
     _RETRY_DELAYS = [1.5, 3.0]  # seconds before attempt 2, 3
     last_exc: Exception | None = None
@@ -309,17 +325,19 @@ def _fetch_options_chains(ticker: str) -> list[tuple]:
                 for exp in expiries[:2]:
                     try:
                         chain = t.option_chain(exp)
-                        # Under concurrent session reuse, .calls/.puts can be None
-                        # instead of an empty DataFrame — guard before appending.
-                        if chain.calls is not None and chain.puts is not None:
-                            chains.append((chain.calls, chain.puts))
                     except Exception as e:
-                        logger.warning(f"Lock 4 [{ticker}] chain fetch {exp}: {e}")
+                        raise MissingChainError(f"missing chain {exp}: {str(e)[:60]}") from e
+                    # Under concurrent session reuse, .calls/.puts can be None
+                    # instead of an empty DataFrame.
+                    if chain.calls is None or chain.puts is None:
+                        raise MissingChainError(f"missing chain {exp}")
+                    chains.append((chain.calls, chain.puts, exp))
                 return chains
         except Exception as e:
             last_exc = e
             if attempt < 2:
                 logger.warning(f"Lock 4 [{ticker}] options attempt {attempt + 1} failed ({e}), retrying")
+    logger.warning(f"Lock 4 [{ticker}] options fetch failed after 3 attempts: {last_exc}")
     raise last_exc  # type: ignore[misc]
 
 
@@ -389,13 +407,18 @@ def _check_put_call_ratio(chains: list[tuple], fetch_err: str | None = None,
                            in threshold_mode so the fallback rate is observable.
     """
     if not chains:
-        reason = f"no options data ({fetch_err})" if fetch_err else "no options data (no listed expiries)"
-        return {"pass": False, "reason": reason}
+        if fetch_err:   # a fetch error is a data error (L5 `unavailable`); no listed expiries is not
+            return {"pass": False, "error": True, "reason": f"no options data ({fetch_err})"}
+        return {"pass": False, "reason": "no options data (no listed expiries)"}
 
     call_oi = put_oi = 0
-    for calls, puts in chains:
-        call_oi += int(calls["openInterest"].fillna(0).sum())
-        put_oi  += int(puts["openInterest"].fillna(0).sum())
+    by_expiry: dict[str, list[int]] = {}   # stored so each decision can be re-derived from its row
+    for calls, puts, *exp in chains:
+        c, p = int(calls["openInterest"].fillna(0).sum()), int(puts["openInterest"].fillna(0).sum())
+        call_oi += c
+        put_oi  += p
+        if exp:
+            by_expiry[exp[0]] = [c, p]
 
     if call_oi + put_oi == 0:
         return {"pass": False, "reason": "zero open interest"}
@@ -426,6 +449,7 @@ def _check_put_call_ratio(chains: list[tuple], fetch_err: str | None = None,
         "put_oi":         put_oi,
         "threshold":      round(threshold, 4),
         "threshold_mode": threshold_mode,
+        **({"oi_by_expiry": by_expiry} if by_expiry else {}),
         **extra,
         "reason":         f"P/C {pc:.2f} vs threshold {threshold:.2f} [{threshold_mode}] "
                           f"({'bullish' if passed else 'neutral/bearish'})",
@@ -435,11 +459,12 @@ def _check_put_call_ratio(chains: list[tuple], fetch_err: str | None = None,
 def _check_unusual_call_volume(chains: list[tuple], fetch_err: str | None = None) -> dict:
     """Call volume >= 2x put volume across near-term expiries."""
     if not chains:
-        reason = f"no options data ({fetch_err})" if fetch_err else "no options data (no listed expiries)"
-        return {"pass": False, "reason": reason}
+        if fetch_err:   # a fetch error is a data error (L5 `unavailable`); no listed expiries is not
+            return {"pass": False, "error": True, "reason": f"no options data ({fetch_err})"}
+        return {"pass": False, "reason": "no options data (no listed expiries)"}
 
     call_vol = put_vol = 0
-    for calls, puts in chains:
+    for calls, puts, *_ in chains:
         call_vol += int(calls["volume"].fillna(0).sum())
         put_vol  += int(puts["volume"].fillna(0).sum())
 

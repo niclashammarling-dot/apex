@@ -78,7 +78,7 @@ def check24():
 
 def check25():
     """
-    Verify that every gate_decision string emitted by _OUTCOMES in gate_runner.py
+    Verify that every gate_decision string the writers emit (backend/gate/lock_codes.py codes_for)
     is handled by all consumers:
       - the rendered gate feed and lock states in ApexTerminal.jsx
       - the funnel and gate-row adapters in App.jsx
@@ -103,13 +103,18 @@ def check25():
     if not runner.exists():
         return
 
-    runner_text = runner.read_text()
-    outcomes    = re.findall(r'\d+:\s*"(FILTERED_[A-Z_]+)"', runner_text)
-    if not outcomes:
+    # Since lock labels phase 1 (2026-10-26) the emitted codes come from the one table, not a
+    # literal _OUTCOMES dict; a consumer that reads the table (import or /api/gate/locks) handles
+    # every code by construction, and only a consumer with its own literals is compared. Since phase 2
+    # (2026-10-31) every writer derives the code from the row's rule_states (lock_codes.codes_for): a lock
+    # code per lock, TRADE_EXECUTED, or FILTERED_UNKNOWN.
+    from backend.gate import lock_codes
+    outcomes = [lock_codes.lock_code(n) for n in sorted(lock_codes.LOCKS)] + [lock_codes.TRADE_EXECUTED,
+                                                                              lock_codes.UNKNOWN]
+    if "codes_for" not in runner.read_text():
         flag(25, "gate_decision string parity", "WARNING",
-             "backend/gate/gate_runner.py:_OUTCOMES",
-             "_OUTCOMES dict not found or no FILTERED_* strings — pattern changed")
-        return
+             "backend/gate/gate_runner.py",
+             "gate_runner.py no longer derives its codes through lock_codes.codes_for — they may not be the table's")
 
     for path in decision_consumers:
         if not path.exists():
@@ -120,16 +125,19 @@ def check25():
             label = path.name
             if not path.exists():
                 continue
-            if outcome not in path.read_text():
+            text = path.read_text()
+            if "/api/gate/locks" in text or "lock_codes" in text:
+                continue
+            if outcome not in text:
                 flag(25, "gate_decision string parity", "CRITICAL",
                      str(path.relative_to(REPO)),
-                     f'"{outcome}" emitted by _OUTCOMES but not handled in {label} '
+                     f'"{outcome}" emitted by the chain (lock_codes) but not handled in {label} '
                      f'(getLockStates or badge label) — unrecognized decision shows all-green locks')
 
-        if db_file.exists() and outcome not in db_file.read_text():
+        if db_file.exists() and "lock_codes" not in db_file.read_text() and outcome not in db_file.read_text():
             flag(25, "gate_decision string parity", "WARNING",
                  "backend/db.py",
-                 f'"{outcome}" emitted by _OUTCOMES but not referenced in db.py '
+                 f'"{outcome}" emitted by the chain (lock_codes) but not referenced in db.py '
                  f'— funnel counts for this outcome will silently be 0')
 
     # Sub-check B: ticker signal strings
@@ -319,8 +327,11 @@ def check38():
     insider_cluster dead sub-check, promote-exclusion near-miss.
 
     N=5: one trading week of silence before surfacing.
-    M=5: minimum FILTERED_* + TRADE_EXECUTED assessments per day to confirm gate ran.
+    M=5: minimum FILTERED_* + TRADE_EXECUTED assessments per day to confirm gate ran (skips left out:
+    lock_codes.skip_sql, the L1 rules that stop a candidate before any chain lock runs; SKIPPED_* before
+    lock labels phase 2). The breakdown names the stopping rule (stop_code).
     """
+    from backend.gate.lock_codes import skip_sql
     N = 5
     M = 5
 
@@ -344,7 +355,7 @@ def check38():
                    SUM(CASE WHEN gate_decision = 'TRADE_EXECUTED' THEN 1 ELSE 0 END) as entries,
                    COUNT(*) as assessments
             FROM live_gate_history
-            WHERE gate_decision NOT LIKE 'SKIPPED_%'
+            WHERE gate_decision IS NOT NULL AND NOT {skip_sql()}
             {since_clause}
             GROUP BY day
             ORDER BY day
@@ -369,11 +380,11 @@ def check38():
     try:
         conn = sqlite3.connect(db)
         filter_rows = conn.execute(f"""
-            SELECT gate_decision, COUNT(*) as cnt
+            SELECT stop_code, COUNT(*) as cnt
             FROM live_gate_history
-            WHERE gate_decision LIKE 'FILTERED_%'
+            WHERE gate_decision LIKE 'FILTERED_%' AND NOT {skip_sql()}
             {since_clause}
-            GROUP BY gate_decision
+            GROUP BY stop_code
             ORDER BY cnt DESC
             LIMIT 3
         """).fetchall()
@@ -546,69 +557,71 @@ def check53() -> None:
 
 # ── CHECK 54 — Gate funnel label/lock semantic parity ─────────────────────────
 
-# Canonical exit_lock semantics, from _chain_to_gate_result's docstring in
-# gate_runner.py (DB column mapping comment: "semantics shifted").
-_CANONICAL_LOCK_KEYWORDS = {
-    1: "Eligibility",
-    2: "Quant",
-    3: "Sentiment",
-    4: "Leading",
-    5: "Claude",
-}
-
-
 def check54() -> None:
     """
-    CHECK 54 — gate funnel label/lock semantic parity.
+    CHECK 54 — gate lock labels have one source.
 
-    _OUTCOMES in gate_runner.py maps exit_lock N to a FILTERED_* string under a
-    legacy numbering ("semantics shifted" per _chain_to_gate_result's docstring:
-    lock1_pass=Quant, lock2_pass=Sentiment, lock3_pass=Claude). adaptFunnel in
-    App.jsx then maps those same FILTERED_* strings to display labels. If a
-    label's keyword doesn't match the lock that actually produced the string,
-    a rejection from one lock is displayed under another lock's label — e.g.
-    Quant rejections shown as "L1 Score" and Sentiment rejections shown as
-    "L2 Quant", with no bucket for the lock whose keyword was displaced.
-
-    Prevented by: 2026-06-11 finding — funnel showed L4 (Leading fails) > L2
-    (labelled Quant fails) with no L3 row, traced to this label/lock drift.
+    Found 2026-06-11: the funnel labelled quant rejections "L1 Score" and sentiment rejections
+    "L2 Quant", with no L3 row, because the stored codes run one behind the lock numbers and
+    App.jsx kept its own label map. Rewritten 2026-10-26 (lock labels phase 1: one table,
+    backend/gate/lock_codes.py, served at /api/gate/locks):
+      A. the table agrees with the approved chain: every lock's label starts "L<n> · " and names its chain
+         name, every rule is owned by a lock of the chain, and every module lock maps to one (since lock
+         labels phase 2, 2026-10-31, the stored code is the owner's lock code, so these are the stored labels);
+      B. the frontend holds no label of its own for a gate code: a FILTERED_* string paired with
+         a label in App.jsx or ApexTerminal.jsx is a second vocabulary, which is how the drift
+         happened;
+      C. the frontend holds no lock number of its own: a JSX text "L<n>:", a string literal
+         starting "Lock <n>" or "L<n> · ", or "L<n>" followed by a word ("L1 threshold"), or a lock
+         count ("5-LOCK"), in any frontend/src .jsx file (comments excluded). Added after the phase 1
+         review (2026-10-26, R5): B only saw code/label pairs, so the Terminal's detail panel kept
+         "L1: L3: L4: L5:" in the old numbering, and "L5:" sat on a column that holds every stage's
+         reason. Widened the same day (Niclas: "När alla lock är designade och klara så måste det
+         synas rätt överallt. Det gäller också dashboard, funnel och gate activity"): the funnel
+         title said "5-LOCK", and Sector Rotation and the Backtest panel called the score threshold
+         "L1 threshold"; none was in the two files C read.
     """
-    runner   = REPO / "backend/gate/gate_runner.py"
-    app_jsx  = REPO / "frontend/src/App.jsx"
-    if not runner.exists() or not app_jsx.exists():
-        return
+    from backend.gate import lock_codes
 
-    runner_text = runner.read_text()
-    outcomes = dict(re.findall(r'(\d+):\s*"(FILTERED_[A-Z0-9_]+)"', runner_text))
-    if not outcomes:
-        flag(54, "gate funnel label/lock semantic parity", "WARNING",
-             "backend/gate/gate_runner.py:_OUTCOMES",
-             "_OUTCOMES dict not found or no FILTERED_* strings — pattern changed")
-        return
-
-    app_text = app_jsx.read_text()
-    rows = re.findall(r'stage:\s*"(FILTERED_[A-Z0-9_]+)",\s*label:\s*"([^"]+)"', app_text)
-    label_by_stage = dict(rows)
-    if not label_by_stage:
-        flag(54, "gate funnel label/lock semantic parity", "WARNING",
-             "frontend/src/App.jsx:adaptFunnel",
-             "no FILTERED_* stage/label rows found — pattern changed")
-        return
-
-    for lock_num_str, outcome in outcomes.items():
-        lock_num = int(lock_num_str)
-        keyword  = _CANONICAL_LOCK_KEYWORDS.get(lock_num)
-        if keyword is None:
-            continue
-        label = label_by_stage.get(outcome)
-        if label is None:
-            continue  # CHECK 25 already flags missing labels
-        if keyword.lower() not in label.lower():
+    for n, (name, _, _) in sorted(lock_codes.LOCKS.items()):
+        label = lock_codes.lock_label(n)
+        if not label.startswith(f"L{n} · ") or name.lower() not in label.lower():
+            flag(54, "gate funnel label/lock semantic parity", "WARNING", "backend/gate/lock_codes.py:LOCKS",
+                 f'lock {n} is labelled "{label}", not its chain name {name}')
+    for r in lock_codes.RULES:
+        if r.owner not in lock_codes.LOCKS:
+            flag(54, "gate funnel label/lock semantic parity", "WARNING", "backend/gate/lock_codes.py:RULES",
+                 f"rule {r.name} is owned by lock {r.owner}, which the chain does not have")
+    for module in range(1, 6):
+        if lock_codes.MODULE_TO_CHAIN.get(module) not in lock_codes.LOCKS:
             flag(54, "gate funnel label/lock semantic parity", "WARNING",
-                 "frontend/src/App.jsx:adaptFunnel",
-                 f'exit_lock {lock_num} ({keyword}) emits "{outcome}", which '
-                 f'adaptFunnel labels "{label}" — funnel shows {keyword} '
-                 f'rejections under a different lock\'s label')
+                 "backend/gate/lock_codes.py:MODULE_TO_CHAIN",
+                 f"module lock {module} maps to no chain lock — its stops would have no owner")
+
+    lock_number = re.compile(r'>\s*(L[0-9]):\s*<|["\'`](Lock [0-9]|L[0-9] · )'
+                             r'|(?<![\w$])(L[0-6])(?=[ \t·:]+[A-Za-z])|\b([0-9]-LOCK)\b', re.I)
+    pair = re.compile(r'(?:stage:\s*"|^\s*)(FILTERED_[A-Z0-9_]+)"?\s*[:,]\s*(?:label:\s*)?[{]?\s*(?:label:\s*)?["`]', re.M)
+    for rel in ("frontend/src/App.jsx", "frontend/src/components/ApexTerminal.jsx"):
+        path = REPO / rel
+        if not path.exists():
+            flag(54, "gate funnel label/lock semantic parity", "WARNING", rel,
+                 "frontend file missing — the check reads nothing for it; retarget CHECK 54")
+            continue
+        text = path.read_text()
+        own = sorted(set(pair.findall(text)))
+        if own:
+            flag(54, "gate funnel label/lock semantic parity", "WARNING", rel,
+                 f"{len(own)} gate code(s) carry a label of their own ({', '.join(own)}) — "
+                 f"render them from /api/gate/locks")
+    for path in sorted((REPO / "frontend/src").rglob("*.jsx")):
+        lines = (re.sub(r"\{/\*.*?\*/\}", "", re.sub(r"(^|\s)//.*$", r"\1", ln))
+                 for ln in path.read_text().splitlines())
+        numbers = sorted({next(g for g in m.groups() if g).strip()
+                          for ln in lines for m in lock_number.finditer(ln)})
+        if numbers:
+            flag(54, "gate funnel label/lock semantic parity", "WARNING", str(path.relative_to(REPO)),
+                 f"{len(numbers)} lock number(s) written in the frontend ({', '.join(numbers)}) — "
+                 f"take the label from /api/gate/locks")
 
 
 def check64() -> None:
@@ -1799,53 +1812,73 @@ def check88() -> None:
          + f"; {len(b.get('excepted', []))} excepted")
 
 
-# ── CHECK 90 — Lock 5 output after the 2026-10-19 prompt change ────────────────
+# ── CHECK 90 — Lock 5 output after each prompt change ─────────────────────────
 
-_C90_CHANGE = "2026-10-19"   # first session on the corrected L5 prompt (Monday restart)
-_C90_REVIEW = "2026-10-24"   # Niclas 10-17: follow-up read in the Friday bundle, review that Saturday
-_C90_PRIOR_DAYS = 28         # the four weeks before the change
+# (first session on the changed prompt, review date, what changed, who set the review). The check reads
+# the latest change that has started; its "before" window runs back 4 weeks or to the previous change.
+_C90_CHANGES = (
+    ("2026-10-19", "2026-10-24", "rationale clause + enforced sector cap, not separable here",
+     "Niclas 10-17"),
+    # Lock labels: chain names and lock_results keys, gate-history stages, dependency note. The branch
+    # merges 2026-10-31 and the serving backend picks it up at its next start (Monday 13:20); if the merge
+    # moves, this date moves with it.
+    ("2026-11-02", "2026-11-09", "chain names, gate-history stages and the dependency note (lock labels)",
+     "Niclas 10-26: \"Sätt review om 2 veckor\""),
+)
+_C90_PRIOR_DAYS = 28         # at most four weeks before the change
 
 
 def check90(today: date | None = None) -> None:
     """
-    CHECK 90 — did the corrected Lock 5 prompt move L5's decisions or sizes?
+    CHECK 90 — did a Lock 5 prompt change move L5's decisions or sizes?
 
-    Two L5 changes go live together on 10-19 and this window cannot tell them apart:
-    (1) the rationale clause ("allocation weighting is handled downstream" → the
-    allocation acts upstream in Lock 1; the post-L5 multiplier is score-relative), the
-    binding no-Bayesian-sizing sentence unchanged; (2) L5 judges risk_limits.sector_cap,
-    the dynamic cap execution enforces, instead of the flat max_sector_exposure. Niclas
-    10-17: one point at a time — the other three L5 points wait for the 10-24 review. Compares, on live_gate_history and
-    live_trades, the four weeks before _C90_CHANGE with the days since:
-      - L5 approval share: TRADE_EXECUTED + TRADE_FAILED over those plus FILTERED_L3
-        (the L5 reject), fail-closed rows (CHECK 81's prefix) excluded — those were
-        never Claude's judgement;
+    One row in _C90_CHANGES per change. 2026-10-19: two L5 changes went live together and the window
+    cannot tell them apart: (1) the rationale clause ("allocation weighting is handled downstream" → the
+    allocation acts upstream in Lock 1; the post-L5 multiplier is score-relative), the binding
+    no-Bayesian-sizing sentence unchanged; (2) L5 judges risk_limits.sector_cap, the dynamic cap execution
+    enforces, instead of the flat max_sector_exposure. 2026-11-02: the lock labels prompt (approved by
+    Niclas 2026-10-26): the chain's names in the prompt and the lock_results keys, the gate history read by
+    stage, and the note that the regime fields are one piece of evidence.
+
+    Compares, on live_gate_history and live_trades, the window before the latest started change (four
+    weeks, or back to the previous change if that is nearer) with the days since:
+      - L5 approval share: Claude's approvals (lock3_pass 1) over those plus Claude's rejections (stop_code
+        L6 claude). Fail-closed rows (L6 unavailable, CHECK 81's prefix), the guard (L0 since lock labels
+        phase 2) and execution refusals before L6 are not Claude's judgement and are not counted. Until phase 2
+        this read TRADE_EXECUTED + TRADE_FAILED against FILTERED_L3 minus the prefix; on the migrated history the
+        same rows are Claude's decisions, plus approvals the execution phase then refused (sector cap, too small
+        a notional), which were left out before. Both windows use the same definition;
       - median live_trades.notional of entries.
-    WARNING (Friday bundle) from the change date to _C90_REVIEW, INFO after — the review
-    decides keep / re-evaluate / retire. Silent before the change date. n is small
-    (about 18 L5 decisions a week (71 in the four weeks to 10-16)): a direction, not a test, and the detail says so.
+    WARNING (Friday bundle) from the change date to its review, INFO after — the review decides keep /
+    re-evaluate / retire. Silent before the first change. n is small (about 18 L5 decisions a week (71 in
+    the four weeks to 10-16)): a direction, not a test, and the detail says so.
     SKIPPED without apex.db.
     """
     from datetime import timedelta
     from statistics import median
-    from backend.gate.types import L5_UNAVAILABLE_PREFIX
+    from backend.gate.lock_codes import stop_code
     name  = "Lock 5 output after the prompt change"
     db    = REPO / "data/apex.db"
     today = today or date.today()
-    if today.isoformat() < _C90_CHANGE:
+    started = [i for i, c in enumerate(_C90_CHANGES) if c[0] <= today.isoformat()]
+    if not started:
         return
+    i = started[-1]
+    change, review, what, who = _C90_CHANGES[i]
     if not require_data_file(90, name, db):
         return
-    start = (date.fromisoformat(_C90_CHANGE) - timedelta(days=_C90_PRIOR_DAYS)).isoformat()
+    start = (date.fromisoformat(change) - timedelta(days=_C90_PRIOR_DAYS)).isoformat()
+    if i > 0:
+        start = max(start, _C90_CHANGES[i - 1][0])
+    days = (date.fromisoformat(change) - date.fromisoformat(start)).days
+    span = "4 weeks" if days == _C90_PRIOR_DAYS else f"{days} days"
     end   = (today + timedelta(days=1)).isoformat()
     try:
         conn = sqlite3.connect(db)
         rows = conn.execute(
-            "SELECT date(timestamp), gate_decision FROM live_gate_history "
-            "WHERE timestamp >= ? AND timestamp < ? "
-            "AND gate_decision IN ('TRADE_EXECUTED', 'TRADE_FAILED', 'FILTERED_L3') "
-            "AND (lock3_reasoning IS NULL OR lock3_reasoning NOT LIKE ?)",
-            (start, end, L5_UNAVAILABLE_PREFIX + "%")).fetchall()
+            "SELECT date(timestamp), lock3_pass FROM live_gate_history "
+            "WHERE timestamp >= ? AND timestamp < ? AND (lock3_pass = 1 OR stop_code = ?)",
+            (start, end, stop_code(6, "claude"))).fetchall()
         trades = conn.execute(
             "SELECT date(timestamp), notional FROM live_trades WHERE timestamp >= ? AND timestamp < ?",
             (start, end)).fetchall()
@@ -1855,21 +1888,20 @@ def check90(today: date | None = None) -> None:
         return
 
     def share(part):
-        ok = sum(1 for _, g in part if g != "FILTERED_L3")
+        ok = sum(1 for _, approved in part if approved == 1)
         return ok, len(part)
 
-    b_ok, b_n = share([r for r in rows if r[0] < _C90_CHANGE])
-    a_ok, a_n = share([r for r in rows if r[0] >= _C90_CHANGE])
-    b_sz = [n for d, n in trades if d < _C90_CHANGE and n]
-    a_sz = [n for d, n in trades if d >= _C90_CHANGE and n]
+    b_ok, b_n = share([r for r in rows if r[0] < change])
+    a_ok, a_n = share([r for r in rows if r[0] >= change])
+    b_sz = [n for d, n in trades if d < change and n]
+    a_sz = [n for d, n in trades if d >= change and n]
     pct  = lambda ok, n: f"{ok}/{n} ({ok / n:.0%})" if n else "0/0"
     med  = lambda xs: f"${median(xs):,.0f} (n={len(xs)})" if xs else "none"
-    sev  = "WARNING" if today.isoformat() <= _C90_REVIEW else "INFO"
+    sev  = "WARNING" if today.isoformat() <= review else "INFO"
     flag(90, name, sev, "backend/gate/lock5_claude.py:SYSTEM_PROMPT",
-         f"L5 approval {pct(b_ok, b_n)} in the 4 weeks before {_C90_CHANGE} vs {pct(a_ok, a_n)} since; "
-         f"median entry notional {med(b_sz)} vs {med(a_sz)}. Two changes in one window (rationale "
-         f"clause + enforced sector cap), not separable here. Small n — a direction, not a test. "
-         f"Review {_C90_REVIEW} (Niclas 10-17): keep, re-evaluate or retire this check.")
+         f"L5 approval {pct(b_ok, b_n)} in the {span} before {change} vs {pct(a_ok, a_n)} since; "
+         f"median entry notional {med(b_sz)} vs {med(a_sz)}. Change: {what}. Small n — a direction, "
+         f"not a test. Review {review} ({who}): keep, re-evaluate or retire this check.")
 
 
 # ── CHECK 91 — macro calendar horizon ─────────────────────────────────────────
@@ -2095,6 +2127,89 @@ def check93(fetch=None) -> None:
             if log_start else "; ratchet log: no rows yet"))
 
 
+# ── CHECK 94 — stored gate codes are the register's ──────────────────────────────
+
+_C94_TABLES = ("live_gate_history", "demo_gate_history", "signals")
+
+
+def check94(today: date | None = None) -> None:
+    """
+    CHECK 94 — every stored gate code is one lock_codes derives, and stop_code agrees with it.
+
+    Lock labels phase 2 (scope note 2026-10-26, step 6 and ruling B): from the 2026-10-31 migration every row's
+    gate_decision is the owner's lock code, TRADE_EXECUTED or FILTERED_UNKNOWN, and stop_code is "FILTERED_" + the
+    stopping rule's key (or the same as gate_decision for the other two). Nothing else checked stored rows: CHECK
+    25 compares the code the writers emit with the frontend, and an old code written after the migration, or a
+    gate_decision and stop_code that disagree, would go unseen. Per table:
+      A. a gate_decision outside the register (a legacy code, a typo) — CRITICAL;
+      B. a stop_code that does not parse, or does not start with its gate_decision, or is NULL on a coded row —
+         CRITICAL (ruling B: "Either column alone gives the lock; disagreement is a defect the CHECK sees");
+      C. a history-only rule (`_inferred`) on a row written after the migration — CRITICAL;
+      D. FILTERED_UNKNOWN rows written since yesterday — CRITICAL, the backstop for the mail each cycle sends
+         (Niclas 2026-10-28: an unknown is flagged and mailed at once). An event: known history never fires.
+    Silent on a table without stop_code (before the migration has run). SKIPPED without apex.db.
+    """
+    from datetime import timedelta
+    from backend.gate import lock_codes
+    name = "Stored gate codes are the register's"
+    db = REPO / "data/apex.db"
+    if not require_data_file(94, name, db):
+        return
+    today = today or date.today()
+    since = (today - timedelta(days=1)).isoformat()
+    codes = {lock_codes.lock_code(n) for n in lock_codes.LOCKS} | {lock_codes.TRADE_EXECUTED, lock_codes.UNKNOWN}
+    try:
+        conn = sqlite3.connect(db)
+        has_record = conn.execute("SELECT name FROM sqlite_master WHERE name = 'gate_code_migration'").fetchone()
+        cutover = conn.execute("SELECT MAX(migrated_at) FROM gate_code_migration").fetchone()[0] if has_record else None
+        for t in _C94_TABLES:
+            cols = {r[1] for r in conn.execute(f"PRAGMA table_info({t})")}
+            if "stop_code" not in cols:
+                continue
+            pairs = conn.execute(f"SELECT gate_decision, stop_code, COUNT(*) FROM {t} "
+                                 "WHERE gate_decision IS NOT NULL GROUP BY gate_decision, stop_code").fetchall()
+            bad_code = {g: n for g, _, n in pairs if g not in codes}
+            if bad_code:
+                flag(94, name, "CRITICAL", f"data/apex.db:{t}",
+                     f"gate_decision outside the register: {', '.join(f'{g} ×{n}' for g, n in sorted(bad_code.items()))}")
+            disagree = []
+            for g, sc, n in pairs:
+                if g not in codes:
+                    continue
+                if g in (lock_codes.TRADE_EXECUTED, lock_codes.UNKNOWN):
+                    ok = sc == g
+                else:
+                    try:
+                        lock_codes.parse_stop_code(sc or "")
+                        ok = sc.startswith(g + "_")
+                    except KeyError:
+                        ok = False
+                if not ok:
+                    disagree.append(f"{g}/{sc} ×{n}")
+            if disagree:
+                flag(94, name, "CRITICAL", f"data/apex.db:{t}",
+                     f"stop_code disagrees with gate_decision: {', '.join(disagree)}")
+            if cutover:
+                late = conn.execute(f"SELECT stop_code, COUNT(*) FROM {t} WHERE timestamp > ? AND stop_code IN "
+                                    f"({lock_codes.sql_in(lock_codes.HISTORY_ONLY_STOPS)}) GROUP BY stop_code",
+                                    (cutover,)).fetchall()
+                if late:
+                    flag(94, name, "CRITICAL", f"data/apex.db:{t}",
+                         f"history-only rule on a row written after the migration ({cutover[:16]}): "
+                         + ", ".join(f"{sc} ×{n}" for sc, n in late))
+            if t != "signals":                    # signals is demo's second copy of demo_gate_history
+                unknown = conn.execute(f"SELECT ticker, timestamp FROM {t} WHERE gate_decision = ? AND timestamp >= ? "
+                                       "ORDER BY timestamp", (lock_codes.UNKNOWN, since)).fetchall()
+                if unknown:
+                    flag(94, name, "CRITICAL", f"data/apex.db:{t}",
+                         f"{len(unknown)} FILTERED_UNKNOWN row(s) since {since}: "
+                         + ", ".join(f"{tk} {ts[:16]}" for tk, ts in unknown[:8])
+                         + " — find the rule that stopped each and register it (lock_codes.RULES)")
+        conn.close()
+    except Exception as e:
+        flag(94, name, "WARNING", "data/apex.db", f"could not query: {e}")
+
+
 def run() -> None:
     check24()
     check25()
@@ -2121,3 +2236,4 @@ def run() -> None:
     check91()
     check92()
     check93()
+    check94()
