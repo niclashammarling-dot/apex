@@ -103,6 +103,11 @@ EXCEPTIONS: dict[str, tuple[str, str]] = {
         "provenance of a partial-session flag (when it became final); read when debugging CHECK 85", "2027-04-10"),
     "parity:column:news.published_at": (
         "article publish time, provenance for sentiment inputs; cheap", "2027-04-10"),
+    # The lock labels phase 2 migration record (2026-10-31): every touched row's old code and pass flags, kept as the
+    # record of what history said before (Niclas 2026-10-31: "Register är viktigt att behålla som records").
+    **{f"parity:column:gate_code_migration.{c}": (
+        "migration record: what each history row held before the 2026-10-31 rewrite", "2027-04-10")
+       for c in ("new_code", "old_pass_flags")},
     "parity:column:trades.wallet_balance_after": (
         "left the schema 2026-04-01 (cc2aa23), never written; column survives in old DBs", "2027-04-10"),
 }

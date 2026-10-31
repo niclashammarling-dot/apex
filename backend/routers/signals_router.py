@@ -283,14 +283,6 @@ def gate_history():
     return {"rows": decorate_rows(rows, "demo"), "funnel": get_demo_gate_funnel_counts(), "locks": as_api()}
 
 
-@router.get("/gate/locks")
-def gate_locks():
-    """The gate chain and every gate_decision code with its label (lock labels phase 1, 2026-10-26):
-    the one table the funnel, Terminal, Settings and Promote render from."""
-    from backend.gate.lock_codes import as_api
-    return as_api()
-
-
 @router.get("/demo/trades")
 def get_demo_trades():
     from backend.db import get_all_trades

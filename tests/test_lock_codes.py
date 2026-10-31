@@ -105,9 +105,15 @@ def test_api_shape():
     assert etf["lock"] == 2 and etf["stop_code"] == "FILTERED_L2_RISK_ETF" and etf["config_keys"]
 
 
-def test_endpoint_serves_the_table():
-    from backend.routers.signals_router import gate_locks
-    assert gate_locks() == lock_codes.as_api()
+def test_both_gate_history_responses_serve_the_table(monkeypatch):
+    # The funnel, Gate Activity, Settings and Promote read the table from these two responses; the standalone
+    # /api/gate/locks had no caller and left 2026-10-31. Runs on the test DB (conftest).
+    import backend.routers.live_router as lr
+    from backend.routers.live_router import live_gate_history
+    monkeypatch.setattr(lr, "LIVE_ENABLED", False)          # the blocked-reason probe reaches the broker
+    from backend.routers.signals_router import gate_history
+    assert gate_history()["locks"] == lock_codes.as_api()
+    assert live_gate_history()["locks"] == lock_codes.as_api()
 
 
 LIVE_PASSED = {K(o, r): PASS for o, r in (

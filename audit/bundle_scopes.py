@@ -33,7 +33,7 @@ BY_CHECK: dict[int, str] = {
          "lock1_eligibility's calendar aliases are imported by tests/test_lock1_macro_blackout.py; kept with a "
          "noqa and a reason). `with get_db() as conn` leaks: `conn = get_db(); try: … finally: conn.close()`. "
          "One commit, ruff clean on the touched files, full suite. ~20 min."),
-    54: ("Gate lock labels have one source (backend/gate/lock_codes.py, served at /api/gate/locks; lock labels "
+    54: ("Gate lock labels have one source (backend/gate/lock_codes.py, served in the gate-history responses; lock labels "
          "phase 1, 2026-10-26). A finding is either the table disagreeing with the approved chain (A: a filter stage's "
          "label or a missing exit_lock), or the frontend holding a vocabulary of its own (B: a FILTERED_* code paired "
          "with a label; C: a lock number written as text in any frontend/src .jsx file, 'L1 threshold' and '5-LOCK' included). Scope: render the named string from the table (as_api: "

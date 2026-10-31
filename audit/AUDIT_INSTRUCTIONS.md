@@ -117,7 +117,7 @@ Verify that breakout signal classification enforces minimum volume backing.
 ### CHECK 25 — gate_decision string parity
 Every code the writers store must be recognized by all consumers. Since lock labels phase 2 (2026-10-31) the writers derive it from the row's rule_states through `lock_codes.codes_for`: one lock code per lock (`FILTERED_L<n>_<NAME>`), `TRADE_EXECUTED`, or `FILTERED_UNKNOWN`.
 - Confirm `gate_runner.py` derives its codes through `lock_codes.codes_for`.
-- A consumer that reads the table (`lock_codes` import or `/api/gate/locks`) handles every code by construction; any other consumer (`ApexTerminal.jsx`, `App.jsx`, `db.py`) must name each code.
+- A consumer that reads the table (`lock_codes`, served in the gate-history responses) handles every code by construction; any other consumer (`ApexTerminal.jsx`, `App.jsx`, `db.py`) must name each code.
 - CHECK 94 reads the stored rows themselves.
 - Flag any mismatch as CRITICAL — an unrecognized decision string falls through to the all-green default, showing passing lock icons for a failed ticker.
 - Also extract ticker `signal = "..."` values from `sector_regime.py` (excluding `vel_signal` lines) and verify each appears in all frontend signal maps (`SectorGrid.jsx`, `SectorRegime.jsx`, `Watchlist.jsx`, `RotationForecast.jsx`). Flag any missing entry as WARNING — renders as fallback label/color.

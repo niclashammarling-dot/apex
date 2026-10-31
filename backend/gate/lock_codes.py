@@ -370,12 +370,8 @@ def decorate_rows(rows: list[dict], book: str) -> list[dict]:
     return rows
 
 
-def config_label(key: str) -> str | None:
-    """The lock label that owns a config key ("L4 · Sentiment"), for Settings and Promote."""
-    return config_labels().get(key)
-
-
 def config_labels() -> dict[str, str]:
+    """The lock label that owns each config key ("L4 · Sentiment"); Settings and Promote read it from as_api()."""
     return {k: lock_label(r.owner) for r in RULES for k in r.config_keys}
 
 
@@ -402,7 +398,8 @@ MARKS = {"pass": "✓", "fail": "✗", "n/a": "N/A", "partial": "◐", "none": "
 
 
 def as_api() -> dict:
-    """Served at /api/gate/locks and inside both gate-history responses: the chain, the Terminal's lock
+    """Served inside both gate-history responses (the funnel, Gate Activity, Settings and Promote render from
+    it; the standalone /api/gate/locks had no caller and left 2026-10-31): the chain, the Terminal's lock
     columns L0–L6 and their marks, every rule with its stop code, and the config and detail labels."""
     return {
         "locks": [{"lock": n, "name": name, "reads": reads, "module": module}

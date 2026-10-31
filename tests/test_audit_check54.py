@@ -3,7 +3,7 @@ import dataclasses
 
 from backend.gate import lock_codes
 
-TABLE_DRIVEN = 'const r = await fetch("/api/gate/locks");\n'
+TABLE_DRIVEN = 'const cols = D.gateLocks?.columns ?? [];  // lock_codes table, from the gate-history response\n'
 OWN_LABELS = '  { stage: "FILTERED_L1",           label: "L1 · Score",        count: l1Fail },\n'
 BADGE_MAP = '  FILTERED_L2:             { label: "L3 FAIL",   cls: "t-gate-filt" },\n'
 

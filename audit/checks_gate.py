@@ -104,7 +104,7 @@ def check25():
         return
 
     # Since lock labels phase 1 (2026-10-26) the emitted codes come from the one table, not a
-    # literal _OUTCOMES dict; a consumer that reads the table (import or /api/gate/locks) handles
+    # literal _OUTCOMES dict; a consumer that reads the table (lock_codes, served in the gate-history responses) handles
     # every code by construction, and only a consumer with its own literals is compared. Since phase 2
     # (2026-10-31) every writer derives the code from the row's rule_states (lock_codes.codes_for): a lock
     # code per lock, TRADE_EXECUTED, or FILTERED_UNKNOWN.
@@ -126,7 +126,7 @@ def check25():
             if not path.exists():
                 continue
             text = path.read_text()
-            if "/api/gate/locks" in text or "lock_codes" in text:
+            if "lock_codes" in text:
                 continue
             if outcome not in text:
                 flag(25, "gate_decision string parity", "CRITICAL",
@@ -564,7 +564,7 @@ def check54() -> None:
     Found 2026-06-11: the funnel labelled quant rejections "L1 Score" and sentiment rejections
     "L2 Quant", with no L3 row, because the stored codes run one behind the lock numbers and
     App.jsx kept its own label map. Rewritten 2026-10-26 (lock labels phase 1: one table,
-    backend/gate/lock_codes.py, served at /api/gate/locks):
+    backend/gate/lock_codes.py, served inside both gate-history responses):
       A. the table agrees with the approved chain: every lock's label starts "L<n> · " and names its chain
          name, every rule is owned by a lock of the chain, and every module lock maps to one (since lock
          labels phase 2, 2026-10-31, the stored code is the owner's lock code, so these are the stored labels);
@@ -612,7 +612,7 @@ def check54() -> None:
         if own:
             flag(54, "gate funnel label/lock semantic parity", "WARNING", rel,
                  f"{len(own)} gate code(s) carry a label of their own ({', '.join(own)}) — "
-                 f"render them from /api/gate/locks")
+                 f"render them from the gate-history responses' locks table")
     for path in sorted((REPO / "frontend/src").rglob("*.jsx")):
         lines = (re.sub(r"\{/\*.*?\*/\}", "", re.sub(r"(^|\s)//.*$", r"\1", ln))
                  for ln in path.read_text().splitlines())
@@ -621,7 +621,7 @@ def check54() -> None:
         if numbers:
             flag(54, "gate funnel label/lock semantic parity", "WARNING", str(path.relative_to(REPO)),
                  f"{len(numbers)} lock number(s) written in the frontend ({', '.join(numbers)}) — "
-                 f"take the label from /api/gate/locks")
+                 f"take the label from the gate-history responses' locks table")
 
 
 def check64() -> None:
