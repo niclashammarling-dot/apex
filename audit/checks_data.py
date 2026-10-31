@@ -1166,10 +1166,65 @@ def check89(now: datetime | None = None) -> None:
              f"({big[1]['ticker']} {big[1]['timestamp'][:10]}), {sum(1 for x, _ in slips if abs(x) > 0.01)} over 1%"
              + (f"; excepted: " + "; ".join(f"id={r['id']} {C89_EXCEPTED[r['id']]}" for r in excepted)
                 if excepted else ""))
+        week = now - timedelta(days=C89_SLIP_WINDOW_DAYS)
+        wide = [(x, r) for x, r in slips if abs(x) > C89_SLIP_WARN and datetime.fromisoformat(r["timestamp"]) >= week]
+        if wide:
+            flag(89, name, "WARNING", "data/apex.db:live_trades",
+                 f"{len(wide)} entr{'y' if len(wide) == 1 else 'ies'} this week filled over "
+                 f"{C89_SLIP_WARN:.0%} from the quote the TP/SL legs are anchored on: "
+                 + ", ".join(f"{r['ticker']} id={r['id']} {x:+.2%}" for x, r in wide[:8])
+                 + " — the TP/SL re-anchor ruling (a, 2026-10-31) is reopened with a real case")
     _check89_reconcile(now)
 
 
 C89_RECONCILE_MAX_AGE_DAYS = 4     # written each publish (Mon–Fri); a weekend plus one missed night
+C89_SLIP_WARN = 0.01               # TP/SL re-anchor ruling (a) 2026-10-31: an entry this far from the quote reopens it
+C89_SLIP_WINDOW_DAYS = 7           # an event, not a level: the warning names entries of the last week only
+
+
+def check95(now: datetime | None = None) -> None:
+    """
+    CHECK 95 — the database has a recent, intact backup (Finding 4, 2026-10-07 review; built 2026-10-31).
+
+    The host is never up at midnight, so the backup is taken at the scheduler-owner start
+    (backend/db_backup.backup_once) and recorded in data/backups/auto/MANIFEST.json with its
+    integrity check. Before this the only copies were manual pre-repair snapshots.
+
+      WARNING  no manifest (the startup backup has never run); the newest backup older than
+               C95_MAX_AGE_DAYS; its integrity check not "ok"; its file missing
+      INFO     the newest backup, its size, and how many are kept
+    SKIPPED without apex.db (CI).
+    """
+    name = "database backup age"
+    if not require_data_file(95, name, REPO / "data/apex.db"):
+        return
+    now = now or datetime.now(timezone.utc)
+    d = REPO / "data/backups/auto"
+    manifest = d / "MANIFEST.json"
+    if not manifest.exists():
+        flag(95, name, "WARNING", "data/backups/auto/MANIFEST.json",
+             "no startup backup has ever been written (backend/db_backup.py runs at the scheduler-owner start)")
+        return
+    entries = json.loads(manifest.read_text())
+    if not entries:
+        flag(95, name, "WARNING", "data/backups/auto/MANIFEST.json", "backup manifest is empty")
+        return
+    last = entries[-1]
+    age = now - datetime.fromisoformat(last["written_at"])
+    if age > timedelta(days=C95_MAX_AGE_DAYS):
+        flag(95, name, "WARNING", f"data/backups/auto/{last['file']}",
+             f"newest backup is {age.days} days old ({last['written_at'][:16]}) — the startup backup stopped")
+    if last.get("integrity") != "ok":
+        flag(95, name, "WARNING", f"data/backups/auto/{last['file']}",
+             f"newest backup failed its integrity check: {last.get('integrity')!r}")
+    if not (d / last["file"]).exists():
+        flag(95, name, "WARNING", f"data/backups/auto/{last['file']}", "newest backup in the manifest is not on disk")
+    flag(95, name, "INFO", f"data/backups/auto/{last['file']}",
+         f"newest backup {last['file']} ({last['bytes'] / 1e6:.0f} MB, integrity {last.get('integrity')}), "
+         f"{len(list(d.glob('apex_auto_*.db')))} kept")
+
+
+C95_MAX_AGE_DAYS = 4               # one backup per session-day start; a weekend plus one missed start
 C89_GAP_USD = 1.0                  # per-row fill gaps sum; fees are not in any row's P&L, reported beside
 
 
@@ -1227,3 +1282,4 @@ def run() -> None:
     check77()
     check78()
     check89()
+    check95()

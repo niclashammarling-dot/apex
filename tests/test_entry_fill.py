@@ -172,9 +172,22 @@ class TestCheck89:
 
     def test_captured_entry_is_info_with_slip(self, run89):
         tid = _open_trade("GOT", price=100.0, ts=ENTRY)
+        record_entry_fill(tid, 100.5, "2026-10-13T13:40:02+00:00")
+        f = run89()
+        assert [s for s, _ in f] == ["INFO"] and "1/1 entries at the fill" in f[0][1] and "+0.50%" in f[0][1]
+
+    def test_an_entry_this_week_over_one_percent_from_the_quote_warns(self, run89):
+        # TP/SL re-anchor ruling (a) 2026-10-31: keep the quote anchor; a real wide fill reopens it.
+        tid = _open_trade("WIDE", price=100.0, ts=ENTRY)
         record_entry_fill(tid, 102.0, "2026-10-13T13:40:02+00:00")
         f = run89()
-        assert [s for s, _ in f] == ["INFO"] and "1/1 entries at the fill" in f[0][1] and "+2.00%" in f[0][1]
+        assert any(s == "WARNING" and "WIDE" in m and "+2.00%" in m and "re-anchor" in m for s, m in f)
+
+    def test_a_wide_fill_older_than_a_week_is_not_an_event(self, run89):
+        tid = _open_trade("OLDWIDE", price=100.0, ts="2026-10-01T13:40:00+00:00")
+        record_entry_fill(tid, 102.0, "2026-10-01T13:40:02+00:00")
+        f = run89()
+        assert [s for s, _ in f] == ["INFO"] and "1 over 1%" in f[0][1]
 
     def test_entry_inside_the_grace_is_not_flagged(self, run89):
         insert_live_trade({"timestamp": "2026-10-13T14:50:00+00:00", "ticker": "NEW", "sector": "Energy",

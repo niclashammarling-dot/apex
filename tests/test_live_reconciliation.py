@@ -794,6 +794,9 @@ class TestReconciliationFreeze:
             stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
                                        return_value={"status": "filled", "filled_qty": 4, "legs": []}))
             cancel_mock = stack.enter_context(patch("backend.brokers.alpaca.cancel_open_orders", return_value=1))
+            # Peak tracking's price, as the sibling tests stub it (found 2026-10-31 by the Finding 5 Yahoo guard:
+            # this test fetched MSFT's real chart on every run).
+            stack.enter_context(patch("backend.live_trades_tracker._current_price", return_value=None))
             # A genuine filled TP sell corroborates the position actually closed.
             # filled_at must postdate the trade's own entry (invariant 1) — computed
             # relative to now, same reasoning as _recent_timestamp() above, rather

@@ -27,6 +27,11 @@ def pytest_configure(config):
         "real_broker: reads the real paper-account Alpaca endpoint; runs only with "
         "APEX_REAL_BROKER_TESTS=1 and is then exempt from the broker guard",
     )
+    config.addinivalue_line(
+        "markers",
+        "real_yahoo: calls Yahoo through yfinance; runs only with APEX_REAL_YAHOO_TESTS=1 and is then exempt "
+        "from the Yahoo guard",
+    )
     tmp = tempfile.mkdtemp(prefix="apex_test_")
     # Before any backend import: backend.main attaches its file sink at module
     # load, to logs/ unless APEX_LOG_DIR says otherwise (2026-09-26).
@@ -183,6 +188,39 @@ def _never_reach_the_broker(request):
     with patch("alpaca.common.rest.RESTClient.__init__", _refuse):
         yield
     assert not reached, f"test constructed a real Alpaca client: {reached}"
+
+
+class YahooReachedInTest(BaseException):
+    """BaseException for the reason BrokerReachedInTest is: the price fetchers wrap yfinance in
+    `except Exception` and fall back, which would swallow the guard."""
+
+
+@pytest.fixture(autouse=True)
+def _never_reach_yahoo(request):
+    """
+    Finding 5 (2026-10-07 review, built 2026-10-31): no test may call Yahoo. A real call makes a test depend on
+    the network and on today's prices, and a test that passes on a fallback after a failed fetch hides the
+    path it meant to test. A socket hook misses it: yfinance (1.2.2) talks through curl_cffi, not the stdlib
+    socket module's Python layer. Patched at curl_cffi.requests.Session.request, which Session.get/post and
+    yfinance's data layer go through; only Yahoo hosts are refused, so other curl_cffi users are untouched.
+    A test that needs Yahoo is marked real_yahoo and runs only with APEX_REAL_YAHOO_TESTS=1.
+    """
+    if request.node.get_closest_marker("real_yahoo") is not None and os.environ.get("APEX_REAL_YAHOO_TESTS") == "1":
+        yield
+        return
+    import curl_cffi.requests as cr
+    real = cr.Session.request
+    reached = []
+
+    def _refuse(self, method, url, *args, **kwargs):
+        if "yahoo." in str(url):
+            reached.append(str(url)[:120])
+            raise YahooReachedInTest(f"test called Yahoo ({method} {str(url)[:80]}); patch the price fetch")
+        return real(self, method, url, *args, **kwargs)
+
+    with patch.object(cr.Session, "request", _refuse):
+        yield reached               # the guard's own control test clears what it provoked
+    assert not reached, f"test called Yahoo: {reached}"
 
 
 @pytest.fixture(autouse=True)

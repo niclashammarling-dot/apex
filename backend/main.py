@@ -113,6 +113,11 @@ async def lifespan(app: FastAPI):
         logger.warning("APEX_SERVE=1 but the scheduler lock is held by another instance — API only")
     else:
         app.state.scheduler_lock = lock
+        try:
+            from backend.db_backup import backup_once
+            backup_once()
+        except Exception as e:
+            logger.warning(f"DB backup failed (non-fatal; CHECK 95 reads its age): {e!r}")
         # force=True skips the hours check (a 08:15 ET start polls pre-open);
         # it must not skip the session check — 2026-09-07 Labor Day row.
         if is_session_today("Initial sector poll"):
@@ -147,6 +152,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Finding 3 (2026-10-07 review, built 2026-10-31): mutating routes require a custom header. Several take no
+# body or only query params (/api/live/config/promote, /api/live/gate/run, /api/tickers/{sector}/add …), so
+# without it they are CORS "simple requests" that any page open in the desk browser can send; CORS blocks
+# reading the answer, not the request. A custom header forces a preflight, which only _cors_origins pass.
+# The dashboard adds it to every non-GET /api call (frontend/src/main.jsx).
+CLIENT_HEADER = "X-APEX-Client"
+MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+@app.middleware("http")
+async def require_client_header(request, call_next):
+    if request.method in MUTATING and request.url.path.startswith("/api") \
+            and request.headers.get(CLIENT_HEADER) != "dashboard":
+        return JSONResponse({"detail": f"{request.method} {request.url.path} needs the {CLIENT_HEADER} header"},
+                            status_code=403)
+    return await call_next(request)
+
 
 app.include_router(signals_router)
 app.include_router(live_router)

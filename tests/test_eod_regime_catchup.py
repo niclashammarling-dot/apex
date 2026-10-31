@@ -212,7 +212,8 @@ def test_endpoint_ignores_stale_overwrite_and_refuses():
     target = sched._last_eod_due(datetime.now(NY))
     db.insert_sector_posterior_history(target.isoformat(), {"Technology": 0.5})
     with patch.object(sched, "_eod_inputs") as inputs, patch.object(sched, "_get_regime_bayes") as rb:
-        r = TestClient(app).post("/api/sectors/regime-bayes/run?persist=true&overwrite=true")
+        r = TestClient(app).post("/api/sectors/regime-bayes/run?persist=true&overwrite=true",
+                               headers={"X-APEX-Client": "dashboard"})   # Finding 3 header (2026-10-31)
     assert r.json()["result"] == "refused_exists"
     inputs.assert_not_called()
     rb.assert_not_called()

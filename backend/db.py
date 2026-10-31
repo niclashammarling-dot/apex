@@ -60,6 +60,9 @@ def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, de
         pass  # column already exists
 
 
+LIVE_OPEN_TICKER_INDEX = "ux_live_trades_held_ticker"
+
+
 def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = get_db()
@@ -513,6 +516,18 @@ def init_db() -> None:
             WHERE exit_reason = 'RECONCILIATION'
         """)
         conn.commit()
+        # Finding 2 (2026-10-07 review, built 2026-10-31): at most one held position per ticker. Two gate runs
+        # reading open tickers before either writes (a manual POST during a scheduled cycle, or a second
+        # backend: the :8001 instance placed MU/QCOM/ANET on 09-21) would record a duplicate bracket.
+        # UNRECONCILED is a still-held position (mark_live_trade_unreconciled). The runner's file lock is the
+        # first guard; this is the second. Existing duplicates make the index fail: logged, never a failed start.
+        try:
+            conn.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS {LIVE_OPEN_TICKER_INDEX} ON live_trades(ticker) "
+                         "WHERE outcome IN ('OPEN', 'UNRECONCILED')")
+            conn.commit()
+        except sqlite3.IntegrityError as e:
+            logger.critical(f"live_trades holds two held positions for one ticker; {LIVE_OPEN_TICKER_INDEX} "
+                            f"not created: {e}")
     finally:
         conn.close()
 

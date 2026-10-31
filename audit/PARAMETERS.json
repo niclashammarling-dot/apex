@@ -1290,6 +1290,38 @@
       "tier": "ops",
       "source": "CHECK 89 fill reconcile (2026-10-31): written each publish Mon-Fri; Friday 16:33 ET to Monday's check is about 3 days, plus one missed night.",
       "date": "2026-10-31"
+    },
+    "backend/db_backup.py::BACKUP_KEEP": {
+      "value": 14,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "Finding 4 startup backup (2026-10-31): two weeks of daily copies at ~110 MB each (1.5 GB of 858 GB free, measured 2026-10-31); a disk-cost choice, not evidence.",
+      "review": "2026-11-14",
+      "date": "2026-10-31"
+    },
+    "audit/checks_data.py::C95_MAX_AGE_DAYS": {
+      "value": 4,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "CHECK 95 (2026-10-31): one backup per session-day start; a weekend plus one missed start, as C89_RECONCILE_MAX_AGE_DAYS.",
+      "review": "2026-11-14",
+      "date": "2026-10-31"
+    },
+    "audit/checks_data.py::C89_SLIP_WARN": {
+      "value": 0.01,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "TP/SL re-anchor ruling (a) 2026-10-31 (Niclas: \"A\"): the 1 % line the INDEX scope and CHECK 89's INFO already counted by; since 10-13, 11 entries, largest 0.48 %, none over 1 % (measured).",
+      "review": "2026-11-14",
+      "date": "2026-10-31"
+    },
+    "audit/checks_data.py::C89_SLIP_WINDOW_DAYS": {
+      "value": 7,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "TP/SL re-anchor ruling (a) 2026-10-31: the wide-fill warning is an event (one weekly bundle), not a standing level.",
+      "review": "2026-11-14",
+      "date": "2026-10-31"
     }
   }
 }

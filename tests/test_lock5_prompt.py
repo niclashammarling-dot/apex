@@ -62,7 +62,7 @@ def test_lock5_is_given_the_cap_execution_enforces():
 def test_both_runners_hand_the_enforced_caps_to_the_context():
     import inspect
     from backend.gate import gate_runner, gate_runner_live
-    assert 'wallet_ctx["dynamic_caps"] = dynamic_caps_live' in inspect.getsource(gate_runner_live.run)
+    assert 'wallet_ctx["dynamic_caps"] = dynamic_caps_live' in inspect.getsource(gate_runner_live._run)
     assert '"dynamic_caps": dynamic_caps' in inspect.getsource(gate_runner)
 
 

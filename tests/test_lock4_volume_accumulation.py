@@ -11,6 +11,14 @@ from unittest.mock import patch, MagicMock
 import pandas as pd
 import pytest
 
+@pytest.fixture(autouse=True)
+def _no_options_fetch():
+    """These tests are about the check loop, not the fetch. Found 2026-10-31 by the Finding 5 Yahoo guard: three of
+    them fetched real option chains for NVDA, AAPL and GS on every run (the checks were mocked, the fetch was not)."""
+    with patch("backend.gate.lock4_leading._fetch_options_chains", return_value=[]):
+        yield
+
+
 from backend.gate.lock4_leading import (
     _check_volume_accumulation,
     evaluate,

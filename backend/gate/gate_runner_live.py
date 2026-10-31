@@ -216,13 +216,38 @@ def _compute_apex_day_pnl(positions: list[dict]) -> tuple[float, list[str], dict
 
 def run(cycle: GateCycle | None = None) -> list[dict]:
     """
-    Evaluate the live gate for all LIVE_LOCK1 candidates.
+    Evaluate the live gate for all LIVE_LOCK1 candidates, one run at a time across threads and processes.
     Does nothing (returns []) when LIVE_ENABLED is false.
     Reads thresholds from live_config.json at call time so Promote takes effect immediately.
     cycle (backend/gate/cycle.py) carries the start every row of this cycle is
     stamped with, and takes the exit reason.
+
+    Finding 2 (2026-10-07 review, built 2026-10-31): two runs that both read open tickers before either
+    writes place duplicate brackets. A run that finds the lock held returns with cycle reason "busy" and
+    places nothing. flock is per open file, so it holds against a second thread and a second backend alike
+    (the :8001 instance that traded on 09-21); the OS releases it if the process dies.
     """
+    import fcntl
     cycle = cycle or GateCycle.unrecorded()
+    path = live_gate_lock_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as fh:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            logger.warning("Live gate: another live gate run holds the lock — this run places nothing")
+            cycle.reason = "busy"
+            return []
+        return _run(cycle)
+
+
+def live_gate_lock_path():
+    """Beside the database, so a test (conftest's DB) never takes production's lock."""
+    from backend import db
+    return db.DB_PATH.with_name("live_gate.lock")
+
+
+def _run(cycle: GateCycle) -> list[dict]:
     if not LIVE_ENABLED:
         logger.debug("Live gate: LIVE_ENABLED=false — skipping")
         cycle.reason = "disabled"
@@ -877,6 +902,7 @@ def _sector_cap_check(sector: str, notional: float, exposure: dict[str, float],
 
 
 def _record_live_trade(signal: dict, notional: float, order_id: str, cfg: dict) -> None:
+    import sqlite3
     try:
         from datetime import datetime, timezone
         from backend.gate.freshness import signal_class
@@ -896,6 +922,10 @@ def _record_live_trade(signal: dict, notional: float, order_id: str, cfg: dict) 
             "tp_price":        round(price * (1 + cfg["take_profit_pct"]), 2),
             "sl_price":        round(price * (1 - cfg["stop_loss_pct"]), 2),
         })
+    except sqlite3.IntegrityError as e:
+        # The held-ticker index refused a second open row (Finding 2): a run outside the lock placed an order.
+        logger.critical(f"Duplicate live position refused [{signal['ticker']}]: order {order_id} was placed but "
+                        f"the ticker already has a held row; check the broker and close one bracket ({e})")
     except Exception as e:
         logger.warning(f"Failed to record live trade [{signal['ticker']}]: {e}")
 
