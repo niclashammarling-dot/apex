@@ -19,8 +19,8 @@ rule in chain order (`stop_of`). The stored codes are derived from that by `code
   - stop_code: "FILTERED_" + the rule key (`FILTERED_L1_ELIGIBILITY_COOLOFF` …), the same for the other two.
 FILTERED_UNKNOWN is the one outcome without an owner: no registered rule failed. It is mailed when written.
 
-Until phase 4 a lock's rules run in several places (L2's earnings inside l1_eligibility, its ETF re-test
-after L5, overflow and the sector cap at execution; the guard after L5). So a code names the owner, and how far
+Until phase 4 a lock's rules run in several places: L2's earnings and ETF rules live in l2_risk.py (phase 3) but
+are called from inside l1_eligibility and after L5, overflow and the sector cap at execution; the guard after L5. So a code names the owner, and how far
 the row got is the pass flags (FLAG_RULES; NULL where the lock did not run, ruling D) and `rule_states`.
 
 Two numberings until phase 3: "Lock 1".."Lock 5" in code outside this file are the module numbers
@@ -37,7 +37,7 @@ from dataclasses import dataclass
 LOCKS: dict[int, tuple[str, str, str]] = {
     0: ("PORTFOLIO",   "portfolio stop rules (M4), cycle level",         "backend/gate/l0_portfolio.py, chain.py"),
     1: ("ELIGIBILITY", "market and sector state, macro calendar",         "backend/gate/l1_eligibility.py, chain.py, gate_runner*.py"),
-    2: ("RISK",        "ETF, earnings, concentration, overflow",          "backend/gate/l1_eligibility.py, chain.py, gate_runner*.py"),
+    2: ("RISK",        "ETF, earnings, concentration, overflow",          "backend/gate/l2_risk.py, gate_runner*.py"),
     3: ("SCORE",       "price and volume score",                          "backend/gate/l3_score.py"),
     4: ("SENTIMENT",   "what is said: analysts, news, social",            "backend/gate/l4_sentiment.py"),
     5: ("POSITIONING", "what is done with money: options, accumulation",  "backend/gate/l5_positioning.py"),
@@ -136,11 +136,12 @@ RULES: tuple[Rule, ...] = (
          source="the order cannot buy: before the chain on the largest possible notional, and at execution "
                 "(live < $10 or no whole share, demo < $50)"),
     Rule(1, "price_missing", ("price_missing",), source="before the chain and at execution: no price"),
-    Rule(2, "earnings", ("earnings",), ("macro_earnings_blackout_days",), "l1_eligibility fail_type"),
+    Rule(2, "earnings", ("earnings",), ("macro_earnings_blackout_days",),
+         "l2_risk.check_earnings, called inside l1_eligibility (its fail_type)"),
     Rule(2, "earnings_near", ("earnings_near_penalty",), ("macro_earnings_near_days", "macro_earnings_near_penalty"),
-         "l1_eligibility data key; the penalty bites at the score re-test (chain.py); never fired"),
+         "l2_risk.check_earnings data key; the penalty bites at the score re-test (chain.py); never fired"),
     Rule(2, "etf", config_keys=("etf_negative_penalty", "etf_negative_floor"),
-         source="chain.py ETF re-test after L5 (FILTERED_ETF_PENALTY before 2026-10-31)"),
+         source="l2_risk.check_etf, called by chain.py after L5 (FILTERED_ETF_PENALTY before 2026-10-31)"),
     Rule(2, "overflow", ("overflow",), ("overflow_quant_increment",),
          "gate_runner*.py execution phase: a position beyond max_positions needs the escalated score; a free slot "
          "passes"),

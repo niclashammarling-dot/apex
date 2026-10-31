@@ -18,6 +18,7 @@ import pandas as pd
 import pytest
 
 import backend.gate.l1_eligibility as l1m
+import backend.gate.l2_risk as l2m
 import backend.gate.l5_positioning as l4m
 from backend.gate import chain, gate_runner, lock_codes, l6_review
 from backend.gate.history_classify import classify
@@ -48,7 +49,7 @@ def _l1(vix=10.0, macro=("clear", None), earnings_in=None, regime=True) -> LockR
         st.enter_context(patch.object(l1m, "_get_regime_result", return_value=_regime() if regime else None))
         st.enter_context(patch.object(l1m, "_get_vix", return_value=vix))
         st.enter_context(patch.object(l1m, "_macro_status", return_value=macro))
-        st.enter_context(patch.object(l1m, "_get_earnings_date", return_value=earnings))
+        st.enter_context(patch.object(l2m, "_get_earnings_date", return_value=earnings))
         return l1m.evaluate("AAPL", SECTOR, CFG)
 
 

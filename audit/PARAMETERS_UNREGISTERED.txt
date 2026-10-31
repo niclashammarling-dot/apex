@@ -131,7 +131,7 @@ backend/gate/gate_runner.py::PRE_ROTATION_FLOOR
 backend/gate/gate_runner.py::_MAX_WORKERS
 backend/gate/gate_runner_live.py::_MAX_WORKERS
 backend/gate/l1_eligibility.py::LOCK_ID
-backend/gate/l1_eligibility.py::_EARNINGS_TTL
+backend/gate/l2_risk.py::_EARNINGS_TTL
 backend/gate/l1_eligibility.py::_FOMC_PRE_EVENT_DAYS
 backend/gate/l1_eligibility.py::_VIX_SANITY_CEILING
 backend/gate/l1_eligibility.py::_VIX_TTL

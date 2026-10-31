@@ -11,10 +11,10 @@ Both runners import evaluate_chain() from here. They differ only in:
 
 The chain runs in order (module lock ids; the chain's names in backend/gate/lock_codes.py, which
 holds the mapping MODULE_TO_CHAIN until the phase 3 rename):
-    Lock 1 eligibility (L1 ELIGIBILITY, and L2 RISK's earnings rules)
+    Lock 1 eligibility (L1 ELIGIBILITY, and L2 RISK's earnings rules through l2_risk.check_earnings)
     → earnings and macro pre-event penalties on the score
     → Lock 2 quant (L3 SCORE) → Lock 3 sentiment (L4 SENTIMENT) → Lock 4 leading (L5 POSITIONING)
-    → ETF penalty re-test of the score (L2 RISK, rule etf)
+    → ETF penalty re-test of the score (L2 RISK, rule etf; l2_risk.check_etf)
     → drawdown guard (L0 PORTFOLIO, rule drawdown_guard; exit_lock 5 until phase 4 moves it)
     → Lock 5 Claude (L6 REVIEW)
 Both runners pass stop_after_lock=4: the chain returns l5_pending after the guard, and the runner's
@@ -44,8 +44,8 @@ from backend.gate.l3_score import evaluate as lock2_evaluate, _sector_threshold
 from backend.gate.l4_sentiment import evaluate as lock3_evaluate
 from backend.gate.l5_positioning import evaluate as lock4_evaluate
 from backend.gate.l6_review import evaluate as lock5_evaluate
-from backend.gate import lock_codes
-from backend.gate.lock_codes import FAIL, NO_DATA, PASS
+from backend.gate import l2_risk, lock_codes
+from backend.gate.lock_codes import FAIL, PASS
 from backend.gate.types import LockResult
 
 # Minimum posterior gap for Bayes divergence to be considered signal vs. noise.
@@ -181,42 +181,12 @@ def evaluate_chain(
     if not l4.passed:
         return _chain_fail(ticker, sector, lock_results, exit_lock=4, states=states)
 
-    # ETF negative penalty: if the sector ETF 5d return fell below the floor,
-    # penalise signal_score and re-check against the quant threshold.
-    # Motivation: relative strength in a declining sector increases sector-level
-    # drawdown risk even when the ticker outperforms its ETF.
-    # Tune: etf_negative_floor (default -1.0%) sets the noise floor; a rate of
-    # 0.20 would have penalised the LRCX SOXX=-1.3% entry (score 0.855→0.633 < 0.65).
-    etf_negative_penalty = cfg.get("etf_negative_penalty", 0.0)
+    # L2 RISK's ETF re-test (l2_risk.check_etf; in this file until phase 3), after L5 as it always ran.
     etf_key = lock_codes.rule_key(2, "etf")
-    states[etf_key] = PASS
-    if etf_negative_penalty > 0:
-        etf_negative_floor = cfg.get("etf_negative_floor", -1.0)
-        rs_check = (l4.data or {}).get("checks", {}).get("relative_strength", {})
-        etf_ret  = rs_check.get("etf_return")
-        if etf_ret is None:
-            states[etf_key] = NO_DATA
-        if etf_ret is not None and etf_ret < etf_negative_floor:
-            original        = signal_score
-            signal_score    = signal_score * (1.0 - etf_negative_penalty)
-            quant_threshold = _sector_threshold(sector, sector_thresholds)
-            logger.debug(
-                f"[{ticker}] ETF negative penalty {etf_negative_penalty:.0%} "
-                f"(ETF {etf_ret:+.2f}% < floor {etf_negative_floor:.1f}%): "
-                f"signal_score {original:.4f} → {signal_score:.4f} "
-                f"(sector threshold {quant_threshold:.3f})"
-            )
-            if signal_score < quant_threshold:
-                states[etf_key] = FAIL
-                return _chain_fail(
-                    ticker, sector, lock_results, exit_lock=4,
-                    reason=(
-                        f"ETF negative penalty: sector ETF {etf_ret:+.2f}% below floor "
-                        f"{etf_negative_floor:.1f}% — penalised score {signal_score:.4f} "
-                        f"< sector threshold {quant_threshold:.3f}"
-                    ),
-                    states=states,
-                )
+    states[etf_key], signal_score, etf_fail = l2_risk.check_etf(
+        ticker, signal_score, l4.data, cfg, lambda: _sector_threshold(sector, sector_thresholds))
+    if etf_fail:
+        return _chain_fail(ticker, sector, lock_results, exit_lock=4, reason=etf_fail, states=states)
 
     # ── Mechanical risk guards (pre-L5) ──────────────────────────────────────
     # These enforce hard limits that L5 is instructed to check but can misstate

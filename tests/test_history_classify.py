@@ -234,7 +234,9 @@ def _emitted_literals(path: Path, pattern: str) -> set[str]:
 
 
 def test_every_fail_type_lock1_emits_has_one_rule_and_a_history_reading():
-    emitted = _emitted_literals(GATE / "l1_eligibility.py", r'"fail_type":\s*"(\w+)"')
+    # The L1 evaluation's fail types: its own and L2's earnings, which l1_eligibility calls from l2_risk (phase 3).
+    emitted = (_emitted_literals(GATE / "l1_eligibility.py", r'"fail_type":\s*"(\w+)"')
+               | _emitted_literals(GATE / "l2_risk.py", r'"fail_type":\s*"(\w+)"'))
     assert emitted >= {"vix", "macro_event", "earnings", "regime_floor"}       # the scan reads the source
     assert {lock_codes.rule_for(f).name for f in emitted} <= {r.name for r in lock_codes.RULES}
     assert {f for _, f in ELIGIBILITY_FAIL_TYPES} == emitted

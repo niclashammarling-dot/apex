@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import backend.gate.l1_eligibility as m
+import backend.gate.l2_risk as l2m
 from backend.gate.l1_eligibility import evaluate
 
 
@@ -59,7 +60,7 @@ def _evaluate_with_earnings(ticker: str, delta_days: int, **cfg_overrides) -> "L
         patch.object(m, "_get_regime_result", return_value=regime),
         patch.object(m, "_get_vix",           return_value=10.0),
         patch.object(m, "_macro_status", return_value=("clear", None)),
-        patch.object(m, "_get_earnings_date", return_value=earnings),
+        patch.object(l2m, "_get_earnings_date", return_value=earnings),
     ):
         return evaluate(ticker, "Technology", cfg)
 
@@ -134,7 +135,7 @@ def test_no_earnings_date_passes():
         patch.object(m, "_get_regime_result", return_value=regime),
         patch.object(m, "_get_vix",           return_value=10.0),
         patch.object(m, "_macro_status", return_value=("clear", None)),
-        patch.object(m, "_get_earnings_date", return_value=None),
+        patch.object(l2m, "_get_earnings_date", return_value=None),
     ):
         r = evaluate("SPY", "Technology", _cfg())
     assert r.passed
