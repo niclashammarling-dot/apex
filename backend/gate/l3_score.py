@@ -1,5 +1,5 @@
 """
-gate/lock2_quant.py — Lock 2: Quantitative Signal
+gate/l3_score.py — Lock 2: Quantitative Signal
 
 Checks whether the pre-computed signal_score from signals/aggregator.py
 meets the sector-specific threshold for this ticker.
@@ -12,7 +12,7 @@ upstream by signals/aggregator.py before the gate chain runs.
 This module is purely a threshold gate on that pre-computed score.
 
 Public API:
-    from gate.lock2_quant import evaluate
+    from gate.l3_score import evaluate
     result = evaluate(ticker, sector, signal_score, on_watchlist=False)
 """
 from __future__ import annotations

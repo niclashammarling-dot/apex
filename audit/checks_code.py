@@ -336,7 +336,7 @@ def check45():
 
 def check48():
     """
-    Verify that all three yfinance fetch paths in lock4_leading.py have retry
+    Verify that all three yfinance fetch paths in l5_positioning.py have retry
     loops to handle silently-broken responses from the shared curl_cffi session.
 
     Three paths must each show `for attempt in range(2)`:
@@ -348,10 +348,10 @@ def check48():
     repeatedly. Root cause: shared BoringSSL TLS singleton returns stale/partial
     data under concurrent yfinance load. Retry paths close the false-negative loop.
     """
-    lock4 = REPO / "backend/gate/lock4_leading.py"
+    lock4 = REPO / "backend/gate/l5_positioning.py"
     if not lock4.exists():
         flag(48, "L4 yfinance retry coverage", "CRITICAL", str(lock4),
-             "lock4_leading.py not found")
+             "l5_positioning.py not found")
         return
 
     src = lock4.read_text()
@@ -362,7 +362,7 @@ def check48():
         tree = ast.parse(src)
     except SyntaxError as e:
         flag(48, "L4 yfinance retry coverage", "CRITICAL", str(lock4),
-             f"syntax error parsing lock4_leading.py: {e}")
+             f"syntax error parsing l5_positioning.py: {e}")
         return
 
     # Extract function bodies as source slices by line range
@@ -385,7 +385,7 @@ def check48():
 
     if missing:
         flag(48, "L4 yfinance retry coverage", "CRITICAL",
-             "backend/gate/lock4_leading.py",
+             "backend/gate/l5_positioning.py",
              f"retry loop missing from: {', '.join(missing)} — "
              "silent yfinance failures under concurrent load will surface as permanent sub-check failures")
 
@@ -407,10 +407,10 @@ def check49():
       _check_volume_accumulation carry "error": True so the group logic can
       distinguish data errors from genuine signal failures.
     """
-    lock4 = REPO / "backend/gate/lock4_leading.py"
+    lock4 = REPO / "backend/gate/l5_positioning.py"
     if not lock4.exists():
         flag(49, "L4 group constraint", "CRITICAL", str(lock4),
-             "lock4_leading.py not found")
+             "l5_positioning.py not found")
         return
 
     src = lock4.read_text()
@@ -420,7 +420,7 @@ def check49():
         tree = ast.parse(src)
     except SyntaxError as e:
         flag(49, "L4 group constraint", "CRITICAL", str(lock4),
-             f"syntax error parsing lock4_leading.py: {e}")
+             f"syntax error parsing l5_positioning.py: {e}")
         return
 
     lines = src.splitlines()
@@ -437,7 +437,7 @@ def check49():
                     if v not in evaluate_body]
     if missing_vars:
         flag(49, "L4 group constraint", "CRITICAL",
-             "backend/gate/lock4_leading.py",
+             "backend/gate/l5_positioning.py",
              f"group constraint variables missing from evaluate(): {', '.join(missing_vars)} — "
              "flat min_pass threshold reinstated; options-only passes will be approved when price checks error")
 
@@ -446,7 +446,7 @@ def check49():
         body = funcs.get(fn, "")
         if '"error": True' not in body and "'error': True" not in body:
             flag(49, "L4 group constraint", "CRITICAL",
-                 "backend/gate/lock4_leading.py",
+                 "backend/gate/l5_positioning.py",
                  f"{fn}() missing '\"error\": True' on data-error return paths — "
                  "group logic cannot distinguish data errors from signal failures")
 
@@ -603,7 +603,7 @@ def check59():
 
 def check60():
     """
-    Every fut.result(...) call in lock4_leading.py's evaluate() must pass
+    Every fut.result(...) call in l5_positioning.py's evaluate() must pass
     an explicit timeout=. yf.Ticker().options/.option_chain() take no
     timeout parameter, and curl_cffi's shared BoringSSL singleton has been
     observed to hang outright under concurrent load rather than raise.
@@ -613,7 +613,7 @@ def check60():
     """
     import ast
 
-    path = REPO / "backend/gate/lock4_leading.py"
+    path = REPO / "backend/gate/l5_positioning.py"
     if not path.exists():
         return
     try:
@@ -634,7 +634,7 @@ def check60():
                 and node.func.attr == "result"
                 and not any(kw.arg == "timeout" for kw in node.keywords)):
             flag(60, "Lock 4 futures must specify a timeout", "CRITICAL",
-                 f"backend/gate/lock4_leading.py:{node.lineno}",
+                 f"backend/gate/l5_positioning.py:{node.lineno}",
                  ".result() called without timeout= — a hung yfinance call can "
                  "block the gate cycle forever")
 
@@ -681,20 +681,20 @@ def check62():
     """
     import re
 
-    path = REPO / "backend/gate/lock4_leading.py"
+    path = REPO / "backend/gate/l5_positioning.py"
     if not path.exists():
         return
     text = path.read_text()
 
     if not re.search(r'v\s+and\s+v\.get\(', text):
         flag(62, "Lock 4 NoneType guard missing", "CRITICAL",
-             "backend/gate/lock4_leading.py",
+             "backend/gate/l5_positioning.py",
              "v and v.get() guard absent from evaluate() — bare v['pass'] crashes "
              "on None futures results from ThreadPoolExecutor")
 
     if not re.search(r'isinstance\(.*\.columns.*MultiIndex\)', text):
         flag(62, "Lock 4 MultiIndex normalization missing", "CRITICAL",
-             "backend/gate/lock4_leading.py",
+             "backend/gate/l5_positioning.py",
              "isinstance(raw.columns, MultiIndex) guard absent — concurrent yfinance "
              "session reuse can inject MultiIndex structure into single-ticker downloads")
 
@@ -1111,7 +1111,7 @@ def check79():
 
     A code comment that says "interim: replace with X once <table> has N weeks"
     is a commitment with no surfacing mechanism — nothing reads comments on a
-    schedule. Found 2026-09-16 by one grep: PCR_THRESHOLD=0.85 (lock4_leading.py,
+    schedule. Found 2026-09-16 by one grep: PCR_THRESHOLD=0.85 (l5_positioning.py,
     gate 4–8 weeks, 17 weeks old, replacement never written — get_pcr_history has
     no caller), regime-bucket _WEIGHTS (aggregator.py) and bull/bear thresholds
     (regime_bayes.py), both gated on ≥4 weeks of sector_posterior_history at 16

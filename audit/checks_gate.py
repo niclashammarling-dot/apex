@@ -174,7 +174,7 @@ def check25():
 
 def check26():
     """
-    Verify that both L1 (gate runners) and L2 (lock2_quant) read sector thresholds
+    Verify that both L1 (gate runners) and L2 (l3_score) read sector thresholds
     from the ticker_thresholds table via get_ticker_thresholds(), not from a static
     config value.
 
@@ -184,7 +184,7 @@ def check26():
     """
     runner      = REPO / "backend/gate/gate_runner.py"
     runner_live = REPO / "backend/gate/gate_runner_live.py"
-    lock2       = REPO / "backend/gate/lock2_quant.py"
+    lock2       = REPO / "backend/gate/l3_score.py"
 
     for label, path in [("gate_runner.py", runner), ("gate_runner_live.py", runner_live)]:
         if not path.exists():
@@ -203,7 +203,7 @@ def check26():
 
     if lock2.exists() and "get_ticker_thresholds" not in lock2.read_text():
         flag(26, "L1/L2 threshold-source parity", "CRITICAL",
-             "backend/gate/lock2_quant.py:_sector_threshold",
+             "backend/gate/l3_score.py:_sector_threshold",
              "_sector_threshold() does not call get_ticker_thresholds() — L2 threshold "
              "source has diverged from L1; likely reverted to static config value")
 
@@ -217,9 +217,9 @@ def check28():
     Three structural assertions:
       1. config.py defines EXCLUDED_SECTORS with the three sweep-validated sectors
          (Financials, Utilities, ConsumerStaples).
-      2. lock1_eligibility.py imports EXCLUDED_SECTORS and checks it before the
+      2. l1_eligibility.py imports EXCLUDED_SECTORS and checks it before the
          regime call — excluded sectors must fail L1 before any market-state logic.
-      3. lock2_quant.py imports SECTOR_THRESHOLD_FLOORS and applies it in
+      3. l3_score.py imports SECTOR_THRESHOLD_FLOORS and applies it in
          _sector_threshold — sweep-validated floors survive recalibration.
 
     Prevented by: 2026-05-07 sector exclusion implementation. Excluded sectors
@@ -228,8 +228,8 @@ def check28():
     REQUIRED_EXCLUDED = {"Financials", "Utilities", "ConsumerStaples"}
 
     config_path = REPO / "backend/config.py"
-    l1_path     = REPO / "backend/gate/lock1_eligibility.py"
-    l2_path     = REPO / "backend/gate/lock2_quant.py"
+    l1_path     = REPO / "backend/gate/l1_eligibility.py"
+    l2_path     = REPO / "backend/gate/l3_score.py"
 
     config_text = config_path.read_text()
     if "EXCLUDED_SECTORS" not in config_text:
@@ -245,24 +245,24 @@ def check28():
     l1_text = l1_path.read_text()
     if "EXCLUDED_SECTORS" not in l1_text:
         flag(28, "EXCLUDED_SECTORS gate wiring", "CRITICAL",
-             "backend/gate/lock1_eligibility.py",
+             "backend/gate/l1_eligibility.py",
              "EXCLUDED_SECTORS not imported — excluded sectors bypass L1 entirely")
         return
     excl_pos   = l1_text.find("EXCLUDED_SECTORS")
     regime_pos = l1_text.find("_get_regime_result()")
     if excl_pos > regime_pos:
         flag(28, "EXCLUDED_SECTORS gate wiring", "CRITICAL",
-             "backend/gate/lock1_eligibility.py",
+             "backend/gate/l1_eligibility.py",
              "EXCLUDED_SECTORS check appears after _get_regime_result() — must fire first")
 
     l2_text = l2_path.read_text()
     if "SECTOR_THRESHOLD_FLOORS" not in l2_text:
         flag(28, "EXCLUDED_SECTORS gate wiring", "CRITICAL",
-             "backend/gate/lock2_quant.py",
+             "backend/gate/l3_score.py",
              "SECTOR_THRESHOLD_FLOORS not imported — sector floors not enforced")
     elif "max(base, floor)" not in l2_text:
         flag(28, "EXCLUDED_SECTORS gate wiring", "CRITICAL",
-             "backend/gate/lock2_quant.py",
+             "backend/gate/l3_score.py",
              "SECTOR_THRESHOLD_FLOORS imported but floor not applied in _sector_threshold")
 
 
@@ -465,7 +465,7 @@ def check51():
     Lock 5 Bayesian field exclusion parity.
 
     `build_base_context` in chain.py injects `regime_bayes_*` fields into the
-    Lock 5 context dict. The SYSTEM_PROMPT in lock5_claude.py explicitly scopes
+    Lock 5 context dict. The SYSTEM_PROMPT in l6_review.py explicitly scopes
     these out of the model's sizing decision ("Do NOT factor regime_bayes_allocation,
     regime_bayes_posterior, or any Bayesian field into your size").
 
@@ -482,11 +482,11 @@ def check51():
     (raw/notes/2026-06/2026-06-05-lock5-bayesian-exclusion-list-maintenance.md).
     """
     chain_path = REPO / "backend/gate/chain.py"
-    prompt_path = REPO / "backend/gate/lock5_claude.py"
+    prompt_path = REPO / "backend/gate/l6_review.py"
 
     if not chain_path.exists() or not prompt_path.exists():
         flag(51, "Lock 5 Bayesian field exclusion parity", "WARNING",
-             "backend/gate/chain.py,backend/gate/lock5_claude.py",
+             "backend/gate/chain.py,backend/gate/l6_review.py",
              "source file(s) not found — cannot verify exclusion parity")
         return
 
@@ -504,7 +504,7 @@ def check51():
     missing = [f for f in fields if f not in prompt_src]
     if missing:
         flag(51, "Lock 5 Bayesian field exclusion parity", "WARNING",
-             "backend/gate/lock5_claude.py:SYSTEM_PROMPT",
+             "backend/gate/l6_review.py:SYSTEM_PROMPT",
              f"regime_bayes_* field(s) {missing} present in Lock 5 context "
              f"(build_base_context) but not named in SYSTEM_PROMPT exclusion "
              f"text — silent permission risk; update the prompt's Do NOT list")
@@ -1006,7 +1006,7 @@ def check80() -> None:
             fallback += 1
 
     if fallback:
-        flag(80, name, "WARNING", "backend/gate/lock4_leading.py:_check_put_call_ratio",
+        flag(80, name, "WARNING", "backend/gate/l5_positioning.py:_check_put_call_ratio",
              f"{fallback} demo Lock 4 row(s) since {_C80_BUILD_TS} used pooled_scalar_fallback — "
              f"the PCR baseline table was empty in the serving process; per_ticker_p25 was configured "
              f"and not delivered.")
@@ -1121,7 +1121,7 @@ def check81() -> None:
     """
     CHECK 81 — Lock 5 fail-closed (API unavailable) is an event, not a HOLD.
 
-    lock5_claude._fail_closed returns HOLD with reason
+    l6_review._fail_closed returns HOLD with reason
     `anthropic_unavailable: <cause>` (cause ∈ credit_exhausted, auth,
     rate_limit, connection, no_api_key, <ExceptionClass>) and, since
     2026-09-18, that string is persisted into lock3_reasoning on both gate
@@ -1188,7 +1188,7 @@ def check81() -> None:
                     f"no action, but these candidates were rejected by the failure, not on merit.")
         else:
             tail = " No successful Lock 5 call since; restore the API (top up / key / network) before the next session."
-        flag(81, name, "CRITICAL", "backend/gate/lock5_claude.py:_fail_closed",
+        flag(81, name, "CRITICAL", "backend/gate/l6_review.py:_fail_closed",
              f"{n_event} Lock 5 fail-closed row(s) in the last {_C81_EVENT_DAYS} days — candidates "
              f"that cleared Lock 4 were rejected because the Anthropic call failed, not by Claude. "
              + "; ".join(parts) + "." + tail)
@@ -1488,12 +1488,12 @@ def check84() -> None:
             mismatches.append((gts[:10], f"{gts[5:16].replace('T', ' ')}Z {ticker}: cited {cited}, actual {actual}"))
     events = [m for d, m in mismatches if d >= recent]
     if events:
-        flag(84, name, "WARNING", "backend/gate/lock5_claude.py",
+        flag(84, name, "WARNING", "backend/gate/l6_review.py",
              f"{len(events)} live execution(s) where Lock 5 cited fewer open positions than were "
              f"open when it executed (cycle-start state): " + "; ".join(events[:6])
              + (" …" if len(events) > 6 else ""))
     elif mismatches or uncited:
-        flag(84, name, "INFO", "backend/gate/lock5_claude.py",
+        flag(84, name, "INFO", "backend/gate/l6_review.py",
              f"{_C84_DAYS}-day tally: {len(mismatches)} stale-count execution(s) of {checked} checked; "
              f"{uncited} execution(s) cite no count")
 
@@ -1911,7 +1911,7 @@ def check90(today: date | None = None) -> None:
     pct  = lambda ok, n: f"{ok}/{n} ({ok / n:.0%})" if n else "0/0"
     med  = lambda xs: f"${median(xs):,.0f} (n={len(xs)})" if xs else "none"
     sev  = "WARNING" if today.isoformat() <= review else "INFO"
-    flag(90, name, sev, "backend/gate/lock5_claude.py:SYSTEM_PROMPT",
+    flag(90, name, sev, "backend/gate/l6_review.py:SYSTEM_PROMPT",
          f"L5 approval {pct(b_ok, b_n)} in the {span} before {change} vs {pct(a_ok, a_n)} since; "
          f"median entry notional {med(b_sz)} vs {med(a_sz)}. Change: {what}. Small n — a direction, "
          f"not a test. Review {review} ({who}): keep, re-evaluate or retire this check.")
@@ -1919,7 +1919,7 @@ def check90(today: date | None = None) -> None:
 
 # ── CHECK 91 — macro calendar horizon ─────────────────────────────────────────
 
-_C91_WARN_DAYS = 60   # same horizon as lock1_eligibility._check_calendar_expiry
+_C91_WARN_DAYS = 60   # same horizon as l1_eligibility._check_calendar_expiry
 
 
 def check91(today: date | None = None) -> None:

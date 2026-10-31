@@ -1,5 +1,5 @@
 """
-Tests for lock4_leading._check_volume_accumulation.
+Tests for l5_positioning._check_volume_accumulation.
 
 Covers: accumulation pass, distribution fail, neutral fail, all-up-days edge case,
 insufficient history, empty data, and the evaluate() integration path.
@@ -15,11 +15,11 @@ import pytest
 def _no_options_fetch():
     """These tests are about the check loop, not the fetch. Found 2026-10-31 by the Finding 5 Yahoo guard: three of
     them fetched real option chains for NVDA, AAPL and GS on every run (the checks were mocked, the fetch was not)."""
-    with patch("backend.gate.lock4_leading._fetch_options_chains", return_value=[]):
+    with patch("backend.gate.l5_positioning._fetch_options_chains", return_value=[]):
         yield
 
 
-from backend.gate.lock4_leading import (
+from backend.gate.l5_positioning import (
     _check_volume_accumulation,
     evaluate,
     VOL_ACCUM_THRESHOLD,
@@ -43,7 +43,7 @@ def _make_price_data(closes: list[float], volumes: list[int], ticker: str = "NVD
 
 # ── Unit tests: _check_volume_accumulation ────────────────────────────────────
 
-@patch("backend.gate.lock4_leading.yf.download")
+@patch("backend.gate.l5_positioning.yf.download")
 def test_accumulation_pass(mock_dl):
     """60%+ volume on up days → ratio > 1.2 → pass."""
     # 20 alternating days: 10 up (large vol), 10 down (small vol) → ratio = 3.0
@@ -56,7 +56,7 @@ def test_accumulation_pass(mock_dl):
     assert result["ratio"] > VOL_ACCUM_THRESHOLD
 
 
-@patch("backend.gate.lock4_leading.yf.download")
+@patch("backend.gate.l5_positioning.yf.download")
 def test_distribution_fail(mock_dl):
     """Heavy volume on down days → ratio < 1.2 → fail."""
     closes  = [100.0] + [99.0, 101.0] * 10
@@ -68,7 +68,7 @@ def test_distribution_fail(mock_dl):
     assert result["ratio"] < VOL_ACCUM_THRESHOLD
 
 
-@patch("backend.gate.lock4_leading.yf.download")
+@patch("backend.gate.l5_positioning.yf.download")
 def test_neutral_fail(mock_dl):
     """Roughly equal volume on up/down days → ratio near 1.0 → fail."""
     closes  = [100.0] + [101.0, 99.0] * 10
@@ -80,7 +80,7 @@ def test_neutral_fail(mock_dl):
     assert result["ratio"] < VOL_ACCUM_THRESHOLD
 
 
-@patch("backend.gate.lock4_leading.yf.download")
+@patch("backend.gate.l5_positioning.yf.download")
 def test_all_up_days_passes(mock_dl):
     """All up days (zero down volume) → ratio = inf → pass."""
     closes  = list(range(100, 122))        # 22 strictly rising values
@@ -92,7 +92,7 @@ def test_all_up_days_passes(mock_dl):
     assert result["down_vol"] == 0
 
 
-@patch("backend.gate.lock4_leading.yf.download")
+@patch("backend.gate.l5_positioning.yf.download")
 def test_at_threshold_boundary_fails(mock_dl):
     """Ratio exactly at threshold (not strictly greater) → fail."""
     # up_vol = 1.2, down_vol = 1.0 → ratio = 1.2 exactly → not > 1.2
@@ -107,7 +107,7 @@ def test_at_threshold_boundary_fails(mock_dl):
     assert result["pass"] is False
 
 
-@patch("backend.gate.lock4_leading.yf.download")
+@patch("backend.gate.l5_positioning.yf.download")
 def test_insufficient_history_fails(mock_dl):
     """Fewer than 20 trading days → fail with reason."""
     closes  = [100.0, 101.0, 99.0]
@@ -119,7 +119,7 @@ def test_insufficient_history_fails(mock_dl):
     assert "only" in result["reason"]
 
 
-@patch("backend.gate.lock4_leading.yf.download")
+@patch("backend.gate.l5_positioning.yf.download")
 def test_empty_data_fails(mock_dl):
     """Empty DataFrame → fail gracefully."""
     mock_dl.return_value = pd.DataFrame()
@@ -131,10 +131,10 @@ def test_empty_data_fails(mock_dl):
 
 # ── Integration: evaluate() includes volume_accumulation ─────────────────────
 
-@patch("backend.gate.lock4_leading._check_volume_accumulation")
-@patch("backend.gate.lock4_leading._check_unusual_call_volume")
-@patch("backend.gate.lock4_leading._check_put_call_ratio")
-@patch("backend.gate.lock4_leading._check_relative_strength")
+@patch("backend.gate.l5_positioning._check_volume_accumulation")
+@patch("backend.gate.l5_positioning._check_unusual_call_volume")
+@patch("backend.gate.l5_positioning._check_put_call_ratio")
+@patch("backend.gate.l5_positioning._check_relative_strength")
 def test_evaluate_volume_accumulation_is_wired(mock_rs, mock_pcr, mock_ucv, mock_va):
     """volume_accumulation participates in the evaluate() sub-check loop."""
     mock_rs.return_value  = {"pass": True,  "reason": "rs ok"}
@@ -148,10 +148,10 @@ def test_evaluate_volume_accumulation_is_wired(mock_rs, mock_pcr, mock_ucv, mock
     assert result.passed  # price group (RS) and options group pass
 
 
-@patch("backend.gate.lock4_leading._check_volume_accumulation")
-@patch("backend.gate.lock4_leading._check_unusual_call_volume")
-@patch("backend.gate.lock4_leading._check_put_call_ratio")
-@patch("backend.gate.lock4_leading._check_relative_strength")
+@patch("backend.gate.l5_positioning._check_volume_accumulation")
+@patch("backend.gate.l5_positioning._check_unusual_call_volume")
+@patch("backend.gate.l5_positioning._check_put_call_ratio")
+@patch("backend.gate.l5_positioning._check_relative_strength")
 def test_insider_cluster_not_present(mock_rs, mock_pcr, mock_ucv, mock_va):
     """insider_cluster must not appear in evaluate() output."""
     for m in (mock_rs, mock_pcr, mock_ucv, mock_va):
@@ -162,10 +162,10 @@ def test_insider_cluster_not_present(mock_rs, mock_pcr, mock_ucv, mock_va):
     assert "volume_accumulation" in result.data["checks"]
 
 
-@patch("backend.gate.lock4_leading._check_volume_accumulation")
-@patch("backend.gate.lock4_leading._check_unusual_call_volume")
-@patch("backend.gate.lock4_leading._check_put_call_ratio")
-@patch("backend.gate.lock4_leading._check_relative_strength")
+@patch("backend.gate.l5_positioning._check_volume_accumulation")
+@patch("backend.gate.l5_positioning._check_unusual_call_volume")
+@patch("backend.gate.l5_positioning._check_put_call_ratio")
+@patch("backend.gate.l5_positioning._check_relative_strength")
 def test_volume_accumulation_score_contribution(mock_rs, mock_pcr, mock_ucv, mock_va):
     """volume_accumulation contributes 0.25 to score when it passes.
 

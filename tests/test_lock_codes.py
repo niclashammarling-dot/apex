@@ -6,6 +6,7 @@ same table. The cooloff set is pinned to ruling 6 ("behåll cool off nu"), the l
 2026-10-24.
 """
 import json
+from pathlib import Path
 from datetime import datetime, time, timezone
 from zoneinfo import ZoneInfo
 
@@ -27,11 +28,13 @@ def test_writers_store_a_lock_code_executed_or_unknown_and_never_a_legacy_code()
 
 
 def test_module_numbers_map_to_the_chain_lock_they_run():
-    # The two numberings until phase 3 (docstring): module lock_id N runs chain lock MODULE_TO_CHAIN[N], and the
-    # module file is named by N.
+    # Module lock_id N runs chain lock MODULE_TO_CHAIN[N]; since phase 3 the module file carries the chain lock's
+    # name (l<n>_<lock>.py), not N.
     assert lock_codes.MODULE_TO_CHAIN == {1: 1, 2: 3, 3: 4, 4: 5, 5: 6}
     for n, chain in lock_codes.MODULE_TO_CHAIN.items():
-        assert f"lock{n}_" in lock_codes.LOCKS[chain][2]
+        name = lock_codes.LOCKS[chain][0].lower()
+        assert f"l{chain}_{name}.py" in lock_codes.LOCKS[chain][2]
+        assert (Path(__file__).parent.parent / f"backend/gate/l{chain}_{name}.py").exists()
 
 
 def test_cooloff_set_is_every_sentiment_and_review_decision_and_the_guard():
@@ -239,13 +242,13 @@ def test_lock_owned_config_keys_follow_the_approved_chain():
 
 
 def test_every_macro_key_the_code_reads_is_owned_by_the_lock_its_rule_belongs_to():
-    """The macro_* keys lock1_eligibility reads: the calendar's (no earnings in the name) are L1's, the
+    """The macro_* keys l1_eligibility reads: the calendar's (no earnings in the name) are L1's, the
     earnings ones L2's. A new macro key that is read but not owned would get no lock prefix."""
     import inspect
     import re
 
-    from backend.gate import lock1_eligibility
-    read = set(re.findall(r'cfg\.get\("(macro_[a-z_]+)"\)', inspect.getsource(lock1_eligibility)))
+    from backend.gate import l1_eligibility
+    read = set(re.findall(r'cfg\.get\("(macro_[a-z_]+)"\)', inspect.getsource(l1_eligibility)))
     assert read, "positive control: the reader must be found"
     labels = lock_codes.config_labels()
     for k in read:

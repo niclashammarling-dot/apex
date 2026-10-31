@@ -14,8 +14,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import backend.gate.lock1_eligibility as m
-from backend.gate.lock1_eligibility import evaluate
+import backend.gate.l1_eligibility as m
+from backend.gate.l1_eligibility import evaluate
 
 
 # ── Shared regime mock ─────────────────────────────────────────────────────────

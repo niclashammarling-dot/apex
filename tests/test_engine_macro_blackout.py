@@ -45,7 +45,7 @@ def test_shared_rule_precedence_and_engine_wrapper():
 
 def test_the_cpi_nfp_window_is_live_config_by_reference(monkeypatch):
     """P3 (Niclas 2026-10-28): one calendar for every book. The engines read live's
-    macro_event_blackout_days, as lock1_eligibility does, not macro_status's own default."""
+    macro_event_blackout_days, as l1_eligibility does, not macro_status's own default."""
     pre = synthetic_precomputed()
     wide = _days(pre, "pre_event", window=2) - _days(pre, "pre_event")
     assert wide                                                       # the wider window adds eves

@@ -443,7 +443,7 @@ def _run_l5_for_result(signal: dict, result: dict, cfg: dict) -> None:
     Run Lock 5 (Claude) in the serial execution phase using stashed inputs.
     Mutates result in-place: sets outcome, lock3, lock3_pass, claude_reasoning.
     """
-    from backend.gate.lock5_claude import evaluate as lock5_evaluate
+    from backend.gate.l6_review import evaluate as lock5_evaluate
     ticker       = signal["ticker"]
     sector       = signal.get("sector", "")
     lock_results = result.pop("_l5_lock_results", {})
@@ -502,7 +502,7 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
 
     # Lock 4 (Leading) — flatten pass_count and the two groups for _log_summary()
     l4_data   = l4.data if l4 else {}
-    # lock4_leading uses "checks"; "sub_checks" is a DB-compat alias (same dict)
+    # l5_positioning uses "checks"; "sub_checks" is a DB-compat alias (same dict)
     l4_checks = l4_data.get("checks") or l4_data.get("sub_checks", {})
     lock_leading_compat = None
     if l4:

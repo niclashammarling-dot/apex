@@ -1,12 +1,12 @@
 """
-gate/lock5_claude.py — Lock 5: Claude Synthesis (L6 REVIEW in the chain, backend/gate/lock_codes.py)
+gate/l6_review.py — Lock 5: Claude Synthesis (L6 REVIEW in the chain, backend/gate/lock_codes.py)
 
 The final and most contextual gate in the apex lock chain. Module numbers and chain locks differ
 until the module rename (lock labels phase 3); by the time a ticker reaches here it has passed:
-    lock1_eligibility — L1 ELIGIBILITY (sector allocated, VIX, macro-event calendar) and L2 RISK's earnings block
-    lock2_quant       — L3 SCORE: signal score above the sector threshold, after L1's macro and L2's earnings penalties
-    lock3_sentiment   — L4 SENTIMENT: sentiment is not strongly negative
-    lock4_leading     — L5 POSITIONING: leading signals confirm direction
+    l1_eligibility — L1 ELIGIBILITY (sector allocated, VIX, macro-event calendar) and L2 RISK's earnings block
+    l3_score       — L3 SCORE: signal score above the sector threshold, after L1's macro and L2's earnings penalties
+    l4_sentiment   — L4 SENTIMENT: sentiment is not strongly negative
+    l5_positioning     — L5 POSITIONING: leading signals confirm direction
     chain.py          — L2 RISK's sector-ETF penalty re-test of the score
 Claude sees the chain names (the prompt and the lock_results keys, _PAYLOAD_KEYS) since 2026-10-26.
 
@@ -25,7 +25,7 @@ reasoning when L4 had passed exactly once, on the executing run.)
 Do NOT add a provider fallback here. Do NOT change the model to Opus.
 
 Public API:
-    from gate.lock5_claude import evaluate
+    from gate.l6_review import evaluate
     result = evaluate(ticker, sector, lock_results, context, confidence_min=None)
 """
 from __future__ import annotations
@@ -160,7 +160,7 @@ def _fail_closed(cause: str) -> LockResult:
 # ── Context payload ───────────────────────────────────────────────────────────
 
 # lock_results keys by module lock id: the chain's names, as the prompt uses them. Until 2026-10-26
-# they were the module names (lock1_eligibility … lock4_leading) while the prompt said Lock 1–4.
+# they were the module names (l1_eligibility … l5_positioning) while the prompt said Lock 1–4.
 _PAYLOAD_KEYS = {1: "l1_eligibility", 2: "l3_score", 3: "l4_sentiment", 4: "l5_positioning"}
 # The chain's bookkeeping in a lock's data (lock labels phase 2, 2026-10-29): which rules ran and whether a data
 # error decided the lock. It names rows; it is not evidence about the candidate, and the Lock 5 prompt approved

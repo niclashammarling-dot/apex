@@ -1,5 +1,5 @@
 """VIX gate at the threshold blocks, as live (2026-10-17).
-Live Lock 1 B1 blocks at `vix >= vix_threshold` (backend/gate/lock1_eligibility.py);
+Live Lock 1 B1 blocks at `vix >= vix_threshold` (backend/gate/l1_eligibility.py);
 both engines used `>`, so a VIX close exactly at the threshold entered in the
 backtest and was blocked live."""
 import inspect

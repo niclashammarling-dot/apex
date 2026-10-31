@@ -19,12 +19,12 @@ rule in chain order (`stop_of`). The stored codes are derived from that by `code
   - stop_code: "FILTERED_" + the rule key (`FILTERED_L1_ELIGIBILITY_COOLOFF` …), the same for the other two.
 FILTERED_UNKNOWN is the one outcome without an owner: no registered rule failed. It is mailed when written.
 
-Until phase 4 a lock's rules run in several places (L2's earnings inside lock1_eligibility, its ETF re-test
+Until phase 4 a lock's rules run in several places (L2's earnings inside l1_eligibility, its ETF re-test
 after L5, overflow and the sector cap at execution; the guard after L5). So a code names the owner, and how far
 the row got is the pass flags (FLAG_RULES; NULL where the lock did not run, ruling D) and `rule_states`.
 
 Two numberings until phase 3: "Lock 1".."Lock 5" in code outside this file are the module numbers
-(lock1_eligibility .. lock5_claude, chain.py's lock_id and exit_lock; MODULE_TO_CHAIN); "L0".."L6" and the
+(l1_eligibility .. l6_review, chain.py's lock_id and exit_lock; MODULE_TO_CHAIN); "L0".."L6" and the
 names here are the chain. The stored codes before the 2026-10-31 migration are LEGACY_CODES, read only by the
 history classifier, the migration and archived producers (T7) through the migration record.
 """
@@ -35,19 +35,20 @@ from dataclasses import dataclass
 
 # The approved chain: number → (name, what it reads, the modules that run its rules today).
 LOCKS: dict[int, tuple[str, str, str]] = {
-    0: ("PORTFOLIO",   "portfolio stop rules (M4), cycle level",         "backend/gate/portfolio_l0.py, chain.py"),
-    1: ("ELIGIBILITY", "market and sector state, macro calendar",         "backend/gate/lock1_eligibility.py, chain.py, gate_runner*.py"),
-    2: ("RISK",        "ETF, earnings, concentration, overflow",          "backend/gate/lock1_eligibility.py, chain.py, gate_runner*.py"),
-    3: ("SCORE",       "price and volume score",                          "backend/gate/lock2_quant.py"),
-    4: ("SENTIMENT",   "what is said: analysts, news, social",            "backend/gate/lock3_sentiment.py"),
-    5: ("POSITIONING", "what is done with money: options, accumulation",  "backend/gate/lock4_leading.py"),
-    6: ("REVIEW",      "judgement over the whole candidate",              "backend/gate/lock5_claude.py, gate_runner*.py"),
+    0: ("PORTFOLIO",   "portfolio stop rules (M4), cycle level",         "backend/gate/l0_portfolio.py, chain.py"),
+    1: ("ELIGIBILITY", "market and sector state, macro calendar",         "backend/gate/l1_eligibility.py, chain.py, gate_runner*.py"),
+    2: ("RISK",        "ETF, earnings, concentration, overflow",          "backend/gate/l1_eligibility.py, chain.py, gate_runner*.py"),
+    3: ("SCORE",       "price and volume score",                          "backend/gate/l3_score.py"),
+    4: ("SENTIMENT",   "what is said: analysts, news, social",            "backend/gate/l4_sentiment.py"),
+    5: ("POSITIONING", "what is done with money: options, accumulation",  "backend/gate/l5_positioning.py"),
+    6: ("REVIEW",      "judgement over the whole candidate",              "backend/gate/l6_review.py, gate_runner*.py"),
 }
 
-# Module lock_id (lockN_*.py, chain.py exit_lock) → chain lock, until the phase 3 rename: the first lock whose
-# modules include lockN_ (lock1_eligibility also runs L2's earnings rules, so L1 is its lock).
-MODULE_TO_CHAIN: dict[int, int] = {n: min(lock for lock, (_, _, modules) in LOCKS.items() if f"lock{n}_" in modules)
-                                   for n in range(1, 6)}
+# Module lock_id (LockResult.lock_id, chain.py exit_lock) → chain lock. The module files took the chain's names in
+# phase 3 (2026-10-31: lock1_eligibility → l1_eligibility … lock5_claude → l6_review), but the lock ids they return
+# keep the old module numbers until exit_lock and this map retire (the L6 payload keys wait for the 11-07 review).
+MODULE_CHAIN_ORDER = [1, 3, 4, 5, 6]      # the chain lock of module lock id 1, 2, 3, 4, 5
+MODULE_TO_CHAIN: dict[int, int] = dict(enumerate(MODULE_CHAIN_ORDER, start=1))
 
 TRADE_EXECUTED = "TRADE_EXECUTED"
 UNKNOWN = "FILTERED_UNKNOWN"
@@ -98,21 +99,21 @@ class Rule:
 # so a stop_code parses back to its owner and rule (parse_stop_code) and a writer's identifier maps to
 # one rule (rule_for) (Niclas 2026-10-28: "konsekvent och kan härledas överallt där det används").
 # A name is the code's own word for the check that stopped the row: the identifier it already emits
-# (lock1_eligibility's fail_type, the runners' outcome_reason) where there is one, else the check itself:
+# (l1_eligibility's fail_type, the runners' outcome_reason) where there is one, else the check itself:
 # the module whose check it is (leading, claude) or what it tests (threshold, grok's verdict).
 # `unavailable` is a source that did not answer, failing closed; `_inferred` exists only in history (ruling F).
 # Cooloff keeps the set db.py selected before phase 2 ({FILTERED_L2, FILTERED_L3}, ruling 6 2026-10-24):
 # every L4 and L6 decision and the drawdown guard, which shared FILTERED_L3; not a broker error (TRADE_FAILED).
 # Within a lock the rules are listed in the order they run, which stop_of reads when two fail on one row: M4's
-# drawdown before its loss cap and expectancy (portfolio_l0.evaluate), the chain's guard after them; position open
+# drawdown before its loss cap and expectancy (l0_portfolio.evaluate), the chain's guard after them; position open
 # before cooloff (the runners' skip label), gate cooloff before exit cooloff (ruling 2026-10-29).
 RULES: tuple[Rule, ...] = (
     Rule(0, "halt_m4_drawdown", ("halt_m4_drawdown",), books=("live",),
-         source="M4 rule 1, portfolio_l0.HALT_DRAWDOWN: realised equity off its peak (live, cycle level)"),
+         source="M4 rule 1, l0_portfolio.HALT_DRAWDOWN: realised equity off its peak (live, cycle level)"),
     Rule(0, "loss_cap", ("loss_cap",), ("daily_loss_cap",),
-         "M4 rule 2 in live (portfolio_l0.HALT_LOSS_CAP, cycle level); wallet.execute_trade's fixed-dollar cap in demo"),
+         "M4 rule 2 in live (l0_portfolio.HALT_LOSS_CAP, cycle level); wallet.execute_trade's fixed-dollar cap in demo"),
     Rule(0, "halt_m4_expectancy", ("halt_m4_expectancy",), books=("live",),
-         source="M4 rule 3, portfolio_l0.HALT_EXPECTANCY: the trailing sample's expectancy (live, cycle level)"),
+         source="M4 rule 3, l0_portfolio.HALT_EXPECTANCY: the trailing sample's expectancy (live, cycle level)"),
     Rule(0, "drawdown_guard", config_keys=("max_drawdown_pct",), cooloff=True,
          source="chain.py mechanical pre-L5 guard (reason ends '(mechanical pre-L5 guard)')"),
     Rule(1, "blocklist", ("blocklist",), books=("live",),
@@ -126,18 +127,18 @@ RULES: tuple[Rule, ...] = (
          "both runners, before the chain: the ticker's own recent exit (tp_cooloff_hours after a TP/TSL win, "
          "exit_cooloff_hours after any other exit; db.get_recently_exited_*tickers)"),
     Rule(1, "regime", ("regime", "excluded_sector", "regime_unavailable", "below_leaderboard_cutoff", "regime_floor"),
-         source="lock1_eligibility fail_type: the regime module's verdict on the sector"),
-    Rule(1, "vix", ("vix",), ("vix_threshold",), "lock1_eligibility fail_type"),
-    Rule(1, "macro_event", ("macro_event",), ("macro_event_blackout_days",), "lock1_eligibility fail_type"),
+         source="l1_eligibility fail_type: the regime module's verdict on the sector"),
+    Rule(1, "vix", ("vix",), ("vix_threshold",), "l1_eligibility fail_type"),
+    Rule(1, "macro_event", ("macro_event",), ("macro_event_blackout_days",), "l1_eligibility fail_type"),
     Rule(1, "macro_pre_event", ("macro_pre_event",), ("macro_pre_event_penalty",),
-         "lock1_eligibility data key; the penalty bites at the score re-test (chain.py)"),
+         "l1_eligibility data key; the penalty bites at the score re-test (chain.py)"),
     Rule(1, "notional_too_small", ("notional_too_small",),
          source="the order cannot buy: before the chain on the largest possible notional, and at execution "
                 "(live < $10 or no whole share, demo < $50)"),
     Rule(1, "price_missing", ("price_missing",), source="before the chain and at execution: no price"),
-    Rule(2, "earnings", ("earnings",), ("macro_earnings_blackout_days",), "lock1_eligibility fail_type"),
+    Rule(2, "earnings", ("earnings",), ("macro_earnings_blackout_days",), "l1_eligibility fail_type"),
     Rule(2, "earnings_near", ("earnings_near_penalty",), ("macro_earnings_near_days", "macro_earnings_near_penalty"),
-         "lock1_eligibility data key; the penalty bites at the score re-test (chain.py); never fired"),
+         "l1_eligibility data key; the penalty bites at the score re-test (chain.py); never fired"),
     Rule(2, "etf", config_keys=("etf_negative_penalty", "etf_negative_floor"),
          source="chain.py ETF re-test after L5 (FILTERED_ETF_PENALTY before 2026-10-31)"),
     Rule(2, "overflow", ("overflow",), ("overflow_quant_increment",),
@@ -147,21 +148,21 @@ RULES: tuple[Rule, ...] = (
          source="wallet.execute_trade: demo max positions without an overflow slot"),
     Rule(2, "sector_cap", ("sector_cap",), ("max_sector_exposure",),
          "execution phase: gate_runner_live, wallet.execute_trade"),
-    Rule(3, "threshold", config_keys=("lock1_threshold",), source="lock2_quant: score below the threshold"),
+    Rule(3, "threshold", config_keys=("lock1_threshold",), source="l3_score: score below the threshold"),
     Rule(4, "grok", config_keys=("lock2_sentiment_min",), cooloff=True,
-         source="lock3_sentiment: Grok's verdict (score at or below the minimum, or low conviction)"),
+         source="l4_sentiment: Grok's verdict (score at or below the minimum, or low conviction)"),
     Rule(4, "unavailable", cooloff=True, check=False,
-         source="lock3_sentiment 'Grok API unavailable — failing closed'"),
+         source="l4_sentiment 'Grok API unavailable — failing closed'"),
     Rule(4, "unavailable_inferred", cooloff=True, history_only=True, check=False,
          source="history: no summary and no reason"),
     Rule(5, "leading", config_keys=("lock4_pcr_mode",),
-         source="lock4_leading: the leading-indicator checks (price and options groups; 2 of 4 before 2026-06-03)"),
+         source="l5_positioning: the leading-indicator checks (price and options groups; 2 of 4 before 2026-06-03)"),
     Rule(5, "unavailable", check=False,
-         source="lock4_leading: a data error decided the failing group (price check error, or no options data "
+         source="l5_positioning: a data error decided the failing group (price check error, or no options data "
                 "with a fetch error)"),
     Rule(6, "claude", config_keys=("lock3_confidence_min",), cooloff=True,
-         source="lock5_claude: Claude's decision (HOLD, or confidence below the minimum)"),
-    Rule(6, "unavailable", cooloff=True, check=False, source="lock5_claude L5_UNAVAILABLE_PREFIX"),
+         source="l6_review: Claude's decision (HOLD, or confidence below the minimum)"),
+    Rule(6, "unavailable", cooloff=True, check=False, source="l6_review L5_UNAVAILABLE_PREFIX"),
     Rule(6, "unavailable_inferred", cooloff=True, history_only=True, check=False,
          source="history: no reasoning before ba12aa2 (2026-09-18)"),
     Rule(6, "broker_error", ("broker_error",), check=False,

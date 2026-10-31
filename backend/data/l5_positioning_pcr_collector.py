@@ -1,5 +1,5 @@
 """
-data/lock4_pcr_collector.py — Daily P/C ratio collection for Lock 4 baseline calibration.
+data/l5_positioning_pcr_collector.py — Daily P/C ratio collection for Lock 4 baseline calibration.
 
 Fetches near-term put/call OI ratios for all active APEX tickers after market close
 and stores them to lock4_pcr_history. backend/gate/pcr_baseline.py reads the table
@@ -12,11 +12,11 @@ Design rules:
   - Idempotent: duplicate (ticker, date) rows are silently skipped.
   - Dislocation auto-flag: VIX >= VIX_DISLOCATION_THRESHOLD marks the day; can also
     be set manually via db.set_pcr_dislocation(date, True).
-  - Uses the same 2-expiry logic as _check_put_call_ratio in lock4_leading.py so the
+  - Uses the same 2-expiry logic as _check_put_call_ratio in l5_positioning.py so the
     baseline is directly comparable to live gate readings.
 
 Entry point:
-    from backend.data.lock4_pcr_collector import collect_pcr_snapshot
+    from backend.data.l5_positioning_pcr_collector import collect_pcr_snapshot
     collect_pcr_snapshot()
 """
 from __future__ import annotations

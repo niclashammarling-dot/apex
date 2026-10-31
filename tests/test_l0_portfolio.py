@@ -9,7 +9,7 @@ from backend.config import (
     M4_EXPECTANCY_N,
     M4_EXPECTANCY_REF,
 )
-from backend.gate import portfolio_l0 as l0
+from backend.gate import l0_portfolio as l0
 
 ACCT = {"equity": 10_000.0, "day_pnl": 0.0}
 AFTER = "2026-11-01T15:00:00+00:00"

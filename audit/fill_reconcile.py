@@ -4,7 +4,7 @@ Fill reconcile (2026-10-31): the live book's recorded entries and exits against 
 CHECK 89 read the DB only, so a capture could be right per row while the book drifted (bundle TODO 2026-10-13).
 Found 2026-10-31: TER row 70 and MSFT row 47 were booked at one slice of a two-slice sell order, $4.84 above
 the broker's fills, and nothing compared the two ledgers. M4's drawdown halt reads realised equity from these
-rows (backend/gate/portfolio_l0.py), so a drifting book moves the stop.
+rows (backend/gate/l0_portfolio.py), so a drifting book moves the stop.
 
 Writer: publish_state calls write() before the checks, on the host (broker credentials), and writes
 data/fill_reconcile.json. Reader: CHECK 89 (audit/checks_data.py), which warns when the file is missing or

@@ -85,7 +85,7 @@ Flag any value outside these bounds:
 
 ### CHECK 11 — NaN/null config pipeline
 - Frontend `frontend/src/App.jsx`: find any `parseFloat(val)` without empty-string guard. `parseFloat("")` = NaN; `NaN ?? ""` does not fall back. Correct: `val === "" ? null : parseFloat(val)`.
-- Backend `backend/gate/lock1_eligibility.py`: find `cfg.get(key, default)` for numeric fields used in comparisons. Stored None bypasses the default. Check: `macro_event_blackout_days`, `macro_earnings_blackout_days`, `vix_threshold`, `gate_cooloff_hours`.
+- Backend `backend/gate/l1_eligibility.py`: find `cfg.get(key, default)` for numeric fields used in comparisons. Stored None bypasses the default. Check: `macro_event_blackout_days`, `macro_earnings_blackout_days`, `vix_threshold`, `gate_cooloff_hours`.
 
 ### Output format
 
@@ -125,7 +125,7 @@ Every code the writers store must be recognized by all consumers. Since lock lab
 ### CHECK 26 — L1/L2 threshold-source parity
 Both L1 candidate selection and L2 quant gate must read sector thresholds from `ticker_thresholds` table, not static config.
 - Verify `gate_runner.py` and `gate_runner_live.py` both call `get_ticker_thresholds()` and pass the result as `sector_thresholds` to `get_lock1_candidates()`.
-- Verify `lock2_quant._sector_threshold()` calls `get_ticker_thresholds()`.
+- Verify `l3_score._sector_threshold()` calls `get_ticker_thresholds()`.
 - Flag any file that omits the call as CRITICAL — reversion to static config silently applies a single global threshold (0.70) instead of calibrated per-sector values (0.54–0.62), blocking all valid candidates.
 
 ### CHECK 20 — Import path integrity after restructuring
@@ -218,7 +218,7 @@ The regression caused the funnel to show reset-like zeros, masking true gate hea
 
 Run as part of `python3 audit/mechanical_checks.py` (no separate invocation needed).
 
-Reads `backend/gate/chain.py` and `backend/gate/lock5_claude.py`. Extracts every
+Reads `backend/gate/chain.py` and `backend/gate/l6_review.py`. Extracts every
 `ctx["regime_bayes_*"]` assignment in `build_base_context` and verifies each field
 name appears verbatim in `SYSTEM_PROMPT`'s exclusion clause ("Do NOT factor
 regime_bayes_allocation, regime_bayes_posterior, or any Bayesian field into your

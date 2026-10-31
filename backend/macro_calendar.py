@@ -2,7 +2,7 @@
 US macro event calendar, 2015-2027, from the official sources (2026-10-17).
 
 One source for Lock 1's blackout and both backtest engines. Before this, live
-(lock1_eligibility.py) and engine.py each kept their own copy, engine_fast had
+(l1_eligibility.py) and engine.py each kept their own copy, engine_fast had
 none, and both copies had drifted: engine.py's CPI was wrong on 10 dates and its
 first-Friday NFP rule on 15 (e.g. 2021-01-01, a holiday) between 2021 and
 2026-10-16, and it had no dates before 2021.

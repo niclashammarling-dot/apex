@@ -376,7 +376,7 @@ def run(
 
         vix_blocked = (
             vix_threshold is not None
-            and (vix_cache.get(today_str, 0.0) >= vix_threshold if vix_block_inclusive   # live: lock1_eligibility `vix >= threshold`
+            and (vix_cache.get(today_str, 0.0) >= vix_threshold if vix_block_inclusive   # live: l1_eligibility `vix >= threshold`
                  else vix_cache.get(today_str, 0.0) > vix_threshold)
         )
 

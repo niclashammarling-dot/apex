@@ -30,7 +30,7 @@ BY_CHECK: dict[int, str] = {
          "ticker's polls (universe, data gaps). Premise corrected 2026-10-10 (ADI false positive)."),
     45: ("Static analysis (ruff and the `with get_db()` scan). Per finding: read the line and its references "
          "before fixing. Never `ruff --fix` blind: an F401 on a re-exported name breaks its importers (10-23: "
-         "lock1_eligibility's calendar aliases are imported by tests/test_lock1_macro_blackout.py; kept with a "
+         "l1_eligibility's calendar aliases are imported by tests/test_l1_eligibility_macro_blackout.py; kept with a "
          "noqa and a reason). `with get_db() as conn` leaks: `conn = get_db(); try: … finally: conn.close()`. "
          "One commit, ruff clean on the touched files, full suite. ~20 min."),
     54: ("Gate lock labels have one source (backend/gate/lock_codes.py, served in the gate-history responses; lock labels "

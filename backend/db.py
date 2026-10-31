@@ -1006,7 +1006,7 @@ def get_open_live_tickers() -> set[str]:
 def _ticker_gate_fails(table: str, ticker: str, limit: int) -> list[dict]:
     """
     Recent gate decisions for a ticker, newest first, skips left out (lock_codes.is_skip: stopped before any
-    chain lock ran, no judgement on the candidate), for L6 REVIEW's (lock5_claude) ticker_gate_history. Each
+    chain lock ran, no judgement on the candidate), for L6 REVIEW's (l6_review) ticker_gate_history. Each
     row: date, the stored code (`outcome`: the owner's lock code or TRADE_EXECUTED), the stage it stopped at
     (`stage`: the owner's lock label, the names the Lock 5 prompt uses) and `detail`, the reason recorded.
 

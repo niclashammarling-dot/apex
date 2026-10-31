@@ -437,7 +437,7 @@ def _threshold_status(since: str, until: str) -> dict:
             "sector":      sector,
             "threshold":   thresh,
             "floor":       floor,
-            # What Lock 2 applies: lock2_quant._sector_threshold
+            # What Lock 2 applies: l3_score._sector_threshold
             "effective":   max(thresh, floor) if thresh is not None and floor is not None else thresh,
             "pass_rate":   pass_rate,
             "n":           n,

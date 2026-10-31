@@ -1,5 +1,5 @@
 """
-gate/lock4_leading.py — Lock 4: Leading Signals
+gate/l5_positioning.py — Lock 4: Leading Signals
 
 Four sub-checks that ask "is informed/smart money positioning into this
 ticker ahead of a move?":
@@ -15,7 +15,7 @@ and options (put/call ratio, unusual calls). Until 2026-06-03 it passed at 2 of 
 (min_pass); that flat rule let the CRM/NVDA/FDX entries through (CHECK 49, 50).
 
 Public API:
-    from gate.lock4_leading import evaluate
+    from gate.l5_positioning import evaluate
     result = evaluate(ticker, sector)
 """
 from __future__ import annotations
@@ -103,7 +103,7 @@ def _build_sector_etf() -> dict[str, str]:
         from backend.ticker_config import get_sectors
         return {s: cfg["etf"] for s, cfg in get_sectors().items() if s not in EXCLUDED_SECTORS}
     except Exception:
-        logger.warning("lock4_leading: ticker_config load failed — using hardcoded fallback ETF map")
+        logger.warning("l5_positioning: ticker_config load failed — using hardcoded fallback ETF map")
         return {
             "Technology":      "XLK",
             "Energy":          "XLE",

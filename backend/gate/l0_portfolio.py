@@ -1,5 +1,5 @@
 """
-gate/portfolio_l0.py — L0 Portfolio: the M4 stop rules, evaluated once per cycle before L1 starts.
+gate/l0_portfolio.py — L0 Portfolio: the M4 stop rules, evaluated once per cycle before L1 starts.
 
 Ruled by Niclas 2026-10-24 ("m4: då sätter vi de tre reglerna i L0 som hindrar L1 att ens starta.
 Kör på live redan nu"; chain L0 PORTFOLIO → L1 ELIGIBILITY → L2 RISK → L3 SCORE → L4 SENTIMENT →

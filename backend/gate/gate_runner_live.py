@@ -1,6 +1,6 @@
 """
 Live Gate Runner — the same gate as gate_runner.py (demo = live except trading, ruling 2026-10-28) but:
-  - L0's M4 rules run first, once per cycle (portfolio_l0); a halt writes no row
+  - L0's M4 rules run first, once per cycle (l0_portfolio); a halt writes no row
   - L1 also checks the live blocklist, and affordability counts whole shares (bracket orders)
   - On TRADE_QUEUED, places a real Alpaca bracket order
   - Stores gate results in live_gate_history (not the demo signals table), under the code lock_codes derives
@@ -403,13 +403,13 @@ def _run(cycle: GateCycle) -> list[dict]:
         cycle.reason = "halt_data_quality"
         return []
 
-    # L0 Portfolio: the M4 stop rules (backend/gate/portfolio_l0.py), before L1 starts. Only
+    # L0 Portfolio: the M4 stop rules (backend/gate/l0_portfolio.py), before L1 starts. Only
     # reached once broker and APEX are confirmed to agree, so a trip here is a genuine loss, not a
     # snapshot artifact. The daily cap is a share of current equity; downstream readers (L5's
     # risk_limits) see the effective dollar cap through cfg.
     from backend.db import live_sample_rows
-    from backend.gate import portfolio_l0
-    l0 = portfolio_l0.evaluate(acct, live_sample_rows(), cfg["starting_balance"])
+    from backend.gate import l0_portfolio
+    l0 = l0_portfolio.evaluate(acct, live_sample_rows(), cfg["starting_balance"])
     cfg["daily_loss_cap"] = l0["daily_loss_cap"]
     if l0["reason"]:
         today = _ny_today()
@@ -417,7 +417,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                        f"${l0['daily_loss_cap']:.2f}; realised drawdown {l0['drawdown']['drawdown']:.2%}; "
                        f"expectancy {l0['expectancy']}")
         if set_alert_latch(f"{l0['reason']}:{today}"):
-            if l0["reason"] == portfolio_l0.HALT_LOSS_CAP:
+            if l0["reason"] == l0_portfolio.HALT_LOSS_CAP:
                 from backend.alerts import alert_daily_loss_cap
                 alert_daily_loss_cap(l0["day_loss"], l0["daily_loss_cap"])
             else:
@@ -428,7 +428,7 @@ def _run(cycle: GateCycle) -> list[dict]:
         cycle.reason = l0["reason"]
         return []
     l0_states: dict[str, str] = {}
-    for ident, verdict in portfolio_l0.rule_verdicts(l0).items():
+    for ident, verdict in l0_portfolio.rule_verdicts(l0).items():
         lock_codes.put(l0_states, ident, verdict)
 
     stale: list[dict] = []

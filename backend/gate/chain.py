@@ -39,11 +39,11 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from backend.gate.lock1_eligibility import evaluate as lock1_evaluate
-from backend.gate.lock2_quant import evaluate as lock2_evaluate, _sector_threshold
-from backend.gate.lock3_sentiment import evaluate as lock3_evaluate
-from backend.gate.lock4_leading import evaluate as lock4_evaluate
-from backend.gate.lock5_claude import evaluate as lock5_evaluate
+from backend.gate.l1_eligibility import evaluate as lock1_evaluate
+from backend.gate.l3_score import evaluate as lock2_evaluate, _sector_threshold
+from backend.gate.l4_sentiment import evaluate as lock3_evaluate
+from backend.gate.l5_positioning import evaluate as lock4_evaluate
+from backend.gate.l6_review import evaluate as lock5_evaluate
 from backend.gate import lock_codes
 from backend.gate.lock_codes import FAIL, NO_DATA, PASS
 from backend.gate.types import LockResult

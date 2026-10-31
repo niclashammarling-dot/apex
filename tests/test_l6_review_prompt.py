@@ -1,11 +1,11 @@
 """Lock 5's system prompt describes the pipeline as the code runs it (2026-10-17).
 Until then it said "allocation weighting is handled downstream": the allocation acts
-upstream (Lock 1 admits only sectors with allocation > 0, lock1_eligibility.py) and
+upstream (Lock 1 admits only sectors with allocation > 0, l1_eligibility.py) and
 downstream only as a sector-cap weight; the post-L5 multiplier is score-relative
 (RegimeBayes.size_multipliers, n·s/Σs). Niclas 10-17: L5 makes the overall judgment,
 so it needs the right definitions. The binding no-Bayesian-sizing sentence is pinned
 verbatim: a prompt edit can move L5's sizing."""
-from backend.gate.lock5_claude import SYSTEM_PROMPT
+from backend.gate.l6_review import SYSTEM_PROMPT
 
 BINDING = ("Do NOT factor regime_bayes_allocation, regime_bayes_posterior, regime_bayes_adjusted_score, "
            "regime_bayes_qualified, regime_bayes_rank, or any Bayesian allocation field into your size")
@@ -24,10 +24,10 @@ def test_prompt_places_the_allocation_upstream_and_the_multiplier_on_the_score()
 def test_the_claims_hold_in_code():
     """The prompt's two claims, checked against the code they describe."""
     import inspect
-    from backend.gate import lock1_eligibility
+    from backend.gate import l1_eligibility
     from backend.gate.gate_runner import _compute_bayesian_multipliers
     from backend.regime.regime_bayes import RegimeResult
-    assert "if allocation == 0:" in inspect.getsource(lock1_eligibility)
+    assert "if allocation == 0:" in inspect.getsource(l1_eligibility)
     ev = [({"ticker": t, "sector": "Tech", "signal_score": s}, {"outcome": "TRADE_QUEUED"})
           for t, s in (("A", 0.8), ("B", 0.4))]
     for alloc in (0.2, 0.9):                         # the allocation level does not move it
@@ -70,7 +70,7 @@ def test_both_runners_hand_the_enforced_caps_to_the_context():
 # 2026-10-26 (lock labels, prompt ruled by Niclas: "godkänd prompt"; review 2026-11-09): the prompt and
 # the lock_results keys use the chain's names, and the gate history it explains is read by stage label.
 def test_lock_results_keys_are_the_chain_names():
-    from backend.gate.lock5_claude import _build_context_payload
+    from backend.gate.l6_review import _build_context_payload
     from backend.gate.types import LockResult
     results = {i: LockResult.pass_(lock_id=i, score=1.0, reason="ok") for i in (1, 2, 3, 4)}
     keys = set(_build_context_payload("AAPL", "Technology", results, {})["lock_results"])

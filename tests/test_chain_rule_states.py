@@ -17,9 +17,9 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-import backend.gate.lock1_eligibility as l1m
-import backend.gate.lock4_leading as l4m
-from backend.gate import chain, gate_runner, lock_codes, lock5_claude
+import backend.gate.l1_eligibility as l1m
+import backend.gate.l5_positioning as l4m
+from backend.gate import chain, gate_runner, lock_codes, l6_review
 from backend.gate.history_classify import classify
 from backend.gate.lock_codes import FAIL, NO_DATA, PASS
 from backend.gate.lock_codes import rule_key as K
@@ -53,7 +53,7 @@ def _l1(vix=10.0, macro=("clear", None), earnings_in=None, regime=True) -> LockR
 
 
 def _grok(passed=True, unavailable=False) -> LockResult:
-    if unavailable:     # lock3_sentiment's fail-closed shape
+    if unavailable:     # l4_sentiment's fail-closed shape
         return LockResult.fail(lock_id=3, reason="Grok API unavailable — failing closed",
                                data={"unavailable": True, "score": None, "conviction": None,
                                      "key_themes": [], "summary": None})
@@ -141,7 +141,7 @@ CASES = [
     ("drawdown_guard", {"context": GUARD_HIT}, (0, "drawdown_guard"),
      {K(2, "etf"): PASS, K(0, "drawdown_guard"): FAIL}, True),
     ("claude", {"stop_after": None}, (6, "claude"), {K(0, "drawdown_guard"): PASS, K(6, "claude"): FAIL}, True),
-    ("claude_unavailable", {"stop_after": None, "l5": lock5_claude._fail_closed("rate_limit")}, (6, "unavailable"),
+    ("claude_unavailable", {"stop_after": None, "l5": l6_review._fail_closed("rate_limit")}, (6, "unavailable"),
      {K(6, "unavailable"): FAIL}, True),
     ("approved", {"stop_after": None, "l5": _claude(passed=True)}, None, {K(6, "claude"): PASS}, False),
 ]
@@ -202,12 +202,12 @@ def test_the_writer_and_the_history_classifier_name_the_same_stop(name, kwargs, 
 
 def test_the_deferred_review_adds_claude_rule_to_the_runner_result():
     for l5, expected in ((_claude(passed=False), {K(6, "claude"): FAIL}),
-                         (lock5_claude._fail_closed("connection"), {K(6, "unavailable"): FAIL}),
+                         (l6_review._fail_closed("connection"), {K(6, "unavailable"): FAIL}),
                          (_claude(passed=True), {K(6, "claude"): PASS})):
         cr = _run()
         res = gate_runner._chain_to_gate_result({"ticker": "AAPL", "sector": SECTOR, "id": 1}, cr)
         res["_l5_lock_results"], res["_l5_context"] = cr.lock_results, {}
-        with patch("backend.gate.lock5_claude.evaluate", return_value=l5):
+        with patch("backend.gate.l6_review.evaluate", return_value=l5):
             gate_runner._run_l5_for_result({"ticker": "AAPL", "sector": SECTOR}, res, CFG)
         assert {k: res["rule_states"].get(k) for k in expected} == expected
         assert lock_codes.stop_of(res["rule_states"]) == next(
@@ -236,7 +236,7 @@ def test_claude_input_is_unchanged_by_the_bookkeeping():
     # The Lock 5 prompt approved 2026-10-26 reads the lock results' data; rule_states and the unavailable flags
     # name rows and stay out of it.
     lr = {1: _l1(), 3: _grok(), 4: _l4()}
-    payload = lock5_claude._build_context_payload("AAPL", SECTOR, lr, {})
+    payload = l6_review._build_context_payload("AAPL", SECTOR, lr, {})
     seen = {k for r in payload["lock_results"].values() for k in r["data"]}
     assert seen.isdisjoint({"rule_states", "unavailable", "options_errors"})
     assert "checks" in payload["lock_results"]["l5_positioning"]["data"]      # the evidence still reaches Claude
@@ -267,8 +267,8 @@ def test_exit_cooloff_and_the_m4_rules_are_registered_under_their_locks():
     assert lock_codes.rule_for("exit_cooloff").owner == 1
     assert lock_codes.rule_for("halt_m4_drawdown").owner == 0
     assert lock_codes.rule_for("halt_m4_expectancy").owner == 0
-    from backend.gate import portfolio_l0
-    for ident in (portfolio_l0.HALT_DRAWDOWN, portfolio_l0.HALT_LOSS_CAP, portfolio_l0.HALT_EXPECTANCY):
+    from backend.gate import l0_portfolio
+    for ident in (l0_portfolio.HALT_DRAWDOWN, l0_portfolio.HALT_LOSS_CAP, l0_portfolio.HALT_EXPECTANCY):
         assert lock_codes.rule_for(ident).owner == 0       # M4's own identifiers, read from its module
     labels = lock_codes.config_labels()
     assert labels["exit_cooloff_hours"].startswith("L1 ") and labels["tp_cooloff_hours"].startswith("L1 ")

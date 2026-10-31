@@ -1,5 +1,5 @@
 """
-gate/lock1_eligibility.py — Lock 1: Eligibility
+gate/l1_eligibility.py — Lock 1: Eligibility
 
 The first and coarsest gate in the apex lock chain. Combines two checks:
 
@@ -20,7 +20,7 @@ Deliberately minimal — no scoring logic, no signal computation.
 Downstream locks (Quant, Sentiment, Leading, Claude) handle quality.
 
 Public API:
-    from gate.lock1_eligibility import evaluate
+    from gate.l1_eligibility import evaluate
     result = evaluate(ticker, sector, cfg)
 """
 from __future__ import annotations
@@ -36,7 +36,7 @@ from backend.gate.lock_codes import FAIL, NO_DATA, PASS
 from backend.gate.types import LockResult
 # One calendar for Lock 1 and both backtest engines (2026-10-17, Niclas: "live måste ha
 # en enda kalender att gå efter"): backend/macro_calendar.py, official FOMC / BLS dates.
-# _CPI/_FOMC/_NFP_DATES are re-exported: tests/test_lock1_macro_blackout.py imports them from here.
+# _CPI/_FOMC/_NFP_DATES are re-exported: tests/test_l1_eligibility_macro_blackout.py imports them from here.
 from backend.macro_calendar import (CPI_DATES as _CPI_DATES, FOMC_DATES as _FOMC_DATES,  # noqa: F401
                                     MACRO_DATES as _MACRO_DATES, NFP_DATES as _NFP_DATES,  # noqa: F401
                                     macro_status as _shared_macro_status)

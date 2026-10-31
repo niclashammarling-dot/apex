@@ -156,7 +156,7 @@ def live_cooloff_days() -> tuple[int, int]:
 
 def live_macro_event_blackout_days() -> int:
     """The CPI/NFP pre-event window in days for both engines, from live config, as live and demo read it
-    (lock1_eligibility: cfg `macro_event_blackout_days`). Until 2026-10-28 the engines used
+    (l1_eligibility: cfg `macro_event_blackout_days`). Until 2026-10-28 the engines used
     macro_status's own default, equal to live's value by coincidence, not by reference (Niclas
     2026-10-28, P3: one calendar for every book: demo, live and the shadow book)."""
     from backend.live_config import get_live_config
@@ -186,7 +186,7 @@ def reentry_cooloff_days_before_row23(exit_reason: str, outcome: str, sl_days: i
 
 def etf_return_as_live(closes, today) -> float | None:
     """The sector ETF return live's Lock 4 reads (2026-10-18, PRODUCTION_GAP row 11):
-    `lock4_leading` downloads `period="8d"` (8 daily rows, measured 10-18) and takes
+    `l5_positioning` downloads `period="8d"` (8 daily rows, measured 10-18) and takes
     last / first - 1, so its "5d" return spans 7 trading-day intervals; fewer than 5
     rows is an error there (no penalty). `closes` is the ETF's Close series; the
     engine evaluates at today's close where live reads today's bar in progress.

@@ -28,7 +28,7 @@ not a row to file under the nearest lock. Rows without a code (ungated `signals`
 are never passed here.
 
 Rule names come from lock_codes.RULES, never from this module: stop_code() refuses a name the register
-does not hold. Where the writer emitted an identifier of its own (lock1_eligibility's fail_type, live's
+does not hold. Where the writer emitted an identifier of its own (l1_eligibility's fail_type, live's
 outcome_reason), the row's text or field is read back to that identifier and the register gives the rule
 (rule_for), so history and the writers name a check the same way (Niclas 2026-10-28: "konsekvent och kan
 härledas överallt där det används").
@@ -78,7 +78,7 @@ QTY_ZERO = "broker_error: Computed qty=0"
 # only under it, is live 19:28:19. Before it a check error was one fewer pass in 2 of 4, never the cause.
 GROUP_RULE_LIVE = "2026-06-03T19:00:00"
 
-# lock1_eligibility's reason texts → the fail_type it set with them (lock1_eligibility.py, `fail_type`), including
+# l1_eligibility's reason texts → the fail_type it set with them (l1_eligibility.py, `fail_type`), including
 # the wordings before the hysteresis band ("< allocation floor") and before the leaderboard cutoff ("not found").
 ELIGIBILITY_FAIL_TYPES: tuple[tuple[str, str], ...] = (
     (r"^VIX=", "vix"),

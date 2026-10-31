@@ -83,7 +83,7 @@ def check11():
                     flag(11, "NaN/null pipeline", "WARNING", f"frontend/src/App.jsx:{i}",
                          "parseFloat(val) without empty-string guard")
 
-    eligibility = REPO / "backend/gate/lock1_eligibility.py"
+    eligibility = REPO / "backend/gate/l1_eligibility.py"
     if eligibility.exists():
         text = eligibility.read_text()
         keys = ["macro_event_blackout_days", "macro_earnings_blackout_days",
@@ -91,7 +91,7 @@ def check11():
         for i, line in enumerate(text.splitlines(), 1):
             for k in keys:
                 if f'cfg.get("{k}",' in line or f"cfg.get('{k}'," in line:
-                    flag(11, "NaN/null pipeline", "WARNING", f"backend/gate/lock1_eligibility.py:{i}",
+                    flag(11, "NaN/null pipeline", "WARNING", f"backend/gate/l1_eligibility.py:{i}",
                          f"cfg.get({k!r}, default) — default won't fire for stored None")
 
 

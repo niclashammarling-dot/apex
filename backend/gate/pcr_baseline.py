@@ -31,7 +31,7 @@ one. K = 3 → w = 0.25 / 0.50 / 0.77 / 0.93 at n = 1 / 3 / 10 / 38.
 
 Computed once per process per calendar day from the DB (in memory; no disk
 cache, so no code-version key is needed). The table is the collector's
-(backend/data/lock4_pcr_collector.py); CHECK 78 reads its completeness.
+(backend/data/l5_positioning_pcr_collector.py); CHECK 78 reads its completeness.
 """
 from __future__ import annotations
 

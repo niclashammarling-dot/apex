@@ -11,7 +11,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from backend.gate.lock1_eligibility import (
+from backend.gate.l1_eligibility import (
     _FOMC_DATES,
     _CPI_DATES,
     _NFP_DATES,
@@ -129,7 +129,7 @@ def test_fomc_pre_event_constant_is_2():
 
 def test_calendar_expiry_no_error_with_valid_dates(caplog):
     import logging
-    with caplog.at_level(logging.WARNING, logger="backend.gate.lock1_eligibility"):
+    with caplog.at_level(logging.WARNING, logger="backend.gate.l1_eligibility"):
         _check_calendar_expiry()
     assert "exhausted" not in caplog.text
 
@@ -139,11 +139,11 @@ def test_calendar_expiry_warns_when_near(monkeypatch):
     last = max(_MACRO_DATES)
     fake_today = last - timedelta(days=30)
 
-    import backend.gate.lock1_eligibility as m
+    import backend.gate.l1_eligibility as m
     monkeypatch.setattr(m, "_MACRO_DATES", {last})
 
     with _patch.object(m.logger, "warning") as mock_warn:
-        with _patch("backend.gate.lock1_eligibility.date") as mock_date:
+        with _patch("backend.gate.l1_eligibility.date") as mock_date:
             mock_date.today.return_value = fake_today
             mock_date.side_effect = lambda *a, **kw: date(*a, **kw)
             m._check_calendar_expiry()

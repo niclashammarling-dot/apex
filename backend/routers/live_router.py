@@ -151,9 +151,9 @@ def live_gate_history():
             acct = broker.get_account()
             cfg = get_live_config()
             from backend.db import live_sample_rows
-            from backend.gate import portfolio_l0
-            l0 = portfolio_l0.evaluate(acct, live_sample_rows(), cfg["starting_balance"])
-            if l0["reason"] == portfolio_l0.HALT_LOSS_CAP:
+            from backend.gate import l0_portfolio
+            l0 = l0_portfolio.evaluate(acct, live_sample_rows(), cfg["starting_balance"])
+            if l0["reason"] == l0_portfolio.HALT_LOSS_CAP:
                 blocked_reason = f"daily loss cap — ${l0['day_loss']:,.0f} loss vs ${l0['daily_loss_cap']:,.0f} cap"
             elif l0["reason"]:
                 blocked_reason = f"L0 {l0['reason']} — realised drawdown {l0['drawdown']['drawdown']:.1%}"
@@ -175,7 +175,7 @@ def promote_demo_to_live():
       - starting_balance: demo=$2k, live=$100k — different denominators;
         leaked into live would corrupt sector exposure checks (notional/2000 = 1500%)
       - daily_loss_cap: absolute dollars calibrated to account size (demo's wallet reads it; the
-        live gate has not since 2026-10-24: L0 Portfolio sets 5 % of equity, portfolio_l0.py), kept
+        live gate has not since 2026-10-24: L0 Portfolio sets 5 % of equity, l0_portfolio.py), kept
         out of Promote so the live value stays account-scaled if L0's cap is ever removed
 
     Any new config key must be deliberately placed in _KEYS (promotable) or

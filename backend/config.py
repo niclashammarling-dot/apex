@@ -139,7 +139,7 @@ LIVE_MAX_POSITIONS       = int(os.getenv("LIVE_MAX_POSITIONS", "4"))
 LIVE_MAX_SECTOR_EXPOSURE = float(os.getenv("LIVE_MAX_SECTOR_EXPOSURE", "0.20"))
 LIVE_MAX_POSITION_SIZE   = float(os.getenv("LIVE_MAX_POSITION_SIZE", "0.10"))
 LIVE_DAILY_LOSS_CAP      = float(os.getenv("LIVE_DAILY_LOSS_CAP", "200.0"))
-# --- L0 Portfolio: the M4 stop rules (ruled 2026-10-24; backend/gate/portfolio_l0.py) ---
+# --- L0 Portfolio: the M4 stop rules (ruled 2026-10-24; backend/gate/l0_portfolio.py) ---
 # Drawdown on realised equity: Niclas 2026-10-24 "6 %" ("i överkant men det är värdefullt att veta"),
 # "m4: realiserat". Daily loss cap as a share of current equity: ruled as a share ("5% av aktuellt
 # kapital kan skala upp och ner"), level 4 % or 6 % open until the 2026-11-21 review; 5 % is the

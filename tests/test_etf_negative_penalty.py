@@ -1,5 +1,5 @@
 """Row 11 (2026-10-18): live's ETF negative penalty in both engines, on the return live's
-Lock 4 reads. `lock4_leading` takes last / first of `period="8d"` (8 rows: 7 intervals),
+Lock 4 reads. `l5_positioning` takes last / first of `period="8d"` (8 rows: 7 intervals),
 compares it in percent rounded to 2 decimals, and the chain gates on score × (1 − p)
 against the sector threshold without carrying the penalised score on."""
 import inspect

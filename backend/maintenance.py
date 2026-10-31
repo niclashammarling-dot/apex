@@ -41,21 +41,21 @@ def check_config_parity() -> list[str]:
 
 def check_sector_names() -> list[str]:
     """
-    lock4_leading.SECTOR_ETF must map every sector defined in config.SECTORS.
+    l5_positioning.SECTOR_ETF must map every sector defined in config.SECTORS.
     A missing sector causes Lock 4 to fail all checks for that sector's
     tickers with no error — just a silent 'no ETF mapped' log line.
     """
     from backend.config import EXCLUDED_SECTORS, SECTORS
-    from backend.gate.lock4_leading import SECTOR_ETF
+    from backend.gate.l5_positioning import SECTOR_ETF
     config_sectors = set(SECTORS.keys()) - set(EXCLUDED_SECTORS.keys())
     etf_sectors    = set(SECTOR_ETF.keys())
     issues = []
     missing = config_sectors - etf_sectors
     extra   = etf_sectors    - config_sectors
     if missing:
-        issues.append(f"Sectors in config.SECTORS with no ETF in lock4_leading: {sorted(missing)}")
+        issues.append(f"Sectors in config.SECTORS with no ETF in l5_positioning: {sorted(missing)}")
     if extra:
-        issues.append(f"Sectors in lock4_leading.SECTOR_ETF not in config.SECTORS: {sorted(extra)}")
+        issues.append(f"Sectors in l5_positioning.SECTOR_ETF not in config.SECTORS: {sorted(extra)}")
     return issues
 
 

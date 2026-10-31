@@ -20,7 +20,7 @@ import math
 from datetime import date, timedelta
 from typing import TypedDict
 
-# ── Macro event calendar (mirrors lock1_eligibility) ──────────────────────────
+# ── Macro event calendar (mirrors l1_eligibility) ──────────────────────────
 # Macro calendar and rule: backend/macro_calendar.py, shared with engine_fast and
 # Lock 1 (2026-10-17). This file kept its own 2021-2026 copy until then: CPI wrong
 # on 10 dates, NFP (first-Friday rule) on 15, nothing before 2021.

@@ -10,7 +10,7 @@ from loguru import logger
 
 from backend.config import EXIT_CHECK_INTERVAL, GATE_INTERVAL, POLL_INTERVAL_SECTORS
 from backend.data.fetcher_yahoo import fetch_all_sectors
-from backend.data.lock4_pcr_collector import collect_pcr_snapshot
+from backend.data.l5_positioning_pcr_collector import collect_pcr_snapshot
 from backend.db import (
     insert_sector_snapshots,
     insert_signal,
@@ -1028,7 +1028,7 @@ def start_scheduler() -> None:
         "interval",
         minutes=GATE_INTERVAL,
         # Offset live gate by half the interval so demo and live never fire together.
-        # Halves peak concurrent yfinance load on the shared _YF_SEMAPHORE in lock4_leading.
+        # Halves peak concurrent yfinance load on the shared _YF_SEMAPHORE in l5_positioning.
         # Plus half an exit-check interval (2026-09-25): GATE_INTERVAL is a multiple of
         # EXIT_CHECK_INTERVAL, so without it every live gate run fired in the same second
         # as check_live_exits and read the broker before the tracker had booked a fresh

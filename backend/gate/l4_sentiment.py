@@ -1,5 +1,5 @@
 """
-gate/lock3_sentiment.py — Lock 3: Sentiment
+gate/l4_sentiment.py — Lock 3: Sentiment
 
 Grok synthesizes quantitative signals (analyst consensus, short interest,
 recent analyst actions, news) fetched from yfinance, pre-fetched Reddit/RSS
@@ -12,7 +12,7 @@ Circuit breaker: after 3 consecutive API failures the circuit opens for
   network. Resets automatically once the cooldown expires.
 
 Public API:
-    from gate.lock3_sentiment import evaluate
+    from gate.l4_sentiment import evaluate
     result = evaluate(ticker, sentiment_min=None)
 """
 from __future__ import annotations
