@@ -32,9 +32,9 @@ undecided, review 2026-10-24):
   - Update step: five LRs multiplied as if independent, of mixed kind — absolute
     (ticker balance, ETF streak), cross-sectional (ETF rank, IPO share), and
     leader-relative (RS decline of the current leader, the same for every sector).
-  - Prior and decay are leadership-shaped (1/n, transition priors from leader
-    history — inert, see _get_prior); the LRs mostly measure the sector's own
-    direction. A calibration outcome cannot be chosen until the meaning is ruled.
+  - Prior and decay are leadership-shaped (1/n; the transition priors from
+    leader history were inert and were removed 2026-10-31); the LRs mostly
+    measure the sector's own direction. A calibration outcome cannot be chosen until the meaning is ruled.
 
 Pure core and persistence (2026-10-17): step() computes one session from an
 explicit RegimeState and writes nothing; update() is step() + persist and is the
@@ -44,7 +44,7 @@ engine builds RegimeBayes(..., persisted=False) and calls step() only.
 Usage:
     from backend.regime.regime_bayes import RegimeBayes, regime_context_for_claude
 
-    rb = RegimeBayes(sectors_cfg, sector_etf_map, transition_priors)
+    rb = RegimeBayes(sectors_cfg, sector_etf_map)
     result = rb.update(today, raw_data, sector_snapshots, ipo_shares)
     allocation = result.allocation      # {sector: pct} summing to 1.0
     leaderboard = result.leaderboard    # all active sectors, ranked
@@ -347,12 +347,13 @@ class RegimeBayes:
         self,
         sectors_cfg: dict,           # SECTORS config {sector: {tickers, etf, ...}}
         sector_etf_map: dict,        # {sector: etf_ticker}
-        transition_priors: dict,     # {outgoing: {candidate: historical_probability}}
+        *,
         persisted: bool = True,      # False: no DB/cache read, update() refused — step() only
     ):
+        # Keyword-only since 2026-10-31: the third positional argument was transition_priors, and a
+        # caller still passing {} there must fail, not silently set persisted={} (falsy, step-only).
         self.sectors_cfg       = sectors_cfg
         self.sector_etf_map    = sector_etf_map
-        self.transition_priors = transition_priors
         self._persisted        = persisted
 
         if not persisted:
@@ -457,9 +458,6 @@ class RegimeBayes:
         for sector in all_sectors:
             aggregate_score = sector_snapshots.get(sector, 0.0)
 
-            # Prior: historical transition probability from current leader to this sector
-            prior = self._get_prior(sector, current_leader, len(all_sectors))
-
             # Signal 1: ticker balance (recovering vs deteriorating)
             recovering, deteriorating, total = self._ticker_counts(sector, raw_data, today)
             lr_ticker_raw = _lr_ticker_balance(recovering, deteriorating, total)
@@ -509,7 +507,11 @@ class RegimeBayes:
             # conditions and posteriors saturate at 1.0, collapsing the model's
             # discriminatory power. The HMM reading of this line is in the module docstring.
             base_prior       = 1.0 / max(len(all_sectors), 1)
-            persistent_prior = posteriors.get(sector, prior)
+            # A sector without a posterior starts at the base prior. Until 2026-10-31 this fallback was a
+            # transition prior from leader history, but every configured sector has a posterior (the state
+            # loader fills 1/n), so it was never reached (prework finding 1, 2026-10-16; the golden replay
+            # was bit-identical with an extreme prior table on the parent).
+            persistent_prior = posteriors.get(sector, base_prior)
             decayed_prior    = POSTERIOR_DECAY * persistent_prior + (1.0 - POSTERIOR_DECAY) * base_prior
 
             # Update step: the five capped LRs, then the clamp.
@@ -799,12 +801,6 @@ class RegimeBayes:
             return last_result.leader
         return max(sector_snapshots, key=sector_snapshots.get) if sector_snapshots else ""
 
-    def _get_prior(self, sector: str, current_leader: str, total_sectors: int) -> float:
-        """Historical transition probability, falling back to uniform distribution."""
-        uniform = 1.0 / max(total_sectors, 1)
-        prior   = self.transition_priors.get(current_leader, {}).get(sector, uniform)
-        return max(0.05, min(0.95, prior))
-
     def _ticker_counts(
         self,
         sector: str,
@@ -950,32 +946,6 @@ class RegimeBayes:
         except Exception:
             return {"start_score": 0.0, "end_score": 0.0, "decline_days": 0}
 
-
-# ── Transition prior builder ──────────────────────────────────────────────────
-
-def build_transition_priors(sector_history: list[dict]) -> dict[str, dict[str, float]]:
-    """
-    Build historical transition probability table from sector leadership history.
-
-    sector_history: list of {"date": str, "leader": str} dicts, chronological.
-    Returns: {outgoing_sector: {successor_sector: probability}}
-
-    Example:
-        priors = build_transition_priors(db.get_sector_leadership_history())
-        rb = RegimeBayes(sectors_cfg, etf_map, priors)
-    """
-    from collections import defaultdict
-    counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-    for i in range(1, len(sector_history)):
-        prev = sector_history[i - 1]["leader"]
-        curr = sector_history[i]["leader"]
-        if prev != curr:
-            counts[prev][curr] += 1
-    priors: dict[str, dict[str, float]] = {}
-    for outgoing, successors in counts.items():
-        total = sum(successors.values())
-        priors[outgoing] = {s: round(c / total, 4) for s, c in successors.items()}
-    return priors
 
 
 # ── Claude Lock 4 context payload ─────────────────────────────────────────────

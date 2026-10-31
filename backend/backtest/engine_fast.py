@@ -996,7 +996,7 @@ def build_regime_timeline(precomputed: dict) -> dict:
     sectors_cfg: dict[str, dict] = {s: {"tickers": [], "etf": e} for s, e in sector_etf.items()}
     for ticker, sector in ticker_sector.items():
         sectors_cfg[sector]["tickers"].append(ticker)
-    rb    = RegimeBayes(sectors_cfg, {s: c["etf"] for s, c in sectors_cfg.items()}, {}, persisted=False)
+    rb    = RegimeBayes(sectors_cfg, {s: c["etf"] for s, c in sectors_cfg.items()}, persisted=False)
     state = RegimeState.cold(sectors_cfg)
     ipo   = {s: REGIME_IPO_NEUTRAL_SHARE for s in sectors_cfg}
     index = raw_data.index

@@ -28,21 +28,6 @@ scheduler = BackgroundScheduler(timezone="America/New_York")
 _regime_bayes = None
 
 
-def _build_transition_priors():
-    """Transition priors from full monthly leadership history (shared by the singleton and the preview)."""
-    from collections import defaultdict
-    from backend.db import get_sector_history
-    from backend.regime.regime_bayes import build_transition_priors
-    monthly: dict = defaultdict(dict)
-    for r in get_sector_history(days=0):
-        monthly[r["timestamp"][:7]][r["sector"]] = r["avg_score"]
-    leadership = [
-        {"date": m, "leader": max(scores, key=scores.get)}
-        for m, scores in sorted(monthly.items())
-        if scores
-    ]
-    return build_transition_priors(leadership)
-
 
 def _get_regime_bayes():
     """Return the singleton RegimeBayes instance, creating it on first call."""
@@ -54,9 +39,8 @@ def _get_regime_bayes():
         sectors_cfg    = get_sectors()
         sector_etf_map = {s: cfg["etf"] for s, cfg in sectors_cfg.items()}
 
-        transition_priors = _build_transition_priors()
-        _regime_bayes = RegimeBayes(sectors_cfg, sector_etf_map, transition_priors)
-        logger.info(f"RegimeBayes initialised — {len(transition_priors)} prior rows loaded")
+        _regime_bayes = RegimeBayes(sectors_cfg, sector_etf_map)
+        logger.info("RegimeBayes initialised")
     return _regime_bayes
 
 
@@ -567,7 +551,7 @@ def preview_eod_regime():
     try:
         sectors_cfg    = get_sectors()
         sector_etf_map = {s: cfg["etf"] for s, cfg in sectors_cfg.items()}
-        rb = RegimeBayes(sectors_cfg, sector_etf_map, _build_transition_priors())
+        rb = RegimeBayes(sectors_cfg, sector_etf_map)
         rb._save_session_posteriors = lambda *_, **__: None
         rb._save_result            = lambda *_: None
         rb._append_signal_trace    = lambda *_: None

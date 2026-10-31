@@ -245,7 +245,6 @@ def test_preview_persists_nothing():
     frame = pd.DataFrame({"Close": range(len(idx))}, index=idx)
     saved = []
     with patch.object(sched, "_eod_inputs", return_value=(frame, {"Technology": 0.5}, {"Technology": 1.0})), \
-         patch.object(sched, "_build_transition_priors", return_value={}), \
          patch.object(sched, "_get_regime_bayes") as singleton, \
          patch("backend.ticker_config.get_sectors", return_value={"Technology": {"tickers": ["AAPL"], "etf": "XLK"}}), \
          patch.object(rbm, "write_json_atomic", side_effect=lambda *a, **k: saved.append(a)), \

@@ -27,7 +27,7 @@ def _fresh_rb():
     conn.execute("DELETE FROM sector_posteriors")
     conn.commit()
     conn.close()
-    rb = RegimeBayes(SECTORS, {s: c["etf"] for s, c in SECTORS.items()}, {})
+    rb = RegimeBayes(SECTORS, {s: c["etf"] for s, c in SECTORS.items()})
     rb._last_result = None
     return rb
 

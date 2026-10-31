@@ -44,7 +44,7 @@ def _clear_db():
 
 def _seeded_rb(inp):
     cfg = inp["sectors_cfg"]
-    rb  = RegimeBayes(cfg, {s: c["etf"] for s, c in cfg.items()}, {})
+    rb  = RegimeBayes(cfg, {s: c["etf"] for s, c in cfg.items()})
     uniform = 1.0 / len(cfg)
     rb._posteriors = {s: inp["seed_posteriors"].get(s, uniform) for s in cfg}
     lb = [SectorEntry(**e) for e in inp["seed_leaderboard"]]
@@ -144,7 +144,7 @@ def test_unpersisted_instance_reads_nothing_and_refuses_update(monkeypatch):
     monkeypatch.setattr(RegimeBayes, "_load_result", boom)
     inp, close = _inputs()
     cfg = inp["sectors_cfg"]
-    rb  = RegimeBayes(cfg, {s: c["etf"] for s, c in cfg.items()}, {}, persisted=False)
+    rb  = RegimeBayes(cfg, {s: c["etf"] for s, c in cfg.items()}, persisted=False)
     assert rb._posteriors == {s: 1.0 / len(cfg) for s in cfg}      # live cold start, 1/15
     assert rb.last_result() is None
     with pytest.raises(RuntimeError, match="step\\(\\)-only"):
@@ -167,3 +167,15 @@ def test_decay_is_a_two_state_markov_step(n):
     if n == 11:
         assert (round(a, 3), round(b, 3)) == (0.909, 0.991)
         assert (round(1 / (1 - a)), round(1 / (1 - b))) == (11, 110)
+
+
+def test_transition_priors_are_gone_and_persisted_is_keyword_only():
+    # Removed 2026-10-31 (prework finding 1): the fallback they fed was never reached. A caller still passing
+    # the old third positional argument must fail rather than set persisted={} (falsy: step-only, silently).
+    import inspect
+    sig = inspect.signature(RegimeBayes.__init__)
+    assert "transition_priors" not in sig.parameters
+    assert sig.parameters["persisted"].kind is inspect.Parameter.KEYWORD_ONLY
+    with pytest.raises(TypeError):
+        RegimeBayes({}, {}, {})
+    assert not hasattr(rbm, "build_transition_priors")

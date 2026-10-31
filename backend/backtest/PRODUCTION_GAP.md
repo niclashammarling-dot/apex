@@ -80,7 +80,7 @@ Known differences from live, none of them one-signed:
   `REGIME_WARMUP_MIN_SESSIONS` scored sessions before the first day, else it refuses.
 - OHLCV per step: 90 calendar days ending t (the `as_of` path); live's same-day
   path downloads `period="60d"`.
-- Transition priors are not passed (inert live, 2026-10-16 pre-work finding 1).
+- Transition priors: removed from live 2026-10-31 (inert, 2026-10-16 pre-work finding 1), so live and engine now agree by construction.
 - The timeline is not persisted, so no cache key covers the regime files; the signal
   cache key already changes with `engine_fast.py`.
 
