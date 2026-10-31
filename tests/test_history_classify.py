@@ -175,6 +175,10 @@ CASES = [
      "REMOVE_TEST_ROW", "field"),
 ]
 
+# Read by scripts/fixture_provenance.py: each row is compared field by field against the production row it
+# names, read-only, before a migration (ruled 2026-10-29 after the TMO 13309 fixture carried invented flags).
+PRODUCTION_ROWS = [(table, row) for table, row, *_ in CASES]
+
 
 @pytest.mark.parametrize("table, row, stop_code, basis", CASES, ids=[f"{c[2]}-{c[3]}-{c[1]['id']}" for c in CASES])
 def test_each_class_from_a_real_row(table, row, stop_code, basis):
