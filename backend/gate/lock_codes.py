@@ -106,7 +106,8 @@ class Rule:
 # every L4 and L6 decision and the drawdown guard, which shared FILTERED_L3; not a broker error (TRADE_FAILED).
 # Within a lock the rules are listed in the order they run, which stop_of reads when two fail on one row: M4's
 # drawdown before its loss cap and expectancy (l0_portfolio.evaluate), the chain's guard after them; position open
-# before cooloff (the runners' skip label), gate cooloff before exit cooloff (ruling 2026-10-29).
+# before cooloff (the runners' skip label), gate cooloff before exit cooloff (ruling 2026-10-29), and exit cooloff
+# before its win window.
 RULES: tuple[Rule, ...] = (
     Rule(0, "halt_m4_drawdown", ("halt_m4_drawdown",), books=("live",),
          source="M4 rule 1, l0_portfolio.HALT_DRAWDOWN: realised equity off its peak (live, cycle level)"),
@@ -123,9 +124,12 @@ RULES: tuple[Rule, ...] = (
     Rule(1, "cooloff", ("cooloff",), ("gate_cooloff_hours",),
          "both runners, before the chain: a recent L4/L6 stop (the gate cooloff; before 2026-10-31 SKIPPED_COOLOFF "
          "also held the exit cooloff)"),
-    Rule(1, "exit_cooloff", ("exit_cooloff",), ("exit_cooloff_hours", "tp_cooloff_hours"),
-         "both runners, before the chain: the ticker's own recent exit (tp_cooloff_hours after a TP/TSL win, "
-         "exit_cooloff_hours after any other exit; db.get_recently_exited_*tickers)"),
+    Rule(1, "exit_cooloff", ("exit_cooloff",), ("exit_cooloff_hours",),
+         "both runners, before the chain: the ticker's own recent exit other than a TP/TSL win "
+         "(db.get_recently_exited_*tickers; until phase 3 it also held the win window, as history rows do)"),
+    Rule(1, "exit_cooloff_win", ("exit_cooloff_win",), ("tp_cooloff_hours",),
+         "both runners, before the chain: the ticker's own recent TP/TSL win (its own rule from phase 3, Niclas "
+         "2026-10-31: \"egen regel låter mer konsekvent\"; history before it is under exit_cooloff)"),
     Rule(1, "regime", ("regime", "excluded_sector", "regime_unavailable", "below_leaderboard_cutoff", "regime_floor"),
          source="l1_eligibility fail_type: the regime module's verdict on the sector"),
     Rule(1, "vix", ("vix",), ("vix_threshold",), "l1_eligibility fail_type"),
@@ -282,7 +286,7 @@ HISTORY_ONLY_STOPS: tuple[str, ...] = tuple(stop_code(r.owner, r.name) for r in 
 # set is a skip (it carries no judgement on the candidate; Claude's gate history leaves it out).
 SKIP_RULES: tuple[str, ...] = tuple(stop_code(1, n) for n in
                                     ("blocklist", "position_open", "cooloff", "exit_cooloff",
-                                     "notional_too_small", "price_missing"))
+                                     "exit_cooloff_win", "notional_too_small", "price_missing"))
 
 
 def is_skip(row: dict) -> bool:

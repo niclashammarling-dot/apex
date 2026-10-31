@@ -449,14 +449,14 @@ def _run(cycle: GateCycle) -> list[dict]:
     from backend.config import LIVE_TICKER_BLOCKLIST
     open_tickers    = get_open_live_tickers()
     failed_tickers  = get_recently_failed_live_tickers(cfg.get("gate_cooloff_hours", 4))
-    exited_tickers  = get_recently_exited_live_tickers(
+    exited_tickers, won_tickers = get_recently_exited_live_tickers(
         sl_hours=cfg.get("exit_cooloff_hours", 24),
         tp_hours=cfg.get("tp_cooloff_hours", 168),
     )
     blocklisted_tickers = set(LIVE_TICKER_BLOCKLIST)
-    blocked = open_tickers | failed_tickers | exited_tickers | blocklisted_tickers
+    blocked = open_tickers | failed_tickers | exited_tickers | won_tickers | blocklisted_tickers
     pre_checks = {"blocklist": blocklisted_tickers, "position_open": open_tickers,
-                  "cooloff": failed_tickers, "exit_cooloff": exited_tickers}
+                  "cooloff": failed_tickers, "exit_cooloff": exited_tickers, "exit_cooloff_win": won_tickers}
     skipped = [c for c in candidates if c["ticker"] in blocked]
     candidates = [c for c in candidates if c["ticker"] not in blocked]
 
@@ -473,6 +473,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                     f"(held={len(open_tickers & skipped_set)}, "
                     f"cooloff={len(failed_tickers & skipped_set)}, "
                     f"exit_cooloff={len(exited_tickers & skipped_set)}, "
+                    f"exit_cooloff_win={len(won_tickers & skipped_set)}, "
                     f"blocklist={len(blocklisted_tickers & skipped_set)}) "
                     f"— book holds {len(open_tickers)}")
 

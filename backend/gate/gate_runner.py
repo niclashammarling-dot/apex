@@ -146,12 +146,13 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     # Skip tickers already held, in gate cooloff, or in exit cooloff
     open_tickers   = get_open_tickers()
     failed_tickers = get_recently_failed_tickers(cfg.get("gate_cooloff_hours", 4))
-    exited_tickers = get_recently_exited_tickers(
+    exited_tickers, won_tickers = get_recently_exited_tickers(
         sl_hours=cfg.get("exit_cooloff_hours", 24),
         tp_hours=cfg.get("tp_cooloff_hours", 168),
     )
-    blocked = open_tickers | failed_tickers | exited_tickers
-    pre_checks = {"position_open": open_tickers, "cooloff": failed_tickers, "exit_cooloff": exited_tickers}
+    blocked = open_tickers | failed_tickers | exited_tickers | won_tickers
+    pre_checks = {"position_open": open_tickers, "cooloff": failed_tickers, "exit_cooloff": exited_tickers,
+                  "exit_cooloff_win": won_tickers}
     skipped = [c for c in candidates if c["ticker"] in blocked]
     candidates = [c for c in candidates if c["ticker"] not in blocked]
 
@@ -167,7 +168,8 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
         logger.info(f"Gate runner: skipped {len(skipped)} candidate(s) "
                     f"(held={len(open_tickers & skipped_set)}, "
                     f"cooloff={len(failed_tickers & skipped_set)}, "
-                    f"exit_cooloff={len(exited_tickers & skipped_set)}) "
+                    f"exit_cooloff={len(exited_tickers & skipped_set)}, "
+                    f"exit_cooloff_win={len(won_tickers & skipped_set)}) "
                     f"— book holds {len(open_tickers)}")
 
     if not candidates:

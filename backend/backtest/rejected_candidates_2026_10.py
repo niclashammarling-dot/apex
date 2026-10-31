@@ -66,8 +66,9 @@ _LAYER_OF_RULE = {
     (0, "drawdown_guard"): "FILTERED_L3",
 }
 DROPPED_RULES = {(0, "halt_m4_drawdown"), (0, "loss_cap"), (0, "halt_m4_expectancy"), (1, "blocklist"),
-                 (1, "position_open"), (1, "cooloff"), (1, "exit_cooloff"), (1, "notional_too_small"),
-                 (1, "price_missing"), (2, "max_positions"), (2, "sector_cap"), (6, "broker_error")}
+                 (1, "position_open"), (1, "cooloff"), (1, "exit_cooloff"), (1, "exit_cooloff_win"),
+                 (1, "notional_too_small"), (1, "price_missing"), (2, "max_positions"), (2, "sector_cap"),
+                 (6, "broker_error")}
 
 
 def _stop_layers() -> dict[str, tuple[int, str]]:

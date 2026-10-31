@@ -121,7 +121,7 @@ def test_both_gate_history_responses_serve_the_table(monkeypatch):
 
 LIVE_PASSED = {K(o, r): PASS for o, r in (
     (0, "halt_m4_drawdown"), (0, "loss_cap"), (0, "halt_m4_expectancy"), (1, "blocklist"), (1, "position_open"),
-    (1, "cooloff"), (1, "exit_cooloff"), (1, "notional_too_small"), (1, "price_missing"), (1, "regime"),
+    (1, "cooloff"), (1, "exit_cooloff"), (1, "exit_cooloff_win"), (1, "notional_too_small"), (1, "price_missing"), (1, "regime"),
     (1, "vix"), (1, "macro_event"), (2, "earnings"), (3, "threshold"), (1, "macro_pre_event"),
     (2, "earnings_near"), (4, "grok"), (5, "leading"), (2, "etf"), (0, "drawdown_guard"), (2, "overflow"),
     (6, "claude"), (2, "sector_cap"))}

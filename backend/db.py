@@ -967,11 +967,12 @@ def get_recently_failed_tickers(hours: float) -> set[str]:
         conn.close()
 
 
-def get_recently_exited_tickers(sl_hours: float, tp_hours: float) -> set[str]:
-    """Return tickers blocked from re-entry after a recent exit.
+def get_recently_exited_tickers(sl_hours: float, tp_hours: float) -> tuple[set[str], set[str]]:
+    """Return tickers blocked from re-entry after a recent exit, as (exit_cooloff, exit_cooloff_win):
+    the two L1 rules (phase 3, Niclas 2026-10-31). A ticker can be in both.
 
-    Only genuine TP/TSL wins use tp_hours (7d).
-    REGIME wins, TIME wins, LOSS, and EXPIRED all use sl_hours (24h).
+    Only genuine TP/TSL wins use tp_hours (7d), under exit_cooloff_win.
+    REGIME wins, TIME wins, LOSS, and EXPIRED all use sl_hours (24h), under exit_cooloff.
     """
     from datetime import datetime, timedelta, timezone
     now = datetime.now(timezone.utc)
@@ -980,7 +981,7 @@ def get_recently_exited_tickers(sl_hours: float, tp_hours: float) -> set[str]:
     conn = get_db()
     try:
         rows = conn.execute("""
-            SELECT DISTINCT ticker FROM trades
+            SELECT DISTINCT ticker, outcome = 'WIN' AND exit_reason IN ('TP', 'TSL') AS win FROM trades
             WHERE exited_at IS NOT NULL
               AND outcome IN ('WIN', 'LOSS', 'EXPIRED')
               AND exited_at > CASE
@@ -988,7 +989,7 @@ def get_recently_exited_tickers(sl_hours: float, tp_hours: float) -> set[str]:
                   ELSE ?
               END
         """, (tp_cutoff, sl_cutoff)).fetchall()
-        return {r[0] for r in rows}
+        return {r[0] for r in rows if not r[1]}, {r[0] for r in rows if r[1]}
     finally:
         conn.close()
 
@@ -1095,11 +1096,12 @@ def get_recently_failed_live_tickers(hours: float) -> set[str]:
         conn.close()
 
 
-def get_recently_exited_live_tickers(sl_hours: float, tp_hours: float) -> set[str]:
-    """Return live tickers blocked from re-entry after a recent exit.
+def get_recently_exited_live_tickers(sl_hours: float, tp_hours: float) -> tuple[set[str], set[str]]:
+    """Return live tickers blocked from re-entry after a recent exit, as (exit_cooloff, exit_cooloff_win):
+    the two L1 rules (phase 3, Niclas 2026-10-31). A ticker can be in both.
 
-    Only genuine TP/TSL wins use tp_hours (7d).
-    REGIME wins, TIME wins, LOSS, and EXPIRED all use sl_hours (24h).
+    Only genuine TP/TSL wins use tp_hours (7d), under exit_cooloff_win.
+    REGIME wins, TIME wins, LOSS, and EXPIRED all use sl_hours (24h), under exit_cooloff.
     """
     from datetime import datetime, timedelta, timezone
     now = datetime.now(timezone.utc)
@@ -1108,7 +1110,7 @@ def get_recently_exited_live_tickers(sl_hours: float, tp_hours: float) -> set[st
     conn = get_db()
     try:
         rows = conn.execute("""
-            SELECT DISTINCT ticker FROM live_trades
+            SELECT DISTINCT ticker, outcome = 'WIN' AND exit_reason IN ('TP', 'TSL') AS win FROM live_trades
             WHERE exited_at IS NOT NULL
               AND outcome IN ('WIN', 'LOSS', 'EXPIRED')
               AND exited_at > CASE
@@ -1116,7 +1118,7 @@ def get_recently_exited_live_tickers(sl_hours: float, tp_hours: float) -> set[st
                   ELSE ?
               END
         """, (tp_cutoff, sl_cutoff)).fetchall()
-        return {r[0] for r in rows}
+        return {r[0] for r in rows if not r[1]}, {r[0] for r in rows if r[1]}
     finally:
         conn.close()
 

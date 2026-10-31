@@ -206,7 +206,7 @@ def _demo_patches(candidates, open_tickers=None, failed_tickers=None,
         patch("backend.gate.gate_runner.get_wallet_context",
               return_value=wallet_ctx),                                                    # 14
         patch("backend.gate.gate_runner.get_recently_exited_tickers",
-              return_value=set()),                                                          # 15
+              return_value=(set(), set())),                                                          # 15
     ]
 
 
@@ -437,7 +437,7 @@ def _live_patches(candidates, open_tickers=None, failed_tickers=None,
         patch("backend.scheduler._get_regime_bayes",
               return_value=MagicMock(last_result=MagicMock(return_value=None))),        # 19
         patch("backend.gate.gate_runner_live.get_recently_exited_live_tickers",
-              return_value=set()),                                                       # 20
+              return_value=(set(), set())),                                                       # 20
     ]
 
 
