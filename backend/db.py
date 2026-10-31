@@ -1570,6 +1570,32 @@ def record_entry_fill(trade_id: int, fill_price: float, filled_at: str) -> int:
         conn.close()
 
 
+def correct_exit_fill(trade_id: int, old_exit_price: float, exit_price: float, exited_at: str) -> int:
+    """
+    Replace a closed row's exit with its order's quantity-weighted fill (2026-10-31), guarded on the old
+    exit_price so a row changed since the plan is left alone; pnl and WIN/LOSS are recomputed. Found
+    2026-10-31: TER row 70 and MSFT row 47 were booked at the first of two slices of one sell order
+    ($4.84 together). Returns the rowcount (0 = the row no longer holds old_exit_price).
+    """
+    conn = get_db()
+    try:
+        cur = conn.execute("""
+            UPDATE live_trades SET exit_price = ?, exited_at = ?
+            WHERE id = ? AND exit_price = ? AND outcome IN ('WIN', 'LOSS')
+        """, (exit_price, exited_at, trade_id, old_exit_price))
+        if cur.rowcount:
+            conn.execute("""
+                UPDATE live_trades
+                SET pnl = ROUND((exit_price - entry_price) * qty, 2),
+                    outcome = CASE WHEN ROUND((exit_price - entry_price) * qty, 2) > 0 THEN 'WIN' ELSE 'LOSS' END
+                WHERE id = ?
+            """, (trade_id,))
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
 # The canonical live sample (Niclas ruling 2026-10-20). One set, defined here only: closed
 # rows (WIN/LOSS/EXPIRED) entered on or after live_config live_account_since (the 2026-07-07
 # paper reset; earlier rows are a different system with $15-30k positions and are never

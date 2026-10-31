@@ -354,3 +354,43 @@ class TestActivitiesPartialFills:
         )
         assert exit_price == 200.0
         assert evidence == "found"
+
+
+class TestPartiallyFilledOrderNotBooked:
+    """TER 2026-09-23 (2026-10-31 trace): one sell order filled in two slices, 395.94 at 13:31:03 (leaves 1)
+    and 391.30 at 13:32:13. Read mid-fill, the orders feed showed the order partially filled with the first
+    slice's price, and the row was booked at 395.94 instead of the VWAP 393.62."""
+
+    ENTRY = "2026-09-22T13:33:24+00:00"
+
+    def _order(self, status, filled_qty, price):
+        return {"ticker": "TER", "side": "sell", "type": "stop", "status": status, "qty": 2.0,
+                "filled_qty": filled_qty, "filled_avg_price": price, "filled_at": "2026-09-23T13:31:03+00:00",
+                "submitted_at": "2026-09-23T13:30:00+00:00"}
+
+    def _slice(self, at, price, leaves):
+        return {"ticker": "TER", "side": "sell", "qty": 1.0, "price": price, "order_id": "6025e192",
+                "filled_at": at, "leaves_qty": leaves}
+
+    def test_mid_fill_read_is_exit_in_progress_not_the_first_slice(self):
+        from backend.live_trades_tracker import find_exit_fill
+        broker = MagicMock()
+        broker.get_orders.return_value = [self._order("partially_filled", 1.0, 395.94)]
+        broker.get_activities.return_value = [self._slice("2026-09-23T13:31:03.302004Z", 395.94, 1.0)]
+        f = find_exit_fill("TER", broker, self.ENTRY)
+        assert f["price"] is None and f["evidence"] == "exit_in_progress"
+
+    def test_completed_order_books_the_vwap_of_both_slices(self):
+        from backend.live_trades_tracker import find_exit_fill
+        broker = MagicMock()
+        broker.get_orders.return_value = [self._order("partially_filled", 1.0, 395.94)]
+        broker.get_activities.return_value = [self._slice("2026-09-23T13:32:13.745827Z", 391.30, 0.0),
+                                              self._slice("2026-09-23T13:31:03.302004Z", 395.94, 1.0)]
+        f = find_exit_fill("TER", broker, self.ENTRY)
+        assert (f["price"], f["qty"], f["exited_at"]) == (393.62, 2.0, "2026-09-23T13:32:13.745827Z")
+
+    def test_filled_qty_short_of_qty_without_a_status_is_partial(self):
+        from backend.live_trades_tracker import _partially_filled
+        assert _partially_filled({"qty": 2.0, "filled_qty": 1.0})
+        assert not _partially_filled({"qty": 2.0, "filled_qty": 2.0, "status": "filled"})
+        assert not _partially_filled({"filled_price": 1.0})        # the legacy fixture shape: no qty, no status

@@ -181,7 +181,7 @@ def _compute_apex_day_pnl(positions: list[dict]) -> tuple[float, list[str], dict
             unrealized += pos["unrealized_intraday_pnl"] or 0.0
             continue
 
-        fill = find_exit_fill(t["ticker"], broker, t["timestamp"])
+        fill = find_exit_fill(t["ticker"], broker, t["timestamp"], allow_partial=True)
         filled_qty = fill["qty"] or 0.0
         if fill["evidence"] != "found" or filled_qty <= 0:
             missing.append(t["ticker"])

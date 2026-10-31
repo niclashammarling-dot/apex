@@ -972,8 +972,7 @@ def _find_exit_from_orders(ticker: str, broker, entry_timestamp: str) -> tuple[f
     return f["price"], f["reason"], f["exited_at"], f["evidence"]
 
 
-# TODO(bundle 2026-10-13): an exit spanning two sell orders books one order's fill — TER 2026-09-23 recorded $395.94 (first partial) vs $393.62 two-fill average; 2 trades, $4.84 since the reset (trace 2026-10-12) — scope: when activities show more than one sell order for the ticker between entry and exit and their qty sums to the row's, book the quantity-weighted average; test the TER shape; then correct the two historical exits from activities (an --exits mode in scripts/backfill_entry_fills.py, backup + dry run on a copy first)
-def find_exit_fill(ticker: str, broker, entry_timestamp: str) -> dict:
+def find_exit_fill(ticker: str, broker, entry_timestamp: str, allow_partial: bool = False) -> dict:
     """
     Search recent Alpaca orders, then /account/activities, for the most
     recent filled sell for ticker. Returns a dict with keys price, qty,
@@ -982,6 +981,11 @@ def find_exit_fill(ticker: str, broker, entry_timestamp: str) -> dict:
     against the trade's qty so a partial fill can't explain a whole
     position (2026-09-25). Read-only apart from logging; shared by the exit
     tracker (via _find_exit_from_orders) and the live gate's day-P&L check.
+
+    allow_partial (2026-10-31): the orders feed skips an order still filling,
+    since booking it would record one slice's price (TER 2026-09-23). The
+    day-P&L check passes True: it counts a partial's filled quantity and flags
+    the remainder, so for it a partial is evidence, not a booking.
 
     `evidence` names which state produced the result, because a None here
     is not one thing (2026-08-23 — the "empty/failed read indistinguishable
@@ -1048,6 +1052,7 @@ def find_exit_fill(ticker: str, broker, entry_timestamp: str) -> dict:
         if o.get("ticker") == ticker
         and "sell" in (o.get("side") or "").lower()
         and (o.get("filled_price") or o.get("filled_avg_price"))
+        and (allow_partial or not _partially_filled(o))
     ]
 
     # Invariant 1: fill must postdate this trade's own entry.
@@ -1194,6 +1199,20 @@ def find_exit_fill(ticker: str, broker, entry_timestamp: str) -> dict:
     logger.warning(f"_find_exit_from_orders [{ticker}]: orders and activities both show "
                     f"no corroborating fill since entry")
     return _no_fill("both_feeds_empty")
+
+
+def _partially_filled(o: dict) -> bool:
+    """An order still filling is not a completed exit: its filled_avg_price is one slice's (2026-10-31).
+
+    The leg path got exact FILLED equality on 2026-09-25; this orders-feed path kept accepting any order with
+    a fill price. TER 2026-09-23 (order 6025e192, two slices 395.94 then 391.30) was booked at the first
+    slice's price and time, $4.64 above the VWAP; MSFT row 47 the same shape, $0.20. A partial order is
+    left to the activities path, which aggregates the slices or reports exit_in_progress."""
+    status = o.get("status")
+    if status is not None and status != OrderStatus.FILLED.value:
+        return True
+    qty, filled = o.get("qty"), o.get("filled_qty")
+    return bool(qty and filled is not None and float(filled) + 1e-9 < float(qty))
 
 
 def _no_fill(evidence: str) -> dict:
