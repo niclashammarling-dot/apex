@@ -1267,6 +1267,14 @@
       "tier": "ops",
       "source": "S14 R1 follow-up, exploratory (2026-10-27): Niclas's questions after the S14 R1 run (vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md § 10). Probe only: no live gate, size or exit reads it. reproducibility: RNG seed of the null reference",
       "date": "2026-10-27"
+    },
+    "audit/bundle.py::QUIET_DAYS": {
+      "value": 90,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "Retire conditions Part B (2026-10-31, Niclas \"gör B\"; scope vault raw/notes/2026-10/2026-10-14-apex-coded-retire-conditions-scope.md Part B): Niclas's 90-day point from 10-14, a review cadence for the quiet-and-unarmed backlog, not evidence. Lists only; nothing is retired on it.",
+      "review": "2026-11-14",
+      "date": "2026-10-31"
     }
   }
 }
