@@ -40,12 +40,12 @@ from backend.config import (
     DEMO_L0_PORTFOLIO_LOSS_CAP_MAX,
     EXCLUDED_SECTORS,
     DEMO_L3_SCORE_THRESHOLD_MIN,
-    MAX_POSITION_SIZE,
+    DEMO_MAX_POSITION_SIZE,
     DEMO_L2_RISK_MAX_POSITIONS_COUNT,
     DEMO_L2_RISK_SECTOR_CAP_MAX,
     SECTORS,
-    STOP_LOSS_PCT,
-    TAKE_PROFIT_PCT,
+    DEMO_STOP_LOSS_PCT,
+    DEMO_TAKE_PROFIT_PCT,
     TIME_STOP_DAYS,
     WIN_RATE_MIN_TRADES,
 )
@@ -197,8 +197,8 @@ def _simulate(
     range_cache:  dict,
     diag_start:   date,
 ) -> list[TradeWithRange]:
-    tp    = TAKE_PROFIT_PCT
-    sl    = STOP_LOSS_PCT
+    tp    = DEMO_TAKE_PROFIT_PCT
+    sl    = DEMO_STOP_LOSS_PCT
     tdays = TIME_STOP_DAYS
     l1    = DEMO_L3_SCORE_THRESHOLD_MIN
     SL_COOLDOWN = 5
@@ -263,7 +263,7 @@ def _simulate(
                 break
 
             sector    = sig["sector"]
-            alloc_pct = min(sig["kelly_size"] if sig["kelly_size"] > 0 else 0.10, MAX_POSITION_SIZE)
+            alloc_pct = min(sig["kelly_size"] if sig["kelly_size"] > 0 else 0.10, DEMO_MAX_POSITION_SIZE)
             amount    = balance * alloc_pct
             projected = sector_exp.get(sector, 0.0) + (amount / balance)
             if projected > DEMO_L2_RISK_SECTOR_CAP_MAX:

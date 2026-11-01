@@ -17,7 +17,7 @@ import sys
 from itertools import product
 
 from backend.backtest.engine import run
-from backend.config import STOP_LOSS_PCT, TAKE_PROFIT_PCT, TIME_STOP_DAYS
+from backend.config import DEMO_STOP_LOSS_PCT, DEMO_TAKE_PROFIT_PCT, TIME_STOP_DAYS
 
 # ── Sweep config ───────────────────────────────────────────────────────────────
 
@@ -82,7 +82,7 @@ def main() -> None:
     print("=" * W)
     print("  PROFIT-LOCK TSL SWEEP")
     print(f"  Period: {START} → {END}")
-    print(f"  Base exits: TP={TAKE_PROFIT_PCT:.0%}  SL={STOP_LOSS_PCT:.0%}  "
+    print(f"  Base exits: TP={DEMO_TAKE_PROFIT_PCT:.0%}  SL={DEMO_STOP_LOSS_PCT:.0%}  "
           f"TSL={TRAILING_STOP_PCT:.0%}  TIME={TIME_STOP_DAYS}d")
     print("=" * W)
 

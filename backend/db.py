@@ -791,7 +791,7 @@ def update_signal_gate(signal_id: int, result: dict) -> None:
 
 def get_wallet_context() -> dict:
     """Returns current wallet state for Lock 3 context."""
-    from backend.config import STARTING_BALANCE
+    from backend.config import DEMO_STARTING_BALANCE
     conn = get_db()
     try:
         exposure_rows = conn.execute("""
@@ -814,11 +814,11 @@ def get_wallet_context() -> dict:
 
         invested     = sum(r["total"] for r in exposure_rows) if exposure_rows else 0
         realized_pnl = closed_pnl_row["total"] if closed_pnl_row else 0
-        balance      = STARTING_BALANCE + realized_pnl
+        balance      = DEMO_STARTING_BALANCE + realized_pnl
         open_positions = open_row["cnt"] if open_row else 0
 
         sector_exposure = {
-            r["sector"]: round(r["total"] / STARTING_BALANCE, 3)
+            r["sector"]: round(r["total"] / DEMO_STARTING_BALANCE, 3)
             for r in exposure_rows
         } if invested > 0 else {}
 
@@ -826,7 +826,7 @@ def get_wallet_context() -> dict:
             "balance":         round(balance, 2),
             "open_positions":  open_positions,
             "sector_exposure": sector_exposure,
-            "starting_balance": STARTING_BALANCE,
+            "starting_balance": DEMO_STARTING_BALANCE,
         }
     finally:
         conn.close()
@@ -1244,7 +1244,7 @@ def get_equity_curve(current_prices: dict[str, float] | None = None) -> list[dic
     """
     from datetime import datetime, timezone
 
-    from backend.config import STARTING_BALANCE
+    from backend.config import DEMO_STARTING_BALANCE
     conn = get_db()
     try:
         closed = conn.execute("""
@@ -1254,8 +1254,8 @@ def get_equity_curve(current_prices: dict[str, float] | None = None) -> list[dic
             ORDER BY exited_at ASC
         """).fetchall()
 
-        points = [{"ts": "Start", "balance": STARTING_BALANCE, "mtm": False}]
-        balance = STARTING_BALANCE
+        points = [{"ts": "Start", "balance": DEMO_STARTING_BALANCE, "mtm": False}]
+        balance = DEMO_STARTING_BALANCE
         for r in closed:
             balance += r["pnl"] or 0
             points.append({"ts": r["ts"][:10], "balance": round(balance, 2), "mtm": False})
@@ -1354,7 +1354,7 @@ def get_live_equity_curve(unrealised_total: float = 0.0, since: str | None = Non
 
 def get_portfolio_summary() -> dict:
     """Lightweight summary for risk checks during trade execution."""
-    from backend.config import STARTING_BALANCE
+    from backend.config import DEMO_STARTING_BALANCE
     conn = get_db()
     try:
         open_rows = conn.execute("""
@@ -1370,10 +1370,10 @@ def get_portfolio_summary() -> dict:
 
         invested     = sum(r["total"] for r in open_rows)
         realized_pnl = closed_pnl_row["total"]
-        cash         = STARTING_BALANCE - invested + realized_pnl
+        cash         = DEMO_STARTING_BALANCE - invested + realized_pnl
 
         sector_exposure = {
-            r["sector"]: round(r["total"] / STARTING_BALANCE, 3)
+            r["sector"]: round(r["total"] / DEMO_STARTING_BALANCE, 3)
             for r in open_rows
         }
 

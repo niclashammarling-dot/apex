@@ -71,15 +71,15 @@ EXIT_CHECK_INTERVAL   = 5
 GROK_CACHE_TTL        = 60  # minutes
 
 # --- Wallet ---
-STARTING_BALANCE            = 2_000.0
+DEMO_STARTING_BALANCE            = 2_000.0
 DEMO_L2_RISK_MAX_POSITIONS_COUNT = 4
 DEMO_L2_RISK_SECTOR_CAP_MAX      = 0.25
-MAX_POSITION_SIZE           = 0.15  # max 15% of balance per trade (~$300 on $2k)
+DEMO_MAX_POSITION_SIZE           = 0.15  # max 15% of balance per trade (~$300 on $2k)
 DEMO_L0_PORTFOLIO_LOSS_CAP_MAX   = 100.0
 
 # --- Exit conditions ---
-TAKE_PROFIT_PCT         = 0.06
-STOP_LOSS_PCT           = 0.05
+DEMO_TAKE_PROFIT_PCT = 0.06
+DEMO_STOP_LOSS_PCT   = 0.05
 
 # Realized payoffs from 2021-2026 backtest (clean sector mix, 2026-05-07).
 # Used as Kelly B inputs in place of nominal TP/SL — actual exit quality

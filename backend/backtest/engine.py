@@ -39,14 +39,14 @@ from backend.config import (
     DEMO_L0_PORTFOLIO_LOSS_CAP_MAX,
     EXCLUDED_SECTORS,
     DEMO_L3_SCORE_THRESHOLD_MIN,
-    MAX_POSITION_SIZE,
+    DEMO_MAX_POSITION_SIZE,
     DEMO_L2_RISK_MAX_POSITIONS_COUNT,
     DEMO_L2_RISK_SECTOR_CAP_MAX,
     SECTOR_THRESHOLD_FLOORS,
     SECTORS,
     SPY_TICKER,
-    STOP_LOSS_PCT,
-    TAKE_PROFIT_PCT,
+    DEMO_STOP_LOSS_PCT,
+    DEMO_TAKE_PROFIT_PCT,
     TIME_STOP_DAYS,
     WIN_RATE_MIN_TRADES,
 )
@@ -151,8 +151,8 @@ def run(
         start_date:          ISO date string "YYYY-MM-DD"
         end_date:            ISO date string "YYYY-MM-DD"
         initial_balance:     Starting paper capital
-        take_profit_pct:     Override TAKE_PROFIT_PCT (e.g. 0.08)
-        stop_loss_pct:       Override STOP_LOSS_PCT (e.g. 0.05)
+        take_profit_pct:     Override DEMO_TAKE_PROFIT_PCT (e.g. 0.08)
+        stop_loss_pct:       Override DEMO_STOP_LOSS_PCT (e.g. 0.05)
         trailing_stop_pct:   Trailing stop as fraction of peak price (e.g. 0.05 = 5%)
         atr_exits:           Use per-trade ATR-based TP/SL (2x ATR take-profit, 1x ATR stop-loss)
         earnings_filter_days: Skip entry if earnings within N days (e.g. 3). None disables.
@@ -166,8 +166,8 @@ def run(
     Returns:
         BacktestResult dict with performance metrics and full trade log.
     """
-    tp       = take_profit_pct    if take_profit_pct    is not None else TAKE_PROFIT_PCT
-    sl       = stop_loss_pct      if stop_loss_pct      is not None else STOP_LOSS_PCT
+    tp       = take_profit_pct    if take_profit_pct    is not None else DEMO_TAKE_PROFIT_PCT
+    sl       = stop_loss_pct      if stop_loss_pct      is not None else DEMO_STOP_LOSS_PCT
     tsl      = trailing_stop_pct  # None means disabled
     pl_trig  = profit_lock_trigger_pct
     pl_trail = profit_lock_trail_pct
@@ -367,7 +367,7 @@ def run(
 
             # Sector exposure check
             sector    = sig["sector"]
-            alloc_pct = min(sig["kelly_size"] if sig["kelly_size"] > 0 else 0.10, MAX_POSITION_SIZE)
+            alloc_pct = min(sig["kelly_size"] if sig["kelly_size"] > 0 else 0.10, DEMO_MAX_POSITION_SIZE)
             amount    = balance * alloc_pct
             projected = sector_exposure.get(sector, 0.0) + (amount / balance)
             if projected > sector_max:

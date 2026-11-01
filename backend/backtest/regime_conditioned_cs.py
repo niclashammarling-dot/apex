@@ -55,8 +55,8 @@ from backend.config import (
     DEMO_L3_SCORE_THRESHOLD_MIN,
     SECTORS,
     SPY_TICKER,
-    STOP_LOSS_PCT,
-    TAKE_PROFIT_PCT,
+    DEMO_STOP_LOSS_PCT,
+    DEMO_TAKE_PROFIT_PCT,
     TIME_STOP_DAYS,
 )
 from backend.regime.regime_bayes import (
@@ -373,10 +373,10 @@ def _simulate_trades(
             pnl_pct    = (current - entry_price) / entry_price
             days_held  = i + 1
 
-            if pnl_pct >= TAKE_PROFIT_PCT:
+            if pnl_pct >= DEMO_TAKE_PROFIT_PCT:
                 outcome, exit_price, exit_reason = "WIN", current, "TP"
                 break
-            elif pnl_pct <= -STOP_LOSS_PCT:
+            elif pnl_pct <= -DEMO_STOP_LOSS_PCT:
                 outcome, exit_price, exit_reason = "LOSS", current, "SL"
                 break
             elif days_held >= TIME_STOP_DAYS:

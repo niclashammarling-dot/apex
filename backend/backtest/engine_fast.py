@@ -26,14 +26,14 @@ from backend.config import (
     DEMO_L0_PORTFOLIO_LOSS_CAP_MAX,
     EXCLUDED_SECTORS,
     DEMO_L3_SCORE_THRESHOLD_MIN,
-    MAX_POSITION_SIZE,
+    DEMO_MAX_POSITION_SIZE,
     DEMO_L2_RISK_MAX_POSITIONS_COUNT,
     DEMO_L2_RISK_SECTOR_CAP_MAX,
     SECTOR_THRESHOLD_FLOORS,
     SECTORS,
     SPY_TICKER,
-    STOP_LOSS_PCT,
-    TAKE_PROFIT_PCT,
+    DEMO_STOP_LOSS_PCT,
+    DEMO_TAKE_PROFIT_PCT,
     TIME_STOP_DAYS,
     WIN_RATE_MIN_TRADES,
 )
@@ -140,7 +140,7 @@ def run(
     macro_blackout:      bool       = True,    # False: no rows 7/10 blackout, before 60ea0f3
     cooloff_per_exit:    bool       = True,    # False: the per-exit window before 6f3921d (row 23)
     # Size cell (ruled 2026-10-19): a fixed fraction in place of ev_kelly's half-Kelly, and a
-    # per-day book multiplier (missing day: 0, no exposure) capped at MAX_POSITION_SIZE.
+    # per-day book multiplier (missing day: 0, no exposure) capped at DEMO_MAX_POSITION_SIZE.
     size_fixed:          float | None = None,
     exposure_factor:     dict[str, float] | None = None,
     # Sizing without the score (T5, 2026-10-20): fixed dollars per entry with no compounding, and a
@@ -148,8 +148,8 @@ def run(
     size_usd:            float | None = None,
     size_draw:           dict  | None = None,
 ) -> BacktestResult:
-    tp       = take_profit_pct    if take_profit_pct    is not None else TAKE_PROFIT_PCT
-    sl       = stop_loss_pct      if stop_loss_pct      is not None else STOP_LOSS_PCT
+    tp       = take_profit_pct    if take_profit_pct    is not None else DEMO_TAKE_PROFIT_PCT
+    sl       = stop_loss_pct      if stop_loss_pct      is not None else DEMO_STOP_LOSS_PCT
     tsl      = trailing_stop_pct
     pl_trig  = profit_lock_trigger_pct
     pl_trail = profit_lock_trail_pct
@@ -450,17 +450,17 @@ def run(
             if kelly_factor is not None and _kelly > 0:
                 # ev_kelly sizes at f* × 0.50; a day's factor k replaces the 0.50 (missing day → 0.50).
                 _kelly = _kelly * kelly_factor.get(today_str, 0.5) / 0.5
-            alloc_pct = min(_kelly if _kelly > 0 else 0.10, MAX_POSITION_SIZE)
+            alloc_pct = min(_kelly if _kelly > 0 else 0.10, DEMO_MAX_POSITION_SIZE)
             if size_fixed is not None:
                 alloc_pct = size_fixed
             if size_rng is not None:
                 alloc_pct = size_rng.choice(size_draw["fractions"])
             if exposure_factor is not None:
-                alloc_pct = min(alloc_pct * exposure_factor.get(today_str, 0.0), MAX_POSITION_SIZE)
+                alloc_pct = min(alloc_pct * exposure_factor.get(today_str, 0.0), DEMO_MAX_POSITION_SIZE)
             if day_regime:
                 _scale = size_mult.get(sig["ticker"], 1.0)
                 if _scale != 1.0:
-                    alloc_pct = min(round(alloc_pct * _scale, 4), MAX_POSITION_SIZE)
+                    alloc_pct = min(round(alloc_pct * _scale, 4), DEMO_MAX_POSITION_SIZE)
             amount    = balance * alloc_pct if size_usd is None else min(size_usd, balance)
             projected = sector_exposure.get(sector, 0.0) + (amount / balance)
             sector_cap = day_caps.get(sector, sector_max) if day_regime else sector_max

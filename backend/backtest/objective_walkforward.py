@@ -98,8 +98,8 @@ def incumbent_params() -> dict:
     """Live tunables from config.py — the arm the optimizer has to beat."""
     return dict(
         l3_score_threshold_min=config.DEMO_L3_SCORE_THRESHOLD_MIN,
-        take_profit_pct=config.TAKE_PROFIT_PCT,
-        stop_loss_pct=config.STOP_LOSS_PCT,
+        take_profit_pct=config.DEMO_TAKE_PROFIT_PCT,
+        stop_loss_pct=config.DEMO_STOP_LOSS_PCT,
         trailing_stop_pct=None,
         time_stop_days=config.TIME_STOP_DAYS,
         l2_risk_max_positions_count=config.DEMO_L2_RISK_MAX_POSITIONS_COUNT,

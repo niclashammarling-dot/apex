@@ -58,11 +58,11 @@ from backend.backtest.engine_fast import (
 from backend.config import (
     DEMO_L0_PORTFOLIO_LOSS_CAP_MAX,
     DEMO_L3_SCORE_THRESHOLD_MIN,
-    MAX_POSITION_SIZE,
+    DEMO_MAX_POSITION_SIZE,
     DEMO_L2_RISK_MAX_POSITIONS_COUNT,
     DEMO_L2_RISK_SECTOR_CAP_MAX,
-    STOP_LOSS_PCT,
-    TAKE_PROFIT_PCT,
+    DEMO_STOP_LOSS_PCT,
+    DEMO_TAKE_PROFIT_PCT,
     TIME_STOP_DAYS,
 )
 from backend.gate.lock_codes import accepts_legacy_keys
@@ -181,8 +181,8 @@ def run(
             "Call engine_fast.precompute(start, end) first and pass the result."
         )
 
-    tp   = take_profit_pct  if take_profit_pct  is not None else TAKE_PROFIT_PCT
-    sl   = stop_loss_pct    if stop_loss_pct    is not None else STOP_LOSS_PCT
+    tp   = take_profit_pct  if take_profit_pct  is not None else DEMO_TAKE_PROFIT_PCT
+    sl   = stop_loss_pct    if stop_loss_pct    is not None else DEMO_STOP_LOSS_PCT
     tsl  = trailing_stop_pct
     tdays = time_stop_days  if time_stop_days   is not None else TIME_STOP_DAYS
     l1   = l3_score_threshold_min  if l3_score_threshold_min  is not None else DEMO_L3_SCORE_THRESHOLD_MIN
@@ -290,7 +290,7 @@ def run(
 
             # Vol-adjusted allocation using effective multiplier (vol + SPY regime)
             alloc_pct = _vol_adjusted_alloc(
-                sig["kelly_size"], sig["signal_score"], eff_vol_mult, MAX_POSITION_SIZE
+                sig["kelly_size"], sig["signal_score"], eff_vol_mult, DEMO_MAX_POSITION_SIZE
             )
             amount = balance * alloc_pct
 

@@ -1,7 +1,7 @@
 """
 Wallet — demo trade execution and exit management.
 
-Starting balance: $2,000 (STARTING_BALANCE in config).
+Starting balance: $2,000 (DEMO_STARTING_BALANCE in config).
 All trades are simulated — no real money involved.
 
 Execute flow:
@@ -22,10 +22,10 @@ from loguru import logger
 
 from backend.config import (
     DEMO_L0_PORTFOLIO_LOSS_CAP_MAX,
-    MAX_POSITION_SIZE,
+    DEMO_MAX_POSITION_SIZE,
     DEMO_L2_RISK_MAX_POSITIONS_COUNT,
     DEMO_L2_RISK_SECTOR_CAP_MAX,
-    STARTING_BALANCE,
+    DEMO_STARTING_BALANCE,
 )
 from backend.db import (
     close_trade,
@@ -85,9 +85,9 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
         return None
 
     # Check projected sector exposure (current + this trade).
-    # sector_exposure fractions are stored as amount / STARTING_BALANCE,
+    # sector_exposure fractions are stored as amount / DEMO_STARTING_BALANCE,
     # so compute the new trade's contribution on the same denominator.
-    new_trade_exposure = (portfolio["cash"] * position) / STARTING_BALANCE
+    new_trade_exposure = (portfolio["cash"] * position) / DEMO_STARTING_BALANCE
     projected_exp = portfolio["sector_exposure"].get(sector, 0.0) + new_trade_exposure
     if _check("sector_cap", projected_exp > max_sector_exp):
         logger.warning(
@@ -109,7 +109,7 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
         logger.info(f"Trade skipped [{ticker}]: position already open")
         return None
 
-    max_position_size = cfg.get("max_position_size", MAX_POSITION_SIZE)
+    max_position_size = cfg.get("max_position_size", DEMO_MAX_POSITION_SIZE)
     amount = portfolio["cash"] * min(position, max_position_size)
     if _check("notional_too_small", amount < MIN_ORDER):
         logger.warning(f"Trade rejected [{ticker}]: insufficient cash (${portfolio['cash']:.2f})")
@@ -358,7 +358,7 @@ def get_portfolio() -> dict:
 
     invested     = sum(t["amount"] for t in open_trades)
     realized_pnl = sum(t["pnl"] or 0 for t in closed_trades)
-    cash         = STARTING_BALANCE - invested + realized_pnl
+    cash         = DEMO_STARTING_BALANCE - invested + realized_pnl
 
     # Enrich open positions with live prices
     tickers        = [t["ticker"] for t in open_trades]
@@ -391,9 +391,9 @@ def get_portfolio() -> dict:
         "balance":          round(cash + invested + unrealized_total, 2),
         "cash":             round(cash, 2),
         "invested":         round(invested, 2),
-        "starting_balance": STARTING_BALANCE,
+        "starting_balance": DEMO_STARTING_BALANCE,
         "total_pnl":        round(total_pnl, 2),
-        "total_pnl_pct":    round(total_pnl / STARTING_BALANCE, 4),
+        "total_pnl_pct":    round(total_pnl / DEMO_STARTING_BALANCE, 4),
         "realized_pnl":     round(realized_pnl, 2),
         "unrealized_pnl":   round(unrealized_total, 2),
         "open_positions":   positions,

@@ -148,7 +148,7 @@ def _closed_summary(book: str, since: str, until: str) -> dict:
 
 
 def _demo_stats(since: str, until: str) -> dict:
-    from backend.config import STARTING_BALANCE
+    from backend.config import DEMO_STARTING_BALANCE
     from backend.db import get_db
     closed = _closed_summary("demo", since, until)
     conn = get_db()
@@ -181,7 +181,7 @@ def _demo_stats(since: str, until: str) -> dict:
         unrealized_pnl = open_market_value - open_cost
 
         # Total equity = starting capital + all realised gains/losses + unrealised on open positions
-        total_equity = STARTING_BALANCE + realized_all + unrealized_pnl
+        total_equity = DEMO_STARTING_BALANCE + realized_all + unrealized_pnl
 
         return {
             **closed,
@@ -190,7 +190,7 @@ def _demo_stats(since: str, until: str) -> dict:
             "open_market_value": round(open_market_value, 2),
             "unrealized_pnl":   round(unrealized_pnl, 2),
             "balance":          round(total_equity, 2),
-            "starting":         STARTING_BALANCE,
+            "starting":         DEMO_STARTING_BALANCE,
         }
     finally:
         conn.close()

@@ -242,9 +242,9 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     # L1 affordability before the chain (Niclas 2026-10-28: "L1 måste kontrollera först att beloppet räcker …
     # Kan vi spara anrop så är det bra"): the largest notional any later size can reach is cash × max_position_size
     # (Lock 5's size and the Bayesian scaling are capped by it), so a refusal on it moves no order that could fill.
-    from backend.config import MAX_POSITION_SIZE
+    from backend.config import DEMO_MAX_POSITION_SIZE
     from backend.db import get_portfolio_summary
-    max_notional = get_portfolio_summary()["cash"] * cfg.get("max_position_size", MAX_POSITION_SIZE)
+    max_notional = get_portfolio_summary()["cash"] * cfg.get("max_position_size", DEMO_MAX_POSITION_SIZE)
     pre_states: dict[str, dict] = {}
     affordable = []
     for c in candidates:

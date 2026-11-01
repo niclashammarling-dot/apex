@@ -143,6 +143,9 @@ def test_no_constant_keeps_a_pre_phase_3_name():
                                               "M4_EXPECTANCY_REF"]
     for n in old:
         assert not hasattr(config, n) and not hasattr(config, "LIVE_" + n), n
+    for n in dir(config):                       # a book's own value never sits beside a bare one
+        if n.startswith("LIVE_"):
+            assert not hasattr(config, n[len("LIVE_"):]), n
     from backend import db
     from backend.backtest import live_shape
     assert hasattr(db, "get_l3_score_candidates") and not hasattr(db, "get_lock1_candidates")
