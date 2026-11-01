@@ -526,7 +526,7 @@
       "kind": "structural",
       "tier": "ops",
       "date": "2026-10-21",
-      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 2b: the level class is the live gate's own threshold (config.MACRO_VIX_THRESHOLD 30, live_config l1_eligibility_vix_max 30), inclusive as live (engine 7cfbb8b). S14 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 2b: the level class is the live gate's own threshold (config.L1_ELIGIBILITY_VIX_MAX 30, live_config l1_eligibility_vix_max 30), inclusive as live (engine 7cfbb8b). S14 L0 probe only (2026-10-21): no live gate, size or exit reads it."
     },
     "backend/backtest/s14_vix_l0_2026_10_21.py::WARMUP": {
       "value": 60,
@@ -1074,7 +1074,7 @@
       "source": "Demo minimum order: the literal `amount < 50` in wallet.execute_trade since 0660e4a (2026-03-25), never measured. Named 2026-10-29 (lock labels phase 2) when L1's affordability check also runs before the chain on the largest possible notional.",
       "review": "2026-11-14"
     },
-    "backend/gate/history_classify.py::GATE_COOLOFF_HOURS": {
+    "backend/gate/history_classify.py::L1_ELIGIBILITY_COOLOFF_HOURS": {
       "value": {
         "live": 4,
         "demo": 5

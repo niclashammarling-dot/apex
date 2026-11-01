@@ -37,12 +37,12 @@ import pandas as pd
 from loguru import logger
 
 from backend.config import (
-    DAILY_LOSS_CAP,
+    L0_PORTFOLIO_LOSS_CAP_MAX,
     EXCLUDED_SECTORS,
-    LOCK1_THRESHOLD,
+    L3_SCORE_THRESHOLD_MIN,
     MAX_POSITION_SIZE,
-    MAX_POSITIONS,
-    MAX_SECTOR_EXPOSURE,
+    L2_RISK_MAX_POSITIONS_COUNT,
+    L2_RISK_SECTOR_CAP_MAX,
     SECTOR_THRESHOLD_FLOORS,
     SECTORS,
     STOP_LOSS_PCT,
@@ -140,7 +140,7 @@ def _simulate(
     tp    = TAKE_PROFIT_PCT
     sl    = STOP_LOSS_PCT
     tdays = TIME_STOP_DAYS
-    l1    = LOCK1_THRESHOLD
+    l1    = L3_SCORE_THRESHOLD_MIN
     SL_COOLDOWN_DAYS = 5
 
     balance        = 10_000.0
@@ -179,13 +179,13 @@ def _simulate(
         daily_loss_today = daily_losses.get(today_str, 0.0)
 
         for sig in sorted(candidates, key=lambda s: s["signal_score"], reverse=True):
-            if len(open_trades) >= MAX_POSITIONS:
+            if len(open_trades) >= L2_RISK_MAX_POSITIONS_COUNT:
                 break
             if sig["ticker"] in open_tickers:
                 continue
             if sl_cooldown.get(sig["ticker"], date.min) > today:
                 continue
-            if daily_loss_today >= DAILY_LOSS_CAP:
+            if daily_loss_today >= L0_PORTFOLIO_LOSS_CAP_MAX:
                 break
 
             comp = component_cache.get((sig["ticker"], today_str))
@@ -198,7 +198,7 @@ def _simulate(
             amount    = balance * alloc_pct
             sector    = sig["sector"]
             projected = sector_exp.get(sector, 0.0) + (amount / balance)
-            if projected > MAX_SECTOR_EXPOSURE:
+            if projected > L2_RISK_SECTOR_CAP_MAX:
                 continue
 
             entry_price = price_cache.get((sig["ticker"], today_str))

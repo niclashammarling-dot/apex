@@ -692,10 +692,10 @@ def get_lock1_candidates(threshold: float | None = None,
     top. Tickers blocked here never reach gate evaluation and produce no
     gate_history row.
     """
-    from backend.config import LOCK1_THRESHOLD
+    from backend.config import L3_SCORE_THRESHOLD_MIN
     from backend.gate.freshness import NO_SESSION, NOT_IN_UNIVERSE, session_for, stale_reason
     from backend.ticker_config import get_sectors
-    fallback = threshold if threshold is not None else LOCK1_THRESHOLD
+    fallback = threshold if threshold is not None else L3_SCORE_THRESHOLD_MIN
     conn = get_db()
     try:
         rows = conn.execute("""

@@ -192,7 +192,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     results    = []
 
     # Compute dynamic sector caps + regime + rotation scores once per gate cycle
-    from backend.config import MAX_SECTOR_EXPOSURE
+    from backend.config import L2_RISK_SECTOR_CAP_MAX
     from backend.scheduler import _get_regime_bayes
     from backend.sector_caps import compute_dynamic_caps
     from backend.sector_regime import compute_sector_regime, compute_ticker_signals
@@ -201,7 +201,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
         get_rotation_forecast,
     )
     regime_bayes_result = _get_regime_bayes().last_result()
-    dynamic_caps    = compute_dynamic_caps(cfg.get("l2_risk_sector_cap_max", MAX_SECTOR_EXPOSURE),
+    dynamic_caps    = compute_dynamic_caps(cfg.get("l2_risk_sector_cap_max", L2_RISK_SECTOR_CAP_MAX),
                                            regime_result=regime_bayes_result)
     wallet_ctx = {**wallet_ctx, "dynamic_caps": dynamic_caps}   # Lock 5 judges the enforced cap (2026-10-17)
     sector_regime   = compute_sector_regime()

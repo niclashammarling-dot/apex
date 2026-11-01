@@ -52,7 +52,7 @@ import pandas as pd
 from loguru import logger
 
 from backend.config import (
-    LOCK1_THRESHOLD,
+    L3_SCORE_THRESHOLD_MIN,
     SECTORS,
     SPY_TICKER,
     STOP_LOSS_PCT,
@@ -84,7 +84,7 @@ END    = "2026-05-01"
 POSTERIOR_LEVELS = [0.0, 0.40, 0.45, 0.50, 0.55, 0.60]
 
 # L1 threshold applied to ticker scores (standard run)
-L1 = LOCK1_THRESHOLD   # 0.70 — same gate as active sectors
+L1 = L3_SCORE_THRESHOLD_MIN   # 0.70 — same gate as active sectors
 
 # --matrix mode: score floor and stratification bands
 MATRIX_MIN_SCORE   = 0.55
@@ -627,7 +627,7 @@ def main() -> None:
         type=float,
         default=None,
         metavar="FLOAT",
-        help="Override the L1 score floor (default: LOCK1_THRESHOLD=0.70).",
+        help="Override the L1 score floor (default: L3_SCORE_THRESHOLD_MIN=0.70).",
     )
     args = parser.parse_args()
 
@@ -690,12 +690,12 @@ def main() -> None:
 
     # 4. Display
     # Retrieve the per-sector calibrated threshold for matrix multiplier computation.
-    # Falls back to LOCK1_THRESHOLD if not in DB (e.g., during development runs).
+    # Falls back to L3_SCORE_THRESHOLD_MIN if not in DB (e.g., during development runs).
     try:
         from backend.db import get_ticker_thresholds
-        sector_threshold = get_ticker_thresholds().get(sector_name, float(LOCK1_THRESHOLD))
+        sector_threshold = get_ticker_thresholds().get(sector_name, float(L3_SCORE_THRESHOLD_MIN))
     except Exception:
-        sector_threshold = float(LOCK1_THRESHOLD)
+        sector_threshold = float(L3_SCORE_THRESHOLD_MIN)
 
     if matrix_mode:
         _attach_multipliers(records, sector_threshold)

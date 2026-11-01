@@ -89,3 +89,30 @@ def test_a_live_shape_keeps_the_hash_it_had_before_the_rename():
     old = legacy_keys(new)
     assert "max_positions" in old
     assert live_shape_hash(new) == hashlib.sha256(json.dumps(old, sort_keys=True).encode()).hexdigest()[:8]
+
+
+def test_every_rule_key_has_its_constant_in_capitals_and_the_defaults_read_it():
+    """A constant is its key in capitals; a live default is LIVE_ + that (Niclas 2026-11-01: "Var noga med att följa
+    kodschemat: konsekvent, lätt att läsa och alla namn kan härledas"). Read from the source, so two constants
+    holding the same value cannot pass for each other."""
+    import re
+    from pathlib import Path
+
+    from backend import config
+    root = Path(__file__).resolve().parents[1]
+    pairs = {book: dict(re.findall(r'^\s+"(\w+)":\s+(\w+),$', (root / f"backend/{book}_config.py").read_text(), re.M))
+             for book in ("demo", "live")}
+    for k in (k for r in RULES for k in r.config_keys):
+        assert hasattr(config, k.upper()), k
+        assert pairs["demo"][k] == k.upper(), k
+        assert pairs["live"][k] in (k.upper(), "LIVE_" + k.upper()), k
+        if hasattr(config, "LIVE_" + k.upper()):
+            assert pairs["live"][k] == "LIVE_" + k.upper(), k
+
+
+def test_no_constant_keeps_a_pre_phase_3_name():
+    from backend import config
+    old = [n.upper() for n in LEGACY_KEYS] + ["LOCK3_MAX_DRAWDOWN_PCT", "MACRO_VIX_THRESHOLD",
+                                              "MACRO_EVENT_BLACKOUT_DAYS", "MACRO_EARNINGS_BLACKOUT_DAYS"]
+    for n in old:
+        assert not hasattr(config, n) and not hasattr(config, "LIVE_" + n), n

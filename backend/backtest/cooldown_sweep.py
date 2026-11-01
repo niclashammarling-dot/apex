@@ -43,7 +43,7 @@ TRAILING_STOP_PCT = 0.09
 SL_DAYS_VALUES = [0, 1, 3, 5, 7, 10]
 TP_DAYS_VALUES = [0, 1, 2, 3, 5, 7]
 
-# Production equivalent: EXIT_COOLOFF_HOURS=24 applies to all exits (no TP/SL split)
+# Production equivalent: L1_ELIGIBILITY_EXIT_COOLOFF_HOURS=24 applies to all exits (no TP/SL split)
 # Nearest backtest mapping: SL=1d, TP=1d
 PRODUCTION_SL = 1
 PRODUCTION_TP = 1
@@ -113,7 +113,7 @@ def main() -> None:
     bkt = _metrics(bkt_result)
     print(_row("SL=5d  TP=0d  (bkt default)", bkt), flush=True)
 
-    # Production equivalent: EXIT_COOLOFF_HOURS=24 → ~SL=1d, TP=1d
+    # Production equivalent: L1_ELIGIBILITY_EXIT_COOLOFF_HOURS=24 → ~SL=1d, TP=1d
     prod_result = run(START, END, sl_cooldown_days=PRODUCTION_SL, tp_cooldown_days=PRODUCTION_TP, **shared)
     prod = _metrics(prod_result)
     print(_row(f"SL={PRODUCTION_SL}d  TP={PRODUCTION_TP}d  (production ~24h)", prod), flush=True)

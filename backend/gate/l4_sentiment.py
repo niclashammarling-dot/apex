@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 import httpx
 from loguru import logger
 
-from backend.config import GROK_CACHE_TTL, LOCK2_SENTIMENT_MIN, XAI_API_KEY
+from backend.config import GROK_CACHE_TTL, L4_SENTIMENT_GROK_MIN, XAI_API_KEY
 from backend.data.fetcher_sentiment import fetch_market_signals
 from backend.gate.types import LockResult
 from backend.sentiment.sentiment_prefetch import (
@@ -243,12 +243,12 @@ def evaluate(ticker: str, sentiment_min: float | None = None) -> LockResult:
 
     Args:
         ticker:        Stock ticker symbol
-        sentiment_min: Override minimum sentiment score (defaults to LOCK2_SENTIMENT_MIN)
+        sentiment_min: Override minimum sentiment score (defaults to L4_SENTIMENT_GROK_MIN)
 
     Returns:
         LockResult with lock_id=3
     """
-    effective_min = sentiment_min if sentiment_min is not None else LOCK2_SENTIMENT_MIN
+    effective_min = sentiment_min if sentiment_min is not None else L4_SENTIMENT_GROK_MIN
     now = datetime.now(timezone.utc).timestamp()
 
     _cache_cleanup()

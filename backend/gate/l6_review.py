@@ -36,7 +36,7 @@ from typing import Any
 import anthropic
 from loguru import logger
 
-from backend.config import ANTHROPIC_API_KEY, LOCK3_CONFIDENCE_MIN
+from backend.config import ANTHROPIC_API_KEY, L6_REVIEW_CLAUDE_MIN
 from backend.gate.types import L5_UNAVAILABLE_PREFIX, LockResult
 
 LOCK_ID = 5
@@ -99,13 +99,13 @@ def evaluate(
         lock_results:   Results from all prior locks (1-4), keyed by lock_id
         context:        Rich context dict from the runner (regime, portfolio,
                         rotation, risk limits, gate history)
-        confidence_min: Override minimum confidence (defaults to LOCK3_CONFIDENCE_MIN)
+        confidence_min: Override minimum confidence (defaults to L6_REVIEW_CLAUDE_MIN)
 
     Returns:
         LockResult with lock_id=5. data contains decision, confidence,
         position_size_pct, reasoning, and model used.
     """
-    effective_min = confidence_min if confidence_min is not None else LOCK3_CONFIDENCE_MIN
+    effective_min = confidence_min if confidence_min is not None else L6_REVIEW_CLAUDE_MIN
     payload       = _build_context_payload(ticker, sector, lock_results, context)
 
     if not ANTHROPIC_API_KEY:

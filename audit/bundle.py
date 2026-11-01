@@ -329,7 +329,7 @@ def config_snapshot() -> dict:
         "SECTOR_THRESHOLD_FLOORS": dict(cfg.SECTOR_THRESHOLD_FLOORS),
         "EXCLUDED_SECTORS":        sorted(cfg.EXCLUDED_SECTORS),
         "LIVE_TICKER_BLOCKLIST":   sorted(cfg.LIVE_TICKER_BLOCKLIST),
-        "LOCK1_THRESHOLD":         cfg.LOCK1_THRESHOLD,
+        "L3_SCORE_THRESHOLD_MIN":  cfg.L3_SCORE_THRESHOLD_MIN,
     }
     for name in ("live_config", "demo_config"):
         f = REPO / "data" / f"{name}.json"

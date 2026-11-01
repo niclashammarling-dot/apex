@@ -36,12 +36,12 @@ import yfinance as yf
 from loguru import logger
 
 from backend.config import (
-    DAILY_LOSS_CAP,
+    L0_PORTFOLIO_LOSS_CAP_MAX,
     EXCLUDED_SECTORS,
-    LOCK1_THRESHOLD,
+    L3_SCORE_THRESHOLD_MIN,
     MAX_POSITION_SIZE,
-    MAX_POSITIONS,
-    MAX_SECTOR_EXPOSURE,
+    L2_RISK_MAX_POSITIONS_COUNT,
+    L2_RISK_SECTOR_CAP_MAX,
     SECTOR_THRESHOLD_FLOORS,
     SECTORS,
     SPY_TICKER,
@@ -127,7 +127,7 @@ def run(
     l2_risk_max_positions_count:      int   | None = None,
     sl_cooldown_days:   int   | None = None,   # None: live config (live_shape.live_cooloff_days)
     tp_cooldown_days:   int   | None = None,
-    l2_risk_sector_cap_max: float | None = None,   # None: config MAX_SECTOR_EXPOSURE
+    l2_risk_sector_cap_max: float | None = None,   # None: config L2_RISK_SECTOR_CAP_MAX
     l0_portfolio_loss_cap_max:     float | None = None,   # None: DAILY_LOSS_CAP_PCT × initial_balance
     macro_hard_block:   bool        = False,
     l1_eligibility_macro_pre_event_penalty: float | None = None,
@@ -157,11 +157,11 @@ def run(
         atr_exits:           Use per-trade ATR-based TP/SL (2x ATR take-profit, 1x ATR stop-loss)
         earnings_filter_days: Skip entry if earnings within N days (e.g. 3). None disables.
         time_stop_days:      Override TIME_STOP_DAYS (e.g. 15)
-        l3_score_threshold_min:     Override LOCK1_THRESHOLD (e.g. 0.72)
+        l3_score_threshold_min:     Override L3_SCORE_THRESHOLD_MIN (e.g. 0.72)
         max_entries_per_day: Cap new positions opened on a single day (e.g. 2)
         l1_eligibility_vix_max:       Skip new entries when VIX is at or above this level (live's `>=`). None disables.
         use_leading_rs:      Only enter if ticker's 5d return > its sector ETF's 5d return.
-        l2_risk_max_positions_count:       Override MAX_POSITIONS (e.g. 3). Lower = more concentrated portfolio.
+        l2_risk_max_positions_count:       Override L2_RISK_MAX_POSITIONS_COUNT (e.g. 3). Lower = more concentrated portfolio.
 
     Returns:
         BacktestResult dict with performance metrics and full trade log.
@@ -172,9 +172,9 @@ def run(
     pl_trig  = profit_lock_trigger_pct
     pl_trail = profit_lock_trail_pct
     tdays    = time_stop_days     if time_stop_days     is not None else TIME_STOP_DAYS
-    l1       = l3_score_threshold_min    if l3_score_threshold_min    is not None else LOCK1_THRESHOLD
+    l1       = l3_score_threshold_min    if l3_score_threshold_min    is not None else L3_SCORE_THRESHOLD_MIN
     max_epd  = max_entries_per_day  # None means unlimited
-    max_pos  = l2_risk_max_positions_count      if l2_risk_max_positions_count      is not None else MAX_POSITIONS
+    max_pos  = l2_risk_max_positions_count      if l2_risk_max_positions_count      is not None else L2_RISK_MAX_POSITIONS_COUNT
     overflow_inc = l2_risk_overflow_step if l2_risk_overflow_step is not None else live_overflow_increment()
 
     start = date.fromisoformat(start_date)
@@ -247,7 +247,7 @@ def run(
     # $10,000 simulation: 1 %, five times stricter than live.
     from backend.backtest.live_shape import DAILY_LOSS_CAP_PCT
     loss_cap   = l0_portfolio_loss_cap_max if l0_portfolio_loss_cap_max is not None else DAILY_LOSS_CAP_PCT * initial_balance
-    sector_max = l2_risk_sector_cap_max if l2_risk_sector_cap_max is not None else MAX_SECTOR_EXPOSURE
+    sector_max = l2_risk_sector_cap_max if l2_risk_sector_cap_max is not None else L2_RISK_SECTOR_CAP_MAX
 
     # Simulate day by day
     balance      = initial_balance

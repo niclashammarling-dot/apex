@@ -535,10 +535,10 @@ def check53() -> None:
     errors = []
 
     # config.py
-    if not hasattr(cfg_module, "MACRO_EARNINGS_NEAR_DAYS"):
-        errors.append("MACRO_EARNINGS_NEAR_DAYS missing from config.py")
-    if not hasattr(cfg_module, "MACRO_EARNINGS_NEAR_PENALTY"):
-        errors.append("MACRO_EARNINGS_NEAR_PENALTY missing from config.py")
+    if not hasattr(cfg_module, "L2_RISK_EARNINGS_NEAR_DAYS"):
+        errors.append("L2_RISK_EARNINGS_NEAR_DAYS missing from config.py")
+    if not hasattr(cfg_module, "L2_RISK_EARNINGS_NEAR_PENALTY"):
+        errors.append("L2_RISK_EARNINGS_NEAR_PENALTY missing from config.py")
 
     # JSON configs
     root = Path(__file__).parent.parent / "data"

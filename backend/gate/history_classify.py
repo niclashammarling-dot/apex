@@ -68,8 +68,8 @@ MACRO_COOLOFF_UNTIL = "2026-05-12T14:33:12+00:00"
 # TP/TSL win), as the configs hold them since they are tracked (2026-06-26). Replayed with these and the set in
 # force, every cooloff skip in the three tables is explained (probe 2026-10-29: live 1432 gate / 1869 exit / 3 both
 # after the 133 April rows the macro code explains; demo 1846 / 2395 / 71).
-GATE_COOLOFF_HOURS = {"live": 4, "demo": 5}
-EXIT_COOLOFF_HOURS, TP_COOLOFF_HOURS = 24, 168
+L1_ELIGIBILITY_COOLOFF_HOURS = {"live": 4, "demo": 5}
+L1_ELIGIBILITY_EXIT_COOLOFF_HOURS, L1_ELIGIBILITY_EXIT_COOLOFF_WIN_HOURS = 24, 168
 # Live's whole-share sizing failure was recorded as a broker error; the order could not buy one share
 # (11 rows, LLY, 2026-10-12..10-16; PRODUCTION_GAP row 34). The text decides it, so the rule is L1 notional_too_small (eighth round).
 QTY_ZERO = "broker_error: Computed qty=0"
@@ -203,7 +203,7 @@ class CooloffIndex:
         for book, table in (("live", "live_trades"), ("demo", "trades")):
             for t, ex, out, why in rows(f"SELECT ticker, exited_at, outcome, exit_reason FROM {table} "
                                         "WHERE exited_at IS NOT NULL AND outcome IN ('WIN', 'LOSS', 'EXPIRED')"):
-                hours = TP_COOLOFF_HOURS if (out == "WIN" and why in ("TP", "TSL")) else EXIT_COOLOFF_HOURS
+                hours = L1_ELIGIBILITY_EXIT_COOLOFF_WIN_HOURS if (out == "WIN" and why in ("TP", "TSL")) else L1_ELIGIBILITY_EXIT_COOLOFF_HOURS
                 self.exits[(book, t)].append((_at(ex), hours))
         self.demo_skips: dict[str, list] = defaultdict(list)
         for t, ts in rows("SELECT ticker, timestamp FROM demo_gate_history WHERE gate_decision = 'SKIPPED_COOLOFF'"):
@@ -228,7 +228,7 @@ class CooloffIndex:
             else:
                 when = "at the signal's time (no matched demo decision)"
         codes = ("FILTERED_L2", "FILTERED_L3") + (("FILTERED_MACRO",) if at < _at(MACRO_COOLOFF_UNTIL) else ())
-        gate = any(0 < (at - s).total_seconds() < GATE_COOLOFF_HOURS[book] * 3600 and c in codes
+        gate = any(0 < (at - s).total_seconds() < L1_ELIGIBILITY_COOLOFF_HOURS[book] * 3600 and c in codes
                    for s, c in self.stops[(book, t)])
         exit_ = any(0 < (at - x).total_seconds() < h * 3600 for x, h in self.exits[(book, t)])
         if gate:

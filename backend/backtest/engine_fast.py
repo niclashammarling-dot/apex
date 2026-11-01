@@ -23,12 +23,12 @@ import yfinance as yf
 from loguru import logger
 
 from backend.config import (
-    DAILY_LOSS_CAP,
+    L0_PORTFOLIO_LOSS_CAP_MAX,
     EXCLUDED_SECTORS,
-    LOCK1_THRESHOLD,
+    L3_SCORE_THRESHOLD_MIN,
     MAX_POSITION_SIZE,
-    MAX_POSITIONS,
-    MAX_SECTOR_EXPOSURE,
+    L2_RISK_MAX_POSITIONS_COUNT,
+    L2_RISK_SECTOR_CAP_MAX,
     SECTOR_THRESHOLD_FLOORS,
     SECTORS,
     SPY_TICKER,
@@ -112,7 +112,7 @@ def run(
     l2_risk_max_positions_count:      int   | None = None,
     sl_cooldown_days:   int   | None = None,   # None: live config (live_shape.live_cooloff_days)
     tp_cooldown_days:   int   | None = None,
-    l2_risk_sector_cap_max: float | None = None,   # None: config MAX_SECTOR_EXPOSURE
+    l2_risk_sector_cap_max: float | None = None,   # None: config L2_RISK_SECTOR_CAP_MAX
     l0_portfolio_loss_cap_max:     float | None = None,   # None: DAILY_LOSS_CAP_PCT × initial_balance
     precomputed:        dict  | None = None,
     intraday_stops:     bool        = True,
@@ -154,9 +154,9 @@ def run(
     pl_trig  = profit_lock_trigger_pct
     pl_trail = profit_lock_trail_pct
     tdays    = time_stop_days     if time_stop_days     is not None else TIME_STOP_DAYS
-    l1       = l3_score_threshold_min    if l3_score_threshold_min    is not None else LOCK1_THRESHOLD
+    l1       = l3_score_threshold_min    if l3_score_threshold_min    is not None else L3_SCORE_THRESHOLD_MIN
     max_epd  = max_entries_per_day
-    max_pos  = l2_risk_max_positions_count      if l2_risk_max_positions_count      is not None else MAX_POSITIONS
+    max_pos  = l2_risk_max_positions_count      if l2_risk_max_positions_count      is not None else L2_RISK_MAX_POSITIONS_COUNT
     overflow_inc = l2_risk_overflow_step if l2_risk_overflow_step is not None else live_overflow_increment()
 
     start = date.fromisoformat(start_date)
@@ -284,7 +284,7 @@ def run(
     # $10,000 simulation: 1 %, five times stricter than live.
     from backend.backtest.live_shape import DAILY_LOSS_CAP_PCT
     loss_cap   = l0_portfolio_loss_cap_max if l0_portfolio_loss_cap_max is not None else DAILY_LOSS_CAP_PCT * initial_balance
-    sector_max = l2_risk_sector_cap_max if l2_risk_sector_cap_max is not None else MAX_SECTOR_EXPOSURE
+    sector_max = l2_risk_sector_cap_max if l2_risk_sector_cap_max is not None else L2_RISK_SECTOR_CAP_MAX
 
     balance      = initial_balance
     open_trades: list[dict] = []
