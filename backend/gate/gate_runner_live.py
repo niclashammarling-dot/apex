@@ -438,7 +438,7 @@ def _run(cycle: GateCycle) -> list[dict]:
     record_stale(cycle, stale, "Live gate runner")
     n_stale_main = len(stale)
     if not candidates:
-        logger.info("Live gate runner: no Lock 1 candidates this cycle")
+        logger.info("Live gate runner: no L3 SCORE candidates this cycle")
         cycle.reason = "no_fresh_candidates" if stale else "no_candidates"
         _persist_multiplier_stats({}, None, [], runner="live")
         return []
@@ -529,7 +529,7 @@ def _run(cycle: GateCycle) -> list[dict]:
     sector_exposure_live: dict[str, float] = dict(_sector_exposure)
     dynamic_caps_live    = compute_dynamic_caps(cfg.get("l2_risk_sector_cap_max", 0.30),
                                                 regime_result=regime_bayes_result)
-    # Lock 5 judges the cap execution enforces, not the flat base (2026-10-17).
+    # L6 REVIEW judges the cap execution enforces, not the flat base (2026-10-17).
     wallet_ctx["dynamic_caps"] = dynamic_caps_live
 
     # Pre-rotation promotion — same logic as demo gate
@@ -563,7 +563,7 @@ def _run(cycle: GateCycle) -> list[dict]:
 
     # L1 affordability before the chain (Niclas 2026-10-28: "L1 måste kontrollera först att beloppet räcker …
     # Kan vi spara anrop så är det bra"): the largest notional any later size can reach is the available cash ×
-    # max_position_size (Lock 5's size and the Bayesian scaling are capped by it), and a bracket order needs one
+    # max_position_size (L6 REVIEW's size and the Bayesian scaling are capped by it), and a bracket order needs one
     # whole share of it, so a refusal here moves no order that could fill and spends no Grok, options or Claude call.
     max_notional = max(0.0, min(acct["equity"], acct["cash"])) * cfg["max_position_size"]
     pre_states: dict[str, dict] = {}
@@ -809,7 +809,7 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
         mode_label="LIVE — real money",
     )
     chain   = evaluate_chain(ticker, sector, signal_score, context, cfg,
-                             on_watchlist=on_watchlist, stop_after_lock=4,
+                             on_watchlist=on_watchlist, defer_l6_review=True,
                              sector_thresholds=sector_thresholds)
     result  = _chain_to_gate_result(signal, chain)
     # Stash L5 inputs so the serial executor can run L5 only when a slot is available.
@@ -880,7 +880,7 @@ def _sector_cap_check(sector: str, notional: float, exposure: dict[str, float],
                       starting_balance: float) -> dict:
     """The execution-side sector cap test, with the evidence persisted per row.
 
-    One cap since 2026-10-17: Lock 5 is shown risk_limits.sector_cap, the same
+    One cap since 2026-10-17: L6 REVIEW is shown risk_limits.sector_cap, the same
     dynamic cap execution enforces here (falling back to the flat value when
     compute_dynamic_caps returned nothing for the sector). Until then L5 judged
     the flat l2_risk_sector_cap_max while execution enforced the dynamic cap. Observe

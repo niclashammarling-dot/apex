@@ -70,15 +70,20 @@ def test_table_labels_and_plain_comments_are_not_lock_numbers(tmp_path, monkeypa
 
 def test_a_rule_or_module_outside_the_chain_is_flagged(tmp_path, monkeypatch):
     # A: the table agrees with the approved chain (rewritten for lock labels phase 2: the stored code is the
-    # owner's lock code, so every rule must be owned by a lock of the chain and every module lock map to one).
+    # owner's lock code, so every rule must be owned by a lock of the chain; since phase 3 every gate module is named
+    # l<n>_<lock>.py for a lock of the chain and returns its own n as lock_id).
     cg, core = _setup(tmp_path, monkeypatch, TABLE_DRIVEN, TABLE_DRIVEN)
     stray = dataclasses.replace(lock_codes.RULES[0], owner=9, name="stray")
     monkeypatch.setattr(lock_codes, "RULES", lock_codes.RULES + (stray,))
-    monkeypatch.setattr(lock_codes, "MODULE_TO_CHAIN", {k: v for k, v in lock_codes.MODULE_TO_CHAIN.items() if k != 3})
+    real = cg._gate_module_lock_ids()
+    assert real["l4_sentiment.py"] == 4 and real["l2_risk.py"] is None
+    monkeypatch.setattr(cg, "_gate_module_lock_ids", lambda: {**real, "l4_sentiment.py": 3, "l9_x.py": None})
     cg.check54()
     out = _found(core, 54)
     assert any("rule stray is owned by lock 9" in m for m in out)
-    assert any("module lock 3 maps to no chain lock" in m for m in out)
+    assert any("module l4_sentiment.py returns lock_id 3, not its own lock 4" in m for m in out)
+    assert any("module l9_x.py names no lock of the chain" in m for m in out)
+    assert len([m for m in out if m.startswith("module ")]) == 2
 
 
 def test_check25_skips_a_table_driven_consumer_and_compares_one_with_literals(tmp_path, monkeypatch):

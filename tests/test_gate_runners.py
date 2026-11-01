@@ -67,20 +67,20 @@ def _live_cfg(**overrides):
 
 
 def _lr_pass(lock_id: int, score: float = 0.75, data: dict = None) -> LockResult:
-    """Build a passing LockResult with realistic data for the given lock."""
+    """Build a passing LockResult with realistic data for the given chain lock."""
     base: dict = {}
     if lock_id == 1:
         base = {"sector": "Technology", "adjusted_score": 0.8,
                 "allocation": 0.3, "rank": 1, "entry_threshold": 0.37, "exit_threshold": 0.33,
                 "regime_available": True}
-    elif lock_id == 2:
+    elif lock_id == 3:
         base = {"signal_score": score, "threshold": 0.5,
                 "effective_threshold": 0.5, "on_watchlist": False,
                 "watchlist_discount": 0.0, "sector": "Technology"}
-    elif lock_id == 3:
+    elif lock_id == 4:
         base = {"score": 0.5, "sentiment": "positive",
                 "conviction": "high", "key_themes": [], "summary": "Bullish"}
-    elif lock_id == 4:
+    elif lock_id == 5:
         base = {
             "sub_checks": {
                 "relative_strength": {"pass": True,  "reason": "outperforms"},
@@ -90,7 +90,7 @@ def _lr_pass(lock_id: int, score: float = 0.75, data: dict = None) -> LockResult
             },
             "pass_count": 3, "price_group_pass": True, "options_group_pass": True,
         }
-    elif lock_id == 5:
+    elif lock_id == 6:
         base = {"decision": "BUY", "confidence": 0.85,
                 "position_size_pct": 0.10,
                 "reasoning": "Good setup.", "model": "claude-opus-4-6"}
@@ -103,44 +103,46 @@ def _lr_fail(lock_id: int, reason: str = "fail") -> LockResult:
     return LockResult.fail(lock_id=lock_id, reason=reason, data={})
 
 
-# The rule each module lock records, in the order the chain meets them (chain.py rule_states; lock labels phase 2).
-_MODULE_RULES = {1: [(1, "regime"), (1, "vix"), (1, "macro_event"), (2, "earnings")],
-                 2: [(3, "threshold"), (1, "macro_pre_event"), (2, "earnings_near")],
-                 3: [(4, "grok")], 4: [(5, "leading"), (2, "etf"), (0, "drawdown_guard")], 5: [(6, "claude")]}
-# The rule a fixture's failing module lock stops on.
-_STOP_RULE = {1: (1, "regime"), 2: (3, "threshold"), 3: (4, "grok"), 4: (5, "leading"), 5: (6, "claude")}
+# The chain locks with a LockResult, and the rules each records in the order the chain meets them (chain.py
+# rule_states; lock labels phase 2).
+CHAIN = (1, 3, 4, 5, 6)
+_LOCK_RULES = {1: [(1, "regime"), (1, "vix"), (1, "macro_event"), (2, "earnings")],
+               3: [(3, "threshold"), (1, "macro_pre_event"), (2, "earnings_near")],
+               4: [(4, "grok")], 5: [(5, "leading"), (2, "etf"), (0, "drawdown_guard")], 6: [(6, "claude")]}
+# The rule a fixture's failing lock stops on.
+_STOP_RULE = {1: (1, "regime"), 3: (3, "threshold"), 4: (4, "grok"), 5: (5, "leading"), 6: (6, "claude")}
 
 
 def _states(upto: int, stop: int | None = None) -> dict[str, str]:
     from backend.gate.lock_codes import FAIL, PASS, rule_key
-    out = {rule_key(o, r): PASS for m in range(1, upto + 1) for (o, r) in _MODULE_RULES[m] if m != stop}
+    out = {rule_key(o, r): PASS for m in CHAIN if m <= upto for (o, r) in _LOCK_RULES[m] if m != stop}
     if stop is not None:
         out[rule_key(*_STOP_RULE[stop])] = FAIL
     return out
 
 
 def _chain_pass(ticker: str = "NVDA", sector: str = "Technology") -> ChainResult:
-    """Return a fully-passing ChainResult (all 5 locks)."""
-    lr = {i: _lr_pass(i) for i in range(1, 6)}
+    """Return a fully-passing ChainResult (every lock)."""
+    lr = {i: _lr_pass(i) for i in CHAIN}
     return ChainResult(
-        ticker=ticker, sector=sector, approved=True, exit_lock=None,
-        lock_results=lr, final_score=0.85, summary="APPROVED", rule_states=_states(5),
+        ticker=ticker, sector=sector, approved=True,
+        lock_results=lr, final_score=0.85, summary="APPROVED", rule_states=_states(6),
     )
 
 
 def _chain_fail_at(
-    exit_lock: int,
+    lock: int,
     ticker: str = "NVDA",
     sector: str = "Technology",
     reason: str = "fail",
 ) -> ChainResult:
-    """Return a ChainResult that failed at exit_lock (all prior locks passed)."""
-    lr = {i: _lr_pass(i) for i in range(1, exit_lock)}
-    lr[exit_lock] = _lr_fail(exit_lock, reason)
+    """Return a ChainResult that failed at chain lock `lock` (every earlier lock passed)."""
+    lr = {i: _lr_pass(i) for i in CHAIN if i < lock}
+    lr[lock] = _lr_fail(lock, reason)
     return ChainResult(
-        ticker=ticker, sector=sector, approved=False, exit_lock=exit_lock,
+        ticker=ticker, sector=sector, approved=False,
         lock_results=lr, final_score=0.3,
-        summary=f"REJECTED at Lock {exit_lock} — {reason}", rule_states=_states(exit_lock, stop=exit_lock),
+        summary=f"REJECTED at L{lock} — {reason}", rule_states=_states(lock, stop=lock),
     )
 
 
@@ -251,33 +253,33 @@ class TestDemoGateRunner:
         # Two DB writes: one L1 position_open skip + one evaluation result
         assert mocks[7].call_count == 2
 
-    def test_eligibility_fail_returns_filtered_eligibility(self):
+    def test_eligibility_fail_returns_filtered_l1_eligibility(self):
         results, _ = _run_demo(candidates=[_signal()],
                                chain_result=_chain_fail_at(1))
         assert results[0]["outcome"]       == "FILTERED_L1_ELIGIBILITY"
         assert results[0]["gate_decision"] == "FILTERED_L1_ELIGIBILITY"
 
-    def test_l1_fail_returns_filtered_l1(self):
+    def test_score_fail_returns_filtered_l3_score(self):
         results, _ = _run_demo(candidates=[_signal()],
-                               chain_result=_chain_fail_at(2))
+                               chain_result=_chain_fail_at(3))
         assert results[0]["outcome"]       == "FILTERED_L3_SCORE"
         assert results[0]["gate_decision"] == "FILTERED_L3_SCORE"
 
-    def test_l2_fail_returns_filtered_l2(self):
+    def test_sentiment_fail_returns_filtered_l4_sentiment(self):
         results, _ = _run_demo(candidates=[_signal()],
-                               chain_result=_chain_fail_at(3))
+                               chain_result=_chain_fail_at(4))
         assert results[0]["outcome"]       == "FILTERED_L4_SENTIMENT"
         assert results[0]["gate_decision"] == "FILTERED_L4_SENTIMENT"
 
-    def test_leading_fail_returns_filtered_leading(self):
+    def test_positioning_fail_returns_filtered_l5_positioning(self):
         results, _ = _run_demo(candidates=[_signal()],
-                               chain_result=_chain_fail_at(4))
+                               chain_result=_chain_fail_at(5))
         assert results[0]["outcome"]       == "FILTERED_L5_POSITIONING"
         assert results[0]["gate_decision"] == "FILTERED_L5_POSITIONING"
 
-    def test_l3_fail_returns_filtered_l3(self):
+    def test_review_fail_returns_filtered_l6_review(self):
         results, _ = _run_demo(candidates=[_signal()],
-                               chain_result=_chain_fail_at(5))
+                               chain_result=_chain_fail_at(6))
         assert results[0]["outcome"]       == "FILTERED_L6_REVIEW"
         assert results[0]["gate_decision"] == "FILTERED_L6_REVIEW"
 
@@ -582,25 +584,25 @@ class TestLiveGateRunner:
         assert results[0]["outcome"]       == "FILTERED_L1_ELIGIBILITY"
         assert results[0]["gate_decision"] == "FILTERED_L1_ELIGIBILITY"
 
-    def test_l1_fail(self):
+    def test_score_fail(self):
         results, _ = _run_live(candidates=[_signal()],
-                               chain_result=_chain_fail_at(2))
+                               chain_result=_chain_fail_at(3))
         assert results[0]["outcome"]       == "FILTERED_L3_SCORE"
         assert results[0]["gate_decision"] == "FILTERED_L3_SCORE"
 
-    def test_l2_fail(self):
-        results, _ = _run_live(candidates=[_signal()],
-                               chain_result=_chain_fail_at(3))
-        assert results[0]["outcome"] == "FILTERED_L4_SENTIMENT"
-
-    def test_leading_fail(self):
+    def test_sentiment_fail(self):
         results, _ = _run_live(candidates=[_signal()],
                                chain_result=_chain_fail_at(4))
-        assert results[0]["outcome"] == "FILTERED_L5_POSITIONING"
+        assert results[0]["outcome"] == "FILTERED_L4_SENTIMENT"
 
-    def test_l3_fail(self):
+    def test_positioning_fail(self):
         results, _ = _run_live(candidates=[_signal()],
                                chain_result=_chain_fail_at(5))
+        assert results[0]["outcome"] == "FILTERED_L5_POSITIONING"
+
+    def test_review_fail(self):
+        results, _ = _run_live(candidates=[_signal()],
+                               chain_result=_chain_fail_at(6))
         assert results[0]["outcome"] == "FILTERED_L6_REVIEW"
 
     def test_all_pass_trade_executed(self):
@@ -678,16 +680,16 @@ class TestLiveGateRunner:
 
     # ── Demo / live parity ────────────────────────────────────────────────────
 
-    @pytest.mark.parametrize("exit_lock,expected_outcome", [
+    @pytest.mark.parametrize("lock,expected_outcome", [
         (1, "FILTERED_L1_ELIGIBILITY"),
-        (2, "FILTERED_L3_SCORE"),
-        (3, "FILTERED_L4_SENTIMENT"),
-        (4, "FILTERED_L5_POSITIONING"),
-        (5, "FILTERED_L6_REVIEW"),
+        (3, "FILTERED_L3_SCORE"),
+        (4, "FILTERED_L4_SENTIMENT"),
+        (5, "FILTERED_L5_POSITIONING"),
+        (6, "FILTERED_L6_REVIEW"),
     ])
-    def test_demo_live_outcome_parity(self, exit_lock, expected_outcome):
+    def test_demo_live_outcome_parity(self, lock, expected_outcome):
         """Both runners produce identical outcome and gate_decision for each failure mode."""
-        cr = _chain_fail_at(exit_lock)
+        cr = _chain_fail_at(lock)
 
         demo_results, _ = _run_demo(candidates=[_signal()], chain_result=cr)
         live_results, _ = _run_live(candidates=[_signal()], chain_result=cr)
@@ -748,19 +750,19 @@ class TestMechanicalDrawdownGuard:
             context=context, cfg=cfg or _demo_cfg(),
         )
 
-    def _all_lock_patches(self, l5_return=None):
-        """Patch all five locks at the chain module's bound names."""
+    def _all_lock_patches(self, l6_return=None):
+        """Patch every lock at the chain module's bound names."""
         return [
-            patch("backend.gate.chain.lock1_evaluate", return_value=_lr_pass(1)),
-            patch("backend.gate.chain.lock2_evaluate", return_value=_lr_pass(2)),
-            patch("backend.gate.chain.lock3_evaluate", return_value=_lr_pass(3)),
-            patch("backend.gate.chain.lock4_evaluate", return_value=_lr_pass(4)),
-            patch("backend.gate.chain.lock5_evaluate",
-                  return_value=(l5_return if l5_return is not None else _lr_pass(5))),
+            patch("backend.gate.chain.l1_eligibility_evaluate", return_value=_lr_pass(1)),
+            patch("backend.gate.chain.l3_score_evaluate", return_value=_lr_pass(3)),
+            patch("backend.gate.chain.l4_sentiment_evaluate", return_value=_lr_pass(4)),
+            patch("backend.gate.chain.l5_positioning_evaluate", return_value=_lr_pass(5)),
+            patch("backend.gate.chain.l6_review_evaluate",
+                  return_value=(l6_return if l6_return is not None else _lr_pass(6))),
         ]
 
     def test_drawdown_exceeded_rejects_before_l5(self):
-        # 46.7% drawdown > 20% limit — must reject at lock 5 without calling Claude
+        # 46.7% drawdown > 20% limit — must reject at the drawdown guard without calling Claude
         context = self._context(balance=1066.37, starting=2000.0, max_dd=0.20)
         patches = self._all_lock_patches()
         with ExitStack() as stack:
@@ -768,9 +770,9 @@ class TestMechanicalDrawdownGuard:
             result = self._run_chain(context)
 
         assert result.approved is False
-        assert result.exit_lock == 5
+        assert result.stop == (0, "drawdown_guard")
         assert "drawdown" in result.summary.lower()
-        mocks[4].assert_not_called()  # lock5_evaluate must not be called
+        mocks[4].assert_not_called()  # l6_review_evaluate must not be called
 
     def test_drawdown_at_limit_passes(self):
         # Exactly at 20% — should not be rejected by the guard (strictly greater than)

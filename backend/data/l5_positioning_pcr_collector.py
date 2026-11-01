@@ -1,9 +1,9 @@
 """
-data/l5_positioning_pcr_collector.py — Daily P/C ratio collection for Lock 4 baseline calibration.
+data/l5_positioning_pcr_collector.py — Daily P/C ratio collection for L5 POSITIONING baseline calibration.
 
 Fetches near-term put/call OI ratios for all active APEX tickers after market close
 and stores them to lock4_pcr_history. backend/gate/pcr_baseline.py reads the table
-into the partial-pooled per-ticker P25 that Lock 4 uses in "per_ticker_p25" mode
+into the partial-pooled per-ticker P25 that L5 POSITIONING uses in "per_ticker_p25" mode
 (built 2026-09-17; the fixed PCR_THRESHOLD 0.85 remains the "pooled_scalar" mode).
 
 Design rules:

@@ -1,5 +1,5 @@
 """
-Tests for the Lock 1 three-tier earnings gate and chain.py near-term penalty.
+Tests for the L2 RISK three-tier earnings gate and chain.py near-term penalty.
 
 Tiers:
   imminent   (0 <= delta <= blackout_days)  -> hard fail
@@ -50,7 +50,7 @@ def _cfg(blackout: int = 3, near_days: int = 14, near_penalty: float = 0.15) -> 
 
 
 def _evaluate_with_earnings(ticker: str, delta_days: int, **cfg_overrides) -> "LockResult":
-    """Run Lock 1 evaluate() with a synthetic earnings date at today + delta_days."""
+    """Run L1 ELIGIBILITY's evaluate() (it calls L2 RISK's earnings rules) with a synthetic earnings date at today + delta_days."""
     today    = date.today()
     earnings = today + timedelta(days=delta_days)
     regime   = _make_regime()
@@ -165,11 +165,11 @@ def test_chain_applies_near_term_penalty():
 
     def fake_lock2(ticker, sector, score, **kwargs):
         captured["score"] = score
-        return LockResult(passed=False, lock_id=2, score=score, reason="test stop", data={})
+        return LockResult(passed=False, lock_id=3, score=score, reason="test stop", data={})
 
     with (
-        patch("backend.gate.chain.lock1_evaluate", return_value=l1_result),
-        patch("backend.gate.chain.lock2_evaluate", side_effect=fake_lock2),
+        patch("backend.gate.chain.l1_eligibility_evaluate", return_value=l1_result),
+        patch("backend.gate.chain.l3_score_evaluate", side_effect=fake_lock2),
     ):
         evaluate_chain("AAPL", "Technology", signal_score=0.80, context={}, cfg=_cfg())
 
@@ -189,11 +189,11 @@ def test_chain_no_penalty_when_clear():
 
     def fake_lock2(ticker, sector, score, **kwargs):
         captured["score"] = score
-        return LockResult(passed=False, lock_id=2, score=score, reason="test stop", data={})
+        return LockResult(passed=False, lock_id=3, score=score, reason="test stop", data={})
 
     with (
-        patch("backend.gate.chain.lock1_evaluate", return_value=l1_result),
-        patch("backend.gate.chain.lock2_evaluate", side_effect=fake_lock2),
+        patch("backend.gate.chain.l1_eligibility_evaluate", return_value=l1_result),
+        patch("backend.gate.chain.l3_score_evaluate", side_effect=fake_lock2),
     ):
         evaluate_chain("NVDA", "Technology", signal_score=0.80, context={}, cfg=_cfg())
 

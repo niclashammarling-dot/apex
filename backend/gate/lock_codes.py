@@ -23,10 +23,10 @@ Until phase 4 a lock's rules run in several places: L2's earnings and ETF rules 
 are called from inside l1_eligibility and after L5, overflow and the sector cap at execution; the guard after L5. So a code names the owner, and how far
 the row got is the pass flags (FLAG_RULES; NULL where the lock did not run, ruling D) and `rule_states`.
 
-Two numberings until phase 3: "Lock 1".."Lock 5" in code outside this file are the module numbers
-(l1_eligibility .. l6_review, chain.py's lock_id and exit_lock; MODULE_TO_CHAIN); "L0".."L6" and the
-names here are the chain. The stored codes before the 2026-10-31 migration are LEGACY_CODES, read only by the
-history classifier, the migration and archived producers (T7) through the migration record.
+One numbering since phase 3: "L0".."L6" and the names here are the chain, and every module, LockResult.lock_id
+and lock_results key carries it (the module numbers, chain.py's exit_lock and MODULE_TO_CHAIN retired 2026-11-01).
+The stored codes before the 2026-10-31 migration are LEGACY_CODES, read only by the history classifier, the
+migration and archived producers (T7) through the migration record.
 """
 from __future__ import annotations
 
@@ -44,12 +44,6 @@ LOCKS: dict[int, tuple[str, str, str]] = {
     5: ("POSITIONING", "what is done with money: options, accumulation",  "backend/gate/l5_positioning.py"),
     6: ("REVIEW",      "judgement over the whole candidate",              "backend/gate/l6_review.py, gate_runner*.py"),
 }
-
-# Module lock_id (LockResult.lock_id, chain.py exit_lock) → chain lock. The module files took the chain's names in
-# phase 3 (2026-10-31: lock1_eligibility → l1_eligibility … lock5_claude → l6_review), but the lock ids they return
-# keep the old module numbers until exit_lock and this map retire (the L6 payload keys wait for the 11-07 review).
-MODULE_CHAIN_ORDER = [1, 3, 4, 5, 6]      # the chain lock of module lock id 1, 2, 3, 4, 5
-MODULE_TO_CHAIN: dict[int, int] = dict(enumerate(MODULE_CHAIN_ORDER, start=1))
 
 TRADE_EXECUTED = "TRADE_EXECUTED"
 UNKNOWN = "FILTERED_UNKNOWN"

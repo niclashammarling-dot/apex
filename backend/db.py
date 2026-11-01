@@ -286,7 +286,7 @@ def init_db() -> None:
 
             -- One row per scheduled job: when its last run started and ended
             -- (2026-10-03). Gate history is not proof of life — a cycle with no
-            -- Lock 1 candidates or a live halt writes no row — so the off-process
+            -- L3 SCORE candidates or a live halt writes no row — so the off-process
             -- cycle watch (scripts/cycle_watch.py) reads this instead.
             -- Sessions whose results must not be read as a normal trading day
             -- (2026-10-03, after 10-02 ran 8/19 cycles). Written outside the backend
@@ -389,7 +389,7 @@ def init_db() -> None:
         _add_column_if_missing(conn, "trades",  "exited_at",   "TEXT")
         _add_column_if_missing(conn, "trades",  "exit_reason", "TEXT")
         # high_60d, low_60d, effective_sl, macd_hist (and avg_vol_30d in the base schema)
-        # stopped being written 2026-10-10: no reader since the 03-27 Lock 3 context strip
+        # stopped being written 2026-10-10: no reader since the 03-27 L6 REVIEW context strip
         # (ded5edf) or ever; range position was tested and dropped 05-13; all recomputable
         # from OHLCV (Niclas: "Stop the 6, store info"). Columns and history are kept.
         # trades.wallet_balance_after left the schema 04-01 (cc2aa23), never written since.
@@ -422,7 +422,7 @@ def init_db() -> None:
         _add_column_if_missing(conn, "live_gate_history", "l2_summary",   "TEXT")
         _add_column_if_missing(conn, "live_gate_history", "macro_reason", "TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_demo_gate_ts ON demo_gate_history(timestamp DESC)")
-        # Lock 3 (Grok sentiment) score and conviction — added alongside L3 gate
+        # L4 SENTIMENT (Grok) score and conviction — added with the Grok gate
         _add_column_if_missing(conn, "demo_gate_history", "lock3_sentiment_score", "REAL")
         _add_column_if_missing(conn, "demo_gate_history", "lock3_conviction",      "TEXT")
         _add_column_if_missing(conn, "live_gate_history", "lock3_sentiment_score", "REAL")
@@ -688,7 +688,7 @@ def get_l3_score_candidates(threshold: float | None = None,
     calendar unavailable) nothing is fresh: [] with reason no_session.
 
     NOTE: this pre-filter uses only the ticker_thresholds DB table, not
-    SECTOR_THRESHOLD_FLOORS (empty since 2026-10-10). Lock 2 applies floors on
+    SECTOR_THRESHOLD_FLOORS (empty since 2026-10-10). L3 SCORE applies floors on
     top. Tickers blocked here never reach gate evaluation and produce no
     gate_history row.
     """
@@ -790,7 +790,7 @@ def update_signal_gate(signal_id: int, result: dict) -> None:
 
 
 def get_wallet_context() -> dict:
-    """Returns current wallet state for Lock 3 context."""
+    """Returns current wallet state for L6 REVIEW's context."""
     from backend.config import DEMO_STARTING_BALANCE
     conn = get_db()
     try:
@@ -1009,14 +1009,14 @@ def _ticker_gate_fails(table: str, ticker: str, limit: int) -> list[dict]:
     Recent gate decisions for a ticker, newest first, skips left out (lock_codes.is_skip: stopped before any
     chain lock ran, no judgement on the candidate), for L6 REVIEW's (l6_review) ticker_gate_history. Each
     row: date, the stored code (`outcome`: the owner's lock code or TRADE_EXECUTED), the stage it stopped at
-    (`stage`: the owner's lock label, the names the Lock 5 prompt uses) and `detail`, the reason recorded.
+    (`stage`: the owner's lock label, the names the L6 REVIEW prompt uses) and `detail`, the reason recorded.
 
     `detail` is lock3_reasoning first: the writers put the stopping lock's reason there, and Claude's reasoning
     once L6 ran (gate_runner._chain_to_gate_result, _run_l5_for_result). Only when it is empty does it fall back
     to the owner's own column: L1's macro_reason, L4's summary, L5's checks. An execution-phase stop before L6
     (overflow) has none, so its detail is None and `stage` says what stopped it. From lock labels phase 2
     (2026-10-31) the stage is the lock that owns the stop, so the guard reads L0 · Portfolio and an unavailable
-    source reads as its lock's `unavailable` rule (the Lock 5 prompt approved 2026-10-26 is unchanged; review 11-07).
+    source reads as its lock's `unavailable` rule (the L6 REVIEW prompt approved 2026-10-26 is unchanged; review 11-07).
     """
     import json as _json
 
@@ -1466,7 +1466,7 @@ def insert_pcr_observation(
     is_dislocation: bool = False,
 ) -> None:
     """
-    Insert a daily P/C ratio observation for Lock 4 baseline calibration.
+    Insert a daily P/C ratio observation for L5 POSITIONING baseline calibration.
     Skips silently on duplicate (ticker, date) — idempotent.
     """
     conn = get_db()
@@ -2636,7 +2636,7 @@ def get_drift_alerts(severity: str | None = None,
         conn.close()
 
 
-# ── Lock 5 token usage ────────────────────────────────────────────────────────
+# ── L6 REVIEW token usage ─────────────────────────────────────────────────────
 
 def acknowledge_drift_alert(alert_id: int) -> None:
     conn = get_db()

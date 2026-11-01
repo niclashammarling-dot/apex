@@ -27,7 +27,7 @@ Usage:
     result = ipo.compute()
     # result.ipo_shares  → {sector: share} for regime_bayes
     # result.risk_off    → bool, True if no IPO activity in window
-    # result.context     → str summary for Claude Lock 4
+    # result.context     → str summary for L6 REVIEW (Claude)
 """
 from __future__ import annotations
 
@@ -213,7 +213,7 @@ class IpoSentimentResult:
     total_ipos:  int
     risk_off:    bool                # True if no IPOs in window
     listings:    list[IpoListing]    # confirmed listings for audit
-    context:     str                 # pre-formatted Lock 4 context string
+    context:     str                 # pre-formatted L6 REVIEW (Claude) context string
 
 
 # ── Main class ────────────────────────────────────────────────────────────────
@@ -575,7 +575,7 @@ class IpoSentiment:
             context=context,
         )
 
-    # ── Context for Claude Lock 4 ─────────────────────────────────────────────
+    # ── Context for L6 REVIEW (Claude) ────────────────────────────────────────
 
     def _build_context(
         self,
@@ -586,7 +586,7 @@ class IpoSentiment:
         today_str: str,
     ) -> str:
         """
-        Pre-formatted IPO sentiment summary for injection into Claude Lock 4.
+        Pre-formatted IPO sentiment summary for injection into L6 REVIEW (Claude).
         """
         lines = [
             f"IPO Sentiment ({today_str}, last {IPO_WINDOW_DAYS} days):",

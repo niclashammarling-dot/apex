@@ -42,7 +42,7 @@ def check_config_parity() -> list[str]:
 def check_sector_names() -> list[str]:
     """
     l5_positioning.SECTOR_ETF must map every sector defined in config.SECTORS.
-    A missing sector causes Lock 4 to fail all checks for that sector's
+    A missing sector causes L5 POSITIONING to fail all checks for that sector's
     tickers with no error — just a silent 'no ETF mapped' log line.
     """
     from backend.config import EXCLUDED_SECTORS, SECTORS
@@ -89,7 +89,7 @@ def check_promote_exclusions() -> list[str]:
 def check_context_parity() -> list[str]:
     """
     Demo and live gate runners must build identical risk_limits keys in the
-    Lock 3 context. A missing key means Claude gets null for that constraint
+    L6 REVIEW context. A missing key means Claude gets null for that constraint
     and has to guess.
     """
     from backend.db import get_live_ticker_gate_fails, get_ticker_gate_fails

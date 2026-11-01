@@ -136,7 +136,7 @@ def live_gate_history():
     thresholds = get_ticker_thresholds()
     flat = get_live_config().get("l3_score_threshold_min", 0.5)
     for row in rows:
-        row["l1_threshold"] = thresholds.get(row["sector"], flat)
+        row["l3_score_threshold_min"] = thresholds.get(row["sector"], flat)
         if row.get("lock_leading_checks"):
             try:
                 row["lock_leading_checks"] = _json.loads(row["lock_leading_checks"])

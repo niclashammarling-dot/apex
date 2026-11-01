@@ -1,5 +1,5 @@
 """
-gate/l4_sentiment.py — Lock 3: Sentiment
+gate/l4_sentiment.py — L4 SENTIMENT
 
 Grok synthesizes quantitative signals (analyst consensus, short interest,
 recent analyst actions, news) fetched from yfinance, pre-fetched Reddit/RSS
@@ -32,7 +32,7 @@ from backend.sentiment.sentiment_prefetch import (
     get_combined_content as get_prefetch_content,
 )
 
-LOCK_ID    = 3
+LOCK_ID    = 4
 GROK_URL   = "https://api.x.ai/v1/chat/completions"
 GROK_MODEL = "grok-3"
 
@@ -76,7 +76,7 @@ def _record_failure() -> None:
         if _cb_failures >= _CB_THRESHOLD:
             _cb_open_until = time.time() + _CB_COOLDOWN
             logger.warning(
-                f"Lock 3 circuit breaker OPEN — Grok API unreachable after "
+                f"L4 SENTIMENT circuit breaker OPEN — Grok API unreachable after "
                 f"{_cb_failures} failures. Cooling down for {_CB_COOLDOWN}s."
             )
 
@@ -185,11 +185,11 @@ def _build_prompt(ticker: str, signals: dict, rss_headlines: list[str], prefetch
 
 def _call_grok(ticker: str, signals: dict, rss_headlines: list[str], prefetch: str = "") -> dict | None:
     if not XAI_API_KEY:
-        logger.warning("Lock 3: XAI_API_KEY not set — failing closed")
+        logger.warning("L4 SENTIMENT: XAI_API_KEY not set — failing closed")
         return None
 
     if _circuit_open():
-        logger.warning(f"Lock 3 [{ticker}]: circuit breaker open — failing fast")
+        logger.warning(f"L4 SENTIMENT [{ticker}]: circuit breaker open — failing fast")
         return None
 
     payload = {
@@ -213,19 +213,19 @@ def _call_grok(ticker: str, signals: dict, rss_headlines: list[str], prefetch: s
             return result
 
         except httpx.HTTPStatusError as e:
-            logger.warning(f"Lock 3 [{ticker}] attempt {attempt}: HTTP {e.response.status_code}")
+            logger.warning(f"L4 SENTIMENT [{ticker}] attempt {attempt}: HTTP {e.response.status_code}")
         except httpx.RequestError as e:
-            logger.warning(f"Lock 3 [{ticker}] attempt {attempt}: connection error — {e}")
+            logger.warning(f"L4 SENTIMENT [{ticker}] attempt {attempt}: connection error — {e}")
         except (json.JSONDecodeError, KeyError) as e:
-            logger.warning(f"Lock 3 [{ticker}] attempt {attempt}: bad response — {e}")
+            logger.warning(f"L4 SENTIMENT [{ticker}] attempt {attempt}: bad response — {e}")
 
         if attempt < MAX_ATTEMPTS:
             wait = RETRY_WAITS[attempt - 1]
-            logger.debug(f"Lock 3 [{ticker}]: retrying in {wait}s…")
+            logger.debug(f"L4 SENTIMENT [{ticker}]: retrying in {wait}s…")
             time.sleep(wait)
 
     _record_failure()
-    logger.error(f"Lock 3 [{ticker}]: all retries exhausted — failing closed")
+    logger.error(f"L4 SENTIMENT [{ticker}]: all retries exhausted — failing closed")
     return None
 
 
@@ -246,7 +246,7 @@ def evaluate(ticker: str, sentiment_min: float | None = None) -> LockResult:
         sentiment_min: Override minimum sentiment score (defaults to DEMO_L4_SENTIMENT_GROK_MIN)
 
     Returns:
-        LockResult with lock_id=3
+        LockResult with lock_id=4
     """
     effective_min = sentiment_min if sentiment_min is not None else DEMO_L4_SENTIMENT_GROK_MIN
     now = datetime.now(timezone.utc).timestamp()
@@ -255,14 +255,14 @@ def evaluate(ticker: str, sentiment_min: float | None = None) -> LockResult:
 
     cached = _cache.get(ticker)
     if cached and now < cached["expires_at"]:
-        logger.debug(f"Lock 3 [{ticker}]: cache hit")
+        logger.debug(f"L4 SENTIMENT [{ticker}]: cache hit")
         grok = cached["result"]
     else:
         signals       = fetch_market_signals(ticker)
         rss_headlines = _fetch_rss(ticker)
         prefetch      = get_prefetch_content(ticker)
         logger.debug(
-            f"Lock 3 [{ticker}]: {len(signals.get('news_titles', []))} yf news, "
+            f"L4 SENTIMENT [{ticker}]: {len(signals.get('news_titles', []))} yf news, "
             f"{len(rss_headlines)} RSS headlines, "
             f"prefetch={'yes' if prefetch else 'no'}, "
             f"analyst={signals.get('analyst_label')}, "
@@ -306,11 +306,11 @@ def evaluate(ticker: str, sentiment_min: float | None = None) -> LockResult:
     }
 
     if not passed:
-        logger.debug(f"Lock 3 [{ticker}] FAIL — {reason}")
+        logger.debug(f"L4 SENTIMENT [{ticker}] FAIL — {reason}")
         return LockResult.fail(lock_id=LOCK_ID, reason=reason, data=data)
 
     logger.debug(
-        f"Lock 3 [{ticker}] PASS — score={score:.2f} conviction={conviction}"
+        f"L4 SENTIMENT [{ticker}] PASS — score={score:.2f} conviction={conviction}"
     )
     return LockResult.pass_(
         lock_id=LOCK_ID,

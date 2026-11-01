@@ -6,7 +6,7 @@ every backtest trade, then buckets by range position and reports win rate and
 profit factor per bucket.
 
 If win rate / PF degrades monotonically above some threshold, that threshold is
-the RANGE_EXHAUSTION_CEILING candidate for Lock 1 check 6.  If the distribution
+the RANGE_EXHAUSTION_CEILING candidate for an L1 ELIGIBILITY check.  If the distribution
 is flat, the filter adds no value and should not be shipped.
 
 The range cache is built from a separate yfinance download with a 400-calendar-

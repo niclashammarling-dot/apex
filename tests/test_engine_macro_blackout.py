@@ -1,4 +1,4 @@
-"""Rows 7 / 10 in engine_fast (2026-10-17): Lock 1 B2's macro blackout, as engine.py and live."""
+"""Rows 7 / 10 in engine_fast (2026-10-17): L1 ELIGIBILITY B2's macro blackout, as engine.py and live."""
 from datetime import date
 
 from backend.backtest import engine, engine_fast

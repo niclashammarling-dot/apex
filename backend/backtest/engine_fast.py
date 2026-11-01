@@ -133,7 +133,7 @@ def run(
     regime_layer:       bool        = False,
     row2_neutral:       bool        = False,   # 3B: L2 scored with neutral weights; allocation, caps, multiplier unchanged
     random_entries:     dict  | None = None,
-    candidate_ledger:   list  | None = None,   # candidate ledger (2026-10-24): one row per Lock 1 candidate, before penalties; the caller's list is filled
+    candidate_ledger:   list  | None = None,   # candidate ledger (2026-10-24): one row per L3 SCORE candidate, before penalties; the caller's list is filled
     # Reverts of the fixes since the 10-17 archive, for the battery's flip attribution (7C,
     # 2026-10-19); the defaults are the fixed engine, False the code before the fix.
     vix_block_inclusive: bool       = True,    # False: `vix > threshold`, before 7cfbb8b
@@ -218,7 +218,7 @@ def run(
         )
         logger.info("Backtest (fast): cache built — starting simulation loop")
 
-    # Row 11 (2026-10-18): the sector ETF return live's Lock 4 reads, per ETF and day.
+    # Row 11 (2026-10-18): the sector ETF return live's L5 POSITIONING reads, per ETF and day.
     etf_ret_live: dict[tuple[str, str], float | None] = {}
     if l2_risk_etf_penalty or candidate_ledger is not None:
         for _etf in set(sector_etf.values()):
@@ -336,8 +336,8 @@ def run(
         )
         if rnd is not None:
             rnd.shuffle(candidates)
-        # Candidate ledger (2026-10-24, INDEX ledger line): every candidate that passed Lock 1's
-        # threshold and allocation, before the macro, VIX, ETF and earnings rules act on it.
+        # Candidate ledger (2026-10-24, INDEX ledger line): every candidate that passed L3 SCORE's
+        # threshold and L1 ELIGIBILITY's allocation, before the macro, VIX, ETF and earnings rules act on it.
         if candidate_ledger is not None and rnd is None:
             _md = macro_status(today, cpi_nfp_pre_days=l1_eligibility_macro_event_days)[0]
             _vx = vix_cache.get(today_str)
@@ -355,7 +355,7 @@ def run(
                     "held": sig["ticker"] in _held,
                     "cooloff": sl_cooldown.get(sig["ticker"], date.min) > today,
                 })
-        # Rows 7 / 10 (2026-10-17): Lock 1 B2's macro blackout, as engine.py and live —
+        # Rows 7 / 10 (2026-10-17): L1 ELIGIBILITY B2's macro blackout, as engine.py and live —
         # FOMC −2 days through the decision day and CPI/NFP release days block entries;
         # the eve of CPI/NFP takes the pre-event penalty and must clear the threshold again.
         macro_day = macro_status(today, cpi_nfp_pre_days=l1_eligibility_macro_event_days)[0] if macro_blackout else None
@@ -434,7 +434,7 @@ def run(
             if use_leading_rs and not rs_cache.get((sig["ticker"], today_str), True):
                 continue
 
-            # Row 11: live's ETF negative penalty, after Lock 4 (chain.py:156-187); gates only.
+            # Row 11: live's ETF negative penalty, after L5 POSITIONING (chain.py:156-187); gates only.
             if _etf_blocked(sig, today_str):
                 _er = etf_ret_live[(sector_etf[sig["sector"]], today_str)]
                 etf_penalty_blocked.append({

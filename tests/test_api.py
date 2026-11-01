@@ -103,8 +103,8 @@ except ValidationError as e:
     check("valid override request accepted", False, str(e))
 
 
-# ── TEST 4: Lock 2 circuit breaker ────────────────────────────────────────────
-print("\nTEST 4: Lock 2 circuit breaker")
+# ── TEST 4: L4 SENTIMENT circuit breaker ──────────────────────────────────────
+print("\nTEST 4: L4 SENTIMENT circuit breaker")
 
 import backend.gate.l4_sentiment as l2_mod
 
@@ -130,8 +130,8 @@ l2_mod._cb_failures   = 0
 l2_mod._cb_open_until = 0.0
 
 
-# ── TEST 5: Lock 2 cache cleanup ──────────────────────────────────────────────
-print("\nTEST 5: Lock 2 cache cleanup")
+# ── TEST 5: L4 SENTIMENT cache cleanup ────────────────────────────────────────
+print("\nTEST 5: L4 SENTIMENT cache cleanup")
 
 l2_mod._cache.clear()
 

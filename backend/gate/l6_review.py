@@ -1,5 +1,5 @@
 """
-gate/l6_review.py — Lock 5: Claude Synthesis (L6 REVIEW in the chain, backend/gate/lock_codes.py)
+gate/l6_review.py — L6 REVIEW: Claude's synthesis (backend/gate/lock_codes.py)
 
 The final and most contextual gate in the apex lock chain. Module numbers and chain locks differ
 until the module rename (lock labels phase 3); by the time a ticker reaches here it has passed:
@@ -39,7 +39,7 @@ from loguru import logger
 from backend.config import ANTHROPIC_API_KEY, DEMO_L6_REVIEW_CLAUDE_MIN
 from backend.gate.types import L5_UNAVAILABLE_PREFIX, LockResult
 
-LOCK_ID = 5
+LOCK_ID = 6
 
 _SONNET_MODEL = "claude-sonnet-4-6"
 
@@ -96,27 +96,27 @@ def evaluate(
     Args:
         ticker:         Stock ticker symbol
         sector:         Apex sector name
-        lock_results:   Results from all prior locks (1-4), keyed by lock_id
+        lock_results:   Results from the prior chain locks (1, 3, 4, 5), keyed by lock_id
         context:        Rich context dict from the runner (regime, portfolio,
                         rotation, risk limits, gate history)
         confidence_min: Override minimum confidence (defaults to DEMO_L6_REVIEW_CLAUDE_MIN)
 
     Returns:
-        LockResult with lock_id=5. data contains decision, confidence,
+        LockResult with lock_id=6. data contains decision, confidence,
         position_size_pct, reasoning, and model used.
     """
     effective_min = confidence_min if confidence_min is not None else DEMO_L6_REVIEW_CLAUDE_MIN
     payload       = _build_context_payload(ticker, sector, lock_results, context)
 
     if not ANTHROPIC_API_KEY:
-        logger.error(f"Lock 5 [{ticker}]: ANTHROPIC_API_KEY not set — failing closed")
+        logger.error(f"L6 REVIEW [{ticker}]: ANTHROPIC_API_KEY not set — failing closed")
         return _fail_closed("no_api_key")
 
     try:
         raw, _usage = _call_anthropic(payload, _SONNET_MODEL)
         return _parse_to_result(raw, effective_min, ticker, _SONNET_MODEL)
     except Exception as e:
-        logger.error(f"Lock 5 [{ticker}]: Sonnet failed ({e}) — failing closed")
+        logger.error(f"L6 REVIEW [{ticker}]: Sonnet failed ({e}) — failing closed")
         return _fail_closed(_classify_api_error(e))
 
 
@@ -159,11 +159,11 @@ def _fail_closed(cause: str) -> LockResult:
 
 # ── Context payload ───────────────────────────────────────────────────────────
 
-# lock_results keys by module lock id: the chain's names, as the prompt uses them. Until 2026-10-26
+# lock_results keys by chain lock: the chain's names, as the prompt uses them. Until 2026-10-26
 # they were the module names (l1_eligibility … l5_positioning) while the prompt said Lock 1–4.
-_PAYLOAD_KEYS = {1: "l1_eligibility", 2: "l3_score", 3: "l4_sentiment", 4: "l5_positioning"}
+_PAYLOAD_KEYS = {1: "l1_eligibility", 3: "l3_score", 4: "l4_sentiment", 5: "l5_positioning"}
 # The chain's bookkeeping in a lock's data (lock labels phase 2, 2026-10-29): which rules ran and whether a data
-# error decided the lock. It names rows; it is not evidence about the candidate, and the Lock 5 prompt approved
+# error decided the lock. It names rows; it is not evidence about the candidate, and the L6 REVIEW prompt approved
 # 2026-10-26 was written without it, so Claude's input stays as it was.
 _BOOKKEEPING = ("rule_states", "unavailable", "options_errors")
 
@@ -200,7 +200,7 @@ def _build_context_payload(
 
 # Token usage logging removed 2026-10-10: l5_token_usage had no reader after CHECK 52
 # (credit runway) was retired on 2026-09-18 — $2.41 over 223 calls, history kept in the
-# table. Lock 5 credit exhaustion is caught as an event by CHECK 81 (persisted cause).
+# table. L6 REVIEW credit exhaustion is caught as an event by CHECK 81 (persisted cause).
 
 
 # ── Provider calls ────────────────────────────────────────────────────────────
@@ -227,7 +227,7 @@ def _parse_to_result(raw: str, effective_min: float, ticker: str, model: str) ->
     try:
         parsed, _ = json.JSONDecoder().raw_decode(raw)
     except json.JSONDecodeError:
-        logger.warning(f"Lock 5 [{ticker}] ({model}): JSON parse failed — treating as HOLD\nRaw: {raw[:200]}")
+        logger.warning(f"L6 REVIEW [{ticker}] ({model}): JSON parse failed — treating as HOLD\nRaw: {raw[:200]}")
         raise
 
     decision      = parsed.get("decision", "HOLD").upper()
@@ -243,7 +243,7 @@ def _parse_to_result(raw: str, effective_min: float, ticker: str, model: str) ->
     )
 
     logger.info(
-        f"Lock 5 [{ticker}] ({model}): {decision} "
+        f"L6 REVIEW [{ticker}] ({model}): {decision} "
         f"confidence={confidence:.2f} passed={passed} — {reasoning}"
     )
 

@@ -371,7 +371,7 @@ def _top_sector(since: str, until: str) -> tuple[str, float] | None:
 
 def _threshold_status(since: str, until: str) -> dict:
     """
-    Per-sector Lock 2 (Quant) threshold status — measured facts only.
+    Per-sector L3 SCORE threshold status — measured facts only.
 
     For each calibrated sector, computes this week's pass rate (% of
     ticker_history scores >= calibrated threshold). The calibrator sets p80
@@ -438,7 +438,7 @@ def _threshold_status(since: str, until: str) -> dict:
             "sector":      sector,
             "threshold":   thresh,
             "floor":       floor,
-            # What Lock 2 applies: l3_score._sector_threshold
+            # What L3 SCORE applies: l3_score._sector_threshold
             "effective":   max(thresh, floor) if thresh is not None and floor is not None else thresh,
             "pass_rate":   pass_rate,
             "n":           n,
@@ -1035,7 +1035,7 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None,
 
     def _week_text(s: dict) -> str:
         if s["excluded"]:
-            return "excluded at Lock 1 Eligibility"
+            return "excluded at L1 ELIGIBILITY"
         if s["fallback"]:
             return f"uncalibrated — flat {flat}"
         if s["pass_rate"] is None:
@@ -1053,7 +1053,7 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None,
     thresh_html = f"""
     <p style='color:#e5e7eb;font-size:13px;margin:0 0 4px 0;'>{calibration_line}</p>
     <p style='color:#6b7280;font-size:12px;margin:0 0 6px 0;'>
-      Threshold = p80 of the sector's full score history, raised to a floor where one is set (what Lock 2 applies).
+      Threshold = p80 of the sector's full score history, raised to a floor where one is set (what L3 SCORE applies).
       Pass rate = this week's scores at or above the calibrated threshold; the all-time rate is 20% by construction.
       A week is a small share of the history, so a week outside 8–35% is a description, not a cause.
     </p>
@@ -1175,7 +1175,7 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None,
     <div style='{section_style}'>Top Sector This Week</div>
     {sector_html}
 
-    <div style='{section_style}'>Lock 2 Quant Thresholds</div>
+    <div style='{section_style}'>L3 SCORE Thresholds</div>
     {thresh_html}
 
     <div style='{section_style}'>Monday Backtest Sweep — Best Configs</div>
@@ -1221,7 +1221,7 @@ CLOSED TRADES BY SECTOR (n per sector; a description, not evidence of an edge)
 TOP SECTOR
   {f"{top_sector[0]} ({top_sector[1]:.3f})" if top_sector else "—"}
 
-LOCK 2 QUANT THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
+L3 SCORE THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
   {calibration_line}
 """
     for s in sectors_info:

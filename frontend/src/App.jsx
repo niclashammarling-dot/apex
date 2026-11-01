@@ -400,7 +400,7 @@ function adaptGateRows(rows) {
     score:               r.signal_score ?? 0,
     outcome:             r.gate_decision ?? "",
     overflow_slot:       !!r.overflow_slot,
-    l1_threshold:        r.l1_threshold ?? null,
+    l3_score_threshold_min: r.l3_score_threshold_min ?? null,
     macro_reason:        r.macro_reason ?? null,
     l2_summary:          r.l2_summary ?? null,
     lock_leading_checks: r.lock_leading_checks ?? null,

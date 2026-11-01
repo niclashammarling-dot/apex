@@ -27,14 +27,17 @@ def test_writers_store_a_lock_code_executed_or_unknown_and_never_a_legacy_code()
     assert every.isdisjoint(lock_codes.LEGACY_CODES) and len(lock_codes.LEGACY_CODES) == 13
 
 
-def test_module_numbers_map_to_the_chain_lock_they_run():
-    # Module lock_id N runs chain lock MODULE_TO_CHAIN[N]; since phase 3 the module file carries the chain lock's
-    # name (l<n>_<lock>.py), not N.
-    assert lock_codes.MODULE_TO_CHAIN == {1: 1, 2: 3, 3: 4, 4: 5, 5: 6}
-    for n, chain in lock_codes.MODULE_TO_CHAIN.items():
-        name = lock_codes.LOCKS[chain][0].lower()
-        assert f"l{chain}_{name}.py" in lock_codes.LOCKS[chain][2]
-        assert (Path(__file__).parent.parent / f"backend/gate/l{chain}_{name}.py").exists()
+def test_every_judging_module_returns_its_own_chain_lock():
+    # Since phase 3 a module is l<n>_<lock>.py and its LockResult carries n as lock_id: the module numbers and
+    # MODULE_TO_CHAIN retired, so lock_results is keyed by the chain lock everywhere.
+    from backend.gate import l1_eligibility, l3_score, l4_sentiment, l5_positioning, l6_review
+    assert not hasattr(lock_codes, "MODULE_TO_CHAIN")
+    for mod in (l1_eligibility, l3_score, l4_sentiment, l5_positioning, l6_review):
+        file = mod.__name__.rsplit(".", 1)[1]
+        n, name = int(file[1]), file[3:]
+        assert mod.LOCK_ID == n and lock_codes.LOCKS[n][0].lower() == name
+        assert f"{file}.py" in lock_codes.LOCKS[n][2]
+        assert (Path(__file__).parent.parent / f"backend/gate/{file}.py").exists()
 
 
 def test_cooloff_set_is_every_sentiment_and_review_decision_and_the_guard():
@@ -118,6 +121,21 @@ def test_both_gate_history_responses_serve_the_table(monkeypatch):
     assert gate_history()["locks"] == lock_codes.as_api()
     assert live_gate_history()["locks"] == lock_codes.as_api()
 
+
+
+def test_both_gate_history_rows_carry_the_score_threshold_under_its_key(monkeypatch):
+    # Phase 3: the Terminal's per-row threshold was the API field l1_threshold; it is L3's, under its derived key.
+    import backend.db as db
+    import backend.routers.live_router as lr
+    from backend.routers.live_router import live_gate_history
+    from backend.routers.signals_router import gate_history
+    monkeypatch.setattr(lr, "LIVE_ENABLED", False)
+    row = {"ticker": "LCX", "sector": "Energy", "gate_decision": "FILTERED_L3_SCORE_THRESHOLD"}
+    monkeypatch.setattr(db, "get_ticker_thresholds", lambda: {"Energy": 0.61})
+    for name in ("get_live_gate_history", "get_demo_gate_history"):
+        monkeypatch.setattr(db, name, lambda since=None, **kw: [dict(row)])
+    for rows in (gate_history()["rows"], live_gate_history()["rows"]):
+        assert rows[0]["l3_score_threshold_min"] == 0.61 and "l1_threshold" not in rows[0]
 
 LIVE_PASSED = {K(o, r): PASS for o, r in (
     (0, "halt_m4_drawdown"), (0, "loss_cap"), (0, "halt_m4_expectancy"), (1, "blocklist"), (1, "position_open"),

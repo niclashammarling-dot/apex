@@ -562,7 +562,7 @@ def preview_eod_regime():
 
 
 def recalibrate_thresholds() -> None:
-    """Re-derive per-sector Lock 1 thresholds from ticker_history. Runs weekly."""
+    """Re-derive per-sector L3 SCORE thresholds from ticker_history. Runs weekly."""
     try:
         from backend.ticker_threshold_calibration import calibrate
         calibrate()

@@ -14,7 +14,7 @@ An in-process alert dies with the process, and CHECK 82 reads the day only at
 
 Signal: job_runs.started_at for run_gate (demo) and run_live_gate (live),
 stamped by backend/scheduler.py at every scheduled run whatever its outcome.
-Gate history is not used: a cycle with no Lock 1 candidates, or a live halt
+Gate history is not used: a cycle with no L3 SCORE candidates, or a live halt
 (unreconciled, data quality, loss cap, Alpaca unreachable), writes no row.
 
 Evaluates only inside [open + STALE_MIN, close] on an NYSE session (early

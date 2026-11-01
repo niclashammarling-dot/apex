@@ -576,9 +576,9 @@ function GateFeed({ D, mode }) {
                 const hasDetail = !isSkipped && !!(r.lock3_reasoning || r.lock_leading_checks || r.l2_summary || r.macro_reason);
                 const isExpanded = expanded[i];
                 const time = r._count > 1 ? `${fmtTs(r.ts)}–${fmtTs(r._lastTs)}` : fmtTs(r.ts);
-                const scoreColor = r.l1_threshold == null ? "inherit"
-                  : r.score >= r.l1_threshold + 0.05 ? "var(--t-accent)"
-                  : r.score >= r.l1_threshold          ? "var(--t-amber)"
+                const scoreColor = r.l3_score_threshold_min == null ? "inherit"
+                  : r.score >= r.l3_score_threshold_min + 0.05 ? "var(--t-accent)"
+                  : r.score >= r.l3_score_threshold_min          ? "var(--t-amber)"
                   : "var(--t-red)";
                 return [
                   <tr
@@ -594,8 +594,8 @@ function GateFeed({ D, mode }) {
                     </td>
                     <td style={{ fontFamily: "var(--mono)" }}>
                       <span style={{ color: scoreColor, fontWeight: 600 }}>{r.score.toFixed(3)}</span>
-                      {r.l1_threshold != null && (
-                        <div style={{ fontSize: 9, color: "var(--t-text-3)" }}>/{r.l1_threshold.toFixed(3)}</div>
+                      {r.l3_score_threshold_min != null && (
+                        <div style={{ fontSize: 9, color: "var(--t-text-3)" }}>/{r.l3_score_threshold_min.toFixed(3)}</div>
                       )}
                     </td>
                     {locks.map((s, li) => (

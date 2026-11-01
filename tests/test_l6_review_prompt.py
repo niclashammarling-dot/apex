@@ -1,4 +1,4 @@
-"""Lock 5's system prompt describes the pipeline as the code runs it (2026-10-17).
+"""L6 REVIEW's system prompt describes the pipeline as the code runs it (2026-10-17).
 Until then it said "allocation weighting is handled downstream": the allocation acts
 upstream (Lock 1 admits only sectors with allocation > 0, l1_eligibility.py) and
 downstream only as a sector-cap weight; the post-L5 multiplier is score-relative
@@ -72,7 +72,7 @@ def test_both_runners_hand_the_enforced_caps_to_the_context():
 def test_lock_results_keys_are_the_chain_names():
     from backend.gate.l6_review import _build_context_payload
     from backend.gate.types import LockResult
-    results = {i: LockResult.pass_(lock_id=i, score=1.0, reason="ok") for i in (1, 2, 3, 4)}
+    results = {i: LockResult.pass_(lock_id=i, score=1.0, reason="ok") for i in (1, 3, 4, 5)}
     keys = set(_build_context_payload("AAPL", "Technology", results, {})["lock_results"])
     assert keys == {"l1_eligibility", "l3_score", "l4_sentiment", "l5_positioning"}
     for k in keys:

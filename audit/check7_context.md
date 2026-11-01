@@ -41,14 +41,14 @@ tested separately.
 
 Demo uses `_build_claude_context`, live uses `_build_context`. Same function, different
 name — a cosmetic inconsistency, not a logic divergence. Do NOT flag name differences
-unless the *fields passed to Lock 3* differ between the two functions.
+unless the *fields passed to L6 REVIEW* differ between the two functions.
 
 ---
 
 ## What you SHOULD flag
 
-- Lock logic (L1/L2/L3/leading lock) present in one `_evaluate` but absent or different in the other
-- A context field passed to Lock 3 in demo that is missing from the live context builder
+- Lock logic (L1 ELIGIBILITY to L5 POSITIONING) present in one `_evaluate` but absent or different in the other
+- A context field passed to L6 REVIEW in demo that is missing from the live context builder
 - A filtering step (skip guard, sector block, cooldown check) applied in one runner but not the other
 - `_gate_result` or `_log_summary` logic that diverges in a way that affects stored outcomes
 - Any new function in demo that encodes trading logic and has no live counterpart (the reverse

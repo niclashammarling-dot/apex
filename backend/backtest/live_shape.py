@@ -182,7 +182,7 @@ def reentry_cooloff_days_before_row23(exit_reason: str, outcome: str, sl_days: i
 
 
 def etf_return_as_live(closes, today) -> float | None:
-    """The sector ETF return live's Lock 4 reads (2026-10-18, PRODUCTION_GAP row 11):
+    """The sector ETF return live's L5 POSITIONING reads (2026-10-18, PRODUCTION_GAP row 11):
     `l5_positioning` downloads `period="8d"` (8 daily rows, measured 10-18) and takes
     last / first - 1, so its "5d" return spans 7 trading-day intervals; fewer than 5
     rows is an error there (no penalty). `closes` is the ETF's Close series; the
@@ -199,10 +199,10 @@ def etf_return_as_live(closes, today) -> float | None:
 def etf_penalty_fails(score: float, etf_ret: float | None, penalty: float | None,
                       floor_pct: float, threshold: float) -> bool:
     """Live's ETF negative penalty (`chain.py:156-187`): when the sector ETF return,
-    in percent rounded to 2 decimals as Lock 4 reports it, is below `floor_pct`
+    in percent rounded to 2 decimals as L5 POSITIONING reports it, is below `floor_pct`
     (live -1.0), the score times (1 - penalty) must still clear the sector threshold
-    or the ticker is filtered. It gates only: live's final_score is Lock 4's or
-    Lock 5's, so the penalised score is not carried on. None or 0 is off (live:
+    or the ticker is filtered. It gates only: live's final_score is L5 POSITIONING's or
+    L6 REVIEW's, so the penalised score is not carried on. None or 0 is off (live:
     `if l2_risk_etf_penalty > 0`)."""
     if not penalty or etf_ret is None or round(etf_ret * 100, 2) >= floor_pct:
         return False

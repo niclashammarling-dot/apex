@@ -1,4 +1,4 @@
-"""backend/macro_calendar.py — one official calendar for Lock 1 and both engines (2026-10-17)."""
+"""backend/macro_calendar.py — one official calendar for L1 ELIGIBILITY and both engines (2026-10-17)."""
 from collections import Counter
 from datetime import date
 

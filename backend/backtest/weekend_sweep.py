@@ -1,7 +1,7 @@
 """
 Weekend parameter sweep — runs Saturday night.
 
-Grids over Lock 1 threshold, TP%, SL%, and hold days across the last 90 trading
+Grids over L3 SCORE threshold, TP%, SL%, and hold days across the last 90 trading
 days. The first run downloads and caches data to disk; all subsequent combos
 load from cache, so the full grid completes in a few minutes.
 

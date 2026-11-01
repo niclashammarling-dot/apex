@@ -78,7 +78,7 @@ def check17():
     """
     sentiment_cache must have been populated today (Mon–Fri).
     A stale or missing cache means the 9:35 AM pre-fetch failed or was skipped,
-    and Lock 2 is running without Reddit/RSS content for watchlist tickers.
+    and L4 SENTIMENT is running without Reddit/RSS content for watchlist tickers.
     Only fires on weekdays — cache is intentionally not refreshed on weekends.
     """
     today = date.today()

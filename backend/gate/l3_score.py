@@ -1,5 +1,5 @@
 """
-gate/l3_score.py — Lock 2: Quantitative Signal
+gate/l3_score.py — L3 SCORE: the quantitative signal
 
 Checks whether the pre-computed signal_score from signals/aggregator.py
 meets the sector-specific threshold for this ticker.
@@ -22,7 +22,7 @@ from loguru import logger
 from backend.config import DEMO_L3_SCORE_THRESHOLD_MIN, SECTOR_THRESHOLD_FLOORS
 from backend.gate.types import LockResult
 
-LOCK_ID            = 2
+LOCK_ID            = 3
 WATCHLIST_DISCOUNT = 0.15   # 15% lower threshold for watchlist tickers
 
 
@@ -43,7 +43,7 @@ def evaluate(
         on_watchlist: If True, applies 15% discount to threshold
 
     Returns:
-        LockResult with lock_id=2
+        LockResult with lock_id=3
     """
     threshold = _sector_threshold(sector, sector_thresholds)
 
@@ -69,7 +69,7 @@ def evaluate(
             f"{effective_threshold:.4f}"
             + (" (watchlist discount applied)" if on_watchlist else "")
         )
-        logger.debug(f"Lock 2 [{ticker}] FAIL — {reason}")
+        logger.debug(f"L3 SCORE [{ticker}] FAIL — {reason}")
         return LockResult.fail(lock_id=LOCK_ID, reason=reason, data=data)
 
     reason = (
@@ -77,7 +77,7 @@ def evaluate(
         f"{effective_threshold:.4f}"
         + (" (watchlist discount applied)" if on_watchlist else "")
     )
-    logger.debug(f"Lock 2 [{ticker}] PASS — {reason}")
+    logger.debug(f"L3 SCORE [{ticker}] PASS — {reason}")
     return LockResult.pass_(
         lock_id=LOCK_ID,
         score=signal_score,
@@ -90,7 +90,7 @@ def evaluate(
 
 def _sector_threshold(sector: str, sector_thresholds: dict | None = None) -> float:
     """
-    Return the sector-specific Lock 2 threshold. Uses the calibrated
+    Return the sector-specific L3 SCORE threshold. Uses the calibrated
     ticker_thresholds table as the base, then applies SECTOR_THRESHOLD_FLOORS
     as a floor so sweep-validated minimums survive recalibration runs.
     Falls back to DEMO_L3_SCORE_THRESHOLD_MIN if the sector has no calibrated entry.
@@ -106,14 +106,14 @@ def _sector_threshold(sector: str, sector_thresholds: dict | None = None) -> flo
             thresholds = get_ticker_thresholds()
             if not thresholds:
                 logger.warning(
-                    f"Lock 2 [{sector}]: get_ticker_thresholds() returned empty — "
+                    f"L3 SCORE [{sector}]: get_ticker_thresholds() returned empty — "
                     f"falling back to DEMO_L3_SCORE_THRESHOLD_MIN {DEMO_L3_SCORE_THRESHOLD_MIN}. "
                     "Calibration race or DB read failure."
                 )
             base = float(thresholds.get(sector, DEMO_L3_SCORE_THRESHOLD_MIN))
         except Exception as exc:
             logger.warning(
-                f"Lock 2 [{sector}]: get_ticker_thresholds() raised {exc!r} — "
+                f"L3 SCORE [{sector}]: get_ticker_thresholds() raised {exc!r} — "
                 f"falling back to DEMO_L3_SCORE_THRESHOLD_MIN {DEMO_L3_SCORE_THRESHOLD_MIN}."
             )
             base = float(DEMO_L3_SCORE_THRESHOLD_MIN)

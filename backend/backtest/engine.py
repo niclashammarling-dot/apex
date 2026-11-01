@@ -1,13 +1,13 @@
 """
-Backtesting engine — replays Lock 1 (quantitative signals) across a historical
+Backtesting engine — replays L3 SCORE (quantitative signals) across a historical
 date range using the same signal pipeline as the live system.
 
-Lock 2 and Lock 3 are not replayable (live LLM calls), so the backtest uses
-Lock 1 as the sole entry filter. This lets you validate whether the quant
+L4 SENTIMENT and L6 REVIEW are not replayable (live LLM calls), so the backtest uses
+L3 SCORE as the sole entry filter. This lets you validate whether the quant
 signal engine has genuine predictive value before attributing edge to the LLMs.
 
 Two additional lock proxies CAN be backtested from historical data:
-  - l1_eligibility_vix_max: skip new entries when VIX >= N (Lock 1 B1, as live)
+  - l1_eligibility_vix_max: skip new entries when VIX >= N (L1 ELIGIBILITY B1, as live)
   - use_leading_rs: only enter if ticker outperforms its sector ETF over 5d (Leading lock RS proxy)
 
 Usage:
@@ -22,13 +22,13 @@ from typing import TypedDict
 
 # ── Macro event calendar (mirrors l1_eligibility) ──────────────────────────
 # Macro calendar and rule: backend/macro_calendar.py, shared with engine_fast and
-# Lock 1 (2026-10-17). This file kept its own 2021-2026 copy until then: CPI wrong
+# L1 ELIGIBILITY (2026-10-17). This file kept its own 2021-2026 copy until then: CPI wrong
 # on 10 dates, NFP (first-Friday rule) on 15, nothing before 2021.
 from backend.macro_calendar import macro_status as _shared_macro_status
 
 
 def _macro_status(today: date, cpi_nfp_pre_days: int) -> str:
-    """"hard_block" / "pre_event" / "clear" for today (Lock 1 B2; the CPI/NFP window from the caller)."""
+    """"hard_block" / "pre_event" / "clear" for today (L1 ELIGIBILITY B2; the CPI/NFP window from the caller)."""
     return _shared_macro_status(today, cpi_nfp_pre_days=cpi_nfp_pre_days)[0]
 
 import pandas as pd
@@ -346,8 +346,8 @@ def run(
             if use_leading_rs and not _leading_rs_pass(raw_data, sig["ticker"], sector_etf.get(sig["sector"], ""), today):
                 continue
 
-            # Row 11: live's ETF negative penalty, after Lock 4 (chain.py:156-187), on the
-            # return live's Lock 4 reads (7 intervals; 5 until 2026-10-18). Gates only, as
+            # Row 11: live's ETF negative penalty, after L5 POSITIONING (chain.py:156-187), on the
+            # return live's L5 POSITIONING reads (7 intervals; 5 until 2026-10-18). Gates only, as
             # live: the penalised score is not carried on (it replaced sig's until 10-18).
             if l2_risk_etf_penalty:
                 _etf    = sector_etf.get(sig["sector"], "")

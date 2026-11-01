@@ -1,5 +1,5 @@
 """
-Tests for Lock 1 macro event blackout — asymmetric behaviour.
+Tests for L1 ELIGIBILITY macro event blackout — asymmetric behaviour.
 
 Key invariants (post penalty refactor):
   - FOMC: hard_block for 0–2 days before the event

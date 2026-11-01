@@ -122,7 +122,7 @@ Every code the writers store must be recognized by all consumers. Since lock lab
 - Flag any mismatch as CRITICAL — an unrecognized decision string falls through to the all-green default, showing passing lock icons for a failed ticker.
 - Also extract ticker `signal = "..."` values from `sector_regime.py` (excluding `vel_signal` lines) and verify each appears in all frontend signal maps (`SectorGrid.jsx`, `SectorRegime.jsx`, `Watchlist.jsx`, `RotationForecast.jsx`). Flag any missing entry as WARNING — renders as fallback label/color.
 
-### CHECK 26 — L1/L2 threshold-source parity
+### CHECK 26 — Pre-filter / L3 SCORE threshold-source parity
 Both L1 candidate selection and L2 quant gate must read sector thresholds from `ticker_thresholds` table, not static config.
 - Verify `gate_runner.py` and `gate_runner_live.py` both call `get_ticker_thresholds()` and pass the result as `sector_thresholds` to `get_l3_score_candidates()`.
 - Verify `l3_score._sector_threshold()` calls `get_ticker_thresholds()`.
@@ -214,7 +214,7 @@ Motivated by: 2026-06-03 regression where commit `5f5925d` added `since=market_o
 to both funnel calls when only the gate activity rows call was intended to change.
 The regression caused the funnel to show reset-like zeros, masking true gate health.
 
-### CHECK 51 — Lock 5 Bayesian field exclusion parity
+### CHECK 51 — L6 REVIEW Bayesian field exclusion parity
 
 Run as part of `python3 audit/mechanical_checks.py` (no separate invocation needed).
 

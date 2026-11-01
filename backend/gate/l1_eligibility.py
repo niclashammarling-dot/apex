@@ -1,5 +1,5 @@
 """
-gate/l1_eligibility.py — Lock 1: Eligibility
+gate/l1_eligibility.py — L1 ELIGIBILITY
 
 The first and coarsest gate in the apex lock chain. Combines two checks:
 
@@ -36,7 +36,7 @@ from backend.config import EXCLUDED_SECTORS
 from backend.gate import l2_risk
 from backend.gate.lock_codes import FAIL, NO_DATA, PASS
 from backend.gate.types import LockResult
-# One calendar for Lock 1 and both backtest engines (2026-10-17, Niclas: "live måste ha
+# One calendar for L1 ELIGIBILITY and both backtest engines (2026-10-17, Niclas: "live måste ha
 # en enda kalender att gå efter"): backend/macro_calendar.py, official FOMC / BLS dates.
 # _CPI/_FOMC/_NFP_DATES are re-exported: tests/test_l1_eligibility_macro_blackout.py imports them from here.
 from backend.macro_calendar import (CPI_DATES as _CPI_DATES, FOMC_DATES as _FOMC_DATES,  # noqa: F401
@@ -224,7 +224,7 @@ def _evaluate(ticker: str, sector: str, cfg: dict, states: dict[str, str]) -> Lo
 
     # ── Pass ──────────────────────────────────────────────────────────────────
     logger.debug(
-        f"Lock 1 [{ticker}] PASS — sector={sector} "
+        f"L1 ELIGIBILITY [{ticker}] PASS — sector={sector} "
         f"adj={adjusted_score:.3f} alloc={allocation:.1%} rank={rank}"
         + (f" VIX={vix:.1f}" if vix else "")
     )
@@ -265,7 +265,7 @@ def _get_regime_result():
             return None
         return rb.last_result()
     except Exception as e:
-        logger.warning(f"Lock 1: could not access regime singleton: {e}")
+        logger.warning(f"L1 ELIGIBILITY: could not access regime singleton: {e}")
         return None
 
 
@@ -298,17 +298,17 @@ def _get_vix() -> float | None:
         value = float(data["Close"].values.flatten()[-1]) if not data.empty else None
         if value is not None and value > _VIX_SANITY_CEILING:
             logger.warning(
-                f"Lock 1: VIX reading {value:.1f} exceeds sanity ceiling "
+                f"L1 ELIGIBILITY: VIX reading {value:.1f} exceeds sanity ceiling "
                 f"{_VIX_SANITY_CEILING} — discarding as data error, treating as unavailable"
             )
             value = None
         with _vix_lock:
             _vix_cache["value"]      = value
             _vix_cache["expires_at"] = time.time() + _VIX_TTL
-        logger.debug(f"Lock 1: VIX={value:.2f}" if value else "Lock 1: VIX fetch empty")
+        logger.debug(f"L1 ELIGIBILITY: VIX={value:.2f}" if value else "L1 ELIGIBILITY: VIX fetch empty")
         return value
     except Exception as e:
-        logger.warning(f"Lock 1: VIX fetch failed — {e}")
+        logger.warning(f"L1 ELIGIBILITY: VIX fetch failed — {e}")
         return None
 
 
@@ -331,13 +331,13 @@ def _check_calendar_expiry() -> None:
     today       = date.today()
     future      = [d for d in _MACRO_DATES if d >= today]
     if not future:
-        logger.error("Lock 1: macro event calendar is exhausted — update backend/macro_calendar.py")
+        logger.error("L1 ELIGIBILITY: macro event calendar is exhausted — update backend/macro_calendar.py")
         return
     last_date   = max(future)
     days_left   = (last_date - today).days
     if days_left < 60:
         logger.warning(
-            f"Lock 1: macro calendar expires in {days_left}d (last entry {last_date.isoformat()}) "
+            f"L1 ELIGIBILITY: macro calendar expires in {days_left}d (last entry {last_date.isoformat()}) "
             "— add next year's official dates to backend/macro_calendar.py before it runs dry"
         )
 

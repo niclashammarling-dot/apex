@@ -3,7 +3,7 @@ Gate-domain mechanical checks — CHECKs 24, 25, 26, 28, 29, 38, 49, 51, 52,
 53, 54, 64, 66, 80.
 
 Covers: chain-runner wiring integrity, gate_decision string parity,
-L1/L2 threshold-source parity, EXCLUDED_SECTORS wiring, live sector
+Pre-filter / L3 SCORE threshold-source parity, EXCLUDED_SECTORS wiring, live sector
 exposure cap wiring, live entry absence-of-activity, and live
 position/DB reconciliation integrity.
 """
@@ -11,6 +11,7 @@ import re
 import sqlite3
 from datetime import date
 from itertools import pairwise
+from pathlib import Path
 
 from audit._audit_core import REPO, flag, require_data_file
 from backend.gate.lock_codes import upgrade_keys
@@ -57,8 +58,8 @@ def check24():
              "backend/gate/gate_runner_live.py",
              "evaluate_chain not imported/called — live runner is not wired to chain.py")
 
-    for lock_fn in ["lock1_evaluate", "lock2_evaluate", "lock3_evaluate",
-                    "lock4_evaluate", "lock5_evaluate"]:
+    for lock_fn in ["l1_eligibility_evaluate", "l3_score_evaluate", "l4_sentiment_evaluate",
+                    "l5_positioning_evaluate", "l6_review_evaluate"]:
         if lock_fn not in chain_text:
             flag(24, "Chain-runner wiring", "CRITICAL",
                  "backend/gate/chain.py",
@@ -171,16 +172,16 @@ def check25():
                      f'{comp_path.name} signal map — renders as fallback/blank')
 
 
-# ── CHECK 26 — L1/L2 threshold-source parity ─────────────────────────────────
+# ── CHECK 26 — Pre-filter / L3 SCORE threshold-source parity ─────────────────
 
 def check26():
     """
-    Verify that both L1 (gate runners) and L2 (l3_score) read sector thresholds
+    Verify that both the candidate pre-filter (gate runners) and L3 SCORE (l3_score) read sector thresholds
     from the ticker_thresholds table via get_ticker_thresholds(), not from a static
     config value.
 
-    Prevented by: April 2026 incident where L2 used config.SECTORS['l3_score_threshold_min']
-    (static 0.70) while L1 already used calibrated per-sector values (0.54–0.62),
+    Prevented by: April 2026 incident where the quant lock (now L3 SCORE) used config.SECTORS['l3_score_threshold_min']
+    (static 0.70) while the pre-filter already used calibrated per-sector values (0.54–0.62),
     causing 100% FILTERED_L1 rate across all sectors for an entire week.
     """
     runner      = REPO / "backend/gate/gate_runner.py"
@@ -192,21 +193,21 @@ def check26():
             continue
         text = path.read_text()
         if "get_ticker_thresholds" not in text:
-            flag(26, "L1/L2 threshold-source parity", "CRITICAL",
+            flag(26, "Pre-filter / L3 SCORE threshold-source parity", "CRITICAL",
                  f"backend/gate/{label}",
-                 f"{label} does not call get_ticker_thresholds() — L1 candidates will be "
+                 f"{label} does not call get_ticker_thresholds() — L3 SCORE candidates will be "
                  f"filtered against the static config fallback, not calibrated per-sector values")
         if "sector_thresholds" not in text:
-            flag(26, "L1/L2 threshold-source parity", "CRITICAL",
+            flag(26, "Pre-filter / L3 SCORE threshold-source parity", "CRITICAL",
                  f"backend/gate/{label}",
                  f"{label} does not pass sector_thresholds to get_l3_score_candidates() — "
                  f"per-sector calibration is fetched but silently unused")
 
     if lock2.exists() and "get_ticker_thresholds" not in lock2.read_text():
-        flag(26, "L1/L2 threshold-source parity", "CRITICAL",
+        flag(26, "Pre-filter / L3 SCORE threshold-source parity", "CRITICAL",
              "backend/gate/l3_score.py:_sector_threshold",
-             "_sector_threshold() does not call get_ticker_thresholds() — L2 threshold "
-             "source has diverged from L1; likely reverted to static config value")
+             "_sector_threshold() does not call get_ticker_thresholds() — L3 SCORE threshold "
+             "source has diverged from the pre-filter; likely reverted to static config value")
 
 
 # ── CHECK 28 — EXCLUDED_SECTORS gate wiring ──────────────────────────────────
@@ -459,14 +460,26 @@ def check49():
     # check on every passing run since it was added 2026-06-03)
 
 
-# ── CHECK 51 — Lock 5 Bayesian field exclusion parity ────────────────────────
+def _gate_module_lock_ids() -> dict[str, int | None]:
+    """{file: LOCK_ID} of every backend/gate/l<n>_<lock>.py (None where the module returns no LockResult); read
+    beside lock_codes, so a test repo under REPO does not hide the real modules."""
+    from backend.gate import lock_codes
+    gate = Path(lock_codes.__file__).parent
+    out = {}
+    for f in sorted(gate.glob("l[0-9]_*.py")):
+        m = re.search(r"^LOCK_ID\s*=\s*(\d+)", f.read_text(), re.M)
+        out[f.name] = int(m.group(1)) if m else None
+    return out
+
+
+# ── CHECK 51 — L6 REVIEW Bayesian field exclusion parity ─────────────────────
 
 def check51():
     """
-    Lock 5 Bayesian field exclusion parity.
+    L6 REVIEW Bayesian field exclusion parity.
 
     `build_base_context` in chain.py injects `regime_bayes_*` fields into the
-    Lock 5 context dict. The SYSTEM_PROMPT in l6_review.py explicitly scopes
+    L6 REVIEW context dict. The SYSTEM_PROMPT in l6_review.py explicitly scopes
     these out of the model's sizing decision ("Do NOT factor regime_bayes_allocation,
     regime_bayes_posterior, or any Bayesian field into your size").
 
@@ -486,7 +499,7 @@ def check51():
     prompt_path = REPO / "backend/gate/l6_review.py"
 
     if not chain_path.exists() or not prompt_path.exists():
-        flag(51, "Lock 5 Bayesian field exclusion parity", "WARNING",
+        flag(51, "L6 REVIEW Bayesian field exclusion parity", "WARNING",
              "backend/gate/chain.py,backend/gate/l6_review.py",
              "source file(s) not found — cannot verify exclusion parity")
         return
@@ -496,7 +509,7 @@ def check51():
 
     fields = sorted(set(re.findall(r'ctx\["(regime_bayes_\w+)"\]', chain_src)))
     if not fields:
-        flag(51, "Lock 5 Bayesian field exclusion parity", "WARNING",
+        flag(51, "L6 REVIEW Bayesian field exclusion parity", "WARNING",
              "backend/gate/chain.py",
              "no regime_bayes_* fields found in build_base_context — "
              "check may be stale relative to context structure")
@@ -504,9 +517,9 @@ def check51():
 
     missing = [f for f in fields if f not in prompt_src]
     if missing:
-        flag(51, "Lock 5 Bayesian field exclusion parity", "WARNING",
+        flag(51, "L6 REVIEW Bayesian field exclusion parity", "WARNING",
              "backend/gate/l6_review.py:SYSTEM_PROMPT",
-             f"regime_bayes_* field(s) {missing} present in Lock 5 context "
+             f"regime_bayes_* field(s) {missing} present in L6 REVIEW context "
              f"(build_base_context) but not named in SYSTEM_PROMPT exclusion "
              f"text — silent permission risk; update the prompt's Do NOT list")
     # No flag = pass (convention: absence of a flag is the pass signal)
@@ -593,11 +606,18 @@ def check54() -> None:
         if r.owner not in lock_codes.LOCKS:
             flag(54, "gate funnel label/lock semantic parity", "WARNING", "backend/gate/lock_codes.py:RULES",
                  f"rule {r.name} is owned by lock {r.owner}, which the chain does not have")
-    for module in range(1, 6):
-        if lock_codes.MODULE_TO_CHAIN.get(module) not in lock_codes.LOCKS:
-            flag(54, "gate funnel label/lock semantic parity", "WARNING",
-                 "backend/gate/lock_codes.py:MODULE_TO_CHAIN",
-                 f"module lock {module} maps to no chain lock — its stops would have no owner")
+    modules = _gate_module_lock_ids()
+    if not modules:
+        flag(54, "gate funnel label/lock semantic parity", "WARNING", "backend/gate/",
+             "no l<n>_<lock>.py gate module found — the module check read nothing")
+    for name, lock_id in modules.items():
+        n, lock = int(name[1]), name[3:-3]
+        if n not in lock_codes.LOCKS or lock_codes.LOCKS[n][0].lower() != lock:
+            flag(54, "gate funnel label/lock semantic parity", "WARNING", f"backend/gate/{name}",
+                 f"module {name} names no lock of the chain — its stops would have no owner")
+        elif lock_id is not None and lock_id != n:
+            flag(54, "gate funnel label/lock semantic parity", "WARNING", f"backend/gate/{name}",
+                 f"module {name} returns lock_id {lock_id}, not its own lock {n}")
 
     lock_number = re.compile(r'>\s*(L[0-9]):\s*<|["\'`](Lock [0-9]|L[0-9] · )'
                              r'|(?<![\w$])(L[0-6])(?=[ \t·:]+[A-Za-z])|\b([0-9]-LOCK)\b', re.I)
@@ -840,7 +860,7 @@ def check66() -> None:
              f"{note}")
 
 
-# ── CHECK 80 — Lock 4 PCR channel under per-ticker P25 (demo-first) ──────────
+# ── CHECK 80 — L5 POSITIONING PCR channel under per-ticker P25 (demo-first) ───
 
 _C80_BUILD_TS   = "2026-09-17"   # first demo rows carrying threshold_mode
 _C80_BASE_SINCE = "2026-05-21"   # collector series start; the decision's measurement window
@@ -904,7 +924,7 @@ def _c80_wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
 
 def check80() -> None:
     """
-    CHECK 80 — Lock 4 PCR channel under per-ticker P25, read on demo.
+    CHECK 80 — L5 POSITIONING PCR channel under per-ticker P25, read on demo.
 
     The 2026-09-17 decision replaced the pooled scalar (pc < 0.85, a ticker
     fixed effect) with a partial-pooled per-ticker P25 (pcr_baseline.py) and
@@ -963,7 +983,7 @@ def check80() -> None:
     SKIPPED without apex.db.
     """
     import json
-    name = "Lock 4 PCR channel under per-ticker P25 (demo)"
+    name = "L5 POSITIONING PCR channel under per-ticker P25 (demo)"
     db   = REPO / "data/apex.db"
     if not require_data_file(80, name, db):
         return
@@ -1008,7 +1028,7 @@ def check80() -> None:
 
     if fallback:
         flag(80, name, "WARNING", "backend/gate/l5_positioning.py:_check_put_call_ratio",
-             f"{fallback} demo Lock 4 row(s) since {_C80_BUILD_TS} used pooled_scalar_fallback — "
+             f"{fallback} demo L5 POSITIONING row(s) since {_C80_BUILD_TS} used pooled_scalar_fallback — "
              f"the PCR baseline table was empty in the serving process; per_ticker_p25 was configured "
              f"and not delivered.")
 
@@ -1077,17 +1097,17 @@ def check80() -> None:
         flag(80, name, "INFO", "data/apex.db:demo_gate_history", summary)
 
 
-# ── CHECK 81 — Lock 5 fail-closed (API unavailable) is an event ──────────────
+# ── CHECK 81 — L6 REVIEW fail-closed (API unavailable) is an event ───────────
 _C81_EVENT_DAYS = 2    # CRITICAL window: the audit reads after the close, so "today or yesterday"
 _C81_TALLY_DAYS = 30   # standing INFO tally
 
 
 def _l5_recovered_after(db, unavailable_prefix: str, since: str) -> str | None:
     """
-    Timestamp of the first successful Lock 5 answer after the most recent
+    Timestamp of the first successful L6 REVIEW answer after the most recent
     fail-closed row in the event window, or None if there has not been one.
 
-    "Successful" = a row that reached Lock 5 (lock_leading_pass = 1) whose
+    "Successful" = a row that reached L6 REVIEW (lock_leading_pass = 1) whose
     lock3_reasoning is present and does not carry the unavailable prefix —
     i.e. Claude answered, whatever the verdict. Read across both tables,
     because the two runners share one API key and either one recovering
@@ -1120,13 +1140,13 @@ def _l5_recovered_after(db, unavailable_prefix: str, since: str) -> str | None:
 
 def check81() -> None:
     """
-    CHECK 81 — Lock 5 fail-closed (API unavailable) is an event, not a HOLD.
+    CHECK 81 — L6 REVIEW fail-closed (API unavailable) is an event, not a HOLD.
 
     l6_review._fail_closed returns HOLD with reason
     `anthropic_unavailable: <cause>` (cause ∈ credit_exhausted, auth,
     rate_limit, connection, no_api_key, <ExceptionClass>) and, since
     2026-09-18, that string is persisted into lock3_reasoning on both gate
-    tables. A candidate that reached Lock 5 and was rejected this way was a
+    tables. A candidate that reached L6 REVIEW and was rejected this way was a
     candidate lost to infrastructure, not to Claude's judgement — on
     2026-09-18 live lost ANET (15:37) and AMD (16:57), both LD=✓, under credit
     exhaustion, and the only fingerprint was lock3_reasoning IS NULL.
@@ -1148,7 +1168,7 @@ def check81() -> None:
     """
     from datetime import timedelta
     from backend.gate.types import L5_UNAVAILABLE_PREFIX
-    name = "Lock 5 fail-closed (API unavailable)"
+    name = "L6 REVIEW fail-closed (API unavailable)"
     db   = REPO / "data/apex.db"
     if not require_data_file(81, name, db):
         return
@@ -1179,19 +1199,19 @@ def check81() -> None:
                     f"{d[5:]} {tk} ({_cause(r)})" for d, tk, r in event[t]))
         # Remediation must be conditional on whether the outage is still open.
         # 2026-09-21: seven fail-closed rows (credit_exhausted) between 14:55 and
-        # 17:34 UTC, then Lock 5 answered normally from 17:57 on — the 09-22 mail
+        # 17:34 UTC, then L6 REVIEW answered normally from 17:57 on — the 09-22 mail
         # still said "restore the API", i.e. told a reader to act on a condition
         # that had cleared three hours before the rows were even written. A
-        # recovery is a later row that reached Lock 5 and was NOT fail-closed.
+        # recovery is a later row that reached L6 REVIEW and was NOT fail-closed.
         recovered_at = _l5_recovered_after(db, L5_UNAVAILABLE_PREFIX, since_event)
         if recovered_at:
-            tail = (f" Lock 5 has answered normally since {recovered_at} — the outage is closed; "
+            tail = (f" L6 REVIEW has answered normally since {recovered_at} — the outage is closed; "
                     f"no action, but these candidates were rejected by the failure, not on merit.")
         else:
-            tail = " No successful Lock 5 call since; restore the API (top up / key / network) before the next session."
+            tail = " No successful L6 REVIEW call since; restore the API (top up / key / network) before the next session."
         flag(81, name, "CRITICAL", "backend/gate/l6_review.py:_fail_closed",
-             f"{n_event} Lock 5 fail-closed row(s) in the last {_C81_EVENT_DAYS} days — candidates "
-             f"that cleared Lock 4 were rejected because the Anthropic call failed, not by Claude. "
+             f"{n_event} L6 REVIEW fail-closed row(s) in the last {_C81_EVENT_DAYS} days — candidates "
+             f"that cleared L5 POSITIONING were rejected because the Anthropic call failed, not by Claude. "
              + "; ".join(parts) + "." + tail)
         return
 
@@ -1416,11 +1436,11 @@ def check83() -> None:
          f"examined over the last {_C83_DAYS} days: " + "; ".join(examined))
 
 
-# ── CHECK 84 — Lock 5 decided on a stale position count ────────────────────────
+# ── CHECK 84 — L6 REVIEW decided on a stale position count ───────────────────
 
 _C84_DAYS  = 3    # trailing days read
 _C84_EVENT = 2    # a mismatch this recent is an event (WARNING); older ones are a tally
-# The counts Lock 5 cites for itself: "7 of 8 max positions", "open_positions (8)".
+# The counts L6 REVIEW cites for itself: "7 of 8 max positions", "open_positions (8)".
 _C84_CITED = (re.compile(r"(\d+) of \d+ max(?:imum)? positions"),
               re.compile(r"open_positions \((\d+)\)"))
 
@@ -1435,26 +1455,26 @@ def _c84_cited(reasoning: str | None) -> int | None:
 
 def check84() -> None:
     """
-    CHECK 84 — Lock 5 decided on a stale position count.
+    CHECK 84 — L6 REVIEW decided on a stale position count.
 
     2026-09-29 16:53 CEST: ADI's exit freed a slot, and KLAC and LRCX executed in
-    one cycle. Lock 5's reasoning for BOTH says "7 of 8 max positions used (one slot
+    one cycle. L6 REVIEW's reasoning for BOTH says "7 of 8 max positions used (one slot
     available)": it reads the portfolio as of cycle start, so its rule 1
     (open_positions == l2_risk_max_positions_count → reject) cannot bind the second same-cycle
     candidate. The 09-27 cap article showed the same for sector exposure. This
     makes the position case a nightly count, not an anecdote: for each live
-    TRADE_EXECUTED, the count Lock 5 cited vs the live_trades rows open at that
+    TRADE_EXECUTED, the count L6 REVIEW cited vs the live_trades rows open at that
     trade's own execution (inserts are in execution order; gate-row timestamps are
     evaluation completions and are not).
 
     Evidence, not a defect alarm: overflow entries above l2_risk_max_positions_count are designed
-    (2026-04-14). It feeds the decision to move limit enforcement out of Lock 5.
+    (2026-04-14). It feeds the decision to move limit enforcement out of L6 REVIEW.
       WARNING  a mismatch in the last _C84_EVENT days (names ticker, cited, actual)
       INFO     tally over _C84_DAYS, incl. executions whose reasoning cites no count
     SKIPPED without apex.db.
     """
     from datetime import timedelta
-    name = "Lock 5 decided on a stale position count"
+    name = "L6 REVIEW decided on a stale position count"
     db   = REPO / "data/apex.db"
     if not require_data_file(84, name, db):
         return
@@ -1490,7 +1510,7 @@ def check84() -> None:
     events = [m for d, m in mismatches if d >= recent]
     if events:
         flag(84, name, "WARNING", "backend/gate/l6_review.py",
-             f"{len(events)} live execution(s) where Lock 5 cited fewer open positions than were "
+             f"{len(events)} live execution(s) where L6 REVIEW cited fewer open positions than were "
              f"open when it executed (cycle-start state): " + "; ".join(events[:6])
              + (" …" if len(events) > 6 else ""))
     elif mismatches or uncited:
@@ -1514,7 +1534,7 @@ def check85() -> None:
     backend is down. scripts/cycle_watch.py writes session_flags (provisional
     when a gate job goes stale, final after the close). The computed definition
     (demo cycles/expected from audit/gate_cycles, as CHECK 80) cannot be
-    forgotten but undercounts quiet cycles (no Lock 1 candidates write no row);
+    forgotten but undercounts quiet cycles (no L3 SCORE candidates write no row);
     the stored flag carries the cause but has a writer that can miss. (The
     undercount ends at GATE_CYCLES_FROM, 2026-10-04: audit/gate_cycles.py.) Each
     checks the other, for closed sessions since _C85_SINCE:
@@ -1826,7 +1846,7 @@ def check88() -> None:
          + f"; {len(b.get('excepted', []))} excepted")
 
 
-# ── CHECK 90 — Lock 5 output after each prompt change ─────────────────────────
+# ── CHECK 90 — L6 REVIEW output after each prompt change ─────────────────────
 
 # (first session on the changed prompt, review date, what changed, who set the review). The check reads
 # the latest change that has started; its "before" window runs back 4 weeks or to the previous change.
@@ -1844,19 +1864,19 @@ _C90_PRIOR_DAYS = 28         # at most four weeks before the change
 
 def check90(today: date | None = None) -> None:
     """
-    CHECK 90 — did a Lock 5 prompt change move L5's decisions or sizes?
+    CHECK 90 — did an L6 REVIEW prompt change move its decisions or sizes?
 
-    One row in _C90_CHANGES per change. 2026-10-19: two L5 changes went live together and the window
+    One row in _C90_CHANGES per change. 2026-10-19: two L6 REVIEW changes went live together and the window
     cannot tell them apart: (1) the rationale clause ("allocation weighting is handled downstream" → the
-    allocation acts upstream in Lock 1; the post-L5 multiplier is score-relative), the binding
-    no-Bayesian-sizing sentence unchanged; (2) L5 judges risk_limits.sector_cap, the dynamic cap execution
+    allocation acts upstream in L1 ELIGIBILITY; the post-L6 multiplier is score-relative), the binding
+    no-Bayesian-sizing sentence unchanged; (2) L6 REVIEW judges risk_limits.sector_cap, the dynamic cap execution
     enforces, instead of the flat l2_risk_sector_cap_max. 2026-11-02: the lock labels prompt (approved by
     Niclas 2026-10-26): the chain's names in the prompt and the lock_results keys, the gate history read by
     stage, and the note that the regime fields are one piece of evidence.
 
     Compares, on live_gate_history and live_trades, the window before the latest started change (four
     weeks, or back to the previous change if that is nearer) with the days since:
-      - L5 approval share: Claude's approvals (lock3_pass 1) over those plus Claude's rejections (stop_code
+      - L6 REVIEW approval share: Claude's approvals (lock3_pass 1) over those plus Claude's rejections (stop_code
         L6 claude). Fail-closed rows (L6 unavailable, CHECK 81's prefix), the guard (L0 since lock labels
         phase 2) and execution refusals before L6 are not Claude's judgement and are not counted. Until phase 2
         this read TRADE_EXECUTED + TRADE_FAILED against FILTERED_L3 minus the prefix; on the migrated history the
@@ -1864,14 +1884,14 @@ def check90(today: date | None = None) -> None:
         a notional), which were left out before. Both windows use the same definition;
       - median live_trades.notional of entries.
     WARNING (Friday bundle) from the change date to its review, INFO after — the review decides keep /
-    re-evaluate / retire. Silent before the first change. n is small (about 18 L5 decisions a week (71 in
+    re-evaluate / retire. Silent before the first change. n is small (about 18 L6 REVIEW decisions a week (71 in
     the four weeks to 10-16)): a direction, not a test, and the detail says so.
     SKIPPED without apex.db.
     """
     from datetime import timedelta
     from statistics import median
     from backend.gate.lock_codes import stop_code
-    name  = "Lock 5 output after the prompt change"
+    name  = "L6 REVIEW output after the prompt change"
     db    = REPO / "data/apex.db"
     today = today or date.today()
     started = [i for i, c in enumerate(_C90_CHANGES) if c[0] <= today.isoformat()]
@@ -1913,7 +1933,7 @@ def check90(today: date | None = None) -> None:
     med  = lambda xs: f"${median(xs):,.0f} (n={len(xs)})" if xs else "none"
     sev  = "WARNING" if today.isoformat() <= review else "INFO"
     flag(90, name, sev, "backend/gate/l6_review.py:SYSTEM_PROMPT",
-         f"L5 approval {pct(b_ok, b_n)} in the {span} before {change} vs {pct(a_ok, a_n)} since; "
+         f"L6 REVIEW approval {pct(b_ok, b_n)} in the {span} before {change} vs {pct(a_ok, a_n)} since; "
          f"median entry notional {med(b_sz)} vs {med(a_sz)}. Change: {what}. Small n — a direction, "
          f"not a test. Review {review} ({who}): keep, re-evaluate or retire this check.")
 
@@ -1925,9 +1945,9 @@ _C91_WARN_DAYS = 60   # same horizon as l1_eligibility._check_calendar_expiry
 
 def check91(today: date | None = None) -> None:
     """
-    CHECK 91 — how far ahead does Lock 1's macro calendar reach?
+    CHECK 91 — how far ahead does L1 ELIGIBILITY's macro calendar reach?
 
-    Lock 1 blocks or penalises entries around FOMC / CPI / NFP from hard-coded date
+    L1 ELIGIBILITY blocks or penalises entries around FOMC / CPI / NFP from hard-coded date
     sets (backend/macro_calendar.py since 2026-10-17). Past the last date the blackout is
     silently "clear" every day. The module's own expiry warning went to the log
     only and was found by chance in a test log on 2026-10-17, 53 days out. The same
@@ -1945,7 +1965,7 @@ def check91(today: date | None = None) -> None:
     last = max(lits) if lits else None
     if last is None or last < today:
         flag(91, name, "CRITICAL", "backend/macro_calendar.py:MACRO_DATES",
-             f"macro calendar exhausted (last date {last}); Lock 1 reads every day as clear — add the "
+             f"macro calendar exhausted (last date {last}); L1 ELIGIBILITY reads every day as clear — add the "
              "official FOMC (federalreserve.gov) and BLS CPI / Employment Situation dates")
     elif (last - today).days < _C91_WARN_DAYS:
         flag(91, name, "WARNING", "backend/macro_calendar.py:MACRO_DATES",

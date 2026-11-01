@@ -1,5 +1,5 @@
 """engine_fast candidate ledger (2026-10-24): off by default, never changes the trades, one row per
-Lock 1 candidate per day before penalties, every entered trade has its ledger row."""
+L3 SCORE candidate per day before penalties, every entered trade has its ledger row."""
 from backend.backtest import engine_fast
 from tests.test_engine_flag_off_parity import END, RUN_KW, START, synthetic_precomputed
 
@@ -24,7 +24,7 @@ def test_rows_are_l3_score_candidates_with_their_fields_and_cover_every_entry():
     keys = {"date", "ticker", "sector", "score", "threshold", "macro_day", "vix", "etf_ret",
             "earnings_near", "held", "cooloff"}
     assert all(keys <= set(r) for r in led)
-    assert all(r["score"] >= r["threshold"] - 1e-9 for r in led)                  # passed Lock 1's threshold
+    assert all(r["score"] >= r["threshold"] - 1e-9 for r in led)                  # passed L3 SCORE's threshold
     rows = {(r["date"], r["ticker"]) for r in led}
     assert all((t["entry_date"], t["ticker"]) in rows for t in res["trade_log"])   # every entry was a candidate
     assert len(rows) == len(led)                                                  # one row per candidate per day

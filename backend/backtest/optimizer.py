@@ -3,7 +3,7 @@ Apex autoresearch optimizer — runs overnight, mutates gate parameters,
 keeps improvements, discards regressions.
 
 Inspired by Karpathy's autoresearch loop but adapted for apex:
-- Mutation space: Lock1 threshold, TP%, SL%, trailing stop, hold days,
+- Mutation space: L3 SCORE threshold, TP%, SL%, trailing stop, hold days,
   max positions, VIX threshold (per-run params, not sector-specific yet)
 - Scoring: weighted Sharpe − drawdown penalty, with floors on win rate
   and trade frequency to prevent degenerate solutions
@@ -534,7 +534,7 @@ Experiments: {kept} kept / {total} total
 Best composite score: {best_score:.4f}
 
 Best params:
-  Lock1 threshold:  {best_params['l3_score_threshold_min']}
+  L3 SCORE threshold:  {best_params['l3_score_threshold_min']}
   Take profit:      {best_params['take_profit_pct']*100:.0f}%
   Stop loss:        {best_params['stop_loss_pct']*100:.0f}%
   Trailing stop:    {f"{best_params['trailing_stop_pct']*100:.0f}%" if best_params['trailing_stop_pct'] else 'disabled'}

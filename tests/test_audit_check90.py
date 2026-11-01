@@ -1,4 +1,4 @@
-"""CHECK 90 — Lock 5 output after the 2026-10-19 prompt change (2026-10-17)."""
+"""CHECK 90 — L6 REVIEW output after the 2026-10-19 prompt change (2026-10-17)."""
 import sqlite3
 from datetime import date
 

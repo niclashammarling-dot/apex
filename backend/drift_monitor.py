@@ -9,11 +9,11 @@ Architecture:
   - First run: seeds baselines from a historical backtest (2020-2024)
   - Every subsequent run: computes rolling metrics from live trades,
     compares to baseline, writes severity-ranked alerts to drift_alerts table
-  - Lock 3 reads top alerts as structured context before each decision
+  - L6 REVIEW reads top alerts as structured context before each decision
 
 Metrics tracked per sector:
   win_rate              — fraction of closed trades that won
-  avg_signal_score      — average Lock 1 score at entry
+  avg_signal_score      — average L3 SCORE signal score at entry
   avg_pnl_pct           — average pnl/amount for closed trades
   signal_win_corr       — correlation between signal_score and outcome (proxy for Kelly accuracy)
   avg_hold_days         — average days held to close
@@ -252,11 +252,11 @@ def _pearson(xs: list[float], ys: list[float]) -> float | None:
     return num / (dx * dy)
 
 
-# ── Lock 3 context formatter ──────────────────────────────────────────────────
+# ── L6 REVIEW context formatter ───────────────────────────────────────────────
 
 def format_drift_context(limit: int = 5) -> str | None:
     """
-    Return a structured natural-language block for Lock 3 context injection.
+    Return a structured natural-language block for L6 REVIEW context injection.
     Returns None if there are no active alerts.
 
     Format:

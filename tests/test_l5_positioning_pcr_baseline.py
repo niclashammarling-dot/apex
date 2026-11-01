@@ -1,5 +1,5 @@
 """
-Lock 4 per-ticker PCR baseline (pcr_baseline.py), its wiring into
+L5 POSITIONING per-ticker PCR baseline (pcr_baseline.py), its wiring into
 _check_put_call_ratio / evaluate_chain, and CHECK 80's branches.
 """
 import json
@@ -91,15 +91,15 @@ def test_per_ticker_mode_falls_back_when_no_baseline_and_says_so():
     assert r["threshold"] == l4.PCR_THRESHOLD and r["pass"] is True
 
 
-def test_chain_passes_cfg_mode_to_lock4():
+def test_chain_passes_cfg_mode_to_l5_positioning():
     from backend.gate.types import LockResult
-    with patch("backend.gate.chain.lock1_evaluate", return_value=LockResult.pass_(lock_id=1, score=0.9, reason="", data={})), \
-         patch("backend.gate.chain.lock2_evaluate", return_value=LockResult.pass_(lock_id=2, score=0.9, reason="", data={})), \
-         patch("backend.gate.chain.lock3_evaluate", return_value=LockResult.pass_(lock_id=3, score=0.9, reason="", data={})), \
-         patch("backend.gate.chain.lock4_evaluate", return_value=LockResult.fail(lock_id=4, reason="x", data={})) as m4:
+    with patch("backend.gate.chain.l1_eligibility_evaluate", return_value=LockResult.pass_(lock_id=1, score=0.9, reason="", data={})), \
+         patch("backend.gate.chain.l3_score_evaluate", return_value=LockResult.pass_(lock_id=3, score=0.9, reason="", data={})), \
+         patch("backend.gate.chain.l4_sentiment_evaluate", return_value=LockResult.pass_(lock_id=4, score=0.9, reason="", data={})), \
+         patch("backend.gate.chain.l5_positioning_evaluate", return_value=LockResult.fail(lock_id=5, reason="x", data={})) as m5:
         from backend.gate.chain import evaluate_chain
         evaluate_chain("A", "Energy", 0.9, {}, {"l5_positioning_leading_mode": "per_ticker_p25"})
-    assert m4.call_args.kwargs["pcr_mode"] == "per_ticker_p25"
+    assert m5.call_args.kwargs["pcr_mode"] == "per_ticker_p25"
 
 
 def test_demo_and_live_defaults_are_demo_first():
@@ -163,7 +163,7 @@ def test_check80_reports_accumulating_when_thin(tmp_path, monkeypatch):
 
 def test_check80_counts_fallback_rows_as_warning(tmp_path, monkeypatch):
     out = _run80(tmp_path, monkeypatch, [], [("OPN", True, "pooled_scalar_fallback")] * 3, HIST)
-    assert any(s == "WARNING" and "3 demo Lock 4 row(s)" in f for s, f in out)
+    assert any(s == "WARNING" and "3 demo L5 POSITIONING row(s)" in f for s, f in out)
 
 
 def test_check80_warns_when_composition_does_not_rotate(tmp_path, monkeypatch):

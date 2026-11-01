@@ -1,5 +1,5 @@
 """
-Per-ticker put/call-ratio baseline for Lock 4 — partial-pooled P25.
+Per-ticker put/call-ratio baseline for L5 POSITIONING — partial-pooled P25.
 
 Replaces the pooled scalar PCR_THRESHOLD = 0.85 (decided 2026-09-17, vault:
 raw/notes/2026-09/2026-09-17-apex-lock4-pcr-design-rate-and-regime-bucket-decision.md).

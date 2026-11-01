@@ -29,7 +29,7 @@ DEMO_L6_REVIEW_CLAUDE_MIN   = 0.60
 # Sectors excluded from entry evaluation — no validated momentum edge.
 # Determined by 2021-2026 threshold sweep (2026-05-07): PF < 1.0 across all
 # viable threshold levels; structurally incompatible with momentum-based signals.
-# Lock 1 (Eligibility) blocks these before any further evaluation.
+# L1 ELIGIBILITY blocks these before any further evaluation.
 EXCLUDED_SECTORS: dict[str, str] = {
     "Financials":      "Rate-driven sector; momentum signal has no structural validity; PF 0.46 at baseline, no crossover at any threshold",
     "Utilities":       "Rate-driven sector; PF never crosses 1.0 across 0.55–0.80 sweep; incompatible with momentum model. Anti-correlation confirmed: post≥0.50 PF 0.690 (2026-05-18 conditioned sweep) — same defensive rotation mechanism as ConsumerStaples.",
@@ -37,7 +37,7 @@ EXCLUDED_SECTORS: dict[str, str] = {
     "Materials":       "PF never crosses 1.0 at any threshold (0.55–0.75 sweep, isolated backtest, 2026-05-18). Best: PF 0.81 at 0.55. Commodity-driven momentum not captured by APEX signal stack. ETF: XME.",
 }
 
-# Minimum Lock 2 signal score floors per sector, applied above the calibrated
+# Minimum L3 SCORE floors per sector, applied above the calibrated
 # threshold when calibration landed below a sweep-validated edge threshold.
 SECTOR_THRESHOLD_FLOORS: dict[str, float] = {
     # ConsumerDisc: floor 0.75 removed 2026-10-10 (Niclas: "Keep the 0.59 for now"), so the
@@ -90,7 +90,7 @@ TIME_STOP_DAYS          = 40
 PROFIT_LOCK_TRIGGER_PCT = 0.04   # peak gain that activates tighter TSL — sweep-validated 2026-05-27
 PROFIT_LOCK_TRAIL_PCT   = 0.01   # drawdown from peak once profit-lock activates — sweep-validated 2026-05-27
 
-# --- Macro filter (Lock 1.5) ---
+# --- L1 ELIGIBILITY (VIX, macro calendar, cooloffs) and L2 RISK (earnings, ETF) ---
 L1_ELIGIBILITY_VIX_MAX                 = 30.0
 L1_ELIGIBILITY_MACRO_EVENT_DAYS        = 1     # days before CPI/NFP that count as pre-event (FOMC: fixed 2-day hard block, l1_eligibility._FOMC_PRE_EVENT_DAYS)
 L2_RISK_EARNINGS_DAYS                  = 3     # days before a ticker's earnings (hard block)
@@ -107,7 +107,7 @@ L2_RISK_ETF_PENALTY                    = 0.0   # score multiplier reduction when
                                       # poisoned ETF regime multiplier (CHECK 76 finding c) and its window/universe have
                                       # since moved. Not validated, not invalidated; re-run queued in apex-moc OT.
 
-# --- Lock Leading ---
+# --- L5 POSITIONING ---
 # PCR sub-check threshold form: "pooled_scalar" (PCR_THRESHOLD=0.85 for every ticker) or
 # "per_ticker_p25" (partial-pooled per-ticker P25, backend/gate/pcr_baseline.py). Demo runs
 # per-ticker first (2026-09-17); live stays pooled until CHECK 80 has read out on demo.
@@ -121,14 +121,14 @@ LIVE_L5_POSITIONING_LEADING_MODE = "pooled_scalar"
 # is self-limiting.
 L2_RISK_OVERFLOW_STEP = 0.05
 
-# --- Lock 3 risk limits ---
+# --- L0 PORTFOLIO drawdown guard (shown to L6 REVIEW in risk_limits) ---
 L0_PORTFOLIO_DRAWDOWN_GUARD_MAX = 0.20  # drawdown threshold passed to Claude in context
 
 # --- P(win) base rate (decoupled from signal score) ---
 BASE_WIN_RATE        = 0.55
 WIN_RATE_MIN_TRADES  = 20  # use rolling win rate only after this many closed trades
 
-# --- Live starting balance (used for drawdown calc in Lock 3 context) ---
+# --- Live starting balance (the drawdown in L6 REVIEW's context) ---
 LIVE_STARTING_BALANCE = float(os.getenv("LIVE_STARTING_BALANCE", "100000.0"))
 
 # --- Live gate thresholds — defaults only. Runtime values live in data/live_config.json

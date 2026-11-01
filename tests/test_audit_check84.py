@@ -1,4 +1,4 @@
-"""CHECK 84 — Lock 5 decided on a stale position count (cycle-start state)."""
+"""CHECK 84 — L6 REVIEW decided on a stale position count (cycle-start state)."""
 import sqlite3
 from datetime import date, timedelta
 

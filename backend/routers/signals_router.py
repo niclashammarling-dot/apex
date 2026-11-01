@@ -273,7 +273,7 @@ def gate_history():
     thresholds = get_ticker_thresholds()
     flat = get_demo_config().get("l3_score_threshold_min", 0.5)
     for row in rows:
-        row["l1_threshold"] = thresholds.get(row["sector"], flat)
+        row["l3_score_threshold_min"] = thresholds.get(row["sector"], flat)
         if row.get("lock_leading_checks"):
             try:
                 row["lock_leading_checks"] = _json.loads(row["lock_leading_checks"])
@@ -421,7 +421,7 @@ def update_live_settings(updates: dict):
 @router.post("/backtest/run")
 def run_backtest(req: BacktestRequest):
     """
-    Run a historical backtest using the Lock 1 quantitative signal engine.
+    Run a historical backtest using the L3 SCORE quantitative signal engine.
     Downloads historical OHLCV data and simulates the full position lifecycle
     (entry on signal, exit on TP/SL/time-stop) across the requested date range.
     """
