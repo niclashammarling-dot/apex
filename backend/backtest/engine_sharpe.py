@@ -56,11 +56,11 @@ from backend.backtest.engine_fast import (
     window_days,
 )
 from backend.config import (
-    L0_PORTFOLIO_LOSS_CAP_MAX,
-    L3_SCORE_THRESHOLD_MIN,
+    DEMO_L0_PORTFOLIO_LOSS_CAP_MAX,
+    DEMO_L3_SCORE_THRESHOLD_MIN,
     MAX_POSITION_SIZE,
-    L2_RISK_MAX_POSITIONS_COUNT,
-    L2_RISK_SECTOR_CAP_MAX,
+    DEMO_L2_RISK_MAX_POSITIONS_COUNT,
+    DEMO_L2_RISK_SECTOR_CAP_MAX,
     STOP_LOSS_PCT,
     TAKE_PROFIT_PCT,
     TIME_STOP_DAYS,
@@ -185,9 +185,9 @@ def run(
     sl   = stop_loss_pct    if stop_loss_pct    is not None else STOP_LOSS_PCT
     tsl  = trailing_stop_pct
     tdays = time_stop_days  if time_stop_days   is not None else TIME_STOP_DAYS
-    l1   = l3_score_threshold_min  if l3_score_threshold_min  is not None else L3_SCORE_THRESHOLD_MIN
+    l1   = l3_score_threshold_min  if l3_score_threshold_min  is not None else DEMO_L3_SCORE_THRESHOLD_MIN
     max_epd = max_entries_per_day
-    max_pos = l2_risk_max_positions_count if l2_risk_max_positions_count    is not None else L2_RISK_MAX_POSITIONS_COUNT
+    max_pos = l2_risk_max_positions_count if l2_risk_max_positions_count    is not None else DEMO_L2_RISK_MAX_POSITIONS_COUNT
 
     # Unpack precomputed caches (identical structure to engine_fast)
     raw_data      = precomputed["raw_data"]
@@ -281,7 +281,7 @@ def run(
                 continue
             if sl_cooldown.get(sig["ticker"], date.min) > today:
                 continue
-            if daily_loss_today >= L0_PORTFOLIO_LOSS_CAP_MAX:
+            if daily_loss_today >= DEMO_L0_PORTFOLIO_LOSS_CAP_MAX:
                 break
             if use_leading_rs and not rs_cache.get((sig["ticker"], today_str), True):
                 continue
@@ -295,7 +295,7 @@ def run(
             amount = balance * alloc_pct
 
             projected = sector_exp.get(sector, 0.0) + (amount / initial_balance)
-            if projected > L2_RISK_SECTOR_CAP_MAX:
+            if projected > DEMO_L2_RISK_SECTOR_CAP_MAX:
                 continue
 
             entry_price = price_cache.get((sig["ticker"], today_str))

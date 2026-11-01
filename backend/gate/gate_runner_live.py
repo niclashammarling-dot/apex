@@ -20,7 +20,7 @@ from backend.ticker_config import get_sectors
 from backend.db import (
     get_live_ticker_gate_fails,
     get_live_trades_exited_since,
-    get_lock1_candidates,
+    get_l3_score_candidates,
     get_open_live_tickers,
     get_open_live_trades,
     get_recently_exited_live_tickers,
@@ -432,7 +432,7 @@ def _run(cycle: GateCycle) -> list[dict]:
         lock_codes.put(l0_states, ident, verdict)
 
     stale: list[dict] = []
-    candidates = get_lock1_candidates(threshold=cfg["l3_score_threshold_min"],
+    candidates = get_l3_score_candidates(threshold=cfg["l3_score_threshold_min"],
                                       sector_thresholds=sector_thresholds,
                                       stale_out=stale)
     record_stale(cycle, stale, "Live gate runner")
@@ -540,7 +540,7 @@ def _run(cycle: GateCycle) -> list[dict]:
             s: (sector_thresholds or {}).get(s, cfg["l3_score_threshold_min"]) * PRE_ROTATION_FLOOR
             for s in watching_sectors
         }
-        pr_candidates = get_lock1_candidates(
+        pr_candidates = get_l3_score_candidates(
             threshold=cfg["l3_score_threshold_min"] * PRE_ROTATION_FLOOR,
             sector_thresholds=pr_sector_thresholds,
             stale_out=stale,

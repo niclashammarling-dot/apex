@@ -23,12 +23,12 @@ import yfinance as yf
 from loguru import logger
 
 from backend.config import (
-    L0_PORTFOLIO_LOSS_CAP_MAX,
+    DEMO_L0_PORTFOLIO_LOSS_CAP_MAX,
     EXCLUDED_SECTORS,
-    L3_SCORE_THRESHOLD_MIN,
+    DEMO_L3_SCORE_THRESHOLD_MIN,
     MAX_POSITION_SIZE,
-    L2_RISK_MAX_POSITIONS_COUNT,
-    L2_RISK_SECTOR_CAP_MAX,
+    DEMO_L2_RISK_MAX_POSITIONS_COUNT,
+    DEMO_L2_RISK_SECTOR_CAP_MAX,
     SECTOR_THRESHOLD_FLOORS,
     SECTORS,
     SPY_TICKER,
@@ -112,8 +112,8 @@ def run(
     l2_risk_max_positions_count:      int   | None = None,
     sl_cooldown_days:   int   | None = None,   # None: live config (live_shape.live_cooloff_days)
     tp_cooldown_days:   int   | None = None,
-    l2_risk_sector_cap_max: float | None = None,   # None: config L2_RISK_SECTOR_CAP_MAX
-    l0_portfolio_loss_cap_max:     float | None = None,   # None: DAILY_LOSS_CAP_PCT × initial_balance
+    l2_risk_sector_cap_max: float | None = None,   # None: config DEMO_L2_RISK_SECTOR_CAP_MAX
+    l0_portfolio_loss_cap_max:     float | None = None,   # None: LIVE_L0_PORTFOLIO_LOSS_CAP_MAX × initial_balance
     precomputed:        dict  | None = None,
     intraday_stops:     bool        = True,
     ratchet_from_high:  bool        = False,
@@ -154,9 +154,9 @@ def run(
     pl_trig  = profit_lock_trigger_pct
     pl_trail = profit_lock_trail_pct
     tdays    = time_stop_days     if time_stop_days     is not None else TIME_STOP_DAYS
-    l1       = l3_score_threshold_min    if l3_score_threshold_min    is not None else L3_SCORE_THRESHOLD_MIN
+    l1       = l3_score_threshold_min    if l3_score_threshold_min    is not None else DEMO_L3_SCORE_THRESHOLD_MIN
     max_epd  = max_entries_per_day
-    max_pos  = l2_risk_max_positions_count      if l2_risk_max_positions_count      is not None else L2_RISK_MAX_POSITIONS_COUNT
+    max_pos  = l2_risk_max_positions_count      if l2_risk_max_positions_count      is not None else DEMO_L2_RISK_MAX_POSITIONS_COUNT
     overflow_inc = l2_risk_overflow_step if l2_risk_overflow_step is not None else live_overflow_increment()
 
     start = date.fromisoformat(start_date)
@@ -282,9 +282,9 @@ def run(
     # Daily loss cap as live has it: 5 % of the starting balance (live $500 on $10,000,
     # demo $100 on $2,000). Until 2026-10-17 the engines used config's $100 on a
     # $10,000 simulation: 1 %, five times stricter than live.
-    from backend.backtest.live_shape import DAILY_LOSS_CAP_PCT
-    loss_cap   = l0_portfolio_loss_cap_max if l0_portfolio_loss_cap_max is not None else DAILY_LOSS_CAP_PCT * initial_balance
-    sector_max = l2_risk_sector_cap_max if l2_risk_sector_cap_max is not None else L2_RISK_SECTOR_CAP_MAX
+    from backend.config import LIVE_L0_PORTFOLIO_LOSS_CAP_MAX   # live's share, one source (L0 takes it of equity)
+    loss_cap   = l0_portfolio_loss_cap_max if l0_portfolio_loss_cap_max is not None else LIVE_L0_PORTFOLIO_LOSS_CAP_MAX * initial_balance
+    sector_max = l2_risk_sector_cap_max if l2_risk_sector_cap_max is not None else DEMO_L2_RISK_SECTOR_CAP_MAX
 
     balance      = initial_balance
     open_trades: list[dict] = []

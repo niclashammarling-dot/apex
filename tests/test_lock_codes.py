@@ -94,7 +94,7 @@ def test_cooloff_queries_select_the_cooloff_stops():
         got_demo = {t for t in db.get_recently_failed_tickers(1.0) if t.startswith("LC")}
         assert got_live == got_demo == want and len(want) == 7
     finally:
-        # The session DB is shared: a scoreless signals row broke get_lock1_candidates in a later file.
+        # The session DB is shared: a scoreless signals row broke get_l3_score_candidates in a later file.
         _delete("DELETE FROM live_gate_history WHERE ticker LIKE 'LC%'", "DELETE FROM signals WHERE ticker LIKE 'LC%'")
 
 

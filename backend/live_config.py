@@ -91,7 +91,7 @@ def _defaults() -> dict:
         "l2_risk_max_positions_count":            LIVE_L2_RISK_MAX_POSITIONS_COUNT,
         "l2_risk_overflow_step":                  L2_RISK_OVERFLOW_STEP,
         "max_position_size":                      LIVE_MAX_POSITION_SIZE,
-        "l0_portfolio_loss_cap_max":              LIVE_L0_PORTFOLIO_LOSS_CAP_MAX,
+        "l0_portfolio_loss_cap_max":              round(LIVE_L0_PORTFOLIO_LOSS_CAP_MAX * LIVE_STARTING_BALANCE, 2),
         "max_hold_days":                          TIME_STOP_DAYS,
         "l1_eligibility_vix_max":                 L1_ELIGIBILITY_VIX_MAX,
         "l1_eligibility_macro_event_days":        L1_ELIGIBILITY_MACRO_EVENT_DAYS,

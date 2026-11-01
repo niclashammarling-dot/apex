@@ -74,7 +74,7 @@ def test_a_pre_rotation_row_shows_the_blocklist_was_not_checked():
     patches = _live_patches(candidates=[main])
     with ExitStack() as st:
         mocks = [st.enter_context(p) for p in patches]
-        mocks[6].side_effect = [[main], [pre]]                     # get_lock1_candidates: main, then pre-rotation
+        mocks[6].side_effect = [[main], [pre]]                     # get_l3_score_candidates: main, then pre-rotation
         mocks[20].return_value = {"available": False, "watching": [{"sector": "Technology"}], "likely_next": []}
         from backend.gate import gate_runner_live
         results = gate_runner_live.run()

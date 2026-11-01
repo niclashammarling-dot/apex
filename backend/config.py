@@ -19,9 +19,12 @@ ALPACA_BASE_URL   = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.marke
 LIVE_ENABLED      = os.getenv("LIVE_ENABLED", "false").lower() == "true"
 
 # --- Signal thresholds ---
-L3_SCORE_THRESHOLD_MIN = 0.70
-L4_SENTIMENT_GROK_MIN  = 0.1
-L6_REVIEW_CLAUDE_MIN   = 0.60
+# A gate constant is its config key in capitals (lock_codes.constant_name); a value that belongs to one
+# book carries the book's name (DEMO_, LIVE_; a shadow or real-money book takes its own), a value every
+# book shares carries none (Niclas 2026-11-01: "Skilj demo och live genom boknamn").
+DEMO_L3_SCORE_THRESHOLD_MIN = 0.70
+DEMO_L4_SENTIMENT_GROK_MIN  = 0.1
+DEMO_L6_REVIEW_CLAUDE_MIN   = 0.60
 
 # Sectors excluded from entry evaluation — no validated momentum edge.
 # Determined by 2021-2026 threshold sweep (2026-05-07): PF < 1.0 across all
@@ -69,10 +72,10 @@ GROK_CACHE_TTL        = 60  # minutes
 
 # --- Wallet ---
 STARTING_BALANCE            = 2_000.0
-L2_RISK_MAX_POSITIONS_COUNT = 4
-L2_RISK_SECTOR_CAP_MAX      = 0.25
+DEMO_L2_RISK_MAX_POSITIONS_COUNT = 4
+DEMO_L2_RISK_SECTOR_CAP_MAX      = 0.25
 MAX_POSITION_SIZE           = 0.15  # max 15% of balance per trade (~$300 on $2k)
-L0_PORTFOLIO_LOSS_CAP_MAX   = 100.0
+DEMO_L0_PORTFOLIO_LOSS_CAP_MAX   = 100.0
 
 # --- Exit conditions ---
 TAKE_PROFIT_PCT         = 0.06
@@ -108,7 +111,7 @@ L2_RISK_ETF_PENALTY                    = 0.0   # score multiplier reduction when
 # PCR sub-check threshold form: "pooled_scalar" (PCR_THRESHOLD=0.85 for every ticker) or
 # "per_ticker_p25" (partial-pooled per-ticker P25, backend/gate/pcr_baseline.py). Demo runs
 # per-ticker first (2026-09-17); live stays pooled until CHECK 80 has read out on demo.
-L5_POSITIONING_LEADING_MODE      = "per_ticker_p25"
+DEMO_L5_POSITIONING_LEADING_MODE = "per_ticker_p25"
 LIVE_L5_POSITIONING_LEADING_MODE = "pooled_scalar"
 
 # --- Portfolio roof overflow ---
@@ -138,7 +141,6 @@ LIVE_L6_REVIEW_CLAUDE_MIN   = float(os.getenv("LIVE_L6_REVIEW_CLAUDE_MIN", "0.75
 LIVE_L2_RISK_MAX_POSITIONS_COUNT = int(os.getenv("LIVE_L2_RISK_MAX_POSITIONS_COUNT", "4"))
 LIVE_L2_RISK_SECTOR_CAP_MAX      = float(os.getenv("LIVE_L2_RISK_SECTOR_CAP_MAX", "0.20"))
 LIVE_MAX_POSITION_SIZE           = float(os.getenv("LIVE_MAX_POSITION_SIZE", "0.10"))
-LIVE_L0_PORTFOLIO_LOSS_CAP_MAX   = float(os.getenv("LIVE_L0_PORTFOLIO_LOSS_CAP_MAX", "200.0"))
 # --- L0 Portfolio: the M4 stop rules (ruled 2026-10-24; backend/gate/l0_portfolio.py) ---
 # Drawdown on realised equity: Niclas 2026-10-24 "6 %" ("i överkant men det är värdefullt att veta"),
 # "m4: realiserat". Daily loss cap as a share of current equity: ruled as a share ("5% av aktuellt
@@ -147,11 +149,13 @@ LIVE_L0_PORTFOLIO_LOSS_CAP_MAX   = float(os.getenv("LIVE_L0_PORTFOLIO_LOSS_CAP_M
 # 40 in-session trades (Niclas "sätt den på 40"), below the frozen in-session reference's one-sided
 # 95 % lower bound; reference = the 34 in-session trades closed by 2026-10-23 13:58 UTC, return on
 # notional mean 1.85 %, sd 3.95 % (measured 2026-10-24 from db.live_sample_rows).
-M4_DRAWDOWN_PCT        = 0.06
-M4_DAILY_LOSS_CAP_PCT  = 0.05
-M4_EXPECTANCY_N        = 40
-M4_EXPECTANCY_REF      = {"mean": 0.0185, "sd": 0.0395, "n": 34,
-                          "frozen_after_exit": "2026-10-23T13:58:48.412222+00:00"}
+# The live loss cap is this share of equity; the demo's (DEMO_L0_PORTFOLIO_LOSS_CAP_MAX) is dollars. Live's
+# stored l0_portfolio_loss_cap_max is the dollar product, written by L0 every cycle (gate_runner_live).
+LIVE_L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX     = 0.06
+LIVE_L0_PORTFOLIO_LOSS_CAP_MAX             = 0.05
+LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT = 40
+LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_REF   = {"mean": 0.0185, "sd": 0.0395, "n": 34,
+                                              "frozen_after_exit": "2026-10-23T13:58:48.412222+00:00"}
 LIVE_TAKE_PROFIT_PCT     = float(os.getenv("LIVE_TAKE_PROFIT_PCT", "0.12"))
 LIVE_STOP_LOSS_PCT       = float(os.getenv("LIVE_STOP_LOSS_PCT", "0.04"))
 # A daily-loss-cap trip where broker-reported day P&L and APEX's own

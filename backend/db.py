@@ -667,7 +667,7 @@ def get_ticker_daily_scores(days: int = 180) -> list[dict]:
         conn.close()
 
 
-def get_lock1_candidates(threshold: float | None = None,
+def get_l3_score_candidates(threshold: float | None = None,
                          sector_thresholds: dict | None = None,
                          stale_out: list | None = None,
                          now: datetime | None = None) -> list[dict]:
@@ -692,10 +692,10 @@ def get_lock1_candidates(threshold: float | None = None,
     top. Tickers blocked here never reach gate evaluation and produce no
     gate_history row.
     """
-    from backend.config import L3_SCORE_THRESHOLD_MIN
+    from backend.config import DEMO_L3_SCORE_THRESHOLD_MIN
     from backend.gate.freshness import NO_SESSION, NOT_IN_UNIVERSE, session_for, stale_reason
     from backend.ticker_config import get_sectors
-    fallback = threshold if threshold is not None else L3_SCORE_THRESHOLD_MIN
+    fallback = threshold if threshold is not None else DEMO_L3_SCORE_THRESHOLD_MIN
     conn = get_db()
     try:
         rows = conn.execute("""
@@ -729,7 +729,7 @@ def get_lock1_candidates(threshold: float | None = None,
     try:
         session = session_for(now)
     except Exception as e:
-        logger.warning(f"get_lock1_candidates: NYSE calendar unavailable ({e}) — no candidate is fresh")
+        logger.warning(f"get_l3_score_candidates: NYSE calendar unavailable ({e}) — no candidate is fresh")
         session = None
     if session is None:
         for c in candidates:

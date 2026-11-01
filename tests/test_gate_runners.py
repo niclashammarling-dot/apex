@@ -162,7 +162,7 @@ def _demo_patches(candidates, open_tickers=None, failed_tickers=None,
       1  get_ticker_thresholds
       2  compute_dynamic_caps
       3  compute_sector_regime
-      4  get_lock1_candidates
+      4  get_l3_score_candidates
       5  get_open_tickers
       6  get_recently_failed_tickers
       7  update_signal_gate
@@ -186,7 +186,7 @@ def _demo_patches(candidates, open_tickers=None, failed_tickers=None,
         patch("backend.sector_caps.compute_dynamic_caps",      return_value={}),          # 2
         patch("backend.sector_regime.compute_sector_regime",   return_value={"available": False}),  # 3
         # Module-level imports → patch at gate_runner scope
-        patch("backend.gate.gate_runner.get_lock1_candidates",
+        patch("backend.gate.gate_runner.get_l3_score_candidates",
               return_value=candidates),                                                    # 4
         patch("backend.gate.gate_runner.get_open_tickers",
               return_value=open_tickers or set()),                                         # 5
@@ -366,7 +366,7 @@ def _live_patches(candidates, open_tickers=None, failed_tickers=None,
       3  get_live_config
       4  get_ticker_thresholds
       5  compute_sector_regime
-      6  get_lock1_candidates
+      6  get_l3_score_candidates
       7  get_open_live_tickers
       8  get_recently_failed_live_tickers
       9  insert_live_gate_result
@@ -400,7 +400,7 @@ def _live_patches(candidates, open_tickers=None, failed_tickers=None,
         patch("backend.db.get_ticker_thresholds",              return_value={}),        # 4
         patch("backend.sector_regime.compute_sector_regime",   return_value={"available": False}),  # 5
         # Module-level imports → patch at gate_runner_live scope
-        patch("backend.gate.gate_runner_live.get_lock1_candidates",
+        patch("backend.gate.gate_runner_live.get_l3_score_candidates",
               return_value=candidates),                                                  # 6
         patch("backend.gate.gate_runner_live.get_open_live_tickers",
               return_value=open_tickers or set()),                                       # 7

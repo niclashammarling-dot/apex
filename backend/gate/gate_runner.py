@@ -16,7 +16,7 @@ from loguru import logger
 
 from backend import wallet
 from backend.db import (
-    get_lock1_candidates,
+    get_l3_score_candidates,
     get_open_tickers,
     get_recently_exited_tickers,
     get_recently_failed_tickers,
@@ -131,7 +131,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
 
     sector_thresholds = get_ticker_thresholds()
     stale: list[dict] = []
-    candidates = get_lock1_candidates(threshold=cfg["l3_score_threshold_min"],
+    candidates = get_l3_score_candidates(threshold=cfg["l3_score_threshold_min"],
                                       sector_thresholds=sector_thresholds,
                                       stale_out=stale)
     record_stale(cycle, stale, "Gate runner")
@@ -192,7 +192,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     results    = []
 
     # Compute dynamic sector caps + regime + rotation scores once per gate cycle
-    from backend.config import L2_RISK_SECTOR_CAP_MAX
+    from backend.config import DEMO_L2_RISK_SECTOR_CAP_MAX
     from backend.scheduler import _get_regime_bayes
     from backend.sector_caps import compute_dynamic_caps
     from backend.sector_regime import compute_sector_regime, compute_ticker_signals
@@ -201,7 +201,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
         get_rotation_forecast,
     )
     regime_bayes_result = _get_regime_bayes().last_result()
-    dynamic_caps    = compute_dynamic_caps(cfg.get("l2_risk_sector_cap_max", L2_RISK_SECTOR_CAP_MAX),
+    dynamic_caps    = compute_dynamic_caps(cfg.get("l2_risk_sector_cap_max", DEMO_L2_RISK_SECTOR_CAP_MAX),
                                            regime_result=regime_bayes_result)
     wallet_ctx = {**wallet_ctx, "dynamic_caps": dynamic_caps}   # Lock 5 judges the enforced cap (2026-10-17)
     sector_regime   = compute_sector_regime()
@@ -218,7 +218,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
             s: (sector_thresholds or {}).get(s, cfg["l3_score_threshold_min"]) * PRE_ROTATION_FLOOR
             for s in watching_sectors
         }
-        pr_candidates = get_lock1_candidates(
+        pr_candidates = get_l3_score_candidates(
             threshold=cfg["l3_score_threshold_min"] * PRE_ROTATION_FLOOR,
             sector_thresholds=pr_sector_thresholds,
             stale_out=stale,

@@ -21,7 +21,7 @@ busy (2026-10-31, Finding 2): another live gate run held the runner's lock, noth
 A runner that exits without setting one records None.
 
 stale_excluded (Finding 1, 2026-10-10): distinct tickers refused by the session
-bound this cycle (get_lock1_candidates stale_out), main and pre-rotation
+bound this cycle (get_l3_score_candidates stale_out), main and pre-rotation
 candidates together. no_fresh_candidates = every would-be candidate was refused.
 """
 from dataclasses import dataclass

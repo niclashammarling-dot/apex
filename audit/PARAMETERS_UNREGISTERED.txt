@@ -88,7 +88,7 @@ backend/backtest/weekend_sweep.py::MIN_TRADES
 backend/config.py::AVG_LOSS_PCT
 backend/config.py::AVG_WIN_PCT
 backend/config.py::BASE_WIN_RATE
-backend/config.py::L0_PORTFOLIO_LOSS_CAP_MAX
+backend/config.py::DEMO_L0_PORTFOLIO_LOSS_CAP_MAX
 backend/config.py::L2_RISK_ETF_FLOOR
 backend/config.py::L2_RISK_ETF_PENALTY
 backend/config.py::EXIT_CHECK_INTERVAL
@@ -96,9 +96,9 @@ backend/config.py::L1_ELIGIBILITY_EXIT_COOLOFF_HOURS
 backend/config.py::L1_ELIGIBILITY_COOLOFF_HOURS
 backend/config.py::GATE_INTERVAL
 backend/config.py::GROK_CACHE_TTL
-backend/config.py::L3_SCORE_THRESHOLD_MIN
-backend/config.py::L4_SENTIMENT_GROK_MIN
-backend/config.py::L6_REVIEW_CLAUDE_MIN
+backend/config.py::DEMO_L3_SCORE_THRESHOLD_MIN
+backend/config.py::DEMO_L4_SENTIMENT_GROK_MIN
+backend/config.py::DEMO_L6_REVIEW_CLAUDE_MIN
 backend/config.py::L0_PORTFOLIO_DRAWDOWN_GUARD_MAX
 backend/config.py::L2_RISK_EARNINGS_DAYS
 backend/config.py::L2_RISK_EARNINGS_NEAR_DAYS
@@ -106,9 +106,9 @@ backend/config.py::L2_RISK_EARNINGS_NEAR_PENALTY
 backend/config.py::L1_ELIGIBILITY_MACRO_EVENT_DAYS
 backend/config.py::L1_ELIGIBILITY_MACRO_PRE_EVENT_PENALTY
 backend/config.py::L1_ELIGIBILITY_VIX_MAX
-backend/config.py::L2_RISK_MAX_POSITIONS_COUNT
+backend/config.py::DEMO_L2_RISK_MAX_POSITIONS_COUNT
 backend/config.py::MAX_POSITION_SIZE
-backend/config.py::L2_RISK_SECTOR_CAP_MAX
+backend/config.py::DEMO_L2_RISK_SECTOR_CAP_MAX
 backend/config.py::L2_RISK_OVERFLOW_STEP
 backend/config.py::POLL_INTERVAL_SECTORS
 backend/config.py::PROFIT_LOCK_TRAIL_PCT

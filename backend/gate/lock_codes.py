@@ -379,11 +379,11 @@ def decorate_rows(rows: list[dict], book: str) -> list[dict]:
 
 # Config keys (phase 3 part a; Niclas 2026-10-31: "alla namn är konsekvent efter kodschemat ... konsekvent och lätt
 # att härleda"): a rule's key is rule_key(owner, rule).lower() + "_" + one word from KEY_KINDS naming the value's kind
-# (min passes at or above, max at or below). LEGACY_KEYS holds the names before it. Stored forms written under them
+# (min passes at or above, max at or below, ref a frozen reference the rule compares against). LEGACY_KEYS holds the names before it. Stored forms written under them
 # (a config file not yet rewritten, an archived result, a call with the old keyword) are read through upgrade_keys;
 # a hash that identified something before the rename (a battery unit, a live shape) is taken over legacy_keys, so
 # every archived key stays reachable.
-KEY_KINDS = ("min", "max", "days", "hours", "penalty", "floor", "step", "mode", "count")
+KEY_KINDS = ("min", "max", "days", "hours", "penalty", "floor", "step", "mode", "count", "ref")
 LEGACY_KEYS: dict[str, str] = {
     "daily_loss_cap": "l0_portfolio_loss_cap_max",
     "max_drawdown_pct": "l0_portfolio_drawdown_guard_max",
@@ -414,6 +414,13 @@ def config_key(owner: int, rule: str, kind: str) -> str:
     if kind not in KEY_KINDS:
         raise ValueError(f"{kind!r} is not in KEY_KINDS")
     return f"{rule_key(owner, rule).lower()}_{kind}"
+
+
+def constant_name(owner: int, rule: str, kind: str, book: str | None = None) -> str:
+    """"DEMO_L3_SCORE_THRESHOLD_MIN": the config.py constant of a rule's value, its key in capitals, carrying the
+    book's name when the value belongs to one book (Niclas 2026-11-01: "Skilj demo och live genom boknamn")."""
+    name = config_key(owner, rule, kind).upper()
+    return f"{book.upper()}_{name}" if book else name
 
 
 def _rename(obj, names: dict[str, str]):

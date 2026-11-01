@@ -1,7 +1,7 @@
 """
 Session-anchored freshness for gate candidates (Finding 1, 2026-10-10).
 
-Found 2026-10-07: get_lock1_candidates took the newest signal per ticker with no
+Found 2026-10-07: get_l3_score_candidates took the newest signal per ticker with no
 bound, so 25 of 55 live entries since 07-07 were decided on a signal not written
 in that session: 15 on the same day's pre-open poll (the 14:20 CEST startup
 poll, read by the first live cycle at start + 10.5 min, before the first
@@ -24,7 +24,7 @@ which of them were entered. Review 2026-10-17: 0 mismatches means the
 property is never violated, so drop it; >0 means compare the mismatched
 entries' outcomes, per sector, then decide. ENFORCE_BAR_DATE switches it on.
 
-This module is the single definition, read by get_lock1_candidates (both
+This module is the single definition, read by get_l3_score_candidates (both
 runners, main and pre-rotation candidates), by CHECK 87 and by
 scripts/finding1_snapshot_test.py.
 """

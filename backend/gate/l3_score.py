@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from loguru import logger
 
-from backend.config import L3_SCORE_THRESHOLD_MIN, SECTOR_THRESHOLD_FLOORS
+from backend.config import DEMO_L3_SCORE_THRESHOLD_MIN, SECTOR_THRESHOLD_FLOORS
 from backend.gate.types import LockResult
 
 LOCK_ID            = 2
@@ -93,13 +93,13 @@ def _sector_threshold(sector: str, sector_thresholds: dict | None = None) -> flo
     Return the sector-specific Lock 2 threshold. Uses the calibrated
     ticker_thresholds table as the base, then applies SECTOR_THRESHOLD_FLOORS
     as a floor so sweep-validated minimums survive recalibration runs.
-    Falls back to L3_SCORE_THRESHOLD_MIN if the sector has no calibrated entry.
+    Falls back to DEMO_L3_SCORE_THRESHOLD_MIN if the sector has no calibrated entry.
 
     sector_thresholds: pre-fetched dict from the runner (eliminates a DB read
     per ticker per cycle). Falls back to a live DB fetch when None.
     """
     if sector_thresholds is not None:
-        base = float(sector_thresholds.get(sector, L3_SCORE_THRESHOLD_MIN))
+        base = float(sector_thresholds.get(sector, DEMO_L3_SCORE_THRESHOLD_MIN))
     else:
         try:
             from backend.db import get_ticker_thresholds
@@ -107,15 +107,15 @@ def _sector_threshold(sector: str, sector_thresholds: dict | None = None) -> flo
             if not thresholds:
                 logger.warning(
                     f"Lock 2 [{sector}]: get_ticker_thresholds() returned empty — "
-                    f"falling back to L3_SCORE_THRESHOLD_MIN {L3_SCORE_THRESHOLD_MIN}. "
+                    f"falling back to DEMO_L3_SCORE_THRESHOLD_MIN {DEMO_L3_SCORE_THRESHOLD_MIN}. "
                     "Calibration race or DB read failure."
                 )
-            base = float(thresholds.get(sector, L3_SCORE_THRESHOLD_MIN))
+            base = float(thresholds.get(sector, DEMO_L3_SCORE_THRESHOLD_MIN))
         except Exception as exc:
             logger.warning(
                 f"Lock 2 [{sector}]: get_ticker_thresholds() raised {exc!r} — "
-                f"falling back to L3_SCORE_THRESHOLD_MIN {L3_SCORE_THRESHOLD_MIN}."
+                f"falling back to DEMO_L3_SCORE_THRESHOLD_MIN {DEMO_L3_SCORE_THRESHOLD_MIN}."
             )
-            base = float(L3_SCORE_THRESHOLD_MIN)
+            base = float(DEMO_L3_SCORE_THRESHOLD_MIN)
     floor = SECTOR_THRESHOLD_FLOORS.get(sector)
     return max(base, floor) if floor is not None else base

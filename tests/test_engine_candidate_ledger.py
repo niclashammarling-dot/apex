@@ -17,7 +17,7 @@ def test_ledger_never_changes_the_trades():
     assert led                                                                    # the fixture has candidates
 
 
-def test_rows_are_lock1_candidates_with_their_fields_and_cover_every_entry():
+def test_rows_are_l3_score_candidates_with_their_fields_and_cover_every_entry():
     pre = synthetic_precomputed()
     led: list = []
     res = _run(pre, candidate_ledger=led)

@@ -199,7 +199,7 @@ def check26():
         if "sector_thresholds" not in text:
             flag(26, "L1/L2 threshold-source parity", "CRITICAL",
                  f"backend/gate/{label}",
-                 f"{label} does not pass sector_thresholds to get_lock1_candidates() — "
+                 f"{label} does not pass sector_thresholds to get_l3_score_candidates() — "
                  f"per-sector calibration is fetched but silently unused")
 
     if lock2.exists() and "get_ticker_thresholds" not in lock2.read_text():
@@ -801,7 +801,7 @@ def check66() -> None:
         runner_text = runner.read_text()
         run_start = runner_text.find("def run()")
         gate_check_pos = runner_text.find("get_unreconciled_live_trades()")
-        candidates_pos = runner_text.find("get_lock1_candidates(")
+        candidates_pos = runner_text.find("get_l3_score_candidates(")
         if gate_check_pos == -1:
             flag(66, "live position/DB reconciliation integrity", "CRITICAL",
                  "backend/gate/gate_runner_live.py",
@@ -1725,7 +1725,7 @@ def check87() -> None:
             flag(87, name, "CRITICAL", f"data/apex.db:{book}_gate_history",
                  f"{d}: {len(bad)} {book} gate row(s) decided on a signal outside the session bound "
                  f"({entered} entered): {', '.join(sorted({r['ticker'] for r in bad})[:8])} — "
-                 f"get_lock1_candidates' bound was bypassed (backend/gate/freshness.py)")
+                 f"get_l3_score_candidates' bound was bypassed (backend/gate/freshness.py)")
         if unrecorded and ever:
             flag(87, name, "WARNING", f"data/apex.db:{book}_gate_history",
                  f"{d}: {len(unrecorded)} {book} gate row(s) carry no signal_ts — a gate row writer "

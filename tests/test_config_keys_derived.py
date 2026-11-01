@@ -91,28 +91,59 @@ def test_a_live_shape_keeps_the_hash_it_had_before_the_rename():
     assert live_shape_hash(new) == hashlib.sha256(json.dumps(old, sort_keys=True).encode()).hexdigest()[:8]
 
 
-def test_every_rule_key_has_its_constant_in_capitals_and_the_defaults_read_it():
-    """A constant is its key in capitals; a live default is LIVE_ + that (Niclas 2026-11-01: "Var noga med att följa
-    kodschemat: konsekvent, lätt att läsa och alla namn kan härledas"). Read from the source, so two constants
-    holding the same value cannot pass for each other."""
+def test_every_rule_key_has_its_constant_shared_or_by_book_and_the_defaults_read_it():
+    """A constant is its key in capitals; a value that belongs to one book carries the book's name (Niclas 2026-11-01:
+    "Var noga med att följa kodschemat: konsekvent, lätt att läsa och alla namn kan härledas"; "Skilj demo och live
+    genom boknamn"). Either every book shares the constant or each book has its own, never both. Read from the
+    source, so two constants holding the same value cannot pass for each other."""
     import re
     from pathlib import Path
 
     from backend import config
+    from backend.gate.lock_codes import constant_name
     root = Path(__file__).resolve().parents[1]
-    pairs = {book: dict(re.findall(r'^\s+"(\w+)":\s+(\w+),$', (root / f"backend/{book}_config.py").read_text(), re.M))
-             for book in ("demo", "live")}
-    for k in (k for r in RULES for k in r.config_keys):
-        assert hasattr(config, k.upper()), k
-        assert pairs["demo"][k] == k.upper(), k
-        assert pairs["live"][k] in (k.upper(), "LIVE_" + k.upper()), k
-        if hasattr(config, "LIVE_" + k.upper()):
-            assert pairs["live"][k] == "LIVE_" + k.upper(), k
+    src = {book: (root / f"backend/{book}_config.py").read_text() for book in ("demo", "live")}
+    pairs = {book: dict(re.findall(r'^\s+"(\w+)":\s+(\w+),$', text, re.M)) for book, text in src.items()}
+    for r in RULES:
+        for k in r.config_keys:
+            kind = k.rsplit("_", 1)[1]
+            shared = constant_name(r.owner, r.name, kind)
+            own = {b: constant_name(r.owner, r.name, kind, b) for b in ("demo", "live")}
+            per_book = all(hasattr(config, n) for n in own.values())
+            assert hasattr(config, shared) != per_book, k
+            assert not any(hasattr(config, n) for n in own.values()) or per_book, k
+            assert pairs["demo"][k] == (own["demo"] if per_book else shared), k
+            if k == "l0_portfolio_loss_cap_max":    # live's is a share of equity; its stored key the dollar product
+                assert '"l0_portfolio_loss_cap_max":' in src["live"]
+                assert "round(LIVE_L0_PORTFOLIO_LOSS_CAP_MAX * LIVE_STARTING_BALANCE, 2)" in src["live"]
+            else:
+                assert pairs["live"][k] == (own["live"] if per_book else shared), k
+
+
+def test_the_l0_rules_without_a_config_key_name_their_constants_by_rule_and_book():
+    from backend import config
+    from backend.gate import l0_portfolio
+    from backend.gate.lock_codes import constant_name
+    names = {constant_name(0, "halt_m4_drawdown", "max", "live"): 0.06,
+             constant_name(0, "loss_cap", "max", "live"): 0.05,
+             constant_name(0, "halt_m4_expectancy", "count", "live"): 40}
+    assert names == {"LIVE_L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX": 0.06, "LIVE_L0_PORTFOLIO_LOSS_CAP_MAX": 0.05,
+                     "LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT": 40}
+    for n, v in names.items():
+        assert getattr(config, n) == v and getattr(l0_portfolio, n) == v
+    ref = constant_name(0, "halt_m4_expectancy", "ref", "live")
+    assert getattr(config, ref)["n"] == 34 and getattr(l0_portfolio, ref) is getattr(config, ref)
 
 
 def test_no_constant_keeps_a_pre_phase_3_name():
     from backend import config
     old = [n.upper() for n in LEGACY_KEYS] + ["LOCK3_MAX_DRAWDOWN_PCT", "MACRO_VIX_THRESHOLD",
-                                              "MACRO_EVENT_BLACKOUT_DAYS", "MACRO_EARNINGS_BLACKOUT_DAYS"]
+                                              "MACRO_EVENT_BLACKOUT_DAYS", "MACRO_EARNINGS_BLACKOUT_DAYS",
+                                              "M4_DRAWDOWN_PCT", "M4_DAILY_LOSS_CAP_PCT", "M4_EXPECTANCY_N",
+                                              "M4_EXPECTANCY_REF"]
     for n in old:
         assert not hasattr(config, n) and not hasattr(config, "LIVE_" + n), n
+    from backend import db
+    from backend.backtest import live_shape
+    assert hasattr(db, "get_l3_score_candidates") and not hasattr(db, "get_lock1_candidates")
+    assert not hasattr(live_shape, "DAILY_LOSS_CAP_PCT")

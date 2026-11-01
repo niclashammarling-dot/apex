@@ -8,11 +8,11 @@ go-criterion line; apex audit/QUESTIONS.md G7/M4). The three rules are portfolio
 answer is the same for every ticker, so they stop the cycle instead of filtering candidates.
 
   1. Drawdown: realised equity (starting balance + closed P&L of the canonical live sample) has
-     fallen M4_DRAWDOWN_PCT or more from its peak  → "halt_m4_drawdown".
-  2. Daily loss cap as a share of current equity (M4_DAILY_LOSS_CAP_PCT × broker equity); replaces
+     fallen LIVE_L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX or more from its peak  → "halt_m4_drawdown".
+  2. Daily loss cap as a share of current equity (LIVE_L0_PORTFOLIO_LOSS_CAP_MAX × broker equity); replaces
      the fixed-dollar cap  → "loss_cap" (the reason the dashboard and CHECKs already read).
-  3. Expectancy: once M4_EXPECTANCY_N in-session trades have closed after the reference was frozen,
-     their mean return on notional below the reference's one-sided 95 % lower bound
+  3. Expectancy: once LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT in-session trades have closed after the
+     reference was frozen, their mean return on notional below the reference's one-sided 95 % lower bound
      → "halt_m4_expectancy".
 
 A halt holds until the condition clears (rules 1 and 3 do not clear on their own: realised equity
@@ -23,10 +23,10 @@ from __future__ import annotations
 import math
 
 from backend.config import (
-    M4_DAILY_LOSS_CAP_PCT,
-    M4_DRAWDOWN_PCT,
-    M4_EXPECTANCY_N,
-    M4_EXPECTANCY_REF,
+    LIVE_L0_PORTFOLIO_LOSS_CAP_MAX,
+    LIVE_L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX,
+    LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT,
+    LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_REF,
 )
 
 HALT_DRAWDOWN = "halt_m4_drawdown"
@@ -51,19 +51,20 @@ def realised_drawdown(rows: list[dict], starting_balance: float) -> dict:
 
 
 def l0_portfolio_loss_cap_max(equity: float) -> float:
-    return float(equity) * M4_DAILY_LOSS_CAP_PCT
+    return float(equity) * LIVE_L0_PORTFOLIO_LOSS_CAP_MAX
 
 
 def expectancy(rows: list[dict]) -> dict:
     """In-session trades closed after the frozen reference, their mean return on notional, and the bound."""
-    ref = M4_EXPECTANCY_REF
+    ref = LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_REF
     after = [r for r in _closed(rows) if r.get("signal_class") == "in_session"
              and r["exited_at"] > ref["frozen_after_exit"] and r.get("notional")]
     x = [float(r["pnl"] or 0.0) / float(r["notional"]) for r in after]
     bound = ref["mean"] - 1.645 * ref["sd"] / math.sqrt(ref["n"])
     mean = sum(x) / len(x) if x else None
-    return {"n": len(x), "needed": M4_EXPECTANCY_N, "mean": mean, "lower_bound": bound,
-            "breached": len(x) >= M4_EXPECTANCY_N and mean is not None and mean < bound}
+    n_min = LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT
+    return {"n": len(x), "needed": n_min, "mean": mean, "lower_bound": bound,
+            "breached": len(x) >= n_min and mean is not None and mean < bound}
 
 
 def evaluate(acct: dict, rows: list[dict], starting_balance: float) -> dict:
@@ -73,7 +74,7 @@ def evaluate(acct: dict, rows: list[dict], starting_balance: float) -> dict:
     day_loss = abs(min(float(acct["day_pnl"]), 0.0))
     exp = expectancy(rows)
     reason = None
-    if dd["drawdown"] >= M4_DRAWDOWN_PCT:
+    if dd["drawdown"] >= LIVE_L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX:
         reason = HALT_DRAWDOWN
     elif day_loss >= cap:
         reason = HALT_LOSS_CAP
@@ -85,11 +86,12 @@ def evaluate(acct: dict, rows: list[dict], starting_balance: float) -> dict:
 
 def rule_verdicts(v: dict) -> dict[str, str]:
     """Each M4 rule's verdict for the cycle, by its identifier (lock_codes.put maps it to L0's rule): every rule
-    runs every cycle; expectancy is no_data until its sample reaches M4_EXPECTANCY_N (lock labels phase 2)."""
+    runs every cycle; expectancy is no_data until its sample reaches LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT
+    (lock labels phase 2)."""
     from backend.gate.lock_codes import FAIL, NO_DATA, PASS
     exp = v["expectancy"]
     return {
-        HALT_DRAWDOWN:   FAIL if v["drawdown"]["drawdown"] >= M4_DRAWDOWN_PCT else PASS,
+        HALT_DRAWDOWN:   FAIL if v["drawdown"]["drawdown"] >= LIVE_L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX else PASS,
         HALT_LOSS_CAP:   FAIL if v["day_loss"] >= v["l0_portfolio_loss_cap_max"] else PASS,
         HALT_EXPECTANCY: FAIL if exp["breached"] else NO_DATA if exp["n"] < exp["needed"] else PASS,
     }

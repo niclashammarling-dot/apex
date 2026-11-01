@@ -39,7 +39,7 @@ from backend.backtest import ladder_2026_10 as ld
 from backend.backtest import s14_r1_vix_gate_2026_10 as s
 from backend.backtest.candidate_ledger_2026_10 import VIX_LEVEL
 from backend.backtest.exits_l3_m4_2026_10 import START_BALANCE
-from backend.config import M4_DRAWDOWN_PCT as M4_DD
+from backend.config import LIVE_L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX as M4_DD
 
 N_PROBE = 400                    # draws in the characterisation and in the null reference
 ALPHA = 0.025                    # one-sided, the bar the card's 95 % CI lower bound stands for

@@ -124,7 +124,7 @@ Every code the writers store must be recognized by all consumers. Since lock lab
 
 ### CHECK 26 — L1/L2 threshold-source parity
 Both L1 candidate selection and L2 quant gate must read sector thresholds from `ticker_thresholds` table, not static config.
-- Verify `gate_runner.py` and `gate_runner_live.py` both call `get_ticker_thresholds()` and pass the result as `sector_thresholds` to `get_lock1_candidates()`.
+- Verify `gate_runner.py` and `gate_runner_live.py` both call `get_ticker_thresholds()` and pass the result as `sector_thresholds` to `get_l3_score_candidates()`.
 - Verify `l3_score._sector_threshold()` calls `get_ticker_thresholds()`.
 - Flag any file that omits the call as CRITICAL — reversion to static config silently applies a single global threshold (0.70) instead of calibrated per-sector values (0.54–0.62), blocking all valid candidates.
 

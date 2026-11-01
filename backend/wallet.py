@@ -21,10 +21,10 @@ import yfinance as yf
 from loguru import logger
 
 from backend.config import (
-    L0_PORTFOLIO_LOSS_CAP_MAX,
+    DEMO_L0_PORTFOLIO_LOSS_CAP_MAX,
     MAX_POSITION_SIZE,
-    L2_RISK_MAX_POSITIONS_COUNT,
-    L2_RISK_SECTOR_CAP_MAX,
+    DEMO_L2_RISK_MAX_POSITIONS_COUNT,
+    DEMO_L2_RISK_SECTOR_CAP_MAX,
     STARTING_BALANCE,
 )
 from backend.db import (
@@ -75,9 +75,9 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
     portfolio = get_portfolio_summary()
 
     cfg = get_demo_config()
-    base_cap       = cfg.get("l2_risk_sector_cap_max", L2_RISK_SECTOR_CAP_MAX)
+    base_cap       = cfg.get("l2_risk_sector_cap_max", DEMO_L2_RISK_SECTOR_CAP_MAX)
     max_sector_exp = dynamic_caps.get(sector, base_cap) if dynamic_caps else base_cap
-    l2_risk_max_positions_count  = cfg.get("l2_risk_max_positions_count", L2_RISK_MAX_POSITIONS_COUNT)
+    l2_risk_max_positions_count  = cfg.get("l2_risk_max_positions_count", DEMO_L2_RISK_MAX_POSITIONS_COUNT)
 
     # Risk checks
     if not overflow and _check("max_positions", portfolio["open_position_count"] >= l2_risk_max_positions_count):
@@ -98,7 +98,7 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
 
     # Daily loss cap
     daily_loss     = _daily_realized_loss()
-    l0_portfolio_loss_cap_max = cfg.get("l0_portfolio_loss_cap_max", L0_PORTFOLIO_LOSS_CAP_MAX)
+    l0_portfolio_loss_cap_max = cfg.get("l0_portfolio_loss_cap_max", DEMO_L0_PORTFOLIO_LOSS_CAP_MAX)
     if _check("loss_cap", daily_loss >= l0_portfolio_loss_cap_max):
         logger.warning(f"Trade rejected [{ticker}]: daily loss cap hit (${daily_loss:.2f} >= ${l0_portfolio_loss_cap_max})")
         return None
