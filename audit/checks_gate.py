@@ -1657,9 +1657,14 @@ def check87() -> None:
       INFO      coverage: rows checked per book, and cycles/tickers refused as
                 stale (gate_cycles.stale_excluded) — the population behind a
                 clean result
-      INFO      observed half (not enforced, review 2026-10-17): rows whose
-                bar_date is not the session's, per book and sector, and how
-                many were entered; rows with no bar_date counted apart
+      WARNING   an entered row (TRADE_EXECUTED) on a non-session bar_date — 0 of
+                2,717 in-session rows at the 2026-10-18 read, so one entry is a
+                feed or bar-timing regression, routed to the Friday bundle
+                (Niclas 2026-11-01; INFO alone reached no reader)
+      INFO      observed half (enforcement dropped 2026-10-18, column kept for
+                observation): rows whose bar_date is not the session's, per
+                book and sector, and how many were entered; rows with no
+                bar_date counted apart
     Rows from before the columns existed (signal_ts NULL everywhere) are not
     evaluated. SKIPPED without apex.db.
     """
@@ -1734,6 +1739,12 @@ def check87() -> None:
         recorded = [r for r in rows if r["signal_ts"] is not None and r not in bad]
         no_bar = [r for r in recorded if r["bar_date"] is None]
         mism = [r for r in recorded if r["bar_date"] is not None and bar_date_mismatch(r["bar_date"], d)]
+        mism_entered = [r for r in mism if r["gate_decision"] == "TRADE_EXECUTED"]
+        if mism_entered:
+            flag(87, name, "WARNING", f"data/apex.db:{book}_gate_history",
+                 f"{d}: {len(mism_entered)} {book} entr(y/ies) decided on a non-session bar: "
+                 f"{', '.join(sorted({r['ticker'] for r in mism_entered})[:8])} — 0 at the 2026-10-18 read; "
+                 f"a feed or bar-timing change (backend/gate/freshness.py, ENFORCE_BAR_DATE)")
         by_sector: dict[str, list[int]] = {}
         for r in mism:
             v = by_sector.setdefault(r["sector"] or "?", [0, 0])
@@ -1748,7 +1759,7 @@ def check87() -> None:
     flag(87, name, "INFO", "data/apex.db:gate_cycles", f"{d}: " + "; ".join(coverage))
     if observed:
         flag(87, name, "INFO", "backend/gate/freshness.py:ENFORCE_BAR_DATE",
-             f"{d} bar_date observed, not enforced (review 2026-10-17): " + "; ".join(observed))
+             f"{d} bar_date observed, not enforced (dropped 2026-10-18; entries on a non-session bar warn): " + "; ".join(observed))
 
 
 # ── CHECK 88 — weekend bundle built ──────────────────────────────────────────
