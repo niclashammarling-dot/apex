@@ -3,6 +3,9 @@ Live trading API — endpoints for the Live tab.
 All data comes from Alpaca (account, positions, orders) plus the local
 live_gate_history table for gate feed history.
 """
+import json
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
 from loguru import logger
 
@@ -101,12 +104,31 @@ def live_equity(period: str = "1M"):
         raise HTTPException(status_code=502, detail=f"Alpaca error: {e}")
 
 
+FILL_RECONCILE = Path(__file__).parent.parent.parent / "data" / "fill_reconcile.json"
+
+
+def live_fees() -> dict:
+    """Broker fee activities since live_account_since, as audit/fill_reconcile.py last
+    wrote them (publish_state, each weekday night). Shown beside REALIZED, never netted
+    into it: no row's P&L holds them (CHECK 89, 2026-10-31). A missing or unreadable
+    file is a visible state, not a zero."""
+    try:
+        d = json.loads(FILL_RECONCILE.read_text())
+        return {"total": d["fees_total"], "days": d["fee_days"], "since": d["since"],
+                "as_of": d["generated_at"], "missing": None}
+    except (OSError, ValueError, KeyError) as e:
+        return {"total": None, "days": None, "since": None, "as_of": None,
+                "missing": f"data/fill_reconcile.json unreadable ({type(e).__name__}); "
+                           "audit/fill_reconcile.py writes it in publish_state"}
+
+
 @router.get("/stats")
 def live_stats():
     """Closed live-trade stats since the account reset, overall and per
-    signal_class — what the wallet panel renders (db.live_trade_stats)."""
+    signal_class — what the wallet panel renders (db.live_trade_stats) — plus
+    the broker fees the reconcile reports (live_fees)."""
     from backend.db import live_trade_stats
-    return live_trade_stats()
+    return {**live_trade_stats(), "fees": live_fees()}
 
 
 @router.get("/trades")

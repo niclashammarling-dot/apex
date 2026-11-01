@@ -132,6 +132,11 @@ function Wallet({ D, mode }) {
           <KV k="TRADES"     v={w.trades ?? 0} />
           {w.inSession && <KV k="IN-SESSION WR" v={`${((w.inSession.win_rate ?? 0) * 100).toFixed(0)}% · n ${w.inSession.trades}`} />}
           {w.inSession && <KV k="IN-SESSION PF" v={w.inSession.profit_factor != null ? w.inSession.profit_factor.toFixed(2) : "—"} />}
+          {w.fees && (
+            <div title={w.fees.missing ?? `Broker fee activities, ${w.fees.days} days since ${w.fees.since}; not in REALIZED; as of ${w.fees.as_of}`}>
+              <KV k="FEES" v={w.fees.total != null ? <span className="t-neg">{w.fees.total < 0 ? "−" : ""}{fmt$(w.fees.total)}</span> : "—"} />
+            </div>
+          )}
           {w.drawdown > 0 && <KV k="DRAWDOWN" v={<span className="t-neg">{fmtPct(-w.drawdown)}</span>} />}
           {w.sharpe > 0 && <KV k="SHARPE" v={w.sharpe.toFixed(2)} />}
         </div>

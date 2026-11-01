@@ -345,6 +345,7 @@ function adaptLiveWallet(account, livePositions, settings, equityPoints, liveSta
     avgLoss:    o.avg_loss ?? 0,
     inSession:  is,                // { trades, wins, win_rate, profit_factor, ... } or null
     statsSince: liveStats?.since ?? null,
+    fees:       liveStats?.fees ?? null,  // { total, days, since, as_of, missing }; not netted into realized
     drawdown:   _maxDD(equityPoints),
     sharpe:     0,
   };
