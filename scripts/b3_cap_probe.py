@@ -16,7 +16,10 @@ How the gate's open_count is rebuilt (each step was forced by a control miss on 
   - Inside a cycle the serial phase runs in score order (`gate_runner_live.py:613`), not row-timestamp
     order (09-29 14:53 UTC: KLAC executed before LRCX, whose row is 4 s older). A row's open_count is the
     broker snapshot at the cycle's first row plus the executions in that cycle with a higher score.
-    pre_rotation candidates sort first; they are not modelled (rare), so a control miss would show it.
+    Pre-rotation candidates execute after every regular one, whatever their score (`ad1b134`: "Regular
+    (confirmed) candidates always execute before pre-rotation candidates"). They are not modelled:
+    live_gate_history does not store the flag, and the logs add them often (430 lines since 2026-10-07), so
+    a slot in a cycle where one executed can be off by one. The cap controls below still hold.
   - FILL history starts at the 2026-07-07 paper reset (first fill 17:56 UTC); rows before it are
     unevaluable, reported, never counted as zero.
 max_positions: 8, then 9 from 916613c (2026-09-30 04:54 UTC). The file is written at runtime, so git alone
