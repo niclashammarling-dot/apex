@@ -50,6 +50,7 @@ SINCE = "2026-07-07"                      # live_config live_account_since (asse
 MAX_POS_BEFORE = 8
 MAX_POS_CHANGES = [(datetime(2026, 9, 30, 4, 54, 57, tzinfo=timezone.utc), 9)]   # 916613c
 ET = ZoneInfo("America/New_York")
+WHY = "raw/notes/2026-11/2026-11-02-apex-saturday-scopes-11-07.md"   # vault scope this probe answers (producer block, vault DATA-PROVENANCE)
 LIVE_SAMPLE = ("live_sample: closed live_trades with timestamp >= live_account_since, "
                "exit_confidence != 'unverified', not annotated")   # backend/db.py LIVE_SAMPLE, copied
 
@@ -228,7 +229,9 @@ def main(out: str) -> int:
 
     commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True,
                             text=True).stdout.strip()
-    result = {"producer": {"repo": "apex", "commit": commit, "script": "scripts/b3_cap_probe.py",
+    run = " ".join([".venv/bin/python", "-u", "scripts/b3_cap_probe.py", *sys.argv[1:]])
+    result = {"producer": {"repo": "apex", "commit": commit, "script": "scripts/b3_cap_probe.py", "run": run,
+                           "why": WHY,
                            "run_at": datetime.now(timezone.utc).isoformat(), "db": "data/apex.db (mode=ro)",
                            "broker": "Alpaca FILL activities + positions (GET)", "sample": LIVE_SAMPLE,
                            "since": SINCE, "max_positions": "8, then 9 from 2026-09-30T04:54:57Z (916613c)"},

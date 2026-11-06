@@ -10,12 +10,15 @@ GET only; writes only OUT.json. Usage:
   .venv/bin/python -u scripts/fill_activity_probe.py OUT.json TICKER AFTER_ISO [BARS_FROM_ISO BARS_TO_ISO]
 """
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# Vault note this run answers (producer block, vault DATA-PROVENANCE); APEX_PROBE_WHY overrides it per run.
+WHY = "raw/notes/2026-11/2026-11-02-apex-saturday-scopes-11-07.md"
 sys.path.insert(0, str(ROOT))           # backend.* imports when run as scripts/fill_activity_probe.py
 
 
@@ -43,7 +46,9 @@ def main(out: str, ticker: str, after: str, bars_from: str | None = None, bars_t
                 for b in client.get_stock_bars(req).data.get(ticker, [])]
     commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True,
                             text=True).stdout.strip()
-    result = {"producer": {"repo": "apex", "commit": commit, "script": "scripts/fill_activity_probe.py",
+    run = " ".join([".venv/bin/python", "-u", "scripts/fill_activity_probe.py", *sys.argv[1:]])
+    result = {"producer": {"repo": "apex", "commit": commit, "script": "scripts/fill_activity_probe.py", "run": run,
+                           "why": os.environ.get("APEX_PROBE_WHY", WHY),
                            "run_at": datetime.now(timezone.utc).isoformat(),
                            "args": [ticker, after, bars_from, bars_to],
                            "source": "Alpaca /account/activities/FILL (GET) + minute bars (GET)"},
