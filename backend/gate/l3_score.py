@@ -32,6 +32,7 @@ def evaluate(
     signal_score:      float,
     on_watchlist:      bool       = False,
     sector_thresholds: dict | None = None,
+    fallback:          float | None = None,
 ) -> LockResult:
     """
     Evaluate whether the ticker's signal score clears the quant threshold.
@@ -45,7 +46,7 @@ def evaluate(
     Returns:
         LockResult with lock_id=3
     """
-    threshold = _sector_threshold(sector, sector_thresholds)
+    threshold = _sector_threshold(sector, sector_thresholds, fallback)
 
     if on_watchlist:
         effective_threshold = round(threshold * (1.0 - WATCHLIST_DISCOUNT), 4)
@@ -88,18 +89,23 @@ def evaluate(
 
 # ── Private helpers ───────────────────────────────────────────────────────────
 
-def _sector_threshold(sector: str, sector_thresholds: dict | None = None) -> float:
+def _sector_threshold(sector: str, sector_thresholds: dict | None = None, fallback: float | None = None) -> float:
     """
     Return the sector-specific L3 SCORE threshold. Uses the calibrated
     ticker_thresholds table as the base, then applies SECTOR_THRESHOLD_FLOORS
     as a floor so sweep-validated minimums survive recalibration runs.
-    Falls back to DEMO_L3_SCORE_THRESHOLD_MIN if the sector has no calibrated entry.
+    A sector with no calibrated entry, or an empty or unreadable table, falls back to `fallback`: the book's
+    l3_score_threshold_min, passed by the chain from the runner's config, as the pre-filter
+    (db.get_l3_score_candidates) already does (2026-11-07; until then this read DEMO_L3_SCORE_THRESHOLD_MIN 0.70
+    in both books, so in live an uncalibrated sector passed the pre-filter at 0.65 and stopped at L3 at 0.70).
+    Without a fallback (callers outside the chain) the constant stays.
 
     sector_thresholds: pre-fetched dict from the runner (eliminates a DB read
     per ticker per cycle). Falls back to a live DB fetch when None.
     """
+    default = DEMO_L3_SCORE_THRESHOLD_MIN if fallback is None else fallback
     if sector_thresholds is not None:
-        base = float(sector_thresholds.get(sector, DEMO_L3_SCORE_THRESHOLD_MIN))
+        base = float(sector_thresholds.get(sector, default))
     else:
         try:
             from backend.db import get_ticker_thresholds
@@ -107,15 +113,15 @@ def _sector_threshold(sector: str, sector_thresholds: dict | None = None) -> flo
             if not thresholds:
                 logger.warning(
                     f"L3 SCORE [{sector}]: get_ticker_thresholds() returned empty — "
-                    f"falling back to DEMO_L3_SCORE_THRESHOLD_MIN {DEMO_L3_SCORE_THRESHOLD_MIN}. "
+                    f"falling back to the book's threshold {default}. "
                     "Calibration race or DB read failure."
                 )
-            base = float(thresholds.get(sector, DEMO_L3_SCORE_THRESHOLD_MIN))
+            base = float(thresholds.get(sector, default))
         except Exception as exc:
             logger.warning(
                 f"L3 SCORE [{sector}]: get_ticker_thresholds() raised {exc!r} — "
-                f"falling back to DEMO_L3_SCORE_THRESHOLD_MIN {DEMO_L3_SCORE_THRESHOLD_MIN}."
+                f"falling back to the book's threshold {default}."
             )
-            base = float(DEMO_L3_SCORE_THRESHOLD_MIN)
+            base = float(default)
     floor = SECTOR_THRESHOLD_FLOORS.get(sector)
     return max(base, floor) if floor is not None else base

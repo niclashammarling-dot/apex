@@ -713,8 +713,10 @@ _C74_REVIEWED: dict[str, tuple[str, str, str]] = {
         "L0 loss-cap tests gained equity and starting_balance mocks (no date change); re-reviewed 2026-10-31 after "
         "the corroborated-exit test stubbed _current_price (Finding 5 Yahoo guard; no date change); re-reviewed "
         "2026-10-31 after the config mocks took the phase 3 key names (no date change); re-reviewed 2026-11-01 "
-        "after the L0 constant and the candidate query took their derived names (no date change)", "2027-04-10",
-        "01bc103798563b4a"),
+        "after the L0 constant and the candidate query took their derived names (no date change); re-reviewed 2026-11-07 "
+        "after the orphan-sweep recency tests (fill and submission times 2026-07-01..11-03 compared only with each "
+        "other: cancel_orphan_brackets reads no clock)", "2027-04-10",
+        "3c0b748e791c03e4"),
     "tests/test_entry_fill.py": (
         "reviewed 2026-10-13: exit-check entries are an hour before now (_open_trade default); the fixed "
         "dates are fill timestamps and CHECK 89 entries read with a fixed now; re-reviewed 2026-10-31 after the "

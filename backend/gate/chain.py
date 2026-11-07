@@ -159,7 +159,7 @@ def evaluate_chain(
 
     # ── L3 SCORE ──────────────────────────────────────────────────────────────
     l3 = l3_score_evaluate(ticker, sector, signal_score, on_watchlist=on_watchlist,
-                           sector_thresholds=sector_thresholds)
+                           sector_thresholds=sector_thresholds, fallback=cfg.get("l3_score_threshold_min"))
     lock_results[3] = l3
     states.update(_score_states(l1, l3, unpenalised_score))
     if not l3.passed:
@@ -182,7 +182,8 @@ def evaluate_chain(
     # L2 RISK's ETF re-test (l2_risk.check_etf), after L5 POSITIONING as it always ran.
     etf_key = lock_codes.rule_key(2, "etf")
     states[etf_key], signal_score, etf_fail = l2_risk.check_etf(
-        ticker, signal_score, l5.data, cfg, lambda: _sector_threshold(sector, sector_thresholds))
+        ticker, signal_score, l5.data, cfg, lambda: _sector_threshold(sector, sector_thresholds,
+                                                               cfg.get("l3_score_threshold_min")))
     if etf_fail:
         return _chain_fail(ticker, sector, lock_results, l5, reason=etf_fail, states=states)
 

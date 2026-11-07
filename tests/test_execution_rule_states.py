@@ -217,3 +217,24 @@ def test_the_live_sector_cap_and_overflow_are_recorded():
     held = [{"ticker": "AAPL", "cost_basis": 100.0}]
     results, _ = _run_live(positions=held, cfg_overrides={"l2_risk_max_positions_count": 1})   # NVDA 0.65 ≥ 0.5 × 1.05
     assert results[0]["rule_states"][K(2, "overflow")] == PASS and results[0]["outcome"] == "TRADE_EXECUTED"
+
+
+def test_each_order_in_a_cycle_is_sized_off_the_cash_the_earlier_orders_left():
+    # Codebase audit 2026-11-02 finding 2: 10-15 placed COP and CVX at an identical $1,058.39 off the cycle-start
+    # cash. With cash reduced per order, n2 = n1 × (1 - p) and n3 = n2 × (1 - p), p the share of cash per order.
+    from tests.test_gate_runners import _live_patches, _signal
+    cands = [_signal(ticker=t, sector=s, score=sc, sid=i)
+             for i, (t, s, sc) in enumerate([("AAA", "Technology", 0.70), ("BBB", "Healthcare", 0.68),
+                                             ("CCC", "Energy", 0.66)], 1)]
+    with ExitStack() as st:
+        mocks = [st.enter_context(p) for p in _live_patches(candidates=cands, cfg_overrides={
+            "l2_risk_sector_cap_max": 1.0})]
+        from backend.gate import gate_runner_live
+        results = gate_runner_live.run()
+    assert [r["outcome"] for r in results] == ["TRADE_EXECUTED"] * 3
+    n1, n2, n3 = (c.kwargs["notional"] for c in mocks[14].call_args_list)
+    cash = mocks[12].return_value
+    cash = max(0.0, min(cash["equity"], cash["cash"]))
+    p = n1 / cash
+    assert 0 < p < 1
+    assert n2 == pytest.approx(n1 * (1 - p)) and n3 == pytest.approx(n2 * (1 - p))

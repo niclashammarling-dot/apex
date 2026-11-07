@@ -707,9 +707,9 @@ def calibrate_ticker_thresholds():
 @router.get("/calibrate/ticker-thresholds")
 def get_ticker_thresholds():
     """Return currently active per-sector thresholds. `default_fallback` is sector_regime's default
-    for a sector with no calibrated row, not the score lock's fallback (l3_score falls back to
-    DEMO_L3_SCORE_THRESHOLD_MIN, the pre-filter to the config's l3_score_threshold_min): three defaults, unified in lock
-    labels phase 3. None bites while every sector is calibrated (15 of 15 on 2026-10-28)."""
+    for a sector with no calibrated row, not the score lock's fallback: the L3 lock and the pre-filter both fall back
+    to the book's l3_score_threshold_min (one default per book since 2026-11-07; until then L3 read
+    DEMO_L3_SCORE_THRESHOLD_MIN in both books). Neither bites while every sector is calibrated (15 of 15 on 11-07)."""
     from backend.db import get_ticker_thresholds
     from backend.sector_regime import TICKER_THRESHOLD_DEFAULT
     thresholds = get_ticker_thresholds()
