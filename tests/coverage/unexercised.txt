@@ -63,7 +63,6 @@ audit/checks_gate.py::check53	money
 audit/checks_gate.py::check64	money
 audit/checks_gate.py::check81	money
 audit/checks_gate.py::check81.<locals>._cause	money
-audit/checks_gate.py::run	money
 audit/checks_sector.py::check27	money
 audit/checks_sector.py::check36	money
 audit/checks_sector.py::check41	money

@@ -463,6 +463,9 @@ def init_db() -> None:
         _add_column_if_missing(conn, "live_gate_history", "l5_positioning_checks", "TEXT")
         # Trailing stop — peak price tracking
         _add_column_if_missing(conn, "trades",      "peak_price", "REAL")
+        # Demo exit catch-up (2026-11-07): when the exit check last evaluated this trade with a price; a skipped
+        # check leaves it, so its age is the skip signal (CHECK 97) and the gap the catch-up walks bars over.
+        _add_column_if_missing(conn, "trades",      "exits_checked_at", "TEXT")
         _add_column_if_missing(conn, "live_trades", "peak_price", "REAL")
         conn.execute("""
             UPDATE live_trades SET peak_price = entry_price
@@ -920,6 +923,15 @@ def update_trade_peak_price(trade_id: int, peak_price: float) -> None:
     conn = get_db()
     try:
         conn.execute("UPDATE trades SET peak_price = ? WHERE id = ?", (peak_price, trade_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_trade_exits_checked(trade_id: int, at: str) -> None:
+    conn = get_db()
+    try:
+        conn.execute("UPDATE trades SET exits_checked_at = ? WHERE id = ?", (at, trade_id))
         conn.commit()
     finally:
         conn.close()

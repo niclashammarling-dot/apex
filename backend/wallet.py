@@ -21,6 +21,7 @@ import yfinance as yf
 from loguru import logger
 
 from backend.config import (
+    EXIT_CHECK_INTERVAL,
     DEMO_L0_PORTFOLIO_LOSS_CAP_MAX,
     DEMO_MAX_POSITION_SIZE,
     DEMO_L2_RISK_MAX_POSITIONS_COUNT,
@@ -33,6 +34,7 @@ from backend.db import (
     get_portfolio_summary,
     get_sector_score,
     insert_trade,
+    set_trade_exits_checked,
     update_trade_peak_price,
 )
 from backend.demo_config import get_demo_config
@@ -181,15 +183,36 @@ def check_exits() -> list[dict]:
         current     = current_prices.get(ticker)
 
         if current is None:
-            # TODO(bundle 2026-10-13): demo exit checks skipped 9 ticker-cycles on 2026-10-12 (21:16 and 21:21 CEST, yfinance "possibly delisted; no price data" for AAPL/LLY/TT/PWR/AVGO/V), 0 on 10-06..10-09 — a skipped cycle cannot fire a stop — scope: decide a fallback quote (Alpaca latest trade, as the live tracker can) or a rate consumer (count skips per session into the audit; WARNING when a ticker misses N consecutive cycles); check whether live _current_price has the same silent-skip shape
+            # A skipped check cannot fire a stop (10-12: yfinance "no price data", 6 tickers, 2 cycles; 10-22: a DNS
+            # outage, every demo position about 21 cycles). exits_checked_at stays where it was: CHECK 97 reads its
+            # age, and the next check with a price walks the 5-minute bars of the gap (_catch_up).
             logger.warning(f"Exit check [{ticker}]: could not fetch price — skipping")
             continue
 
         # Update peak price
         peak = trade.get("peak_price") or entry_price
+
+        caught = _catch_up(trade, peak, tp_pct, sl_pct, trigger_pct, lock_trail)
+        if caught is not None:
+            peak = max(peak, caught["peak"])
+            if caught["peak"] > (trade.get("peak_price") or entry_price):
+                update_trade_peak_price(trade["id"], caught["peak"])
+            if caught["exit"]:
+                ex = caught["exit"]
+                pnl_pct = (ex["price"] - entry_price) / entry_price
+                pnl = trade["amount"] * pnl_pct
+                close_trade(trade_id=trade["id"], price_exit=ex["price"], pnl=pnl, outcome=ex["outcome"],
+                            exit_reason=ex["reason"], exited_at=ex["at"])
+                logger.warning(f"Exit [{ticker}]: {ex['reason']} caught up from the 5-minute bars of a missed "
+                               f"interval at {ex['at']} — exit=${ex['price']:.2f} pnl={pnl:+.2f} ({pnl_pct:+.1%})")
+                closed.append({"ticker": ticker, "outcome": ex["outcome"], "exit_reason": ex["reason"],
+                               "pnl": pnl, "pnl_pct": pnl_pct})
+                continue
+
         if current > peak:
             peak = current
             update_trade_peak_price(trade["id"], peak)
+        set_trade_exits_checked(trade["id"], datetime.now(timezone.utc).isoformat())
 
         pnl_pct = (current - entry_price) / entry_price
 
@@ -436,6 +459,71 @@ def _ticker_consecutive_down_days(ticker: str, n: int) -> bool:
         return len(returns) >= n and all(r < 0 for r in returns[-n:])
     except Exception:
         return False
+
+
+# Demo exit catch-up (2026-11-07; vault scope raw/notes/2026-10/2026-10-31-apex-saturday-scopes.md § 1, option (a),
+# Niclas 2026-10-31: "bygg ikappkörning. Scope först"). A gap above 1.5 exit cycles since the last check with a price
+# is walked over its 5-minute bars, so a stop or target touched while no price could be read still fires, at its level
+# and time. Live's stops rest at the broker; this is the demo book's equivalent.
+CATCH_UP_GAP_MIN = 1.5 * EXIT_CHECK_INTERVAL
+
+
+def _bars_since(ticker: str, since: datetime) -> list[dict] | None:
+    """5-minute bars (ts, open, high, low) after `since`, oldest first; None when they cannot be read."""
+    try:
+        df = yf.download(ticker, start=since.date().isoformat(), interval="5m", auto_adjust=True, progress=False)
+        if df is None or df.empty:
+            return None
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        out = []
+        for ts, row in df.iterrows():
+            t = ts.to_pydatetime()
+            t = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+            if t > since and not any(pd.isna(row[c]) for c in ("Open", "High", "Low")):
+                out.append({"ts": t.isoformat(), "open": float(row["Open"]), "high": float(row["High"]),
+                            "low": float(row["Low"])})
+        return out
+    except Exception as e:
+        logger.warning(f"Exit catch-up [{ticker}]: 5-minute bars unavailable — {e}")
+        return None
+
+
+def _walk_bars(entry: float, peak: float, bars: list[dict], tp_pct: float, sl_pct: float,
+               trigger_pct: float | None, lock_trail: float | None) -> dict:
+    """The first bar that reaches a stop or the target decides, in order. A stop (the higher of SL and an armed
+    profit-lock trail) is checked before the target, so a bar reaching both closes at the stop; the fill is the level,
+    or the bar's open when it gapped through. Peak moves to each bar's high after that bar is checked, so a bar cannot
+    arm the trail against itself. Returns {"exit": {reason, outcome, price, at} | None, "peak": the walked peak}."""
+    sl_level, tp_level = entry * (1 - sl_pct), entry * (1 + tp_pct)
+    for b in bars:
+        armed = bool(trigger_pct and lock_trail and (peak - entry) / entry >= trigger_pct)
+        stop, reason = (peak * (1 - lock_trail), "TSL") if armed and peak * (1 - lock_trail) > sl_level else (sl_level, "SL")
+        if b["low"] <= stop:
+            price = min(b["open"], stop)
+            outcome = "LOSS" if reason == "SL" or price < entry else "WIN"
+            return {"exit": {"reason": reason, "outcome": outcome, "price": price, "at": b["ts"]}, "peak": peak}
+        if b["high"] >= tp_level:
+            return {"exit": {"reason": "TP", "outcome": "WIN", "price": max(b["open"], tp_level), "at": b["ts"]},
+                    "peak": max(peak, b["high"])}
+        peak = max(peak, b["high"])
+    return {"exit": None, "peak": peak}
+
+
+def _catch_up(trade: dict, peak: float, tp_pct: float, sl_pct: float, trigger_pct, lock_trail) -> dict | None:
+    """Walk the missed interval when the last check with a price is more than CATCH_UP_GAP_MIN old; None when there
+    is no gap (or no stamp yet). Unreadable bars are a visible warning and leave the current-price check to decide."""
+    checked = trade.get("exits_checked_at")
+    if not checked:
+        return None
+    since = datetime.fromisoformat(checked)
+    if (datetime.now(timezone.utc) - since).total_seconds() / 60 <= CATCH_UP_GAP_MIN:
+        return None
+    bars = _bars_since(trade["ticker"], since)
+    if bars is None:
+        logger.warning(f"Exit catch-up [{trade['ticker']}]: gap since {checked} not walked (no bars)")
+        return None
+    return _walk_bars(trade["price"], peak, bars, tp_pct, sl_pct, trigger_pct, lock_trail)
 
 
 def _batch_prices(tickers: list[str]) -> dict[str, float]:

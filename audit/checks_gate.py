@@ -1424,6 +1424,59 @@ def check96() -> None:
                  f"08:45 watcher) ran late or not at all; read the task's trigger against the day's DST regime")
 
 
+_C97_CYCLES = 3   # missed exit cycles before an open demo trade counts as unwatched
+
+
+def check97(now=None) -> None:
+    """
+    CHECK 97 — Demo exit checks kept up (2026-11-07, the rate count beside the demo exit catch-up; vault scope
+    raw/notes/2026-10/2026-10-31-apex-saturday-scopes.md § 1, options (a) + (c)).
+
+    A skipped exit check cannot fire a stop: 10-12 (yfinance "no price data", 6 tickers, 2 cycles) and 10-22 (a DNS
+    outage, every demo position about 21 cycles, about 2.5 h). wallet.check_exits stamps trades.exits_checked_at only
+    when it evaluated the trade with a price, and the next check walks the gap's 5-minute bars (wallet._catch_up).
+    This check reads the stamp: on a session day, an open demo trade whose last priced check is more than
+    _C97_CYCLES exit cycles older than the session's last (or the current) check time is WARNING, naming when its
+    checks stopped. A trade opened after that horizon is skipped. Before the first priced check after the build the
+    stamp is NULL and reads "never stamped". SKIPPED without apex.db; silent on a non-session day.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from backend.config import EXIT_CHECK_INTERVAL
+    from backend.scheduler import _nyse_session_bounds
+    name = "Demo exit checks kept up"
+    db = REPO / "data/apex.db"
+    if not require_data_file(97, name, db):
+        return
+    now = now or datetime.now(timezone.utc)
+    from zoneinfo import ZoneInfo
+    bounds = _nyse_session_bounds(now.astimezone(ZoneInfo("America/New_York")).date().isoformat())
+    if bounds is None:
+        return
+    s_open, s_close = (b.astimezone(timezone.utc) for b in bounds)
+    horizon = min(now, s_close) - timedelta(minutes=_C97_CYCLES * EXIT_CHECK_INTERVAL)
+    if horizon <= s_open:
+        return
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(trades)")}
+        if "exits_checked_at" not in cols:
+            flag(97, name, "WARNING", "data/apex.db:trades", "trades.exits_checked_at missing — the exit check's "
+                 "stamp is not written here (database not migrated by init_db)")
+            return
+        rows = conn.execute("SELECT id, ticker, timestamp, exits_checked_at FROM trades WHERE outcome = 'OPEN'").fetchall()
+    finally:
+        conn.close()
+    for tid, ticker, opened, checked in rows:
+        if datetime.fromisoformat(opened).astimezone(timezone.utc) > horizon:
+            continue
+        if checked is None or datetime.fromisoformat(checked) < horizon:
+            flag(97, name, "WARNING", f"data/apex.db:trades:{tid}",
+                 f"demo {ticker}: no exit check with a price since {checked or 'never stamped'} — more than "
+                 f"{_C97_CYCLES} cycles before {min(now, s_close).isoformat(timespec='minutes')}; a stop could not "
+                 f"fire meanwhile (the next priced check walks the gap's 5-minute bars)")
+
+
 _C83_DAYS      = 3    # trailing days read
 _C83_MIN_GAP   = 15   # minutes; two cycle starts closer than this cannot be one 20-min scheduler
 
@@ -2361,3 +2414,4 @@ def run() -> None:
     check93()
     check94()
     check96()
+    check97()

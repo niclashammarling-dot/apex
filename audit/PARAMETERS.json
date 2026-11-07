@@ -1331,6 +1331,14 @@
       "kind": "structural",
       "tier": "money",
       "source": "Alpaca prices stop legs to the cent (0.01), so a leg at the trade's expected stop matches within half a cent; CHECK 92's fill-pending branch (2026-11-07, OXY 11-04)."
+    },
+    "audit/checks_gate.py::_C97_CYCLES": {
+      "value": 3,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "Claude 2026-11-07, CHECK 97: three missed 5-minute exit cycles (15 min) before an open demo trade counts as unwatched; one or two can be a slow fetch. Vault raw/notes/2026-10/2026-10-31-apex-saturday-scopes.md § 1.",
+      "date": "2026-11-07",
+      "review": "2026-11-21"
     }
   }
 }
