@@ -119,3 +119,39 @@ def test_svg_paths_and_comments_are_not_lock_numbers(tmp_path, monkeypatch):
     cg, core = _setup(tmp_path, monkeypatch, TABLE_DRIVEN, NOT_LOCKS)
     cg.check54()
     assert _found(core, 54) == []
+
+
+def test_d_a_key_that_does_not_derive_is_flagged(tmp_path, monkeypatch):
+    # D, positive control from the plan: an injected lock2_foo key.
+    cg, core = _setup(tmp_path, monkeypatch, TABLE_DRIVEN, TABLE_DRIVEN)
+    r0 = lock_codes.RULES[0]
+    bad = dataclasses.replace(r0, config_keys=r0.config_keys + ("lock2_foo",))
+    monkeypatch.setattr(lock_codes, "RULES", (bad,) + lock_codes.RULES[1:])
+    cg.check54()
+    assert any(m.startswith("config key lock2_foo does not derive from its rule") for m in _found(core, 54))
+
+
+def test_d_today_s_keys_and_a_fresh_schema_are_clean(tmp_path, monkeypatch):
+    import shutil
+
+    import backend.db as db
+    cg, core = _setup(tmp_path, monkeypatch, TABLE_DRIVEN, TABLE_DRIVEN)
+    (tmp_path / "repo/data").mkdir()
+    shutil.copy(db.DB_PATH, tmp_path / "repo/data/apex.db")   # conftest's temp DB, built by today's init_db()
+    cg.check54()
+    assert _found(core, 54) == []
+
+
+def test_d_an_old_column_in_the_database_is_flagged(tmp_path, monkeypatch):
+    # The production shape before the rename: lock3_pass (L6's flag under Lock 3) and l2_summary (L4's under L2).
+    import sqlite3
+    cg, core = _setup(tmp_path, monkeypatch, TABLE_DRIVEN, TABLE_DRIVEN)
+    (tmp_path / "repo/data").mkdir()
+    conn = sqlite3.connect(tmp_path / "repo/data/apex.db")
+    conn.execute("CREATE TABLE live_gate_history (id INTEGER, ticker TEXT, lock3_pass INTEGER, l2_summary TEXT, "
+                 "l5_positioning_checks TEXT, earnings_near INTEGER)")
+    conn.commit()
+    conn.close()
+    cg.check54()
+    out = [m for m in _found(core, 54) if m.startswith("column ")]
+    assert sorted(m.split()[1] for m in out) == ["l2_summary", "lock3_pass"]

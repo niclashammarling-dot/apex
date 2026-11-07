@@ -594,6 +594,12 @@ def check54() -> None:
          synas rätt överallt. Det gäller också dashboard, funnel och gate activity"): the funnel
          title said "5-LOCK", and Sector Rotation and the Backtest panel called the score threshold
          "L1 threshold"; none was in the two files C read.
+      D. every gate name parses to its lock (lock labels phase 3, 2026-11-07; the 10-29 mechanism): each rule's
+         config keys are rule_key(owner, rule) plus one word of KEY_KINDS, and every column of the gate tables in
+         the running database that claims a lock (prefix l<n>_ or lock) is l<n>_<lock>_<what> for a lock of the
+         chain. The modules are part A's. Found by the phase 3 census: `lock1_threshold` was L3's, `l2_summary` L4's,
+         `lock3_reasoning` every lock's reason; nothing read a name back to its lock. The columns are read from
+         data/apex.db (SKIPPED without it), so the check also shows whether the column rename ran there.
     """
     from backend.gate import lock_codes
 
@@ -618,6 +624,31 @@ def check54() -> None:
         elif lock_id is not None and lock_id != n:
             flag(54, "gate funnel label/lock semantic parity", "WARNING", f"backend/gate/{name}",
                  f"module {name} returns lock_id {lock_id}, not its own lock {n}")
+
+    for r in lock_codes.RULES:
+        if r.owner not in lock_codes.LOCKS:      # part A flags the owner; no key can derive from it
+            continue
+        stem = lock_codes.rule_key(r.owner, r.name).lower() + "_"
+        for k in r.config_keys:
+            if not (k.startswith(stem) and k[len(stem):] in lock_codes.KEY_KINDS):
+                flag(54, "gate funnel label/lock semantic parity", "WARNING", "backend/gate/lock_codes.py:RULES",
+                     f"config key {k} does not derive from its rule: expected {stem}<{'|'.join(lock_codes.KEY_KINDS)}>")
+    db = REPO / "data/apex.db"
+    if require_data_file(54, "gate funnel label/lock semantic parity", db):
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+            for table in ("live_gate_history", "demo_gate_history", "signals"):
+                if table not in tables:
+                    continue
+                for col in (r[1] for r in conn.execute(f"PRAGMA table_info({table})")):
+                    m = re.match(r"l([0-9])_([a-z]+)_", col)
+                    owns = m and int(m[1]) in lock_codes.LOCKS and lock_codes.LOCKS[int(m[1])][0].lower() == m[2]
+                    if col.startswith("lock") or (re.match(r"l[0-9]_", col) and not owns):
+                        flag(54, "gate funnel label/lock semantic parity", "WARNING", f"data/apex.db:{table}",
+                             f"column {col} does not parse to its lock (l<n>_<lock>_<what>, lock_codes.LOCKS)")
+        finally:
+            conn.close()
 
     lock_number = re.compile(r'>\s*(L[0-9]):\s*<|["\'`](Lock [0-9]|L[0-9] · )'
                              r'|(?<![\w$])(L[0-6])(?=[ \t·:]+[A-Za-z])|\b([0-9]-LOCK)\b', re.I)
