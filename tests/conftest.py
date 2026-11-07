@@ -18,6 +18,14 @@ import pytest
 
 def pytest_configure(config):
     """Redirect DB to a temp file before any test modules are imported."""
+    # Opt-in call recorder for the function ratchet (2026-11-07, tests/coverage): only with APEX_CALLMON_OUT set,
+    # registered here, in the one pytest_configure (see below), before collection imports any code.
+    if os.environ.get("APEX_CALLMON_OUT"):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("apex_callmon", Path(__file__).parent / "coverage/callmon.py")
+        callmon = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(callmon)
+        config.pluginmanager.register(callmon, "apex_callmon")
     # Marker for the opt-in real-endpoint test (2026-10-08). Registered here, in the one
     # pytest_configure: a second definition of this hook further down silently replaced
     # this one, the DB/data redirect never ran, and the 10-08 merge-window test runs wrote
