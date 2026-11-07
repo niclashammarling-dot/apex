@@ -17,6 +17,10 @@ function fmtDate(iso) {
   return iso.slice(0, 10);
 }
 
+// Closed rows newest exit first, entry time breaking ties (Niclas 2026-11-05: "alla sålda är sorterade efter exit date").
+const byExitDesc = (a, b) =>
+  (b.exited_at ?? "").localeCompare(a.exited_at ?? "") || (b.timestamp ?? "").localeCompare(a.timestamp ?? "");
+
 function TradeRow({ t }) {
   const [tip, setTip] = useState(null);
   const win    = t.outcome === "WIN";
@@ -35,7 +39,7 @@ function TradeRow({ t }) {
         <TipHeader>{t.ticker}{COMPANY_NAMES[t.ticker] ? ` — ${COMPANY_NAMES[t.ticker]}` : ""}</TipHeader>
         <TipRow label="Sector"      value={t.sector ?? "—"} />
         <TipRow label="Entry"       value={fmtDate(t.timestamp)} />
-        <TipRow label="Exit"        value={t.timestamp_exit ? fmtDate(t.timestamp_exit) : isOpen ? "open" : "—"} />
+        <TipRow label="Exit"        value={t.exited_at ? fmtDate(t.exited_at) : isOpen ? "open" : "—"} />
         <TipRow label="Entry Price" value={t.price != null ? `$${t.price.toFixed(2)}` : "—"} />
         <TipRow label="Exit Price"  value={t.price_exit != null ? `$${t.price_exit.toFixed(2)}` : "—"} />
         {t.exit_reason && <TipRow label="Exit Reason" value={t.exit_reason} color={REASON_COLOR[t.exit_reason] ?? "#76766f"} />}
@@ -51,7 +55,7 @@ function TradeRow({ t }) {
           )}
         </div>
         <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--t-text-3)", marginTop: 2 }}>
-          {fmtDate(t.timestamp)}
+          {fmtDate(t.timestamp)}{!isOpen && t.exited_at && ` → ${fmtDate(t.exited_at)}`}
           {t.sector && <span style={{ marginLeft: 8 }}>{t.sector}</span>}
           {t.exit_reason && <span style={{ marginLeft: 8, color: REASON_COLOR[t.exit_reason] ?? "var(--t-text-3)" }}>{t.exit_reason}</span>}
         </div>
@@ -87,7 +91,7 @@ export default function DemoTradeLog({ trades = [] }) {
   const sorted = useMemo(() => {
     const openTrades   = trades.filter(t => !t.outcome || t.outcome === "OPEN");
     const closedTrades = trades.filter(t =>  t.outcome && t.outcome !== "OPEN")
-                               .sort((a, b) => (b.timestamp ?? "") < (a.timestamp ?? "") ? -1 : 1);
+                               .sort(byExitDesc);
     return [...openTrades, ...closedTrades];
   }, [trades]);
 
