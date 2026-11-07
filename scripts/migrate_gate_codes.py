@@ -9,7 +9,7 @@ Lock labels phase 2: re-code the gate history (backend/gate/history_migrate.py),
              2026-10-29), one for one against the original's codes;
           3. every column except the codes and the pass flags byte-identical to the original (scope step 3,
              first identity check); a pass flag either kept or set NULL, and never NULL where it was 1 on a
-             row that ran a lock (ruling D; skips wrote lock1_pass 1 without running L3);
+             row that ran a lock (ruling D; skips wrote l3_score_pass 1 without running L3);
           4. reverse() on the migrated copy gives the original codes and flags back on every row;
           5. cooloff: the rows the new query selects (stop_code in lock_codes.COOLOFF_STOPS) are the row ids the
              old one selected on the original (gate_decision in FILTERED_L2, FILTERED_L3; ruling 6), per table;

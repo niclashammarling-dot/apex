@@ -106,7 +106,7 @@ def test_demo_refuses_an_unaffordable_cycle_before_the_chain():
     assert results == []
     mocks[9].assert_not_called()                                       # evaluate_chain
     row = mocks[8].call_args[0][0]
-    assert row["stop_code"] == "FILTERED_L1_ELIGIBILITY_NOTIONAL_TOO_SMALL" and row["lock1_pass"] is None
+    assert row["stop_code"] == "FILTERED_L1_ELIGIBILITY_NOTIONAL_TOO_SMALL" and row["l3_score_pass"] is None
 
 
 def test_a_live_unknown_outcome_is_mailed_once_per_cycle():

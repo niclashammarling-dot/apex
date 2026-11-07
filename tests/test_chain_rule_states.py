@@ -197,9 +197,9 @@ def test_the_writer_and_the_history_classifier_name_the_same_stop(name, kwargs, 
     legacy = "FILTERED_ETF_PENALTY" if cr.stop == (2, "etf") else \
         _LEGACY_CODE[next(n for n, r in cr.lock_results.items() if not r.passed)]
     row = {"id": 1, "timestamp": res["timestamp"], "gate_decision": legacy,
-           "signal_score": signal["signal_score"], "lock3_reasoning": res["claude_reasoning"],
-           "macro_reason": res["macro_reason"], "l2_summary": res["l2_summary"],
-           "lock_leading_checks": res["lock_leading_checks"], **lock_codes.flags(cr.rule_states)}
+           "signal_score": signal["signal_score"], "decision_reason": res["claude_reasoning"],
+           "l1_eligibility_reason": res["l1_eligibility_reason"], "l4_sentiment_summary": res["l4_sentiment_summary"],
+           "l5_positioning_checks": res["l5_positioning_checks"], **lock_codes.flags(cr.rule_states)}
     assert classify("live_gate_history", row).stop_code == lock_codes.stop_code(*stop)
     assert gate_runner._finalize({**res, "outcome": gate_runner.STOPPED})["stop_code"] == lock_codes.stop_code(*stop)
 
@@ -212,7 +212,7 @@ def test_the_deferred_review_adds_claude_rule_to_the_runner_result():
         res = gate_runner._chain_to_gate_result({"ticker": "AAPL", "sector": SECTOR, "id": 1}, cr)
         res["_l5_lock_results"], res["_l5_context"] = cr.lock_results, {}
         with patch("backend.gate.l6_review.evaluate", return_value=l5):
-            gate_runner._run_l5_for_result({"ticker": "AAPL", "sector": SECTOR}, res, CFG)
+            gate_runner._run_l6_review_for_result({"ticker": "AAPL", "sector": SECTOR}, res, CFG)
         assert {k: res["rule_states"].get(k) for k in expected} == expected
         assert lock_codes.stop_of(res["rule_states"]) == next(
             (lock_codes.parse_rule_key(k) for k, v in expected.items() if v == FAIL), None)

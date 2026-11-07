@@ -71,7 +71,7 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
 
     ticker   = gate_result["ticker"]
     sector   = gate_result["sector"]
-    position = gate_result["lock3"]["position_size_pct"] if gate_result.get("lock3") else 0.10
+    position = gate_result["l6_review"]["position_size_pct"] if gate_result.get("l6_review") else 0.10
     portfolio = get_portfolio_summary()
 
     cfg = get_demo_config()
@@ -130,7 +130,7 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
         "price":              price,
         "shares":             shares,
         "amount":             amount,
-        "signal_score":       gate_result["lock1"]["score"],
+        "signal_score":       gate_result["l3_score"]["score"],
         "sentiment_score":    gate_result.get("sentiment_score"),
         "claude_confidence":  gate_result.get("claude_confidence"),
         "claude_reasoning":   gate_result.get("claude_reasoning"),

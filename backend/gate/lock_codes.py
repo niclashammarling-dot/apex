@@ -170,17 +170,17 @@ RULES: tuple[Rule, ...] = (
 )
 
 # The pass flag columns (names until phase 3 part a) and the rules each one summarises: 1 when they passed, 0 when
-# one failed, NULL when none ran (ruling D). lock1_pass is the score test as run, so the two penalties that bite
-# at it count; lock3_pass is Claude's decision, so a broker error after an approval leaves it 1. These are the
+# one failed, NULL when none ran (ruling D). l3_score_pass is the score test as run, so the two penalties that bite
+# at it count; l6_review_pass is Claude's decision, so a broker error after an approval leaves it 1. These are the
 # values the columns held before phase 2, minus the 0s for locks that never ran.
 FLAG_RULES: dict[str, tuple[tuple[int, str], ...]] = {
-    "lock1_pass":        ((3, "threshold"), (1, "macro_pre_event"), (2, "earnings_near")),
-    "lock2_pass":        ((4, "grok"), (4, "unavailable"), (4, "unavailable_inferred")),
-    "lock_leading_pass": ((5, "leading"), (5, "unavailable")),
-    "lock3_pass":        ((6, "claude"), (6, "unavailable"), (6, "unavailable_inferred")),
+    "l3_score_pass":        ((3, "threshold"), (1, "macro_pre_event"), (2, "earnings_near")),
+    "l4_sentiment_pass":        ((4, "grok"), (4, "unavailable"), (4, "unavailable_inferred")),
+    "l5_positioning_pass": ((5, "leading"), (5, "unavailable")),
+    "l6_review_pass":        ((6, "claude"), (6, "unavailable"), (6, "unavailable_inferred")),
 }
 # The lock each flag column belongs to (the history migration's run-order check reads it).
-FLAG_COLUMNS: dict[int, str] = {3: "lock1_pass", 4: "lock2_pass", 5: "lock_leading_pass", 6: "lock3_pass"}
+FLAG_COLUMNS: dict[int, str] = {3: "l3_score_pass", 4: "l4_sentiment_pass", 5: "l5_positioning_pass", 6: "l6_review_pass"}
 
 # A row's rule_states: every rule that ran on it, by rule_key, with its verdict (Niclas 2026-10-29: "Kedjan
 # anger ägare och regel för varje stopp, men även för varje pass"). A rule that did not run is absent.
@@ -344,12 +344,12 @@ def badge_kind(row: dict) -> str:
 
 
 def reason_label(row: dict) -> str | None:
-    """Whose reason the row's lock3_reasoning column holds: Claude's once L6 ran (lock3_pass set), otherwise the
+    """Whose reason the row's decision_reason column holds: Claude's once L6 ran (l6_review_pass set), otherwise the
     chain lock that stopped the row (gate_runner._chain_to_gate_result stores the stopping lock's reason). A row
     with no reason (skips, overflow before L6, affordability) gets no label."""
-    if not row.get("lock3_reasoning"):
+    if not row.get("decision_reason"):
         return None
-    if row.get("lock3_pass") is not None:
+    if row.get("l6_review_pass") is not None:
         return lock_label(6)
     try:
         return lock_label(parse_stop_code(row.get("stop_code") or "")[0])
@@ -507,6 +507,6 @@ def as_api() -> dict:
                    "label": f"{lock_label(r.owner)} · {r.name}", "cooloff": r.cooloff, "books": list(r.books),
                    "config_keys": list(r.config_keys)} for r in RULES],
         "config_labels": config_labels(),
-        "detail_labels": {"macro_reason": lock_label(1), "l2_summary": lock_label(4),
-                          "lock_leading_checks": lock_label(5)},
+        "detail_labels": {"l1_eligibility_reason": lock_label(1), "l4_sentiment_summary": lock_label(4),
+                          "l5_positioning_checks": lock_label(5)},
     }

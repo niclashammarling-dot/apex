@@ -11,7 +11,7 @@ Bracket orders set TP + SL at Alpaca order time, so no separate exit
 checker is needed — Alpaca manages the position lifecycle natively.
 """
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import timezone
 
 from loguru import logger
 
@@ -45,7 +45,7 @@ from backend.gate.gate_runner import (
     _persist_multiplier_stats,
     _pre_chain_result,
     _pre_chain_states,
-    _run_l5_for_result,
+    _run_l6_review_for_result,
 )
 from backend.sector_caps import compute_dynamic_caps
 
@@ -622,7 +622,7 @@ def _run(cycle: GateCycle) -> list[dict]:
         order_id = None
 
         # L5 deferred path — run Claude only when a slot is confirmed available.
-        if result["outcome"] == "TRADE_QUEUED_PENDING_L5":
+        if result["outcome"] == "TRADE_QUEUED_PENDING_L6":
             sector         = signal.get("sector", "")
             base_threshold = (sector_thresholds or {}).get(sector, cfg["l3_score_threshold_min"])
             _put(result, "position_open", ticker in open_tickers)
@@ -645,23 +645,23 @@ def _run(cycle: GateCycle) -> list[dict]:
                     result.pop("_l5_lock_results", None)
                     result.pop("_l5_context", None)
                 else:
-                    _run_l5_for_result(signal, result, cfg)
+                    _run_l6_review_for_result(signal, result, cfg)
             else:
                 _overflow_state(result, False)          # a free slot passes overflow
-                _run_l5_for_result(signal, result, cfg)
+                _run_l6_review_for_result(signal, result, cfg)
 
         # Apply Bayesian sector sizing before notional is computed.
-        if result["outcome"] == "TRADE_QUEUED" and result.get("lock3"):
+        if result["outcome"] == "TRADE_QUEUED" and result.get("l6_review"):
             _scale = bayesian_multipliers.get(ticker, 1.0)
             if _scale != 1.0:
-                _raw  = result["lock3"]["position_size_pct"]
-                result["lock3"]["position_size_pct"] = min(
+                _raw  = result["l6_review"]["position_size_pct"]
+                result["l6_review"]["position_size_pct"] = min(
                     round(_raw * _scale, 4),
                     cfg.get("max_position_size", 0.10),
                 )
                 logger.info(
                     f"Live gate [{ticker}]: Bayesian size scale={_scale:.3f} "
-                    f"({_raw:.4f} → {result['lock3']['position_size_pct']:.4f})"
+                    f"({_raw:.4f} → {result['l6_review']['position_size_pct']:.4f})"
                 )
 
         if result["outcome"] == "TRADE_QUEUED":
@@ -685,7 +685,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                     )
                     result["outcome"] = STOPPED
                 else:
-                    position_pct    = result["lock3"]["position_size_pct"] if result.get("lock3") else cfg["max_position_size"]
+                    position_pct    = result["l6_review"]["position_size_pct"] if result.get("l6_review") else cfg["max_position_size"]
                     available_cash  = max(0.0, min(acct["equity"], acct["cash"]))
                     notional        = available_cash * min(position_pct, cfg["max_position_size"])
                     refusal         = _order_refusal(result, ticker, notional, signal.get("price"))
@@ -733,7 +733,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                                 _put(result, "broker_error", True)
             else:
                 _overflow_state(result, False)          # a free slot passes overflow
-                position_pct   = result["lock3"]["position_size_pct"] if result.get("lock3") else cfg["max_position_size"]
+                position_pct   = result["l6_review"]["position_size_pct"] if result.get("l6_review") else cfg["max_position_size"]
                 available_cash = max(0.0, min(acct["equity"], acct["cash"]))
                 notional       = available_cash * min(position_pct, cfg["max_position_size"])
                 refusal        = _order_refusal(result, ticker, notional, signal.get("price"))
@@ -813,7 +813,7 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
                              sector_thresholds=sector_thresholds)
     result  = _chain_to_gate_result(signal, chain)
     # Stash L5 inputs so the serial executor can run L5 only when a slot is available.
-    if chain.l5_pending:
+    if chain.l6_review_pending:
         result["_l5_lock_results"] = chain.lock_results
         result["_l5_context"]      = context
     return result
@@ -850,20 +850,20 @@ def _write_live(signal: dict, result: dict, ts: str, unknown: list[dict], order_
         "ticker":                 signal["ticker"],
         "sector":                 signal.get("sector", ""),
         "signal_score":           signal["signal_score"],
-        "lock1_pass":             result["lock1_pass"],
-        "lock2_pass":             result["lock2_pass"],
-        "lock_leading_pass":      result["lock_leading_pass"],
-        "lock_leading_checks":    result.get("lock_leading_checks"),
-        "lock3_pass":             result["lock3_pass"],
+        "l3_score_pass":             result["l3_score_pass"],
+        "l4_sentiment_pass":             result["l4_sentiment_pass"],
+        "l5_positioning_pass":      result["l5_positioning_pass"],
+        "l5_positioning_checks":    result.get("l5_positioning_checks"),
+        "l6_review_pass":             result["l6_review_pass"],
         "gate_decision":          result["gate_decision"],
         "stop_code":              result["stop_code"],
         "rule_states":            result["rule_states"],
-        "lock3_reasoning":        result.get("claude_reasoning"),
+        "decision_reason":        result.get("claude_reasoning"),
         "alpaca_order_id":        order_id,
-        "l2_summary":             result.get("l2_summary"),
-        "lock3_sentiment_score":  result.get("lock3_sentiment_score"),
-        "lock3_conviction":       result.get("lock3_conviction"),
-        "macro_reason":           result.get("macro_reason"),
+        "l4_sentiment_summary":             result.get("l4_sentiment_summary"),
+        "l4_sentiment_score":  result.get("l4_sentiment_score"),
+        "l4_sentiment_conviction":       result.get("l4_sentiment_conviction"),
+        "l1_eligibility_reason":           result.get("l1_eligibility_reason"),
         "ticker_signal":          result.get("ticker_signal"),
         "earnings_near":          result.get("earnings_near"),
         "days_to_earnings":       result.get("days_to_earnings"),
@@ -953,19 +953,19 @@ def _mark(passed: bool | None) -> str:
 
 
 def _log_summary(ticker: str, result: dict) -> None:
-    l1        = result["lock1"]
-    l2        = result.get("lock2")
-    l_leading = result.get("lock_leading")
-    l3        = result.get("lock3")
+    l3        = result["l3_score"]
+    l4        = result.get("l4_sentiment")
+    l5        = result.get("l5_positioning")
+    l6        = result.get("l6_review")
     outcome   = result["outcome"]
 
-    parts = [f"L1={'✓' if l1['passed'] else '✗'}({l1['score']:.3f})"]
-    if l2:
-        parts.append(f"L2={'✓' if l2['passed'] else '✗'}({l2.get('score', '?')})")
-    if l_leading:
-        parts.append(f"LD={'✓' if l_leading['passed'] else '✗'}(price {_mark(l_leading.get('price_group_pass'))} "
-                     f"options {_mark(l_leading.get('options_group_pass'))})")
-    if l3:
-        parts.append(f"L3={'✓' if l3['passed'] else '✗'}({l3.get('decision')} {l3.get('confidence', 0):.2f})")
+    parts = [f"L3={'✓' if l3['passed'] else '✗'}({l3['score']:.3f})"]
+    if l4:
+        parts.append(f"L4={'✓' if l4['passed'] else '✗'}({l4.get('score', '?')})")
+    if l5:
+        parts.append(f"L5={'✓' if l5['passed'] else '✗'}(price {_mark(l5.get('price_group_pass'))} "
+                     f"options {_mark(l5.get('options_group_pass'))})")
+    if l6:
+        parts.append(f"L6={'✓' if l6['passed'] else '✗'}({l6.get('decision')} {l6.get('confidence', 0):.2f})")
 
     logger.info(f"Live gate [{ticker}]: {' → '.join(parts)} → {outcome}")

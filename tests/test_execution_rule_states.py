@@ -25,7 +25,7 @@ KEY = {i: K(lock_codes.rule_for(i).owner, i) for i in ORDER}
 
 
 def _trade(open_count=0, exposure=0.0, loss=0.0, held=(), cash=2000.0, price=100.0, overflow=False):
-    gr = {"ticker": "NVDA", "sector": "Technology", "lock3": {"position_size_pct": 0.10}, "lock1": {"score": 0.7},
+    gr = {"ticker": "NVDA", "sector": "Technology", "l6_review": {"position_size_pct": 0.10}, "l3_score": {"score": 0.7},
           "rule_states": {K(3, "threshold"): PASS}}
     portfolio = {"open_position_count": open_count, "cash": cash, "sector_exposure": {"Technology": exposure}}
     with ExitStack() as st:
@@ -132,9 +132,9 @@ def test_skip_rows_carry_outcome_reason_so_the_insert_guard_stays_quiet():
 
 def test_demo_gate_history_stores_outcome_reason():
     row = {"timestamp": "2026-10-29T15:00:00+00:00", "ticker": "ZZOR", "sector": "Technology", "signal_score": 0.7,
-           "lock1_pass": 1, "lock2_pass": 1, "lock_leading_pass": 1, "lock_leading_checks": None, "lock3_pass": 1,
-           "gate_decision": "TRADE_REJECTED", "lock3_reasoning": None, "l2_summary": None,
-           "lock3_sentiment_score": None, "lock3_conviction": None, "macro_reason": None, "ticker_signal": None,
+           "l3_score_pass": 1, "l4_sentiment_pass": 1, "l5_positioning_pass": 1, "l5_positioning_checks": None, "l6_review_pass": 1,
+           "gate_decision": "TRADE_REJECTED", "decision_reason": None, "l4_sentiment_summary": None,
+           "l4_sentiment_score": None, "l4_sentiment_conviction": None, "l1_eligibility_reason": None, "ticker_signal": None,
            "earnings_near": None, "days_to_earnings": None, "overflow_slot": False, "cycle_started_at": None,
            "signal_ts": None, "bar_date": None, "outcome_reason": "loss_cap"}
     db.insert_demo_gate_result(row)
@@ -187,7 +187,7 @@ def test_a_notional_below_one_share_is_refused_at_l1_before_the_chain_or_before_
     mocks[14].assert_not_called()
     assert _stored(mocks)["outcome_reason"] == "notional_too_small"
     assert lock_codes.stop_of(results[0]["rule_states"]) == (1, "notional_too_small")
-    assert results[0]["lock3_pass"] == 1                 # Claude approved; L1 refused the order after it
+    assert results[0]["l6_review_pass"] == 1                 # Claude approved; L1 refused the order after it
     results, mocks = _run_live(price=999.0)             # one share fits: the order goes
     assert results[0]["outcome"] == "TRADE_EXECUTED" and mocks[14].called
 
@@ -199,12 +199,12 @@ def test_a_missing_price_is_refused_at_l1_before_the_chain():
     mocks[14].assert_not_called()
     row = _stored(mocks)
     assert results == [] and row["outcome_reason"] == "price_missing"
-    assert row["stop_code"] == "FILTERED_L1_ELIGIBILITY_PRICE_MISSING" and row["lock1_pass"] is None
+    assert row["stop_code"] == "FILTERED_L1_ELIGIBILITY_PRICE_MISSING" and row["l3_score_pass"] is None
 
 
 def test_a_broker_refusal_is_l6_broker_error_and_does_not_cool_the_ticker():
     results, mocks = _run_live(broker_raises=RuntimeError("insufficient buying power"))
-    assert results[0]["outcome"] == "FILTERED_L6_REVIEW" and results[0]["lock3_pass"] == 1
+    assert results[0]["outcome"] == "FILTERED_L6_REVIEW" and results[0]["l6_review_pass"] == 1
     assert _stored(mocks)["outcome_reason"].startswith("broker_error: insufficient")
     stop = lock_codes.stop_of(results[0]["rule_states"])
     assert stop == (6, "broker_error") and lock_codes.stop_code(*stop) not in lock_codes.COOLOFF_STOPS

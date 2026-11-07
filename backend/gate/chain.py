@@ -17,7 +17,7 @@ carries its chain lock as lock_id, and lock_results is keyed by it):
     → ETF penalty re-test of the score (L2 RISK, rule etf; l2_risk.check_etf)
     → drawdown guard (L0 PORTFOLIO, rule drawdown_guard; here until phase 4 moves it)
     → L6 REVIEW (Claude)
-Both runners pass defer_l6_review=True: the chain returns l5_pending after the guard, and the runner's
+Both runners pass defer_l6_review=True: the chain returns l6_review_pending after the guard, and the runner's
 serial execution phase checks overflow (L2 RISK) before it runs L6 REVIEW for a candidate with a slot.
 
 Each lock receives typed arguments. If any lock fails, the chain
@@ -75,7 +75,7 @@ class ChainResult:
     lock_results: dict[int, LockResult] = field(default_factory=dict)
     final_score:  float = 0.0
     summary:      str   = ""
-    l5_pending:   bool  = False   # L1-L5 passed; L6 REVIEW deferred to the serial execution phase
+    l6_review_pending:   bool  = False   # L1-L5 passed; L6 REVIEW deferred to the serial execution phase
     exit_reason:  str | None = None  # custom reason for non-standard exits (shown in L6 REVIEW's slot)
     rule_states:  dict[str, str] = field(default_factory=dict)
 
@@ -210,7 +210,7 @@ def evaluate_chain(
         return ChainResult(
             ticker=ticker, sector=sector,
             approved=False,
-            l5_pending=True,
+            l6_review_pending=True,
             lock_results=lock_results,
             final_score=l5.score,
             summary=f"{ticker} L1-L5 passed — L6 REVIEW deferred to the execution phase",
@@ -252,7 +252,7 @@ def evaluate_chain(
 def verdict_states(owner: int, verdict_rule: str, result: LockResult) -> dict[str, str]:
     """A judging lock's rule state (L4 grok, L5 leading, L6 claude): its verdict, or `unavailable` when the lock
     says a source or data error decided it (the lock's data["unavailable"], never its reason text). The runners'
-    deferred L6 uses it too (gate_runner._run_l5_for_result)."""
+    deferred L6 uses it too (gate_runner._run_l6_review_for_result)."""
     if result.passed:
         return {lock_codes.rule_key(owner, verdict_rule): PASS}
     rule = "unavailable" if result.data.get("unavailable") else verdict_rule

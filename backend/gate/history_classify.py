@@ -125,8 +125,8 @@ def pass_flags(k: Class, row: dict) -> dict[str, int | None]:
 # The first eligibility-module rows (signals 2026-04-19 22:00 UTC, live_gate_history 2026-04-20; weekly_report
 # REFERENCE_START): before them a row's L1 regime and macro checks did not run in one module before the score.
 ELIGIBILITY_LIVE = "2026-04-20T00:00:00+00:00"
-_VERDICT_RULES = {"lock1_pass": (3, "threshold"), "lock2_pass": (4, "grok"), "lock_leading_pass": (5, "leading"),
-                  "lock3_pass": (6, "claude")}
+_VERDICT_RULES = {"l3_score_pass": (3, "threshold"), "l4_sentiment_pass": (4, "grok"), "l5_positioning_pass": (5, "leading"),
+                  "l6_review_pass": (6, "claude")}
 
 
 def history_rule_states(k: Class, row: dict, flags: dict) -> dict[str, str]:
@@ -145,7 +145,7 @@ def history_rule_states(k: Class, row: dict, flags: dict) -> dict[str, str]:
     for col, (o, r) in _VERDICT_RULES.items():
         if flags.get(col) == 1:
             states.setdefault(lock_codes.rule_key(o, r), lock_codes.PASS)
-    if flags.get("lock1_pass") is not None and (row.get("timestamp") or "") >= ELIGIBILITY_LIVE:
+    if flags.get("l3_score_pass") is not None and (row.get("timestamp") or "") >= ELIGIBILITY_LIVE:
         for o, r in ((1, "regime"), (1, "macro_event")):
             states.setdefault(lock_codes.rule_key(o, r), lock_codes.PASS)
         states.setdefault(lock_codes.rule_key(2, "earnings"), lock_codes.NO_DATA)
@@ -154,10 +154,10 @@ def history_rule_states(k: Class, row: dict, flags: dict) -> dict[str, str]:
 
 def _positioning(table: str, row: dict) -> Class:
     """leading, or unavailable when a data error decided the failing group (the writer's rule from phase 2,
-    read back from lock_leading_checks, which every positioning row carries)."""
+    read back from l5_positioning_checks, which every positioning row carries)."""
     if (row.get("timestamp") or "") >= GROUP_RULE_LIVE:
         try:
-            checks = json.loads(row.get("lock_leading_checks") or "")
+            checks = json.loads(row.get("l5_positioning_checks") or "")
         except ValueError:
             raise UnclassifiedRow(f"{table} id {row.get('id')}: positioning row without readable checks") from None
         price = [checks.get(c) or {} for c in ("relative_strength", "volume_accumulation")]
@@ -244,8 +244,8 @@ def classify(table: str, row: dict, cooloff: CooloffIndex | None = None) -> Clas
     code = row.get("gate_decision")
     if code is None:
         raise UnclassifiedRow(f"{table} id {row.get('id')}: no gate code (ungated rows stay NULL, P1)")
-    reason = row.get("lock3_reasoning") or ""
-    macro = row.get("macro_reason") or ""
+    reason = row.get("decision_reason") or ""
+    macro = row.get("l1_eligibility_reason") or ""
     ts = row.get("timestamp") or ""
 
     if (table, row.get("id")) == TEST_ROW:
@@ -265,8 +265,8 @@ def classify(table: str, row: dict, cooloff: CooloffIndex | None = None) -> Clas
 
     if code in ("TRADE_REJECTED", "TRADE_FAILED"):
         # After the chain: L3..L5 ran; L6 ran only if Claude approved (the pre-review "position already open"
-        # reject records lock3_pass 0). outcome_reason exists on live only, from b3804fb (09-27).
-        reached = 6 if row.get("lock3_pass") == 1 else 5
+        # reject records l6_review_pass 0). outcome_reason exists on live only, from b3804fb (09-27).
+        reached = 6 if row.get("l6_review_pass") == 1 else 5
         outcome = row.get("outcome_reason")
         if outcome and outcome.startswith(QTY_ZERO):
             return _lock(1, "notional_too_small", reached)
@@ -282,7 +282,7 @@ def classify(table: str, row: dict, cooloff: CooloffIndex | None = None) -> Clas
         raise UnclassifiedRow(f"{table} id {row.get('id')}: eligibility reason {macro[:60]!r}")
 
     if code == "FILTERED_MACRO":            # legacy, 2026-04-06..04-09: the CPI 04-08 block
-        # That gate ran after the quant test: all 81 rows carry lock1_pass 1 (dry run 2026-10-28).
+        # That gate ran after the quant test: all 81 rows carry l3_score_pass 1 (dry run 2026-10-28).
         if macro.lower().startswith("macro event"):
             return _lock(1, "macro_event", 3)
         raise UnclassifiedRow(f"{table} id {row.get('id')}: legacy macro reason {macro[:60]!r}")
@@ -301,20 +301,20 @@ def classify(table: str, row: dict, cooloff: CooloffIndex | None = None) -> Clas
         raise UnclassifiedRow(f"{table} id {row.get('id')}: reasonless score rejection on {ts[:10]}")
 
     if code == "FILTERED_L2":
-        if "Grok API unavailable" in reason or "Grok API unavailable" in (row.get("l2_summary") or ""):
+        if "Grok API unavailable" in reason or "Grok API unavailable" in (row.get("l4_sentiment_summary") or ""):
             return _lock(4, "unavailable", 4)
-        if not reason and not row.get("l2_summary"):
+        if not reason and not row.get("l4_sentiment_summary"):
             return _lock(4, "unavailable_inferred", 4,
                          "inferred:no summary and no reason (the fail path sets the summary to None)")
         return _lock(4, "grok", 4)
 
     if code == "FILTERED_LEADING":
-        if row.get("lock_leading_pass") == 0:
+        if row.get("l5_positioning_pass") == 0:
             return _positioning(table, row)
-        if row.get("lock_leading_pass") == 1:      # 07-13..07-16: the ETF re-test before it had its code
+        if row.get("l5_positioning_pass") == 1:      # 07-13..07-16: the ETF re-test before it had its code
             return _lock(2, "etf", 5)
-        raise UnclassifiedRow(f"{table} id {row.get('id')}: positioning row with lock_leading_pass "
-                              f"{row.get('lock_leading_pass')!r}")
+        raise UnclassifiedRow(f"{table} id {row.get('id')}: positioning row with l5_positioning_pass "
+                              f"{row.get('l5_positioning_pass')!r}")
 
     if code == "FILTERED_ETF_PENALTY":
         return _lock(2, "etf", 5)

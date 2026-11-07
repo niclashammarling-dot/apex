@@ -159,11 +159,11 @@ def live_gate_history():
     flat = get_live_config().get("l3_score_threshold_min", 0.5)
     for row in rows:
         row["l3_score_threshold_min"] = thresholds.get(row["sector"], flat)
-        if row.get("lock_leading_checks"):
+        if row.get("l5_positioning_checks"):
             try:
-                row["lock_leading_checks"] = _json.loads(row["lock_leading_checks"])
+                row["l5_positioning_checks"] = _json.loads(row["l5_positioning_checks"])
             except Exception:
-                row["lock_leading_checks"] = None
+                row["l5_positioning_checks"] = None
     funnel = get_live_gate_funnel_counts()
 
     blocked_reason = None

@@ -304,16 +304,16 @@ class TestDemoGateRunner:
     def test_all_lock_passes_written_to_db(self):
         results, mocks = _run_demo(candidates=[_signal()], trade_result=True)
         saved = mocks[7].call_args[0][1]  # update_signal_gate second arg
-        assert saved["lock1_pass"]        == 1  # quant (L2) → old lock1 column
-        assert saved["lock2_pass"]        == 1  # sentiment (L3) → old lock2 column
-        assert saved["lock_leading_pass"] == 1
-        assert saved["lock3_pass"]        == 1  # claude (L5) → old lock3 column
+        assert saved["l3_score_pass"]        == 1  # quant (L2) → old lock1 column
+        assert saved["l4_sentiment_pass"]        == 1  # sentiment (L3) → old lock2 column
+        assert saved["l5_positioning_pass"] == 1
+        assert saved["l6_review_pass"]        == 1  # claude (L5) → old lock3 column
 
     def test_leading_checks_json_written_to_db(self):
         results, mocks = _run_demo(candidates=[_signal()], trade_result=True)
         saved = mocks[7].call_args[0][1]
-        assert saved["lock_leading_checks"] is not None
-        parsed = json.loads(saved["lock_leading_checks"])
+        assert saved["l5_positioning_checks"] is not None
+        parsed = json.loads(saved["l5_positioning_checks"])
         assert "relative_strength" in parsed
 
     def test_multiple_candidates_all_evaluated(self):
@@ -673,9 +673,9 @@ class TestLiveGateRunner:
     def test_leading_checks_stored_in_db(self):
         results, mocks = _run_live(candidates=[_signal()])
         saved = mocks[9].call_args[0][0]  # insert_live_gate_result arg
-        assert saved["lock_leading_pass"] == 1
-        assert saved["lock_leading_checks"] is not None
-        parsed = json.loads(saved["lock_leading_checks"])
+        assert saved["l5_positioning_pass"] == 1
+        assert saved["l5_positioning_checks"] is not None
+        parsed = json.loads(saved["l5_positioning_checks"])
         assert "relative_strength" in parsed
 
     # ── Demo / live parity ────────────────────────────────────────────────────

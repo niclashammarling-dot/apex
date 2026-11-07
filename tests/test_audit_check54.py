@@ -62,7 +62,7 @@ def test_lock_numbers_written_in_the_frontend_are_flagged(tmp_path, monkeypatch)
 
 
 def test_table_labels_and_plain_comments_are_not_lock_numbers(tmp_path, monkeypatch):
-    panel = '<span>{D.gateLocks?.detail_labels?.l2_summary}:</span>\n<span>{r.reason_label ?? "Reason"}:</span>\n'
+    panel = '<span>{D.gateLocks?.detail_labels?.l4_sentiment_summary}:</span>\n<span>{r.reason_label ?? "Reason"}:</span>\n'
     cg, core = _setup(tmp_path, monkeypatch, COMMENT_ONLY, panel)
     cg.check54()
     assert _found(core, 54) == []

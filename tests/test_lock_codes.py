@@ -54,14 +54,14 @@ def test_labels_follow_the_approved_chain():
 
 
 @pytest.mark.parametrize("states, want", [
-    ({}, {"lock1_pass": None, "lock2_pass": None, "lock_leading_pass": None, "lock3_pass": None}),
-    # The score test as run: a penalty that pushed the score under fails it, as lock1_pass held before.
+    ({}, {"l3_score_pass": None, "l4_sentiment_pass": None, "l5_positioning_pass": None, "l6_review_pass": None}),
+    # The score test as run: a penalty that pushed the score under fails it, as l3_score_pass held before.
     ({K(3, "threshold"): PASS, K(1, "macro_pre_event"): FAIL, K(2, "earnings_near"): PASS},
-     {"lock1_pass": 0, "lock2_pass": None, "lock_leading_pass": None, "lock3_pass": None}),
-    # Claude approved and the broker refused: lock3_pass is Claude's decision.
+     {"l3_score_pass": 0, "l4_sentiment_pass": None, "l5_positioning_pass": None, "l6_review_pass": None}),
+    # Claude approved and the broker refused: l6_review_pass is Claude's decision.
     ({K(3, "threshold"): PASS, K(4, "grok"): PASS, K(5, "leading"): PASS, K(6, "claude"): PASS,
-      K(6, "broker_error"): FAIL}, {"lock1_pass": 1, "lock2_pass": 1, "lock_leading_pass": 1, "lock3_pass": 1}),
-    ({K(4, "unavailable"): FAIL}, {"lock1_pass": None, "lock2_pass": 0, "lock_leading_pass": None, "lock3_pass": None}),
+      K(6, "broker_error"): FAIL}, {"l3_score_pass": 1, "l4_sentiment_pass": 1, "l5_positioning_pass": 1, "l6_review_pass": 1}),
+    ({K(4, "unavailable"): FAIL}, {"l3_score_pass": None, "l4_sentiment_pass": 0, "l5_positioning_pass": None, "l6_review_pass": None}),
 ])
 def test_pass_flags_follow_flag_rules(states, want):
     assert lock_codes.flags(states) == want
@@ -217,31 +217,31 @@ def test_an_unregistered_code_is_listed_not_dropped():
 
 
 def test_reason_label_names_whose_reason_the_row_holds():
-    # R5: the Terminal labelled lock3_reasoning "L5:" for every row.
-    assert lock_codes.reason_label({"stop_code": "FILTERED_L5_POSITIONING_LEADING", "lock3_reasoning": "x"}) == \
+    # R5: the Terminal labelled decision_reason "L5:" for every row.
+    assert lock_codes.reason_label({"stop_code": "FILTERED_L5_POSITIONING_LEADING", "decision_reason": "x"}) == \
         "L5 · Positioning"
-    assert lock_codes.reason_label({"stop_code": "TRADE_EXECUTED", "lock3_pass": 1, "lock3_reasoning": "x"}) == \
+    assert lock_codes.reason_label({"stop_code": "TRADE_EXECUTED", "l6_review_pass": 1, "decision_reason": "x"}) == \
         "L6 · Review"
     # Claude approved, then the sector cap refused: the reason is still Claude's.
-    assert lock_codes.reason_label({"stop_code": "FILTERED_L2_RISK_SECTOR_CAP", "lock3_pass": 1,
-                                    "lock3_reasoning": "x"}) == "L6 · Review"
-    assert lock_codes.reason_label({"stop_code": "FILTERED_L2_RISK_OVERFLOW", "lock3_reasoning": None}) is None
+    assert lock_codes.reason_label({"stop_code": "FILTERED_L2_RISK_SECTOR_CAP", "l6_review_pass": 1,
+                                    "decision_reason": "x"}) == "L6 · Review"
+    assert lock_codes.reason_label({"stop_code": "FILTERED_L2_RISK_OVERFLOW", "decision_reason": None}) is None
 
 
 def test_badges_and_skips():
     assert lock_codes.badge({"stop_code": "FILTERED_L1_ELIGIBILITY_EXIT_COOLOFF"}) == "L1 EXIT COOLOFF"
     assert lock_codes.badge({"stop_code": "FILTERED_UNKNOWN"}) == "UNKNOWN"
-    skip = {"stop_code": "FILTERED_L1_ELIGIBILITY_COOLOFF", "lock1_pass": None, "lock2_pass": None,
-            "lock_leading_pass": None, "lock3_pass": None}
+    skip = {"stop_code": "FILTERED_L1_ELIGIBILITY_COOLOFF", "l3_score_pass": None, "l4_sentiment_pass": None,
+            "l5_positioning_pass": None, "l6_review_pass": None}
     assert lock_codes.is_skip(skip) and lock_codes.badge_kind(skip) == "skip"
     # position_open at execution, after the chain: not a skip.
-    assert not lock_codes.is_skip({**skip, "stop_code": "FILTERED_L1_ELIGIBILITY_POSITION_OPEN", "lock1_pass": 1})
+    assert not lock_codes.is_skip({**skip, "stop_code": "FILTERED_L1_ELIGIBILITY_POSITION_OPEN", "l3_score_pass": 1})
 
 
 def test_detail_labels_name_what_each_column_holds():
-    # R5: l2_summary is the sentiment summary (gate_runner: l3_data summary), shown as "L3:" before.
+    # R5: l4_sentiment_summary is the sentiment summary (gate_runner: l3_data summary), shown as "L3:" before.
     assert lock_codes.as_api()["detail_labels"] == {
-        "macro_reason": "L1 · Eligibility", "l2_summary": "L4 · Sentiment", "lock_leading_checks": "L5 · Positioning"}
+        "l1_eligibility_reason": "L1 · Eligibility", "l4_sentiment_summary": "L4 · Sentiment", "l5_positioning_checks": "L5 · Positioning"}
 
 
 def test_lock_owned_config_keys_follow_the_approved_chain():
@@ -293,7 +293,7 @@ def test_gate_history_rows_carry_marks_badge_and_reason_label(monkeypatch):
     conn = db.get_db()
     try:
         conn.execute("INSERT INTO live_gate_history (ticker, sector, gate_decision, stop_code, rule_states, "
-                     "lock_leading_pass, timestamp) VALUES ('RSX', 'Tech', 'FILTERED_L2_RISK', "
+                     "l5_positioning_pass, timestamp) VALUES ('RSX', 'Tech', 'FILTERED_L2_RISK', "
                      "'FILTERED_L2_RISK_OVERFLOW', ?, 1, ?)", (states, at_open))
         conn.commit()
     finally:
@@ -307,7 +307,7 @@ def test_gate_history_rows_carry_marks_badge_and_reason_label(monkeypatch):
 
 
 def test_review_history_shows_the_owner_rule_and_reason_and_leaves_out_skips():
-    # R6: l2_summary (sentiment) came first, so a positioning or review rejection reached Claude as a
+    # R6: l4_sentiment_summary (sentiment) came first, so a positioning or review rejection reached Claude as a
     # sentiment text. From phase 2 the stage is the owner's lock (the guard is L0's); a skip carries no judgement.
     from backend import db
     conn = db.get_db()
@@ -320,8 +320,8 @@ def test_review_history_shows_the_owner_rule_and_reason_and_leaves_out_skips():
             ("FILTERED_L1_ELIGIBILITY", "FILTERED_L1_ELIGIBILITY_BLOCKLIST", None, None, None),
         )):
             # Writers set every flag explicitly (NULL where the lock did not run); the schema's DEFAULT 0 is never used.
-            conn.execute("INSERT INTO live_gate_history (ticker, sector, gate_decision, stop_code, l2_summary, "
-                         "lock3_reasoning, lock1_pass, lock2_pass, lock_leading_pass, lock3_pass, timestamp) "
+            conn.execute("INSERT INTO live_gate_history (ticker, sector, gate_decision, stop_code, l4_sentiment_summary, "
+                         "decision_reason, l3_score_pass, l4_sentiment_pass, l5_positioning_pass, l6_review_pass, timestamp) "
                          "VALUES ('RVX', 'Tech', ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)",
                          (code, stop, l2s, reason, l1p, f"2099-01-0{i + 1}T15:00:00"))
         conn.commit()

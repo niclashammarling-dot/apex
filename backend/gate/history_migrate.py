@@ -29,7 +29,7 @@ from backend.gate.history_classify import (TABLES, TEST_ROW_CODE, CooloffIndex, 
                                           pass_flags)
 
 RECORD = "gate_code_migration"
-PASS_FLAGS = ("lock1_pass", "lock2_pass", "lock3_pass", "lock_leading_pass")
+PASS_FLAGS = ("l3_score_pass", "l4_sentiment_pass", "l6_review_pass", "l5_positioning_pass")
 
 _RECORD_DDL = f"""
 CREATE TABLE IF NOT EXISTS {RECORD} (

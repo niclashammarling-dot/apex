@@ -938,7 +938,7 @@ def check80() -> None:
     observable here: -1 pp at n≈1,000 cannot fail. The composition change is
     the actual prediction, so it is the thing measured.
 
-    Reads demo_gate_history.lock_leading_checks JSON. Rows written before the
+    Reads demo_gate_history.l5_positioning_checks JSON. Rows written before the
     build (no threshold_mode key) since 2026-05-21 are the baseline; rows with
     threshold_mode = per_ticker_p25 are the treatment. Ticker classes come
     from lock4_pcr_history (own P25 > 0.85 = "blocked under 0.85"; median <
@@ -992,8 +992,8 @@ def check80() -> None:
         from audit.gate_cycles import cycle_starts
         starts = cycle_starts(conn, "demo_gate_history", _C80_BUILD_TS, actionable=True)
         rows = conn.execute(
-            "SELECT timestamp, ticker, lock_leading_checks FROM demo_gate_history "
-            "WHERE timestamp >= ? AND lock_leading_checks LIKE '%pc_ratio%'",
+            "SELECT timestamp, ticker, l5_positioning_checks FROM demo_gate_history "
+            "WHERE timestamp >= ? AND l5_positioning_checks LIKE '%pc_ratio%'",
             (_C80_BASE_SINCE,),
         ).fetchall()
         hist = conn.execute(
@@ -1107,8 +1107,8 @@ def _l5_recovered_after(db, unavailable_prefix: str, since: str) -> str | None:
     Timestamp of the first successful L6 REVIEW answer after the most recent
     fail-closed row in the event window, or None if there has not been one.
 
-    "Successful" = a row that reached L6 REVIEW (lock_leading_pass = 1) whose
-    lock3_reasoning is present and does not carry the unavailable prefix —
+    "Successful" = a row that reached L6 REVIEW (l5_positioning_pass = 1) whose
+    decision_reason is present and does not carry the unavailable prefix —
     i.e. Claude answered, whatever the verdict. Read across both tables,
     because the two runners share one API key and either one recovering
     proves the key works.
@@ -1118,7 +1118,7 @@ def _l5_recovered_after(db, unavailable_prefix: str, since: str) -> str | None:
         last_fail = None
         for t in ("live_gate_history", "demo_gate_history"):
             r = conn.execute(
-                f"SELECT max(timestamp) FROM {t} WHERE timestamp >= ? AND lock3_reasoning LIKE ?",
+                f"SELECT max(timestamp) FROM {t} WHERE timestamp >= ? AND decision_reason LIKE ?",
                 (since, unavailable_prefix + "%")).fetchone()[0]
             if r and (last_fail is None or r > last_fail):
                 last_fail = r
@@ -1127,8 +1127,8 @@ def _l5_recovered_after(db, unavailable_prefix: str, since: str) -> str | None:
         first_ok = None
         for t in ("live_gate_history", "demo_gate_history"):
             r = conn.execute(
-                f"SELECT min(timestamp) FROM {t} WHERE timestamp > ? AND lock_leading_pass = 1 "
-                f"AND lock3_reasoning IS NOT NULL AND lock3_reasoning NOT LIKE ?",
+                f"SELECT min(timestamp) FROM {t} WHERE timestamp > ? AND l5_positioning_pass = 1 "
+                f"AND decision_reason IS NOT NULL AND decision_reason NOT LIKE ?",
                 (last_fail, unavailable_prefix + "%")).fetchone()[0]
             if r and (first_ok is None or r < first_ok):
                 first_ok = r
@@ -1145,11 +1145,11 @@ def check81() -> None:
     l6_review._fail_closed returns HOLD with reason
     `anthropic_unavailable: <cause>` (cause ∈ credit_exhausted, auth,
     rate_limit, connection, no_api_key, <ExceptionClass>) and, since
-    2026-09-18, that string is persisted into lock3_reasoning on both gate
+    2026-09-18, that string is persisted into decision_reason on both gate
     tables. A candidate that reached L6 REVIEW and was rejected this way was a
     candidate lost to infrastructure, not to Claude's judgement — on
     2026-09-18 live lost ANET (15:37) and AMD (16:57), both LD=✓, under credit
-    exhaustion, and the only fingerprint was lock3_reasoning IS NULL.
+    exhaustion, and the only fingerprint was decision_reason IS NULL.
 
     Keyed on the persisted value (L5_UNAVAILABLE_PREFIX), never on nullness:
     NULL is what a pre-2026-09-18 row looks like and what a *different*
@@ -1175,8 +1175,8 @@ def check81() -> None:
     today = date.today()
     since_event = (today - timedelta(days=_C81_EVENT_DAYS - 1)).isoformat()
     since_tally = (today - timedelta(days=_C81_TALLY_DAYS)).isoformat()
-    q = ("SELECT date(timestamp), ticker, lock3_reasoning FROM {t} "
-         "WHERE timestamp >= ? AND lock3_reasoning LIKE ? ORDER BY timestamp")
+    q = ("SELECT date(timestamp), ticker, decision_reason FROM {t} "
+         "WHERE timestamp >= ? AND decision_reason LIKE ? ORDER BY timestamp")
     try:
         conn = sqlite3.connect(db)
         rows = {t: conn.execute(q.format(t=t), (since_tally, L5_UNAVAILABLE_PREFIX + "%")).fetchall()
@@ -1483,7 +1483,7 @@ def check84() -> None:
     try:
         conn = sqlite3.connect(db)
         execs = conn.execute(
-            "SELECT timestamp, ticker, lock3_reasoning FROM live_gate_history "
+            "SELECT timestamp, ticker, decision_reason FROM live_gate_history "
             "WHERE gate_decision = 'TRADE_EXECUTED' AND timestamp >= ? ORDER BY timestamp", (since,)).fetchall()
         trades = conn.execute(
             "SELECT id, ticker, timestamp, exited_at FROM live_trades WHERE timestamp >= ? "
@@ -1887,7 +1887,7 @@ def check90(today: date | None = None) -> None:
 
     Compares, on live_gate_history and live_trades, the window before the latest started change (four
     weeks, or back to the previous change if that is nearer) with the days since:
-      - L6 REVIEW approval share: Claude's approvals (lock3_pass 1) over those plus Claude's rejections (stop_code
+      - L6 REVIEW approval share: Claude's approvals (l6_review_pass 1) over those plus Claude's rejections (stop_code
         L6 claude). Fail-closed rows (L6 unavailable, CHECK 81's prefix), the guard (L0 since lock labels
         phase 2) and execution refusals before L6 are not Claude's judgement and are not counted. Until phase 2
         this read TRADE_EXECUTED + TRADE_FAILED against FILTERED_L3 minus the prefix; on the migrated history the
@@ -1921,8 +1921,8 @@ def check90(today: date | None = None) -> None:
     try:
         conn = sqlite3.connect(db)
         rows = conn.execute(
-            "SELECT date(timestamp), lock3_pass FROM live_gate_history "
-            "WHERE timestamp >= ? AND timestamp < ? AND (lock3_pass = 1 OR stop_code = ?)",
+            "SELECT date(timestamp), l6_review_pass FROM live_gate_history "
+            "WHERE timestamp >= ? AND timestamp < ? AND (l6_review_pass = 1 OR stop_code = ?)",
             (start, end, stop_code(6, "claude"))).fetchall()
         trades = conn.execute(
             "SELECT date(timestamp), notional FROM live_trades WHERE timestamp >= ? AND timestamp < ?",

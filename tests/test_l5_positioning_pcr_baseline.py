@@ -115,13 +115,13 @@ def test_demo_and_live_defaults_are_demo_first():
 
 def _c80_db(path, base, post, hist):
     conn = sqlite3.connect(path)
-    conn.execute("CREATE TABLE demo_gate_history (id INTEGER PRIMARY KEY, timestamp TEXT, ticker TEXT, lock_leading_checks TEXT)")
+    conn.execute("CREATE TABLE demo_gate_history (id INTEGER PRIMARY KEY, timestamp TEXT, ticker TEXT, l5_positioning_checks TEXT)")
     conn.execute("CREATE TABLE lock4_pcr_history (ticker TEXT, pcr REAL, is_dislocation INTEGER DEFAULT 0)")
     for t, passed in base:
-        conn.execute("INSERT INTO demo_gate_history (timestamp, ticker, lock_leading_checks) VALUES (?, ?, ?)",
+        conn.execute("INSERT INTO demo_gate_history (timestamp, ticker, l5_positioning_checks) VALUES (?, ?, ?)",
                      ("2026-08-01T14:00:00", t, json.dumps({"put_call_ratio": {"pass": passed, "pc_ratio": 0.7}})))
     for t, passed, mode in post:
-        conn.execute("INSERT INTO demo_gate_history (timestamp, ticker, lock_leading_checks) VALUES (?, ?, ?)",
+        conn.execute("INSERT INTO demo_gate_history (timestamp, ticker, l5_positioning_checks) VALUES (?, ?, ?)",
                      ("2026-09-18T14:00:00", t, json.dumps({"put_call_ratio": {"pass": passed, "pc_ratio": 0.7, "threshold_mode": mode}})))
     conn.executemany("INSERT INTO lock4_pcr_history (ticker, pcr) VALUES (?, ?)", hist)
     conn.commit()
@@ -209,7 +209,7 @@ def test_check80_warns_when_three_sessions_are_under_half_covered(tmp_path, monk
     conn = sqlite3.connect(repo / "data/apex.db")
     for d in ("2026-09-21", "2026-09-22", "2026-09-23"):      # three full sessions, 2 cycles each
         for hm in ("14:00", "14:20"):
-            conn.execute("INSERT INTO demo_gate_history (timestamp, ticker, lock_leading_checks) VALUES (?, ?, ?)",
+            conn.execute("INSERT INTO demo_gate_history (timestamp, ticker, l5_positioning_checks) VALUES (?, ?, ?)",
                          (f"{d}T{hm}:00", "OPN", json.dumps({"put_call_ratio": {"pass": True, "pc_ratio": 0.7, "threshold_mode": "per_ticker_p25"}})))
     conn.commit(); conn.close()
     monkeypatch.setattr(cg, "_c80_closed_sessions", _sessions_until("2026-09-23"))

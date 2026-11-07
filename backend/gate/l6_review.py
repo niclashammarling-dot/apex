@@ -138,8 +138,8 @@ def _fail_closed(cause: str) -> LockResult:
     """
     Fail-closed result when the Anthropic call cannot be made or fails.
 
-    The reason string is persisted verbatim into gate_history.lock3_reasoning
-    (gate_runner._run_l5_for_result), so the row is self-describing: a real
+    The reason string is persisted verbatim into gate_history.decision_reason
+    (gate_runner._run_l6_review_for_result), so the row is self-describing: a real
     Claude HOLD carries Claude's reasoning text; an unavailable-API HOLD carries
     `anthropic_unavailable: <cause>`. Before 2026-09-18 the reason was dropped
     and the row was indistinguishable from a genuine HOLD except by

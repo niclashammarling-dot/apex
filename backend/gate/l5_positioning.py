@@ -257,7 +257,7 @@ def evaluate(ticker: str, sector: str, pcr_mode: str = "pooled_scalar") -> LockR
         # The price group fails on any error; the options group decides only when the price group passed.
         "unavailable":         (not passed) and ((not price_group_pass and price_errors > 0)
                                                  or (price_group_pass and options_errors > 0)),
-        # Kept for DB compat (lock_leading_checks serialised as JSON)
+        # Kept for DB compat (l5_positioning_checks serialised as JSON)
         "sub_checks":          checks,
     }
 

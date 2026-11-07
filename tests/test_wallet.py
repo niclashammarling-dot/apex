@@ -53,9 +53,9 @@ def make_gate_result(ticker, sector, price, decision="BUY", confidence=0.80):
         "ticker":         ticker,
         "sector":         sector,
         "signal_score":   0.74,
-        "lock1":          {"passed": True, "score": 0.74},
-        "lock2":          None,
-        "lock3":          {
+        "l3_score":          {"passed": True, "score": 0.74},
+        "l4_sentiment":          None,
+        "l6_review":          {
             "passed":           decision == "BUY",
             "decision":         decision,
             "confidence":       confidence,

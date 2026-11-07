@@ -167,8 +167,8 @@ def check36():
     try:
         conn = sqlite3.connect(db)
         rows = conn.execute(
-            "SELECT lock_leading_checks FROM signals "
-            "WHERE lock_leading_checks IS NOT NULL AND timestamp >= ?",
+            "SELECT l5_positioning_checks FROM signals "
+            "WHERE l5_positioning_checks IS NOT NULL AND timestamp >= ?",
             (cutoff,)
         ).fetchall()
         conn.close()

@@ -466,7 +466,7 @@ def check50():
 
     A failure here means either: (a) the group constraint code was bypassed,
     (b) a regression to flat min_pass, or (c) a data serialisation bug where
-    lock_leading_checks doesn't match the actual pass decision.
+    l5_positioning_checks doesn't match the actual pass decision.
     """
     import json
     import sqlite3
@@ -479,11 +479,11 @@ def check50():
     try:
         rows = con.execute(
             """
-            SELECT ticker, timestamp, lock_leading_checks
+            SELECT ticker, timestamp, l5_positioning_checks
             FROM live_gate_history
             WHERE gate_decision = 'TRADE_EXECUTED'
-              AND lock_leading_pass = 1
-              AND lock_leading_checks IS NOT NULL
+              AND l5_positioning_pass = 1
+              AND l5_positioning_checks IS NOT NULL
               AND timestamp >= '2026-06-03'
             ORDER BY timestamp DESC
             """
@@ -523,8 +523,8 @@ def check58():
     """
     Every call site of insert_demo_gate_result() / insert_live_gate_result()
     must supply all five fields that db.py added defaults for piecemeal
-    (ticker_signal, earnings_near, days_to_earnings, lock3_sentiment_score,
-    lock3_conviction) — db.py's per-field .get() fallback only covers the
+    (ticker_signal, earnings_near, days_to_earnings, l4_sentiment_score,
+    l4_sentiment_conviction) — db.py's per-field .get() fallback only covers the
     fields someone remembered to add there; a call site missing a field
     that db.py does NOT default raises sqlite3.ProgrammingError and kills
     the whole gate cycle silently (2026-06-23: demo's skipped-ticker call
@@ -538,7 +538,7 @@ def check58():
 
     REQUIRED_KEYS = {
         "ticker_signal", "earnings_near", "days_to_earnings",
-        "lock3_sentiment_score", "lock3_conviction",
+        "l4_sentiment_score", "l4_sentiment_conviction",
     }
     targets = {
         "insert_demo_gate_result": REPO / "backend/gate/gate_runner.py",

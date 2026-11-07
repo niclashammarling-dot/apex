@@ -10,8 +10,8 @@ from scripts.fixture_provenance import check_rows, compare_value
 
 def _db():
     c = sqlite3.connect(":memory:")
-    c.execute("CREATE TABLE live_gate_history (id INTEGER, ticker TEXT, signal_score REAL, lock1_pass INTEGER, "
-              "lock3_reasoning TEXT, lock_leading_checks TEXT)")
+    c.execute("CREATE TABLE live_gate_history (id INTEGER, ticker TEXT, signal_score REAL, l3_score_pass INTEGER, "
+              "decision_reason TEXT, l5_positioning_checks TEXT)")
     c.execute("INSERT INTO live_gate_history VALUES (13309, 'TMO', 0.6049, 0, 'Signal score 0.5747 below threshold "
               "0.5892, a long tail', ?)",
               (json.dumps({"put_call_ratio": {"pass": False, "reason": "P/C 1.85"}, "unusual_calls": {"pass": True}}),))
@@ -19,23 +19,23 @@ def _db():
 
 
 def test_a_true_copy_matches_including_cut_text_and_a_json_subset():
-    row = {"id": 13309, "ticker": "TMO", "signal_score": 0.6049, "lock1_pass": 0,
-           "lock3_reasoning": "Signal score 0.5747 below threshold 0.5892",
-           "lock_leading_checks": json.dumps({"put_call_ratio": {"pass": False}})}
+    row = {"id": 13309, "ticker": "TMO", "signal_score": 0.6049, "l3_score_pass": 0,
+           "decision_reason": "Signal score 0.5747 below threshold 0.5892",
+           "l5_positioning_checks": json.dumps({"put_call_ratio": {"pass": False}})}
     assert check_rows(_db(), [("live_gate_history", row)]) == ["OK live_gate_history 13309"]
 
 
 def test_the_10_29_shape_an_invented_flag_is_a_mismatch():
     # The founding case: production identity, invented state.
-    [line] = check_rows(_db(), [("live_gate_history", {"id": 13309, "ticker": "TMO", "lock1_pass": 1})])
-    assert line.startswith("MISMATCH live_gate_history 13309") and "lock1_pass" in line
+    [line] = check_rows(_db(), [("live_gate_history", {"id": 13309, "ticker": "TMO", "l3_score_pass": 1})])
+    assert line.startswith("MISMATCH live_gate_history 13309") and "l3_score_pass" in line
 
 
 def test_a_missing_row_column_or_json_key_is_a_mismatch():
     c = _db()
     assert check_rows(c, [("live_gate_history", {"id": 1})])[0].startswith("MISMATCH")
     assert "no such column" in check_rows(c, [("live_gate_history", {"id": 13309, "nope": 1})])[0]
-    row = {"id": 13309, "lock_leading_checks": json.dumps({"relative_strength": {"pass": True}})}
+    row = {"id": 13309, "l5_positioning_checks": json.dumps({"relative_strength": {"pass": True}})}
     assert "not in production" in check_rows(c, [("live_gate_history", row)])[0]
 
 

@@ -201,9 +201,9 @@ def test_settings_and_logs_carry_no_min_pass():
     try:
         for runner in (gate_runner, gate_runner_live):
             runner._log_summary("NVDA", {"outcome": "FILTERED_LEADING",
-                                         "lock1": {"passed": True, "score": 0.7},
-                                         "lock_leading": {"passed": False, "pass_count": 2,
-                                                          "price_group_pass": True, "options_group_pass": False}})
+                                         "l3_score": {"passed": True, "score": 0.7},
+                                         "l5_positioning": {"passed": False, "pass_count": 2,
+                                                            "price_group_pass": True, "options_group_pass": False}})
     finally:
         logger.remove(sink)
-    assert sum("LD=✗(price ✓ options ✗)" in l for l in lines) == 2, lines
+    assert sum("L5=✗(price ✓ options ✗)" in l for l in lines) == 2, lines

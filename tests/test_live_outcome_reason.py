@@ -79,8 +79,8 @@ def test_rejections_endpoint_round_trip():
 
     ts = datetime.now(timezone.utc).isoformat()
     base = {"timestamp": ts, "sector": "Technology", "signal_score": 0.6,
-            "lock1_pass": 1, "lock2_pass": 1, "lock3_pass": 1,
-            "lock3_reasoning": None, "alpaca_order_id": None}
+            "l3_score_pass": 1, "l4_sentiment_pass": 1, "l6_review_pass": 1,
+            "decision_reason": None, "alpaca_order_id": None}
     cc = {"source": "dynamic", "cap": 0.05, "flat": 0.30, "before": 0.0,
           "projected": 0.10, "over_cap": True, "over_flat": False}
     db.insert_live_gate_result({**base, "ticker": "ZZA", "gate_decision": "FILTERED_L2_RISK",
@@ -91,8 +91,8 @@ def test_rejections_endpoint_round_trip():
                                 "stop_code": "FILTERED_UNKNOWN"})
     db.insert_demo_gate_result({**base, "ticker": "ZZC", "gate_decision": "FILTERED_L0_PORTFOLIO",
                                 "stop_code": "FILTERED_L0_PORTFOLIO_LOSS_CAP", "outcome_reason": "loss_cap",
-                                "lock_leading_pass": 1, "lock_leading_checks": None, "l2_summary": None,
-                                "macro_reason": None})
+                                "l5_positioning_pass": 1, "l5_positioning_checks": None, "l4_sentiment_summary": None,
+                                "l1_eligibility_reason": None})
 
     out = get_live_rejections(days=1)
     reasons = out["days"][0]["reasons"]
