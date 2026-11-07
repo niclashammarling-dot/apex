@@ -324,6 +324,10 @@ class TestRetirementPartB:
             {"num": 12, "name": "registry stale, fired in the state history", "last": "2026-06-01", "control": None},
             {"num": 13, "name": "never fired", "last": None, "control": None}]
 
+    @pytest.fixture(autouse=True)
+    def _all_ran(self, monkeypatch):
+        monkeypatch.setattr(bundle, "_evaluated_nums", lambda: {r["num"] for r in self.ROWS})
+
     def test_quiet_unarmed_counts_and_names_the_oldest(self, monkeypatch):
         monkeypatch.setattr(bundle, "_registry_rows", lambda: list(self.ROWS))
         monkeypatch.setattr(bundle, "_state_history_last", lambda: {12: "2026-10-20"})
@@ -341,6 +345,27 @@ class TestRetirementPartB:
         monkeypatch.setattr(bundle, "_state_history_last", boom)
         [it] = bundle.retirement_items("2026-10-31")
         assert it["severity"] == "WARNING" and "unreadable" in it["text"]
+
+    def test_a_row_the_host_audit_did_not_run_is_named_as_no_runner_not_quiet(self, monkeypatch):
+        # Positive control (scope § 2): a registry row with no implementation appears on the NO RUNNER line.
+        monkeypatch.setattr(bundle, "_registry_rows", lambda: list(self.ROWS))
+        monkeypatch.setattr(bundle, "_state_history_last", lambda: {12: "2026-10-20"})
+        monkeypatch.setattr(bundle, "_evaluated_nums", lambda: {10, 11, 12})      # 13 has no runner
+        items = {it["key"]: it for it in bundle.retirement_items("2026-10-31")}
+        assert items["retirement:no_runner"]["text"].startswith("NO RUNNER: 1 active checks")
+        assert "CHECK 13 never fired" in items["retirement:no_runner"]["text"]
+        assert items["retirement:quiet_unarmed"]["text"].startswith("QUIET, UNARMED: 1 active checks")
+        assert "CHECK 13" not in items["retirement:quiet_unarmed"]["text"]       # not double-counted
+
+    def test_unreadable_state_is_a_warning(self, monkeypatch):
+        monkeypatch.setattr(bundle, "_registry_rows", lambda: list(self.ROWS))
+        monkeypatch.setattr(bundle, "_state_history_last", lambda: {})
+
+        def boom():
+            raise FileNotFoundError("audit/state/latest.json")
+        monkeypatch.setattr(bundle, "_evaluated_nums", boom)
+        keys = [it["key"] for it in bundle.retirement_items("2026-10-31")]
+        assert "retirement:no_runner_unreadable" in keys
 
     def test_registry_parser_reads_the_real_table(self):
         rows = bundle._registry_rows()
