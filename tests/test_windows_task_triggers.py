@@ -1,13 +1,14 @@
 """
-The three Windows tasks fire inside their scripts' ET guards in both EDT and EST (2026-10-23).
+The three Windows tasks fire inside their scripts' ET guards in every DST regime (2026-10-23; model corrected
+2026-11-07).
 
-Model: a CalendarTrigger whose StartBoundary carries an offset fires at a fixed UTC time,
-whatever the host's DST (probed 2026-10-19: `14:20:00+02:00` on a task dated 10-27 gave
-NextRunTime 13:20 +01:00; the offset-free control gave 14:20 +01:00). So the fire times
-below depend only on the US clock. Found 10-19: from 2026-11-02 (EST) the EOD fallback never
-ran and the cycle watch stopped before the close. Guards read from the scripts:
-market_window.sh:92 (start 08:15-15:30 ET), eod_window.sh:67 (16:05-16:45 ET),
-cycle_watch.py session_bounds + CLOSE_FINALIZE_MIN (watch to the 16:00 close, then finalize).
+Model (measured 2026-11-05, vault raw/notes/2026-11/2026-11-02-apex-saturday-scopes-11-07.md § 5 result): the
+scheduler fires a CalendarTrigger at local wall-clock time, Stockholm, whatever the offset written in StartBoundary.
+The 10-19 probe read the export (`+01:00`, digits one hour earlier) and NextRunTime and concluded fixed UTC; the
+launch logs show every task firing at the CEST digits it was registered with, so in the EU/US DST-mismatch weeks the
+backend started 09:20 ET instead of 08:20 (10-26..10-30). StartBoundary therefore carries no offset, and the fire
+times below are Stockholm wall-clock converted to ET per day. Guards read from the scripts: market_window.sh
+(start 08:15-15:30 ET), eod_window.sh (16:05-16:45 ET), cycle_watch.py session_bounds + CLOSE_FINALIZE_MIN.
 """
 import re
 import xml.etree.ElementTree as ET
@@ -20,8 +21,10 @@ import pytest
 WIN = Path(__file__).resolve().parent.parent / "scripts" / "windows"
 NS = {"t": "http://schemas.microsoft.com/windows/2004/02/mit/task"}
 NY = ZoneInfo("America/New_York")
-# 10-21 EDT with Stockholm on CEST; 10-27 EDT with Stockholm on CET (mismatch week); 11-03 EST
-DAYS = [date(2026, 10, 21), date(2026, 10, 27), date(2026, 11, 3)]
+STO = ZoneInfo("Europe/Stockholm")
+# 10-21 EDT with Stockholm on CEST; 10-27 EDT with Stockholm on CET (autumn mismatch); 11-03 EST with CET;
+# 2027-03-15 EDT with CET (spring mismatch, the next real control)
+DAYS = [date(2026, 10, 21), date(2026, 10, 27), date(2026, 11, 3), date(2027, 3, 15)]
 
 
 def _duration(s):
@@ -38,8 +41,9 @@ def _fires(name, day):
 
 def _trigger_fires(trig, day):
     start = datetime.fromisoformat(trig.findtext("t:StartBoundary", namespaces=NS))
-    assert start.tzinfo, "StartBoundary without offset breaks the fixed-UTC model"
-    first = datetime.combine(day, start.astimezone(timezone.utc).time(), tzinfo=timezone.utc)
+    assert start.tzinfo is None, ("StartBoundary carries an offset: the scheduler fires at the local digits anyway "
+                                  "(2026-11-05), so the offset only misleads a reader")
+    first = datetime.combine(day, start.time(), tzinfo=STO)
     rep = trig.find("t:Repetition", NS)
     step = _duration(rep.findtext("t:Interval", namespaces=NS)) if rep is not None else None
     end = first + (_duration(rep.findtext("t:Duration", namespaces=NS)) if rep is not None else timedelta())
@@ -65,9 +69,24 @@ def test_market_window_starts_before_the_watcher_and_relaunches_to_the_guard(day
 
 
 @pytest.mark.parametrize("day", DAYS, ids=str)
+def test_market_window_opens_at_08_15_et_in_every_regime(day):
+    """Niclas 2026-11-05: "starta fönstret en timme tidigare en enskild vecka" — made automatic: the first launch the
+    guard accepts is 08:15-08:20 ET in normal and in mismatch weeks alike."""
+    first = min(t for t in _fires("APEX-market-window.xml", day) if t >= _et(day, 8, 15))
+    assert first <= _et(day, 8, 20), first.strftime("%H:%M ET")
+
+
+@pytest.mark.parametrize("day", DAYS, ids=str)
 def test_eod_fallback_fires_inside_its_guard(day):
     f = _fires("APEX-EOD-window.xml", day)
-    assert any(_et(day, 16, 5) <= t <= _et(day, 16, 45) for t in f), [t.strftime("%H:%M") for t in f]
+    assert any(_et(day, 16, 5) <= t <= _et(day, 16, 40) for t in f), [t.strftime("%H:%M") for t in f]
+
+
+def test_eod_guard_starts_nothing_after_16_40():
+    """Since 2026-11-07 the repeats reach 16:45 ET in mismatch weeks; a start there would be killed by the 16:45 stop
+    within minutes, mid catch-up, so the guard's start bound is 16:40 (read from the script)."""
+    text = (WIN.parent / "eod_window.sh").read_text()
+    assert re.search(r"10#\$et_hm < 1605 \|\| 10#\$et_hm > 1640", text)
 
 
 @pytest.mark.parametrize("day", DAYS, ids=str)
@@ -79,7 +98,7 @@ def test_cycle_watch_covers_the_session_and_a_finalize_run(day):
     assert any(close < t <= close + timedelta(minutes=CLOSE_FINALIZE_MIN) for t in f), "no finalize run"
 
 
-GUARDS = {"APEX-EOD-window.xml": ((16, 5), (16, 45)), "APEX-market-window.xml": ((8, 15), (15, 30))}
+GUARDS = {"APEX-EOD-window.xml": ((16, 5), (16, 40)), "APEX-market-window.xml": ((8, 15), (15, 30))}
 
 
 @pytest.mark.parametrize("name", sorted(GUARDS))

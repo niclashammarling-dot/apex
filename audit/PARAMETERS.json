@@ -1314,6 +1314,17 @@
       "source": "TP/SL re-anchor ruling (a) 2026-10-31: the wide-fill warning is an event (one weekly bundle), not a standing level.",
       "review": "2026-11-14",
       "date": "2026-10-31"
+    },
+    "audit/checks_gate.py::_C96_FIRST": {
+      "value": [
+        815,
+        830
+      ],
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "Claude 2026-11-07, CHECK 96: the lower bound is market_window.sh's guard start (08:15 ET); the upper bound allows three 5-min repeats of the trigger (a repeat dropped by IgnoreNew or a slow WSL start) before the pre-open hour counts as lost. Vault raw/notes/2026-11/2026-11-02-apex-saturday-scopes-11-07.md § 5.",
+      "date": "2026-11-07",
+      "review": "2026-11-21"
     }
   }
 }

@@ -1383,6 +1383,47 @@ def check82() -> None:
                  f"that session had no same-day alert")
 
 
+_C96_FIRST = [815, 830]   # ET window for the session's first start (lists: the registry pins JSON lists)
+
+
+def check96() -> None:
+    """
+    CHECK 96 — Market window opened at 08:15 ET.
+
+    Measured 2026-11-05 (vault raw/notes/2026-11/2026-11-02-apex-saturday-scopes-11-07.md § 5): Windows Task
+    Scheduler fires at local wall-clock time on the digits a task was registered with, whatever offset its
+    StartBoundary shows. In the EU/US DST-mismatch week 10-26..10-30 the backend therefore started 09:20 ET instead
+    of 08:20, the pre-open hour (eod_regime 08:30, the 08:45 watcher) was lost, and nothing read the launch time: the
+    10-19 probe had read NextRunTime, a registration, not a firing. Since 2026-11-07 one trigger repeats every 5 min
+    from 13:15 local and the guard takes the first repeat at 08:15 ET in every regime. This check reads the firing:
+    the first `starting uvicorn … ET now HHMM` of each of the trailing _C82_SESSIONS sessions.
+      WARNING  first start outside 08:15–08:30 ET (a late trigger, a machine off at the open, or a regime the
+               trigger does not cover; next real control: the spring mismatch 2027-03-15..03-26)
+    A day without a log or without a start is CHECK 82's. SKIPPED without apex.db (host-only, logs/).
+    """
+    name = "Market window opened at 08:15 ET"
+    if not require_data_file(96, name, REPO / "data/apex.db"):
+        return
+    try:
+        sessions = _c82_session_dates(_C82_SESSIONS)
+    except Exception as e:
+        flag(96, name, "WARNING", "audit/checks_gate.py:_c82_session_dates", f"calendar unavailable: {e}")
+        return
+    for d in sessions:
+        log = REPO / "logs" / f"market_window_{d}.log"
+        if not log.exists():
+            continue
+        first = next((m for ln in log.read_text(errors="replace").splitlines()
+                      if (m := re.search(r"\| starting uvicorn .*ET now (\d{4})", ln))), None)
+        if first is None:
+            continue
+        hm = int(first.group(1))
+        if not _C96_FIRST[0] <= hm <= _C96_FIRST[1]:
+            flag(96, name, "WARNING", "scripts/windows/APEX-market-window.xml",
+                 f"{d}: first start at ET {hm:04d}, outside 08:15–08:30 — the pre-open hour (eod_regime 08:30, the "
+                 f"08:45 watcher) ran late or not at all; read the task's trigger against the day's DST regime")
+
+
 _C83_DAYS      = 3    # trailing days read
 _C83_MIN_GAP   = 15   # minutes; two cycle starts closer than this cannot be one 20-min scheduler
 
@@ -2313,3 +2354,4 @@ def run() -> None:
     check92()
     check93()
     check94()
+    check96()

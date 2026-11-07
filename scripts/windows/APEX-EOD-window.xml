@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.3" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>APEX EOD window (apex-moc 2026-09-16 scheduler-not-a-service decision). Launches backend without --reload for eod_regime 16:15 ET + collect_pcr 16:30 ET; the script gates on the ET clock (16:05-16:45). Offset-form triggers fire at a fixed UTC time (probed 2026-10-19), so 20:10 UTC (16:10 EDT) and 21:10 UTC (16:10 EST, added 2026-10-23) each fire inside the guard in one clock; the 19:10 UTC trigger, inside it in neither, was removed 2026-10-23 (tests/test_windows_task_triggers.py). Recovery: delete this task, fall back to manual launch.</Description>
+    <Description>APEX EOD window (apex-moc 2026-09-16 scheduler-not-a-service decision). Launches backend without --reload for eod_regime 16:15 ET + collect_pcr 16:30 ET; the script gates on the ET clock (16:05-16:45). The scheduler fires at local wall-clock time, an offset in StartBoundary does not fix UTC (measured 2026-11-05; the 10-19 fixed-UTC reading is retracted), so one trigger repeats every 5 min from 21:05 to 22:40 Stockholm and StartBoundary carries no offset: the repeats from 16:05 to 16:40 ET pass the guard in every regime (22:05-22:40 local in normal weeks, 21:05-21:40 in the EU/US DST-mismatch weeks) and the rest exit on it; IgnoreNew drops a repeat while an instance watches, and a launch after 16:38 ET exits on port bound (tests/test_windows_task_triggers.py). Recovery: delete this task, fall back to manual launch.</Description>
     <URI>\APEX EOD window</URI>
   </RegistrationInfo>
   <Principals>
@@ -27,20 +27,12 @@
   </Settings>
   <Triggers>
     <CalendarTrigger>
-      <StartBoundary>2026-09-16T22:10:00+02:00</StartBoundary>
-      <ScheduleByWeek>
-        <WeeksInterval>1</WeeksInterval>
-        <DaysOfWeek>
-          <Monday />
-          <Tuesday />
-          <Wednesday />
-          <Thursday />
-          <Friday />
-        </DaysOfWeek>
-      </ScheduleByWeek>
-    </CalendarTrigger>
-    <CalendarTrigger>
-      <StartBoundary>2026-09-16T23:10:00+02:00</StartBoundary>
+      <Repetition>
+        <Interval>PT5M</Interval>
+        <Duration>PT1H35M</Duration>
+        <StopAtDurationEnd>false</StopAtDurationEnd>
+      </Repetition>
+      <StartBoundary>2026-11-09T21:05:00</StartBoundary>
       <ScheduleByWeek>
         <WeeksInterval>1</WeeksInterval>
         <DaysOfWeek>

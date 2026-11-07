@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 # APEX EOD window — launched by Windows Task Scheduler (task "APEX EOD window")
-# via wsl.exe at 22:10 and 21:10 Stockholm on weekdays. Serves the evening jobs
+# via wsl.exe every 5 min 21:05-22:40 Stockholm on weekdays. Serves the evening jobs
 # that earn a schedule (apex-moc, 2026-09-16): collect_pcr 16:30 ET and
 # publish_audit_state 16:33 ET. eod_regime moved to 08:30 ET pre-open on
 # 2026-09-22 (its inputs are retained; the morning run is the same computation).
 #
-# Since 2026-09-18 the market window (scripts/market_window.sh, 15:20/14:20
+# Since 2026-09-18 the market window (scripts/market_window.sh, from 13:15
 # Stockholm) serves the whole session including these two jobs; this task stays
 # registered as the fallback — it exits on "port bound" when the window is up.
 #
 # Rules:
-#   - Window is defined on the ET clock, not Stockholm: 16:05–16:45 ET. Two Windows
-#     triggers (21:10 / 22:10 local) cover the EU/US DST-mismatch weeks; the one
-#     that lands outside the ET window exits here without starting anything.
+#   - Window is defined on the ET clock, not Stockholm: starts 16:05–16:40 ET, stops 16:45 (a launch at 16:41-16:45
+#     would start the backend and stop it within minutes, mid catch-up; the 5-min repeats reach 16:45 in mismatch
+#     weeks since 2026-11-07, so the start bound is 16:40). The Windows
+#     trigger repeats every 5 min from 21:05 to 22:40 local (the scheduler fires at
+#     wall-clock time, measured 2026-11-05), so 16:05–16:40 ET is reached in every DST
+#     regime; a repeat outside the ET window exits here without starting anything.
 #   - No --reload. The serving process is never the edited process.
 #   - If port 8000 is bound (the market window is up), WATCH it rather than
 #     exit: poll every 30 s until 16:45 ET; if the port frees before 16:38 ET,
@@ -64,7 +67,7 @@ case $? in
     1) log "not an NYSE session (${APEX_SESSION_DATE:-$(TZ=America/New_York date +%F)}) — nothing started"; exit 0 ;;
     *) log "NYSE calendar lookup failed — starting anyway (see stderr above)" ;;
 esac
-if [[ -z $TEST ]] && (( 10#$et_hm < 1605 || 10#$et_hm > 1645 )); then
+if [[ -z $TEST ]] && (( 10#$et_hm < 1605 || 10#$et_hm > 1640 )); then   # starts to 16:40, stops at 16:45 (2026-11-07)
     log "outside ET window (ET now $et_hm) — nothing started"
     exit 0
 fi

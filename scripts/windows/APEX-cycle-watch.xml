@@ -32,7 +32,7 @@
         <Duration>PT8H15M</Duration>
         <StopAtDurationEnd>false</StopAtDurationEnd>
       </Repetition>
-      <StartBoundary>2026-10-05T15:15:00+02:00</StartBoundary>
+      <StartBoundary>2026-10-05T15:15:00</StartBoundary>
       <Enabled>true</Enabled>
       <ScheduleByWeek>
         <DaysOfWeek>
