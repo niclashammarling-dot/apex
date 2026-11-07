@@ -348,3 +348,15 @@ def test_l2_risk_rules_live_in_l2_risk():
     assert "l2_risk_etf_penalty" not in chain and "l2_risk_etf_floor" not in chain
     assert "def check_earnings" in l2 and "def check_etf" in l2
     assert "l2_risk.check_earnings(" in l1 and "l2_risk.check_etf(" in chain
+
+
+def test_a_row_before_the_exit_cooloff_split_passes_l1_on_its_exit_cooloff_verdict():
+    # Found 2026-11-07 by the surface replay: rows written before exit_cooloff_win existed showed L1 ◐.
+    win, exit_ = lock_codes.rule_key(1, "exit_cooloff_win"), lock_codes.rule_key(1, "exit_cooloff")
+    old = {k: v for k, v in LIVE_PASSED.items() if k != win}
+    assert exit_ in old
+    row = {"rule_states": json.dumps(old), "timestamp": "2026-11-06T15:00:00+00:00", "stop_code": None,
+           "gate_decision": "TRADE_EXECUTED"}
+    assert lock_codes.decorate_rows([dict(row)], "live")[0]["lock_states"][1] == "pass"
+    later = {**row, "timestamp": "2026-11-09T15:00:00+00:00"}
+    assert lock_codes.decorate_rows([later], "live")[0]["lock_states"][1] == "partial"

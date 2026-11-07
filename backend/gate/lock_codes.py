@@ -357,6 +357,21 @@ def reason_label(row: dict) -> str | None:
         return None
 
 
+# exit_cooloff_win became its own L1 rule at the phase 3 merge (ruled 2026-10-31: "egen regel låter mer konsekvent";
+# first live start 2026-11-09). Rows written before it carry only exit_cooloff, whose verdict then covered both
+# windows, and history is not re-coded (same ruling), so a row stamped before the split reads exit_cooloff's verdict
+# for the win window too. Without this every earlier row that passed L1 showed ◐ (found 2026-11-07 by the surface
+# replay: 93 live and 214 demo rows of the week 11-02). A later row missing the win rule still shows ◐.
+EXIT_COOLOFF_WIN_SPLIT = "2026-11-08"
+
+
+def _states_before_split(states: dict[str, str], ts: str | None) -> dict[str, str]:
+    exit_key, win_key = rule_key(1, "exit_cooloff"), rule_key(1, "exit_cooloff_win")
+    if ts and ts < EXIT_COOLOFF_WIN_SPLIT and exit_key in states and win_key not in states:
+        return {**states, win_key: states[exit_key]}
+    return states
+
+
 def decorate_rows(rows: list[dict], book: str) -> list[dict]:
     """Per-row lock marks, badge and reason label for the gate history endpoints (Terminal)."""
     for r in rows:
@@ -364,7 +379,7 @@ def decorate_rows(rows: list[dict], book: str) -> list[dict]:
             states = json.loads(r.get("rule_states") or "{}")
         except (TypeError, ValueError):
             states = {}
-        r["lock_states"] = lock_marks(states, book)
+        r["lock_states"] = lock_marks(_states_before_split(states, r.get("timestamp")), book)
         r["badge"] = badge(r)
         r["badge_kind"] = badge_kind(r)
         r["reason_label"] = reason_label(r)
