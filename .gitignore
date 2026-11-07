@@ -70,6 +70,11 @@ data/objective_walkforward.json
 # DB snapshots taken before destructive repairs (data/backups/*.csv row dumps are kept — they are the "before" measurement)
 data/backups/**/*.db
 data/backups/**/*.json
+# SQLite side files of those snapshots (opened in WAL mode by a read) and the pruned-log archive (2026-11-07,
+# reader-writer inventory: untracked, read only by a restore)
+data/backups/**/*.db-shm
+data/backups/**/*.db-wal
+data/backups/**/*.tar.gz
 data/backups/**/*.log
 data/backups/**/*.jsonl
 data/.eod_replay.lock
@@ -79,6 +84,8 @@ data/.eod_replay.lock
 # every commit made while a window was running.
 data/scheduler.lock
 data/launcher.lock
+# Single-flight lock of the live gate (gate_runner_live, finding 1 of the 10-07 review): state, not source (2026-11-07)
+data/live_gate.lock
 
 # Runtime completion markers — written by the nightly collectors each run, same class
 # as scheduler.lock: state, not source. Gated on before a dependent step runs.
