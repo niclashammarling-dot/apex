@@ -1325,6 +1325,12 @@
       "source": "Claude 2026-11-07, CHECK 96: the lower bound is market_window.sh's guard start (08:15 ET); the upper bound allows three 5-min repeats of the trigger (a repeat dropped by IgnoreNew or a slow WSL start) before the pre-open hour counts as lost. Vault raw/notes/2026-11/2026-11-02-apex-saturday-scopes-11-07.md § 5.",
       "date": "2026-11-07",
       "review": "2026-11-21"
+    },
+    "backend/protection_health.py::_LEVEL_TOL": {
+      "value": 0.005,
+      "kind": "structural",
+      "tier": "money",
+      "source": "Alpaca prices stop legs to the cent (0.01), so a leg at the trade's expected stop matches within half a cent; CHECK 92's fill-pending branch (2026-11-07, OXY 11-04)."
     }
   }
 }
