@@ -617,6 +617,11 @@ def _run(cycle: GateCycle) -> list[dict]:
     open_count           = len(open_positions)  # snapshot; incremented on each executed trade
     bayesian_multipliers = _compute_bayesian_multipliers(evaluated, regime_bayes_result)
 
+    # Cash for this cycle's orders, reduced by each order placed (2026-11-07, codebase audit 2026-11-02 finding 2):
+    # sizing read the cycle-start account for every order, so three entries in one cycle (10-15: COP and CVX at an
+    # identical $1,058.39, EOG $958.20) each took max_position_size of the same cash. Demo reads cash per trade and
+    # engine_fast reduces its balance per entry; this mirrors sector_exposure_live for the sector cap.
+    cash_left = max(0.0, min(acct["equity"], acct["cash"]))
     for signal, result in evaluated:
         ticker   = signal["ticker"]
         order_id = None
@@ -686,8 +691,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                     result["outcome"] = STOPPED
                 else:
                     position_pct    = result["l6_review"]["position_size_pct"] if result.get("l6_review") else cfg["max_position_size"]
-                    available_cash  = max(0.0, min(acct["equity"], acct["cash"]))
-                    notional        = available_cash * min(position_pct, cfg["max_position_size"])
+                    notional        = _order_notional(cash_left, position_pct, cfg)
                     refusal         = _order_refusal(result, ticker, notional, signal.get("price"))
                     if refusal:
                         result["outcome"] = STOPPED
@@ -717,6 +721,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                                 )
                                 result["outcome"]       = "TRADE_EXECUTED"
                                 result["overflow_slot"] = True
+                                cash_left = max(0.0, cash_left - notional)
                                 open_tickers.add(ticker)
                                 open_count += 1
                                 sector_exposure_live[sector] = projected
@@ -734,8 +739,7 @@ def _run(cycle: GateCycle) -> list[dict]:
             else:
                 _overflow_state(result, False)          # a free slot passes overflow
                 position_pct   = result["l6_review"]["position_size_pct"] if result.get("l6_review") else cfg["max_position_size"]
-                available_cash = max(0.0, min(acct["equity"], acct["cash"]))
-                notional       = available_cash * min(position_pct, cfg["max_position_size"])
+                notional       = _order_notional(cash_left, position_pct, cfg)
                 refusal        = _order_refusal(result, ticker, notional, signal.get("price"))
                 if refusal:
                     result["outcome"] = STOPPED
@@ -764,6 +768,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                                 stop_loss_pct   = cfg["stop_loss_pct"],
                             )
                             result["outcome"] = "TRADE_EXECUTED"
+                            cash_left = max(0.0, cash_left - notional)
                             open_tickers.add(ticker)
                             open_count += 1
                             sector_exposure_live[sector] = projected
@@ -783,6 +788,11 @@ def _run(cycle: GateCycle) -> list[dict]:
     _alert_unknown("live", unknown)
     _persist_multiplier_stats(bayesian_multipliers, regime_bayes_result, evaluated, runner="live")
     return results
+
+
+def _order_notional(cash_left: float, position_pct: float, cfg: dict) -> float:
+    """An order's notional: L6's size, capped at max_position_size, of the cash still uncommitted in this cycle."""
+    return cash_left * min(position_pct, cfg["max_position_size"])
 
 
 def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
