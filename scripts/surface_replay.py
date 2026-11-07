@@ -12,7 +12,9 @@ Settings and Promote read config keys, not columns (phase 3 part a keys, already
 table (as_api) changes by design and is not compared.
 
 Usage: .venv/bin/python -u scripts/surface_replay.py --root CHECKOUT --db DB OUT.json
-       .venv/bin/python -u scripts/surface_replay.py --compare PARENT.json BRANCH.json
+       .venv/bin/python -u scripts/surface_replay.py --compare PARENT.json BRANCH.json [SUMMARY.json]
+The run outputs are large (every row of the week); SUMMARY.json keeps both producer blocks, each surface's size and
+the differing surfaces, for archiving.
 """
 import json
 import subprocess
@@ -63,7 +65,7 @@ def run(root: Path, dbfile: Path, out: Path) -> None:
     print({k: len(v) if hasattr(v, "__len__") else v for k, v in res.items()})
 
 
-def compare(parent: Path, branch: Path) -> int:
+def compare(parent: Path, branch: Path, summary: Path | None = None) -> int:
     p, b = json.loads(parent.read_text()), json.loads(branch.read_text())
     diffs = []
     for k in sorted(set(p) | set(b)):
@@ -81,11 +83,18 @@ def compare(parent: Path, branch: Path) -> int:
             else:
                 print(f"DIFF {k}")
     print(f"{len([k for k in p if k != 'producer'])} surfaces, {len(diffs)} differing: {diffs}")
+    if summary:
+        me = Path(__file__).resolve()
+        summary.write_text(json.dumps({
+            "producer": {**b["producer"], "run": f".venv/bin/python -u {me} --compare {parent} {branch} {summary}"},
+            "parent_producer": p["producer"], "branch_producer": b["producer"],
+            "sizes": {k: len(v) for k, v in b.items() if k != "producer" and hasattr(v, "__len__")},
+            "differing": diffs}, indent=1))
     return 1 if diffs else 0
 
 
 if __name__ == "__main__":
     a = sys.argv[1:]
     if a[0] == "--compare":
-        sys.exit(compare(Path(a[1]), Path(a[2])))
+        sys.exit(compare(Path(a[1]), Path(a[2]), Path(a[3]) if len(a) > 3 else None))
     run(Path(a[a.index("--root") + 1]).resolve(), Path(a[a.index("--db") + 1]).resolve(), Path(a[-1]))
