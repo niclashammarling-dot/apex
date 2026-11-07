@@ -1,6 +1,5 @@
 # Known-unexercised functions (tests/coverage/ratchet.py). Only shrinks: test one, drop its line.
 audit/_audit_core.py::_most_recent_trading_day	money
-audit/_audit_core.py::run_tool	money
 audit/alert_criticals.py::parse_criticals	money
 audit/alert_criticals.py::send_alert	money
 audit/bundle.py::_state_history_last	money
@@ -18,7 +17,6 @@ audit/checks_code.py::check16	money
 audit/checks_code.py::check3	money
 audit/checks_code.py::check30	money
 audit/checks_code.py::check31	money
-audit/checks_code.py::check45	money
 audit/checks_code.py::check48	money
 audit/checks_code.py::check49	money
 audit/checks_code.py::check50	money
