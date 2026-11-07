@@ -228,8 +228,9 @@ def derive(m: dict, rows: dict[str, str], checks_all: list[str], params: dict[st
         if ref in m["missing"]:
             return [(ref, "missing")]
         unresolved.append(ref)
-        # A GAP row added on port-regime is not in master's PRODUCTION_GAP until the merge (M6).
-        return [(ref, "port-regime" if ref.startswith("GAP-") else "unresolved")]
+        # One label for every ref no register holds. Until 2026-11-07 a GAP ref read "port-regime" (rows added there
+        # reached master's PRODUCTION_GAP only at the merge, M6); that branch merged 10-24 and is deleted.
+        return [(ref, "unresolved")]
 
     out: dict[str, dict] = {}
 

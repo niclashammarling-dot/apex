@@ -2058,7 +2058,7 @@ def check92(fetch=None) -> None:
 # level: the engine's R7 stop slip (EXIT_PARITY.md R7, measured once 10-17 on 44 legs),
 # Kelly's realised loss input (INDEX line 17), and go-criterion group 4 (slippage charged
 # as a cost before real money). CHECK 89 covers entries only.
-C93_MODEL = {"intraday": 0.0002, "gap": 0.005}   # R7 medians, adverse; port-regime exit_rules.STOP_SLIP_*
+C93_MODEL = {"intraday": 0.0002, "gap": 0.005}   # R7 medians, adverse; exit_rules.STOP_SLIP_*
 C93_TOLERANCE = {"intraday": 0.0025, "gap": 0.005}   # WARNING when the live median is further from the model
 C93_GAP_WINDOW_MIN = 5    # a stop leg filled within this many minutes of the 09:30 ET open was gapped through
 C93_MIN_N = 5             # a class with fewer fills is reported, not judged
@@ -2186,7 +2186,7 @@ def check93(fetch=None) -> None:
         parts.append(f"{c}: n {len(xs)} ({forward[c]} forward since {C93_FORWARD_FROM[:10]}), "
                      f"median {med * 100:+.2f} % adverse (model {C93_MODEL[c] * 100:.2f} %)")
         if len(xs) >= C93_MIN_N and abs(med - C93_MODEL[c]) > C93_TOLERANCE[c]:
-            flag(93, name, "WARNING", "backend/backtest/exit_rules.py:STOP_SLIP (port-regime)",
+            flag(93, name, "WARNING", "backend/backtest/exit_rules.py:STOP_SLIP",
                  f"{c} stop fills drift from the model: live median {med * 100:+.2f} % against "
                  f"{C93_MODEL[c] * 100:.2f} % (n {len(xs)}); re-measure R7, then Kelly's loss input")
     if unlogged:

@@ -75,8 +75,8 @@ def test_unreadable_registers_raise_not_zero():
 
 def test_real_map_resolves_and_every_row_answers_a_question():
     out = qm.build(date(2026, 10, 21))
-    # Only GAP rows may be unresolved on master: rows added on port-regime arrive with the merge (M6).
-    assert all(r.startswith("GAP-") for r in out["unresolved"]), out["unresolved"]
+    # Every ref resolves (port-regime merged 10-24 and is deleted, so no GAP row is waiting for a merge).
+    assert out["unresolved"] == [], out["unresolved"]
     m = qm.parse_map(qm.MAP.read_text(encoding="utf-8"))
     refs = {r for q in m["questions"].values() for r in q["refs"]}
     s_rows = set(qm.signal_states(qm.SIGNALS.read_text(encoding="utf-8")))
@@ -140,3 +140,10 @@ def test_build_marks_a_layer_whose_cards_are_all_unanswered_as_a_break(tmp_path,
     assert out["cards_unread"] is None
     assert out["questions"]["Q-SIG"]["card_break"] is True
     assert out["questions"]["Q-EXE"]["card_break"] is False
+
+
+def test_a_gap_ref_no_register_holds_is_unresolved_not_port_regime():
+    # 2026-11-07: the "port-regime" label outlived its branch; a missing GAP row reads like any other missing ref.
+    d = _derive({"S1": "adopted", "S2": "discarded", "CHECK-1": "clean", "CHECK-2": "clean"})
+    assert d["unresolved"] == ["GAP-1"]
+    assert {"ref": "GAP-1", "state": "unresolved", "answered": False} in d["questions"]["Q-A"]["rows"]
