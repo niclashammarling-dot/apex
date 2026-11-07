@@ -509,14 +509,12 @@ backend/regime/ipo_sentiment.py::IpoSentiment.compute	money
 backend/regime/ipo_sentiment.py::_entity_name	money
 backend/regime/ipo_sentiment.py::_sic_to_sector	money
 backend/regime/regime_bayes.py::regime_context_for_claude	money
-backend/routers/live_router.py::_require_live	money
 backend/routers/live_router.py::live_account	money
 backend/routers/live_router.py::live_equity	money
 backend/routers/live_router.py::live_orders	money
 backend/routers/live_router.py::live_positions	money
 backend/routers/live_router.py::live_status	money
 backend/routers/live_router.py::live_trades	money
-backend/routers/live_router.py::promote_demo_to_live	money
 backend/routers/signals_router.py::BacktestRequest.tsl_range	money
 backend/routers/signals_router.py::_active_sectors	money
 backend/routers/signals_router.py::_validate_ticker	money

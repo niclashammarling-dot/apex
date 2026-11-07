@@ -1122,6 +1122,17 @@ def get_weekend_bundle():
             "excepted": b.get("excepted", [])}
 
 
+@router.get("/ops/config-changes")
+def get_config_change_log(limit: int = 20):
+    """The latest runtime config writes, one row per changed key (2026-11-07, Job 2): Settings saves, Promotes,
+    corrupt-file resets and default materialisations of live_config.json and demo_config.json, with old and new
+    values. Writes before the build were not recorded; git holds only what was committed."""
+    from datetime import datetime, timezone
+
+    from backend.db import get_config_changes
+    return {"as_of": datetime.now(timezone.utc).isoformat(), "rows": get_config_changes(limit=limit)}
+
+
 @router.get("/ops/gate-capacity")
 def get_gate_capacity(days: int = 7):
     """

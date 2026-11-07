@@ -417,6 +417,20 @@ def init_db() -> None:
             );
 
             CREATE INDEX IF NOT EXISTS idx_l5_token_ts ON l5_token_usage(timestamp DESC);
+
+            -- One row per config key a runtime write changed (2026-11-07, vault scope 2026-11-06 Job 2): a Settings
+            -- save or a Promote changed what the gate decided on with no record of when until someone committed.
+            -- source: settings | promote | corrupt_reset | ensure_default. old is NULL when there was no readable file.
+            CREATE TABLE IF NOT EXISTS config_changes (
+                id     INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts     TEXT NOT NULL,
+                file   TEXT NOT NULL,
+                source TEXT NOT NULL,
+                key    TEXT NOT NULL,
+                old    TEXT,
+                new    TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_config_changes_ts ON config_changes(ts DESC);
         """)
         conn.commit()
         logger.info(f"DB initialised at {DB_PATH}")
@@ -1916,6 +1930,37 @@ def finish_gate_cycle(cycle_id: int, outcome: str, reason: str | None,
                      (datetime.now(timezone.utc).isoformat(), outcome, reason, stale_excluded,
                       held_at_start, max_positions, cycle_id))
         conn.commit()
+    finally:
+        conn.close()
+
+
+def record_config_changes(file: str, source: str, old: dict | None, new: dict) -> int:
+    """One config_changes row per key whose value differs between `old` (None: no readable file) and `new`;
+    a write that changes nothing records nothing. Returns the rows written."""
+    old = old or {}
+    keys = sorted(k for k in set(old) | set(new) if old.get(k) != new.get(k))
+    if not keys:
+        return 0
+    ts = datetime.now(timezone.utc).isoformat()
+    conn = get_db()
+    try:
+        conn.executemany(
+            "INSERT INTO config_changes (ts, file, source, key, old, new) VALUES (?, ?, ?, ?, ?, ?)",
+            [(ts, file, source, k, json.dumps(old[k]) if k in old else None,
+              json.dumps(new[k]) if k in new else None) for k in keys])
+        conn.commit()
+        return len(keys)
+    finally:
+        conn.close()
+
+
+def get_config_changes(limit: int = 20, since: str | None = None) -> list[dict]:
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT ts, file, source, key, old, new FROM config_changes WHERE ts >= ? ORDER BY ts DESC, id DESC LIMIT ?",
+            (since or "", limit)).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()
 

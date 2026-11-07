@@ -352,16 +352,52 @@ def _flatten(d, prefix=""):
         yield prefix.rstrip("."), d
 
 
-def config_items(prev: dict | None, snap: dict) -> list[dict]:
+def _config_evidence(key: str, since: str | None, since_commit: str | None = None) -> list[str]:
+    """What recorded a config diff since the previous bundle (2026-11-07, Job 2 item 6): commits that touch the
+    config files or backend/ and add or remove the key's name, and config_changes rows (runtime writes) for it.
+    The 11-06 bundle flagged the lock_leading_min_pass retirement as undecided although 819d590 carried the ruling.
+    The window is the commits reached since the previous bundle's commit (prev..HEAD), not a date: 819d590 is dated
+    10-28 on its branch and reached master with the 10-31 merge, so a date filter misses it."""
+    name = key.split(".", 1)[-1]
+    out = []
+    args = ["git", "log", "--format=%h %s", "-S", name]
+    if since_commit:
+        args.append(f"{since_commit}..HEAD")
+    elif since:
+        args.append(f"--since={since}")
+    r = subprocess.run(args + ["--", "data/live_config.json", "data/demo_config.json", "backend/"], cwd=REPO,
+                       capture_output=True, text=True)
+    out += [f"commit {line[:90]}" for line in r.stdout.splitlines() if line.strip()]
+    try:
+        sys.path.insert(0, str(REPO))
+        from backend.db import get_config_changes
+        out += [f"{c['source']} write {c['ts'][:16]}" for c in get_config_changes(limit=200, since=since)
+                if c["key"] == name]
+    except Exception as e:
+        _CONFIG_EVIDENCE_GAPS.append(f"config_changes unreadable ({str(e)[:60]})")   # named in the WARNING, never silent
+    return out
+
+
+_CONFIG_EVIDENCE_GAPS: list[str] = []
+
+
+def config_items(prev: dict | None, snap: dict, since: str | None = None, since_commit: str | None = None) -> list[dict]:
     if not prev:
         return []
     old, new = dict(_flatten(prev)), dict(_flatten(snap))
     out = []
     for k in sorted(set(old) | set(new)):
         if old.get(k) != new.get(k):
-            out.append(_item(f"config:{k}:{json.dumps(new.get(k))}", "config", "WARNING", k,
-                             f"{k}: {json.dumps(old.get(k))} → {json.dumps(new.get(k))} — changed since the "
-                             f"last bundle; confirm the change was decided"))
+            change = f"{k}: {json.dumps(old.get(k))} → {json.dumps(new.get(k))}"
+            evidence = _config_evidence(k, since, since_commit)
+            if evidence:
+                out.append(_item(f"config:{k}:{json.dumps(new.get(k))}", "config", "INFO", k,
+                                 f"{change} — recorded: {'; '.join(evidence[:3])}"))
+            else:
+                gap = f" ({_CONFIG_EVIDENCE_GAPS[-1]})" if _CONFIG_EVIDENCE_GAPS else ""
+                out.append(_item(f"config:{k}:{json.dumps(new.get(k))}", "config", "WARNING", k,
+                                 f"{change} — changed since the last bundle with no commit or change row behind "
+                                 f"it{gap}; confirm the change was decided"))
     return out
 
 
@@ -647,7 +683,8 @@ def build(write: bool = False, now: datetime | None = None, db: Path | None = No
     first_seen = {i["key"]: i["first_seen"] for i in prev.get("items", []) if "first_seen" in i}
 
     snap = config_snapshot()
-    items = (findings_items() + todo_items() + parity_items(db) + config_items(prev.get("config"), snap)
+    items = (findings_items() + todo_items() + parity_items(db) + config_items(prev.get("config"), snap, since=prev.get("generated_at"),
+                                                                            since_commit=prev.get("host_commit"))
              + weekly_items(now) + signal_items() + retirement_items(today))
     excepted = []
     kept = []

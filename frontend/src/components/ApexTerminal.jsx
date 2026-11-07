@@ -10,6 +10,7 @@ import SignalFreshnessPanel from "./SignalFreshnessPanel.jsx";
 import EntryFillsPanel from "./EntryFillsPanel.jsx";
 import WeekendBundlePanel from "./WeekendBundlePanel.jsx";
 import GateCapacityPanel from "./GateCapacityPanel.jsx";
+import ConfigChangesPanel from "./ConfigChangesPanel.jsx";
 import RegimeBayes   from "./RegimeBayes.jsx";
 import Watchlist     from "./Watchlist.jsx";
 import DemoTradeLog  from "./DemoTradeLog.jsx";
@@ -725,6 +726,15 @@ function TestView({ D }) {
           </div>
           <div className="t-card-body">
             <LiveRejectionsPanel />
+          </div>
+        </div>
+        <div className="t-card">
+          <div className="t-card-head">
+            <div className="t-card-title">CONFIG CHANGES</div>
+            <div className="t-meta">RUNTIME WRITES · ONE ROW PER KEY · SETTINGS / PROMOTE / RESET</div>
+          </div>
+          <div className="t-card-body">
+            <ConfigChangesPanel />
           </div>
         </div>
         <div className="t-card">

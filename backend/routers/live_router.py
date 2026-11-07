@@ -205,7 +205,7 @@ def promote_demo_to_live():
     """
     _require_live()
     from backend.live_config import demo_thresholds, set_live_config
-    new_cfg = set_live_config(demo_thresholds())
+    new_cfg = set_live_config(demo_thresholds(), source="promote")
     logger.info("Promoted demo thresholds to live config")
     return {"promoted": True, "config": new_cfg}
 

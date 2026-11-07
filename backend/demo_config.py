@@ -133,7 +133,7 @@ def get_demo_config() -> dict:
             return cfg
         except Exception as e:
             logger.error(f"demo_config: corrupt config file — resetting to defaults: {e}")
-            _write_atomic(_defaults())
+            _write_atomic(_defaults(), source="corrupt_reset")
             try:
                 from backend.alerts import alert_config_corrupted
                 alert_config_corrupted("demo_config", str(e))
@@ -142,14 +142,14 @@ def get_demo_config() -> dict:
     return _defaults()
 
 
-def set_demo_config(updates: dict) -> dict:
+def set_demo_config(updates: dict, source: str = "settings") -> dict:
     """Write updates to demo_config.json atomically. Returns the full resulting config."""
     current = get_demo_config()
     updates = _upgraded(updates)
     for k in _KEYS:
         if k in updates:
             current[k] = updates[k]
-    _write_atomic(current)
+    _write_atomic(current, source)
     logger.info(f"demo_config: saved to {_CONFIG_PATH}")
     return current
 
@@ -157,12 +157,17 @@ def set_demo_config(updates: dict) -> dict:
 def ensure_config_exists() -> None:
     """Materialize defaults to disk if the config file doesn't exist yet."""
     if not _CONFIG_PATH.exists():
-        _write_atomic(_defaults())
+        _write_atomic(_defaults(), source="ensure_default")
         logger.info(f"demo_config: created default config at {_CONFIG_PATH}")
 
 
-def _write_atomic(cfg: dict) -> None:
-    """Write config to a temp file then rename — prevents corrupt files on crash."""
+def _write_atomic(cfg: dict, source: str = "unknown") -> None:
+    """Write config to a temp file then rename — prevents corrupt files on crash. Each key the write changes gets a
+    config_changes row (2026-11-07, Job 2); a failed record is logged and never blocks the write."""
+    try:
+        old = json.loads(_CONFIG_PATH.read_text()) if _CONFIG_PATH.exists() else None
+    except Exception:
+        old = None                                   # unreadable (the corrupt-reset path): every key is new
     _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=_CONFIG_PATH.parent, suffix=".tmp")
     try:
@@ -172,3 +177,8 @@ def _write_atomic(cfg: dict) -> None:
     except Exception:
         os.unlink(tmp)
         raise
+    try:
+        from backend.db import record_config_changes
+        record_config_changes(_CONFIG_PATH.name, source, old, cfg)
+    except Exception as e:
+        logger.error(f"demo_config: config change not recorded — {e}")
