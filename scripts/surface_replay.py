@@ -55,9 +55,12 @@ def run(root: Path, dbfile: Path, out: Path) -> None:
         res[f"{book}_weekly_report_funnel"] = wr._funnel(book, SINCE, UNTIL)
     tickers = sorted({r["ticker"] for r in res["live_history"]})
     res["claude_gate_history"] = {t: db.get_ticker_gate_fails(t) for t in tickers}
-    commit = subprocess.run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"],
-                            capture_output=True, text=True).stdout.strip()
-    producer = {"repo": "apex", "commit": commit, "script": "scripts/surface_replay.py",
+    def head(path):
+        return subprocess.run(["git", "-C", str(path), "rev-parse", "--short", "HEAD"],
+                              capture_output=True, text=True).stdout.strip()
+    # commit: where this script lives (the archive's producer); replayed: the checkout whose readers ran.
+    producer = {"repo": "apex", "commit": head(Path(__file__).resolve().parent), "replayed": head(root),
+                "script": "scripts/surface_replay.py",
                 "run": f".venv/bin/python -u {Path(__file__).resolve()} --root {root} --db {dbfile} {out}",
                 "why": "raw/notes/2026-10/2026-10-31-apex-lock-labels-phase3-plan.md § Verification (Surfaces)",
                 "db": f"{dbfile} (read through the checkout's readers)"}

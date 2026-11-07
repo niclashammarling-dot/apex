@@ -191,10 +191,12 @@ def run(root: Path, out: Path, mutate: bool = False) -> None:
         rows.append({"ticker": c["ticker"], "pending_l6": pending,
                      "row": {k: v for k, v in row.items() if k not in VOLATILE},
                      "entry": {k: v for k, v in (trade or {}).items() if k not in VOLATILE and k != "id"}})
-    commit = subprocess.run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"],
-                            capture_output=True, text=True).stdout.strip()
+    def head(path):
+        return subprocess.run(["git", "-C", str(path), "rev-parse", "--short", "HEAD"],
+                              capture_output=True, text=True).stdout.strip()
     me = Path(__file__).resolve()
-    producer = {"repo": "apex", "commit": commit, "script": "scripts/identity_replay.py",
+    # commit: where this script lives (the archive's producer); replayed: the checkout whose code ran.
+    producer = {"repo": "apex", "commit": head(me.parent), "replayed": head(root), "script": "scripts/identity_replay.py",
                 "run": f".venv/bin/python -u {me} --root {root}{' --mutate' if mutate else ''} {out}",
                 "why": "raw/notes/2026-10/2026-10-31-apex-lock-labels-phase3-plan.md § Verification",
                 "db": "temp schema from the checkout's own init_db()", "mutate": mutate}
