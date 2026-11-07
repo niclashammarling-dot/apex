@@ -511,6 +511,18 @@ def init_db() -> None:
             _add_column_if_missing(conn, _t, "signal_ts", "TEXT")
             _add_column_if_missing(conn, _t, "bar_date",  "TEXT")
         _add_column_if_missing(conn, "gate_cycles", "stale_excluded", "INTEGER")
+        # The gate stores what it decided on (2026-11-07, vault scope 2026-11-06 Job 1): the slot logic's open count
+        # and cap, the overflow threshold it applied, and the candidate's place in the serial order. Rows before the
+        # build stay NULL, "not recorded", never 0. Until then every live read rebuilt them from fills and logs, with
+        # an error the controls could only bound (the b3 read took four passes).
+        for _t in ("live_gate_history", "demo_gate_history"):
+            _add_column_if_missing(conn, _t, "l2_risk_open_count",          "INTEGER")
+            _add_column_if_missing(conn, _t, "l2_risk_max_positions_count", "INTEGER")
+            _add_column_if_missing(conn, _t, "l2_risk_overflow_threshold",  "REAL")
+            _add_column_if_missing(conn, _t, "exec_rank",                   "INTEGER")
+            _add_column_if_missing(conn, _t, "pre_rotation",                "INTEGER")
+        _add_column_if_missing(conn, "gate_cycles", "held_at_start",               "INTEGER")
+        _add_column_if_missing(conn, "gate_cycles", "l2_risk_max_positions_count", "INTEGER")
         # Which input each live entry was decided on (Finding 1): in_session,
         # same_day_pre_open or earlier_day. Written once for history by
         # scripts/flag_live_signal_class.py; entries after the bound are in_session by
@@ -1173,6 +1185,11 @@ def get_all_trades() -> list[dict]:
         conn.close()
 
 
+# The slot evidence the serial phase stores (2026-11-07, Job 1); a row from anywhere else writes NULL ("not recorded").
+_SLOT_COLUMNS = ("l2_risk_open_count", "l2_risk_max_positions_count", "l2_risk_overflow_threshold", "exec_rank",
+                 "pre_rotation")
+
+
 def insert_demo_gate_result(row: dict) -> None:
     conn = get_db()
     try:
@@ -1183,17 +1200,21 @@ def insert_demo_gate_result(row: dict) -> None:
                  l6_review_pass, gate_decision, decision_reason, l4_sentiment_summary,
                  l4_sentiment_score, l4_sentiment_conviction, l1_eligibility_reason, ticker_signal,
                  earnings_near, days_to_earnings, overflow_slot, cycle_started_at,
-                 signal_ts, bar_date, outcome_reason, stop_code, rule_states)
+                 signal_ts, bar_date, outcome_reason, stop_code, rule_states,
+                 l2_risk_open_count, l2_risk_max_positions_count, l2_risk_overflow_threshold, exec_rank,
+                 pre_rotation)
             VALUES
                 (:timestamp, :ticker, :sector, :signal_score,
                  :l3_score_pass, :l4_sentiment_pass, :l5_positioning_pass, :l5_positioning_checks,
                  :l6_review_pass, :gate_decision, :decision_reason, :l4_sentiment_summary,
                  :l4_sentiment_score, :l4_sentiment_conviction, :l1_eligibility_reason, :ticker_signal,
                  :earnings_near, :days_to_earnings, :overflow_slot, :cycle_started_at,
-                 :signal_ts, :bar_date, :outcome_reason, :stop_code, :rule_states)
+                 :signal_ts, :bar_date, :outcome_reason, :stop_code, :rule_states,
+                 :l2_risk_open_count, :l2_risk_max_positions_count, :l2_risk_overflow_threshold, :exec_rank,
+                 :pre_rotation)
         """
         _assert_insert_fields("insert_demo_gate_result", _SQL, row)
-        conn.execute(_SQL, {**row,
+        conn.execute(_SQL, {**{k: None for k in _SLOT_COLUMNS}, **row,
               "stop_code":             row.get("stop_code"),
               "rule_states":           json.dumps(row["rule_states"]) if row.get("rule_states") is not None else None,
               "l4_sentiment_score": row.get("l4_sentiment_score"),
@@ -1439,17 +1460,20 @@ def insert_live_gate_result(row: dict) -> int:
                l6_review_pass, gate_decision, decision_reason, alpaca_order_id,
                l4_sentiment_summary, l4_sentiment_score, l4_sentiment_conviction, l1_eligibility_reason,
                ticker_signal, earnings_near, days_to_earnings, overflow_slot,
-               outcome_reason, cap_check, cycle_started_at, signal_ts, bar_date, stop_code, rule_states)
+               outcome_reason, cap_check, cycle_started_at, signal_ts, bar_date, stop_code, rule_states,
+               l2_risk_open_count, l2_risk_max_positions_count, l2_risk_overflow_threshold, exec_rank, pre_rotation)
             VALUES
               (:timestamp, :ticker, :sector, :signal_score,
                :l3_score_pass, :l4_sentiment_pass, :l5_positioning_pass, :l5_positioning_checks,
                :l6_review_pass, :gate_decision, :decision_reason, :alpaca_order_id,
                :l4_sentiment_summary, :l4_sentiment_score, :l4_sentiment_conviction, :l1_eligibility_reason,
                :ticker_signal, :earnings_near, :days_to_earnings, :overflow_slot,
-               :outcome_reason, :cap_check, :cycle_started_at, :signal_ts, :bar_date, :stop_code, :rule_states)
+               :outcome_reason, :cap_check, :cycle_started_at, :signal_ts, :bar_date, :stop_code, :rule_states,
+               :l2_risk_open_count, :l2_risk_max_positions_count, :l2_risk_overflow_threshold, :exec_rank,
+               :pre_rotation)
         """
         _assert_insert_fields("insert_live_gate_result", _SQL, row)
-        cur = conn.execute(_SQL, {**row,
+        cur = conn.execute(_SQL, {**{k: None for k in _SLOT_COLUMNS}, **row,
               "l5_positioning_pass":      row.get("l5_positioning_pass"),
               "stop_code":              row.get("stop_code"),
               "rule_states":            json.dumps(row["rule_states"]) if row.get("rule_states") is not None else None,
@@ -1883,12 +1907,14 @@ def insert_gate_cycle(job: str, trigger: str, started_at: str) -> int:
 
 
 def finish_gate_cycle(cycle_id: int, outcome: str, reason: str | None,
-                      stale_excluded: int | None = None) -> None:
+                      stale_excluded: int | None = None, held_at_start: int | None = None,
+                      max_positions: int | None = None) -> None:
     conn = get_db()
     try:
-        conn.execute("UPDATE gate_cycles SET finished_at = ?, outcome = ?, reason = ?, stale_excluded = ? "
-                     "WHERE id = ?",
-                     (datetime.now(timezone.utc).isoformat(), outcome, reason, stale_excluded, cycle_id))
+        conn.execute("UPDATE gate_cycles SET finished_at = ?, outcome = ?, reason = ?, stale_excluded = ?, "
+                     "held_at_start = ?, l2_risk_max_positions_count = ? WHERE id = ?",
+                     (datetime.now(timezone.utc).isoformat(), outcome, reason, stale_excluded,
+                      held_at_start, max_positions, cycle_id))
         conn.commit()
     finally:
         conn.close()

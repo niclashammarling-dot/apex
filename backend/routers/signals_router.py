@@ -1122,6 +1122,43 @@ def get_weekend_bundle():
             "excepted": b.get("excepted", [])}
 
 
+@router.get("/ops/gate-capacity")
+def get_gate_capacity(days: int = 7):
+    """
+    Slot capacity as the gate decided it (2026-11-07, vault scope 2026-11-06 Job 1): per book, the latest cycle that
+    recorded its held count and cap (gate_cycles held_at_start / l2_risk_max_positions_count), the cycles in the last
+    `days` days that started at or over the cap, and the latest cycle's serial order (rank, ticker, pre-rotation,
+    open count, overflow threshold, decision). Cycles and rows before the build carry NULL: "not recorded", so a book
+    with no recorded cycle says so instead of showing zero.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    out = {"as_of": datetime.now(timezone.utc).isoformat(), "days": days, "books": {}}
+    with closing(get_db()) as conn:   # sqlite3's own context manager never closes (CHECK 45)
+        for book, job, table in (("live", "run_live_gate", "live_gate_history"), ("demo", "run_gate", "demo_gate_history")):
+            last = conn.execute(
+                "SELECT started_at, held_at_start, l2_risk_max_positions_count FROM gate_cycles "
+                "WHERE job = ? AND held_at_start IS NOT NULL ORDER BY started_at DESC LIMIT 1", (job,)).fetchone()
+            at_cap = conn.execute(
+                "SELECT COUNT(*) FROM gate_cycles WHERE job = ? AND started_at >= ? AND held_at_start IS NOT NULL "
+                "AND held_at_start >= l2_risk_max_positions_count", (job, since)).fetchone()[0]
+            recorded = conn.execute(
+                "SELECT COUNT(*) FROM gate_cycles WHERE job = ? AND started_at >= ? AND held_at_start IS NOT NULL",
+                (job, since)).fetchone()[0]
+            order = []
+            if last:
+                order = [dict(r) for r in conn.execute(
+                    f"SELECT exec_rank, ticker, pre_rotation, l2_risk_open_count, l2_risk_overflow_threshold, "
+                    f"gate_decision FROM {table} WHERE cycle_started_at = ? AND exec_rank IS NOT NULL "
+                    f"ORDER BY exec_rank", (last["started_at"],))]
+            out["books"][book] = {
+                "last_cycle": dict(last) if last else None,
+                "cycles_recorded": recorded, "cycles_at_cap": at_cap, "last_order": order,
+            }
+    return out
+
+
 @router.get("/ops/rejections")
 def get_live_rejections(days: int = 10):
     """

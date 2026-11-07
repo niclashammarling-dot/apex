@@ -46,6 +46,8 @@ from backend.gate.gate_runner import (
     _pre_chain_result,
     _pre_chain_states,
     _run_l6_review_for_result,
+    SLOT_FIELDS,
+    _slot_evidence,
 )
 from backend.sector_caps import compute_dynamic_caps
 
@@ -622,7 +624,11 @@ def _run(cycle: GateCycle) -> list[dict]:
     # identical $1,058.39, EOG $958.20) each took max_position_size of the same cash. Demo reads cash per trade and
     # engine_fast reduces its balance per entry; this mirrors sector_exposure_live for the sector cap.
     cash_left = max(0.0, min(acct["equity"], acct["cash"]))
-    for signal, result in evaluated:
+    cycle.held_at_start, cycle.l2_risk_max_positions_count = open_count, l2_risk_max_positions_count
+    for exec_rank, (signal, result) in enumerate(evaluated, 1):
+        result["_slot"] = _slot_evidence(
+            signal, exec_rank, open_count, l2_risk_max_positions_count,
+            (sector_thresholds or {}).get(signal.get("sector", ""), cfg["l3_score_threshold_min"]), overflow_increment)
         ticker   = signal["ticker"]
         order_id = None
 
@@ -882,6 +888,7 @@ def _write_live(signal: dict, result: dict, ts: str, unknown: list[dict], order_
         "cap_check":              result.get("cap_check"),
         "signal_ts":              signal.get("timestamp"),
         "bar_date":               signal.get("bar_date"),
+        **{k: (result.get("_slot") or {}).get(k) for k in SLOT_FIELDS},
     })
 
 

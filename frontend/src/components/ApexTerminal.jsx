@@ -9,6 +9,7 @@ import LiveRejectionsPanel from "./LiveRejectionsPanel.jsx";
 import SignalFreshnessPanel from "./SignalFreshnessPanel.jsx";
 import EntryFillsPanel from "./EntryFillsPanel.jsx";
 import WeekendBundlePanel from "./WeekendBundlePanel.jsx";
+import GateCapacityPanel from "./GateCapacityPanel.jsx";
 import RegimeBayes   from "./RegimeBayes.jsx";
 import Watchlist     from "./Watchlist.jsx";
 import DemoTradeLog  from "./DemoTradeLog.jsx";
@@ -724,6 +725,15 @@ function TestView({ D }) {
           </div>
           <div className="t-card-body">
             <LiveRejectionsPanel />
+          </div>
+        </div>
+        <div className="t-card">
+          <div className="t-card-head">
+            <div className="t-card-title">GATE CAPACITY</div>
+            <div className="t-meta">HELD VS CAP · SERIAL ORDER · STORED BY THE GATE</div>
+          </div>
+          <div className="t-card-body">
+            <GateCapacityPanel />
           </div>
         </div>
         <div className="t-card">

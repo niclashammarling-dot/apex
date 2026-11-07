@@ -38,6 +38,8 @@ class GateCycle:
     started_at: str
     reason: str | None = None
     stale_excluded: int | None = None
+    held_at_start: int | None = None                  # the serial phase's open count at its start (2026-11-07, Job 1)
+    l2_risk_max_positions_count: int | None = None    # the cap in force for this cycle
 
     @classmethod
     def unrecorded(cls) -> "GateCycle":
@@ -71,7 +73,8 @@ def run_recorded(job: str, trigger: str, run: Callable[..., list]) -> list:
         if cycle_id is None:
             return
         try:
-            finish_gate_cycle(cycle_id, outcome, cycle.reason, cycle.stale_excluded)
+            finish_gate_cycle(cycle_id, outcome, cycle.reason, cycle.stale_excluded,
+                              cycle.held_at_start, cycle.l2_risk_max_positions_count)
         except Exception as e:
             logger.warning(f"gate_cycles finish failed for {job}: {e!r}")
 

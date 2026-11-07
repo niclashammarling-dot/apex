@@ -82,6 +82,23 @@ def _alert_unknown(book: str, rows: list[dict]) -> None:
     alert_gate_unknown(book, rows)
 
 
+# The slot evidence each serial-phase row stores (2026-11-07, vault scope 2026-11-06 Job 1): the open count and cap
+# the slot logic used, the overflow threshold it applied (NULL below the cap), the 1-based place in the serial order
+# (regular candidates before pre-rotation ones, score descending within each) and the pre-rotation flag. Pre-chain
+# rows never reach the serial phase and store NULL.
+SLOT_FIELDS = ("l2_risk_open_count", "l2_risk_max_positions_count", "l2_risk_overflow_threshold", "exec_rank",
+               "pre_rotation")
+
+
+def _slot_evidence(signal: dict, exec_rank: int, open_count: int, cap: int, base_threshold: float,
+                   increment: float) -> dict:
+    over = open_count >= cap
+    return {"l2_risk_open_count": open_count, "l2_risk_max_positions_count": cap,
+            "l2_risk_overflow_threshold": round(base_threshold * (1 + (open_count - cap + 1) * increment), 4)
+            if over else None,
+            "exec_rank": exec_rank, "pre_rotation": 1 if signal.get("pre_rotation") else 0}
+
+
 def _write_demo(signal: dict, result: dict, ts: str, unknown: list[dict]) -> None:
     """Finalize a demo row and write both copies (signals and demo_gate_history)."""
     _finalize(result)
@@ -114,6 +131,7 @@ def _write_demo(signal: dict, result: dict, ts: str, unknown: list[dict]) -> Non
         "outcome_reason":         result.get("outcome_reason"),   # the wallet's or the runner's rule identifier
         "signal_ts":              signal.get("timestamp"),
         "bar_date":               signal.get("bar_date"),
+        **{k: (result.get("_slot") or {}).get(k) for k in SLOT_FIELDS},
     })
 
 
@@ -298,7 +316,11 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
         if r["outcome"] in ("TRADE_QUEUED", "TRADE_QUEUED_PENDING_L6")
     )
 
-    for signal, result in evaluated:
+    cycle.held_at_start, cycle.l2_risk_max_positions_count = open_count, l2_risk_max_positions_count
+    for exec_rank, (signal, result) in enumerate(evaluated, 1):
+        result["_slot"] = _slot_evidence(
+            signal, exec_rank, open_count, l2_risk_max_positions_count,
+            (sector_thresholds or {}).get(signal.get("sector", ""), cfg["l3_score_threshold_min"]), overflow_increment)
         ticker = signal["ticker"]
 
         # L5 deferred path — run Claude only when a slot is confirmed available.
