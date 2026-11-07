@@ -12,6 +12,9 @@ Known-present control: the snapshot itself still has the old names (otherwise th
 
 Usage: .venv/bin/python -u scripts/verify_gate_column_rename.py SNAPSHOT.db WORKDIR OUT.json
   SNAPSHOT.db is read only; the copy is made in WORKDIR and migrated there.
+       .venv/bin/python -u scripts/verify_gate_column_rename.py SNAPSHOT.db --existing MIGRATED.db OUT.json
+  compares a database already migrated by init_db (production after the merge) against its snapshot; nothing is
+  copied or migrated, and the second-run check renames nothing on a migrated database.
 """
 import json
 import shutil
@@ -32,10 +35,13 @@ def _cols(conn, table):
     return [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
 
 
-def main(snapshot: Path, workdir: Path, out: Path) -> int:
-    workdir.mkdir(parents=True, exist_ok=True)
-    copy = workdir / "migrated.db"
-    shutil.copy(snapshot, copy)
+def main(snapshot: Path, workdir: Path | None, out: Path, existing: Path | None = None) -> int:
+    if existing is None:
+        workdir.mkdir(parents=True, exist_ok=True)
+        copy = workdir / "migrated.db"
+        shutil.copy(snapshot, copy)
+    else:
+        copy = existing
     misses = []
 
     snap = sqlite3.connect(f"file:{snapshot}?mode=ro", uri=True)
@@ -46,8 +52,9 @@ def main(snapshot: Path, workdir: Path, out: Path) -> int:
     counts_before = {t: snap.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in tables}
     snap.close()
 
-    db.DB_PATH = copy
-    db.init_db()
+    if existing is None:
+        db.DB_PATH = copy
+        db.init_db()
     conn = sqlite3.connect(copy)
     renamed = {}
     for t in db.GATE_COLUMN_TABLES:
@@ -89,9 +96,11 @@ def main(snapshot: Path, workdir: Path, out: Path) -> int:
                             capture_output=True, text=True).stdout.strip()
     result = {
         "producer": {"repo": "apex", "commit": commit, "script": "scripts/verify_gate_column_rename.py",
-                     "run": f".venv/bin/python -u scripts/verify_gate_column_rename.py {snapshot} {workdir} {out}",
+                     "run": f".venv/bin/python -u scripts/verify_gate_column_rename.py {snapshot} "
+                            f"{'--existing ' + str(existing) if existing else workdir} {out}",
                      "why": WHY, "run_at": datetime.now(timezone.utc).isoformat(),
-                     "db": f"{snapshot} (read only); copy migrated in {workdir}"},
+                     "db": f"{snapshot} (read only); " + (f"migrated database {existing}" if existing
+                                                           else f"copy migrated in {workdir}")},
         "renamed": renamed, "row_counts": counts_before, "values": value_diffs, "controls": {"missed": misses},
     }
     out.write_text(json.dumps(result, indent=1))
@@ -100,4 +109,7 @@ def main(snapshot: Path, workdir: Path, out: Path) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])))
+    a = sys.argv[1:]
+    if a[1] == "--existing":
+        sys.exit(main(Path(a[0]), None, Path(a[3]), existing=Path(a[2])))
+    sys.exit(main(Path(a[0]), Path(a[1]), Path(a[2])))
