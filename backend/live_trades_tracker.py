@@ -280,13 +280,16 @@ def _log_vol_slope(trade: dict) -> None:
 
 
 _protection_checked_on: str | None = None
+_fill_pending: dict[str, str] = {}   # ticker → session day of its last "fill pending" sighting
 
 
 def _protection_first_cycle(positions: list[dict], open_trades: list[dict], broker) -> None:
     """CHECK 92's evaluator in the first exit cycle of each session (2026-10-18), so a
     split effective at the open is caught then rather than at the nightly audit.
     Read-only: logs and alerts, never touches an order. Marked done for the day only
-    after a full evaluation; a failure is logged as an error and retried next cycle."""
+    after a full evaluation; a failure is logged as an error and retried next cycle.
+    A "price through the stop, fill pending" WARNING (2026-11-07) keeps the check open: it is re-read next cycle,
+    and the same ticker still pending then is escalated to CRITICAL (a crossed stop that did not fill)."""
     global _protection_checked_on
     from datetime import datetime as _dt
     from zoneinfo import ZoneInfo
@@ -295,11 +298,23 @@ def _protection_first_cycle(positions: list[dict], open_trades: list[dict], brok
     if _protection_checked_on == today or not is_market_open():
         return
     try:
+        from backend.db import stop_ratchet_summary
         from backend.protection_health import evaluate
-        found = evaluate(positions, open_trades, broker.get_order_by_id)
+        found = evaluate(positions, open_trades, broker.get_order_by_id,
+                         ratchet_levels=stop_ratchet_summary()[1], market_open=True)
     except Exception as e:
         logger.error(f"Protection health: did not evaluate — {type(e).__name__}: {e}")
         return
+    pending_now = {f["ticker"] for f in found if f.get("kind") == "fill_pending"}
+    for f in found:
+        if f.get("kind") == "fill_pending" and _fill_pending.get(f["ticker"]) == today:
+            f["severity"] = "CRITICAL"
+            f["what"] = "crossed stop still unfilled at the next cycle — " + f["what"].split(": ", 1)[1]
+    for t in list(_fill_pending):
+        if t not in pending_now:
+            del _fill_pending[t]
+    for t in pending_now:
+        _fill_pending[t] = today
     for f in found:
         logger.error(f"Protection health [{f['ticker']}] {f['severity']}: {f['what']}")
     critical = [f for f in found if f["severity"] == "CRITICAL"]
@@ -310,7 +325,7 @@ def _protection_first_cycle(positions: list[dict], open_trades: list[dict], brok
                       "\n".join(f"{f['ticker']}: {f['what']}" for f in critical))
         except Exception as e:
             logger.error(f"Protection health: alert not sent — {e}")
-    if not any(f["what"].startswith("did not evaluate") for f in found):
+    if not any(f["what"].startswith("did not evaluate") for f in found) and not pending_now:
         _protection_checked_on = today
     logger.info(f"Protection health: {len(open_trades)} open trades, {len(found)} findings")
 

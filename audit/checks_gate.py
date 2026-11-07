@@ -2078,14 +2078,20 @@ def check92(fetch=None) -> None:
             conn.row_factory = sqlite3.Row
             try:
                 trades = [dict(r) for r in conn.execute(
-                    "SELECT ticker, alpaca_order_id FROM live_trades WHERE outcome = 'OPEN'")]
+                    "SELECT id, ticker, alpaca_order_id, sl_price FROM live_trades WHERE outcome = 'OPEN'")]
+                levels = {r[0]: r[1] for r in conn.execute(
+                    "SELECT trade_id, new_stop FROM stop_ratchet_log s WHERE id ="
+                    " (SELECT MAX(id) FROM stop_ratchet_log WHERE trade_id = s.trade_id)")}
             finally:
                 conn.close()
             positions, fetch_order = broker.get_positions(), broker.get_order_by_id
+            from backend.scheduler import is_market_open
+            market_open = is_market_open()
         else:
             positions, trades, fetch_order = fetch
+            levels, market_open = {}, False
         from backend.protection_health import evaluate
-        found = evaluate(positions, trades, fetch_order)
+        found = evaluate(positions, trades, fetch_order, ratchet_levels=levels, market_open=market_open)
     except Exception as e:
         flag(92, name, "WARNING", "backend/protection_health.py",
              f"did not evaluate: {type(e).__name__}: {e}")
