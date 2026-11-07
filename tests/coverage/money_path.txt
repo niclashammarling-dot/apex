@@ -1,0 +1,25 @@
+# Tier patterns for the function ratchet (tests/coverage/ratchet.py). First match wins; a file no pattern names is
+# `money`, so a new module fails closed (vault scope 2026-11-02 § 3, categories ruled 2026-11-05: exits and stops,
+# sizing, halts accounting, data sources, timing, execution, fail-closed, config writers, migrations).
+# `other` is reported, never failed: research modules, read-only probes and measurement scripts, report modules.
+
+other backend/backtest/*             # research engines and batteries (their verdicts are guarded by parity rows)
+other scripts/*probe*                # read-only probes
+other scripts/identity_replay.py     # read-only measurement (phase 3 verification, 2026-11-07)
+other scripts/surface_replay.py      # read-only measurement
+other scripts/verify_gate_column_rename.py   # read-only measurement of a migration
+other scripts/reader_writer_inventory.py     # read-only inventory
+other backend/weekly_report.py       # report module
+
+# Named for the record; unmatched files are money anyway.
+money backend/live_trades_tracker.py # exits and stops
+money backend/protection_health.py   # stops
+money backend/wallet.py              # demo execution and sizing
+money backend/brokers/*              # execution
+money backend/gate/*                 # the chain, fail-closed
+money backend/regime/*               # allocation and sizing
+money backend/data/*                 # data sources
+money backend/scheduler.py           # timing
+money backend/*config.py             # config writers
+money backend/db.py                  # accounting, migrations
+money scripts/migrate_*              # migrations

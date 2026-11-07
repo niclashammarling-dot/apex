@@ -39,10 +39,27 @@ jobs:
         # (2026-06-26 → 2026-09-13) with no consumer before this job existed.
         env:
           PYTHONPATH: .
+          # The function ratchet's recorder (tests/coverage/callmon.py), read by the next step.
+          APEX_CALLMON_OUT: seen.json
         # -rs names any skip. A skip that nobody can name is a test that is not
         # running and looks like one that is; two runs on 2026-09-25 carried an
         # unidentified one.
         run: pytest -q -rs -p no:cacheprovider
+
+      - name: Function ratchet and change gate
+        # tests/coverage/ratchet.py (2026-11-07, the every-object-tested rule): a new or regressed untested
+        # money-path function fails, the baseline only shrinks, and a baseline function edited without a test
+        # fails. Base: the branch's merge-base with master; on master, the commit before the push.
+        env:
+          PYTHONPATH: .
+        run: |
+          BASE=$(git merge-base HEAD origin/master)
+          if [ "$BASE" = "$(git rev-parse HEAD)" ]; then BASE="${{ github.event.before }}"; fi
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            BASE=$(git rev-parse HEAD~1)
+          fi
+          echo "change gate base: $BASE"
+          python -m tests.coverage.ratchet check --seen seen.json --base "$BASE"
 
       # tests/test_exit_parity.py is EXIT_PARITY.md test 1a and its consumer is
       # this job. Its inputs are frozen (tests/fixtures/exit_parity_cases.json),
