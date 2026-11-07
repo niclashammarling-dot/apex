@@ -16,19 +16,32 @@ is caught in the first cycle rather than the next night.
 
 Price is the position's `current_price` from Alpaca (its last trade), never a
 daily close. A broker failure is a finding ("did not evaluate"), never silence.
+
+A stop at or above the last trade is not always a mis-levelled leg (2026-11-07, from OXY 11-04: the first cycle
+ran 54 s into the session, the price had crossed a correctly levelled stop inside the first minute, the stop-market
+leg filled four minutes later, and the mail said "unprotected"). When the leg sits at the level the trade expects
+(the ratchet's last logged stop, else the row's sl_price) and the market is open, it is "price through the stop,
+fill pending": a WARNING, re-read next cycle by the caller, which escalates a second sighting to CRITICAL. A level
+matching neither, or a crossed leg still resting with the market closed, stays CRITICAL.
 """
 from __future__ import annotations
 
 from typing import Callable
 
 
-def evaluate(positions: list[dict], open_trades: list[dict],
-             fetch_order: Callable[[str], dict]) -> list[dict]:
-    """[{severity, ticker, what}] for every protection fault; [] when all hold.
+_LEVEL_TOL = 0.005   # dollars: a leg at the expected stop to the cent (Alpaca prices to 0.01)
 
-    positions:   broker.get_positions() rows (ticker, qty, side, current_price)
-    open_trades: live_trades rows at outcome 'OPEN' (ticker, alpaca_order_id)
-    fetch_order: broker.get_order_by_id
+
+def evaluate(positions: list[dict], open_trades: list[dict],
+             fetch_order: Callable[[str], dict], ratchet_levels: dict[int, float] | None = None,
+             market_open: bool = True) -> list[dict]:
+    """[{severity, ticker, what[, kind]}] for every protection fault; [] when all hold.
+
+    positions:      broker.get_positions() rows (ticker, qty, side, current_price)
+    open_trades:    live_trades rows at outcome 'OPEN' (ticker, alpaca_order_id; id and sl_price for the level)
+    fetch_order:    broker.get_order_by_id
+    ratchet_levels: {trade_id: last logged new_stop} (db.stop_ratchet_summary), the level a ratcheted leg expects
+    market_open:    a crossed leg at its expected level is "fill pending" only while the market is open
     """
     # The one enumeration of terminal statuses (live_trades_tracker, "exactly one place").
     from backend.live_trades_tracker import _TERMINAL_ORDER_STATUSES as TERMINAL
@@ -65,7 +78,19 @@ def evaluate(positions: list[dict], open_trades: list[dict],
             out.append({"severity": "WARNING", "ticker": ticker,
                         "what": f"did not evaluate: stop {stop} / last trade {price} missing"})
         elif stop >= price:
-            out.append({"severity": "CRITICAL", "ticker": ticker,
-                        "what": f"stop {stop:.2f} at or above the last trade {price:.2f}: "
-                                f"a split or corporate action, or a mis-levelled leg"})
+            levels = ratchet_levels or {}
+            expected = levels.get(t.get("id"), t.get("sl_price"))
+            levelled = expected is not None and abs(stop - expected) < _LEVEL_TOL
+            if levelled and market_open:
+                out.append({"severity": "WARNING", "ticker": ticker, "kind": "fill_pending",
+                            "what": f"price through the stop, fill pending: last trade {price:.2f} under the stop "
+                                    f"{stop:.2f}, which is the trade's levelled stop; re-read next cycle"})
+            elif levelled:
+                out.append({"severity": "CRITICAL", "ticker": ticker,
+                            "what": f"stop {stop:.2f} crossed (last trade {price:.2f}) and still resting with the "
+                                    f"market closed: the stop did not fill"})
+            else:
+                out.append({"severity": "CRITICAL", "ticker": ticker,
+                            "what": f"stop {stop:.2f} at or above the last trade {price:.2f}, and not the trade's "
+                                    f"stop ({expected}): a split or corporate action, or a mis-levelled leg"})
     return out

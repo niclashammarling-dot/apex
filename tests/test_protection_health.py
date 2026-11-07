@@ -112,3 +112,55 @@ def test_hook_does_nothing_when_the_market_is_closed(hook, monkeypatch):
     broker = _Broker(_order())
     hook([POS], [TRADE], broker)
     assert broker.calls == 0
+
+
+# 2026-11-07, from OXY 11-04: the first cycle ran 54 s into the session, the price had crossed a correctly levelled
+# stop inside the first minute, the leg filled four minutes later, and the mail said "unprotected".
+LEVELLED = {"ticker": "AAA", "alpaca_order_id": "p1", "id": 94, "sl_price": 59.15}
+CROSSED = {**POS, "current_price": 59.01}
+
+
+def test_a_crossed_stop_at_the_trades_level_is_fill_pending_not_unprotected():
+    found = evaluate([CROSSED], [LEVELLED], lambda _id: _order(stop=59.15))
+    assert [(f["severity"], f.get("kind")) for f in found] == [("WARNING", "fill_pending")]
+    assert "price through the stop, fill pending" in found[0]["what"]
+
+
+def test_a_crossed_stop_at_neither_level_stays_critical():
+    found = evaluate([CROSSED], [LEVELLED], lambda _id: _order(stop=61.00))
+    assert [f["severity"] for f in found] == ["CRITICAL"] and "not the trade's stop" in found[0]["what"]
+
+
+def test_the_ratchets_last_level_is_the_expected_stop():
+    # the ratchet moved the leg to 60.10; the row's sl_price is the entry stop
+    found = evaluate([{**POS, "current_price": 60.0}], [LEVELLED], lambda _id: _order(stop=60.10),
+                     ratchet_levels={94: 60.10})
+    assert [f["severity"] for f in found] == ["WARNING"]
+    found = evaluate([{**POS, "current_price": 60.0}], [LEVELLED], lambda _id: _order(stop=60.10))
+    assert [f["severity"] for f in found] == ["CRITICAL"]           # without the ratchet level it matches neither
+
+
+def test_a_crossed_levelled_stop_still_resting_with_the_market_closed_is_critical():
+    found = evaluate([CROSSED], [LEVELLED], lambda _id: _order(stop=59.15), market_open=False)
+    assert [f["severity"] for f in found] == ["CRITICAL"] and "did not fill" in found[0]["what"]
+
+
+def test_first_cycle_rereads_fill_pending_and_escalates_the_second_sighting(hook, monkeypatch):
+    import backend.live_trades_tracker as ltt
+    monkeypatch.setattr(ltt, "_fill_pending", {})
+    broker = _Broker(_order(stop=59.15))
+    with patch("backend.alerts._dispatch") as dispatch:
+        hook([CROSSED], [LEVELLED], broker)              # first sighting: WARNING, no mail, check stays open
+        assert dispatch.call_count == 0 and ltt._protection_checked_on is None
+        hook([CROSSED], [LEVELLED], broker)              # next cycle, still crossed and resting: CRITICAL
+        assert dispatch.call_count == 1 and "still unfilled at the next cycle" in dispatch.call_args[0][1]
+
+
+def test_first_cycle_closes_once_the_stop_filled(hook, monkeypatch):
+    import backend.live_trades_tracker as ltt
+    monkeypatch.setattr(ltt, "_fill_pending", {})
+    broker = _Broker(_order(stop=59.15))
+    with patch("backend.alerts._dispatch") as dispatch:
+        hook([CROSSED], [LEVELLED], broker)
+        hook([], [LEVELLED], broker)                     # filled: the position is gone, nothing pending
+    assert dispatch.call_count == 0 and ltt._protection_checked_on is not None and ltt._fill_pending == {}

@@ -33,7 +33,8 @@ def _duration(s):
 
 
 def _fires(name, day):
-    """ET times the task's calendar triggers fire on `day` (repetition end inclusive)."""
+    """ET times the task's calendar triggers fire on `day`. The repetition end is exclusive: measured 2026-11-07, a
+    probe task repeating PT2M for PT4M from 16:58 fired 16:58 and 17:00, not 17:02 (vault 11-07 trigger note)."""
     text = (WIN / name).read_text(encoding="utf-8")
     root = ET.fromstring(re.sub(r"^<\?xml[^>]*\?>", "", text))
     return [t for trig in root.iterfind("t:Triggers/t:CalendarTrigger", NS) for t in _trigger_fires(trig, day)]
@@ -48,9 +49,9 @@ def _trigger_fires(trig, day):
     step = _duration(rep.findtext("t:Interval", namespaces=NS)) if rep is not None else None
     end = first + (_duration(rep.findtext("t:Duration", namespaces=NS)) if rep is not None else timedelta())
     out, t = [], first
-    while t <= end:
+    while True:
         out.append(t.astimezone(NY))
-        if step is None:
+        if step is None or t + step >= end:
             break
         t += step
     return out

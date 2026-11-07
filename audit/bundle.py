@@ -32,9 +32,10 @@ Sections:
             list (Niclas: "Se till så att lördags sessioner framöver vet om production
             gap och signalistan och förhåller sig till den"); a register that cannot be
             read is a WARNING, never an empty section
-  retirement  Part B of the retire conditions (2026-10-31): active checks with no trigger in 90 days
-            and no control column, count and the 5 oldest; the last trigger is the later of the
-            CHECKS.md date and the nightly state history (origin/audit-state)
+  retirement  NO RUNNER (2026-11-07): active checks the last host audit neither ran nor skipped, each
+            named (they can never fire); then Part B of the retire conditions (2026-10-31): the other
+            active checks with no trigger in 90 days and no control column, count and the 5 oldest; the
+            last trigger is the later of the CHECKS.md date and the nightly state history (origin/audit-state)
   weekly    the weekly report's named reader (2026-10-15): one item per week
             from WEEKLY_READ_START whose read is not filed in the vault
             (raw/notes/YYYY-MM/YYYY-MM-DD-apex-weekly-read-<ISO week>.md), with
@@ -476,6 +477,10 @@ def signal_items() -> list[dict]:
 
 QUIET_DAYS = 90       # a review cadence for the unarmed backlog, not evidence (scope 2026-10-14, Part B)
 STATE_BRANCH = "origin/audit-state"
+NO_RUNNER_SCOPE = ("A check with no runner cannot fire; a control does not change that. Per check: port it to a "
+                   "mechanical check in the matching audit/checks_*.py with a positive control, or rule it obsolete and "
+                   "move its row to Retired with the reason (Niclas 2026-11-02: \"mekaniska checkar är alltid värdefulla "
+                   "där det är möjligt\"). A check built after the last publish appears here until the next one runs it.")
 RETIRE_SCOPE = ("Silence without a control cannot be told from a broken check. Per check: give it a control (a test "
                 "that makes it fire, the positive-control column) or rule it obsolete and move its row to Retired with "
                 "the reason. Never retire on silence alone (scope 2026-10-14). Take the oldest first.")
@@ -512,6 +517,12 @@ def _state_history_last() -> dict[int, str]:
     return last
 
 
+def _evaluated_nums() -> set[int]:
+    """Check numbers the last host audit ran or recorded as SKIPPED (audit/state/latest.json). Raises when unreadable."""
+    state = json.loads(LATEST.read_text())
+    return {int(n) for n in state["evaluated"]} | {int(s[0]) for s in state.get("skipped", [])}
+
+
 def retirement_items(today: str) -> list[dict]:
     """Part B (2026-10-31, Niclas: "gör B"): active checks quiet for QUIET_DAYS and without a control.
 
@@ -524,19 +535,41 @@ def retirement_items(today: str) -> list[dict]:
         return [_item("retirement:history_unreadable", "retirement", "WARNING", STATE_BRANCH,
                       f"nightly state history unreadable ({str(e)[:80]}): quiet checks cannot be told; "
                       f"fetch {STATE_BRANCH} on the host", scope=RETIRE_SCOPE)]
+    rows = _registry_rows()
+    out: list[dict] = []
+    # NO RUNNER (2026-11-07, scope 2026-11-02 § 2): an active row the host audit neither ran nor skipped can never
+    # fire, and a control does not change that, so it is named on its own line and kept out of the quiet count
+    # (until 11-07 CHECKs 1, 2, 7, 8 (CI-only since 06-23), 18-20 (instructions only) and 23, 34 sat in it).
+    try:
+        ran = _evaluated_nums()
+    except Exception as e:
+        ran = None
+        out.append(_item("retirement:no_runner_unreadable", "retirement", "WARNING", "audit/state/latest.json",
+                         f"host audit state unreadable ({str(e)[:80]}): checks with no runner cannot be told",
+                         scope=RETIRE_SCOPE))
+    idle = [r for r in rows if ran is not None and r["num"] not in ran]
+    if idle:
+        out.append(_item("retirement:no_runner", "retirement", "WARNING", "audit/CHECKS.md",
+                         f"NO RUNNER: {len(idle)} active checks the host audit did not run — they can never fire: "
+                         + "; ".join(f"CHECK {r['num']} {r['name'][:40]}" for r in idle),
+                         scope=NO_RUNNER_SCOPE))
+    idle_nums = {r["num"] for r in idle}
     cutoff = (datetime.fromisoformat(today) - timedelta(days=QUIET_DAYS)).date().isoformat()
     quiet = []
-    for r in _registry_rows():
+    for r in rows:
+        if r["num"] in idle_nums:
+            continue
         last = max(filter(None, (r["last"], hist.get(r["num"]))), default=None)
         if r["control"] is None and (last is None or last < cutoff):
             quiet.append({**r, "last": last})
-    if not quiet:
-        return []
-    quiet.sort(key=lambda r: r["last"] or "")
-    oldest = "; ".join(f"CHECK {r['num']} {r['name'][:40]} (last {r['last'] or 'never'})" for r in quiet[:5])
-    return [_item("retirement:quiet_unarmed", "retirement", "WARNING", "audit/CHECKS.md",
-                  f"QUIET, UNARMED: {len(quiet)} active checks without a trigger in {QUIET_DAYS} days and without a "
-                  f"control — silence cannot be told from broken. Oldest: {oldest}", scope=RETIRE_SCOPE)]
+    if quiet:
+        quiet.sort(key=lambda r: r["last"] or "")
+        oldest = "; ".join(f"CHECK {r['num']} {r['name'][:40]} (last {r['last'] or 'never'})" for r in quiet[:5])
+        out.append(_item("retirement:quiet_unarmed", "retirement", "WARNING", "audit/CHECKS.md",
+                         f"QUIET, UNARMED: {len(quiet)} active checks without a trigger in {QUIET_DAYS} days and "
+                         f"without a control — silence cannot be told from broken. Oldest: {oldest}",
+                         scope=RETIRE_SCOPE))
+    return out
 
 
 # ── scopes ────────────────────────────────────────────────────────────────────
