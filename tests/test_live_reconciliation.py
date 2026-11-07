@@ -228,15 +228,65 @@ class TestOrderStatusExtraction:
         with patch("backend.live_trades_tracker.LIVE_ENABLED", True), \
              patch("backend.brokers.alpaca.get_positions", return_value=[]), \
              patch("backend.brokers.alpaca.get_orders", return_value=[
-                 {"ticker": "TOL", "side": "sell", "status": "new", "legs": []},
-                 {"ticker": "TOL", "side": "sell", "status": "filled",
-                  "filled_price": 42.0, "legs": []},
+                 {"ticker": "TOL", "side": "buy", "status": "filled", "filled_price": 40.0,
+                  "filled_at": "2026-07-01T14:00:00+00:00", "submitted_at": "2026-07-01T13:59:00+00:00", "legs": []},
+                 {"ticker": "TOL", "side": "sell", "status": "new", "submitted_at": "2026-07-01T14:00:05+00:00",
+                  "legs": []},
+                 {"ticker": "TOL", "side": "sell", "status": "filled", "filled_price": 42.0,
+                  "filled_at": "2026-07-06T15:00:00+00:00", "legs": []},
              ]), \
              patch("backend.brokers.alpaca.cancel_open_orders", return_value=1) as cancel_mock:
             n = cancel_orphan_brackets()
 
         assert n == 1
         cancel_mock.assert_called_once_with("TOL")
+
+    # 2026-11-07 (codebase audit 2026-11-02 finding 1): the corroborating sell must postdate the current entry,
+    # and a ticker the ledger holds is check_live_exits's. Reproduced 11-02: a CVX sell filled 10-14 (an earlier
+    # trade) "proved" the close of the bracket placed 10-28, and one empty positions read cancelled both legs.
+    CVX_BRACKET = {"ticker": "CVX", "side": "buy", "status": "filled", "filled_price": 150.0,
+                   "filled_at": "2026-10-28T14:00:00+00:00", "submitted_at": "2026-10-28T13:59:58+00:00",
+                   "legs": [{"side": "sell", "order_type": "limit", "status": "new"},
+                            {"side": "sell", "order_type": "stop", "status": "held"}]}
+    CVX_OLD_SELL = {"ticker": "CVX", "side": "sell", "status": "filled", "filled_price": 155.0,
+                    "filled_at": "2026-10-14T15:30:00+00:00", "legs": []}
+
+    def _sweep(self, orders, ledger=()):
+        from backend.live_trades_tracker import cancel_orphan_brackets
+        with patch("backend.live_trades_tracker.LIVE_ENABLED", True), \
+             patch("backend.live_trades_tracker.get_open_live_trades",
+                   return_value=[{"ticker": t} for t in ledger]), \
+             patch("backend.brokers.alpaca.get_positions", return_value=[]), \
+             patch("backend.brokers.alpaca.get_orders", return_value=orders), \
+             patch("backend.brokers.alpaca.cancel_open_orders", return_value=2) as cancel_mock:
+            n = cancel_orphan_brackets()
+        return n, cancel_mock
+
+    def test_an_earlier_trades_sell_fill_does_not_cancel_the_current_bracket(self):
+        n, cancel_mock = self._sweep([self.CVX_BRACKET, self.CVX_OLD_SELL])
+        assert n == 0
+        cancel_mock.assert_not_called()
+
+    def test_a_sell_fill_after_the_current_entry_still_cancels_the_leftover_leg(self):
+        # positive control: a genuine close after the 10-28 entry, legs left resting, ticker not in the ledger
+        new_sell = {**self.CVX_OLD_SELL, "filled_at": "2026-11-03T16:00:00+00:00"}
+        n, cancel_mock = self._sweep([self.CVX_BRACKET, self.CVX_OLD_SELL, new_sell])
+        assert n == 2
+        cancel_mock.assert_called_once_with("CVX")
+
+    def test_a_ticker_open_in_the_ledger_is_left_to_check_live_exits(self):
+        new_sell = {**self.CVX_OLD_SELL, "filled_at": "2026-11-03T16:00:00+00:00"}
+        n, cancel_mock = self._sweep([self.CVX_BRACKET, new_sell], ledger=("CVX",))
+        assert n == 0
+        cancel_mock.assert_not_called()
+
+    def test_no_reference_time_leaves_the_order_in_place(self):
+        # a resting sell with no visible entry or submission time: recency cannot be shown
+        n, cancel_mock = self._sweep([{"ticker": "XYZ", "side": "sell", "status": "new", "legs": []},
+                                      {"ticker": "XYZ", "side": "sell", "status": "filled", "filled_price": 9.0,
+                                       "filled_at": "2026-11-03T16:00:00+00:00", "legs": []}])
+        assert n == 0
+        cancel_mock.assert_not_called()
 
     def test_cancel_orphan_brackets_leaves_uncorroborated_order_in_place(self):
         """

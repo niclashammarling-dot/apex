@@ -849,6 +849,14 @@ def cancel_orphan_brackets() -> int:
     still actually held is real exposure. The asymmetry means the corrobo-
     ration check only needs to gate the cancel, not the leave-alone.
 
+    Recency (2026-11-07, codebase audit 2026-11-02 finding 1): the corroboration was any filled sell on the ticker
+    in the last 200 orders, so for any ticker traded before, an old trade's fill "proved" the close of the current
+    position and one bad positions read cancelled its TP and SL again (reproduced 11-02: a CVX sell of 10-14
+    cleared a 10-28 bracket). Now (a) a ticker with an OPEN live_trades row is left to check_live_exits, which
+    has the entry time and find_exit_fill's invariants; (b) for any other ticker the filled sell must postdate
+    the ticker's latest filled buy and the resting order's own submission. With no reference time the order is
+    left in place, the harmless side of the asymmetry above.
+
     Returns number of orders cancelled.
     """
     if not LIVE_ENABLED:
@@ -861,18 +869,36 @@ def cancel_orphan_brackets() -> int:
         logger.warning(f"cancel_orphan_brackets: could not fetch broker state — {e}")
         return 0
 
-    # Flatten to include bracket legs
+    try:
+        in_ledger = {t["ticker"] for t in get_open_live_trades()}
+    except Exception as e:
+        logger.warning(f"cancel_orphan_brackets: could not read open live trades — {e}; not cancelling")
+        return 0
+
+    # Flatten to include bracket legs; a leg carries its parent's submission time (legs have none of their own)
     flat: list[dict] = []
     for o in all_orders:
         flat.append(o)
         for leg in (o.get("legs") or []):
-            flat.append({**leg, "ticker": o["ticker"]})
+            flat.append({**leg, "ticker": o["ticker"], "submitted_at": o.get("submitted_at")})
 
-    filled_sell_tickers = {
-        o["ticker"] for o in flat
-        if "sell" in (o.get("side") or "").lower()
-        and (o.get("filled_price") or o.get("filled_avg_price"))
-    }
+    def _ts(v):
+        try:
+            return datetime.fromisoformat(v) if v else None
+        except (TypeError, ValueError):
+            return None
+
+    last_buy: dict[str, datetime] = {}
+    sell_fills: dict[str, list[datetime]] = {}
+    for o in flat:
+        at = _ts(o.get("filled_at"))
+        if at is None or not (o.get("filled_price") or o.get("filled_avg_price")):
+            continue
+        side = (o.get("side") or "").lower()
+        if "buy" in side:
+            last_buy[o["ticker"]] = max(at, last_buy.get(o["ticker"], at))
+        elif "sell" in side:
+            sell_fills.setdefault(o["ticker"], []).append(at)
 
     cancelled = 0
     seen: set[str] = set()
@@ -886,10 +912,16 @@ def cancel_orphan_brackets() -> int:
                 and status in {"new", "held", "accepted", "pending_new", "partially_filled"}
                 and ticker not in seen):
             seen.add(ticker)
-            if ticker not in filled_sell_tickers:
-                logger.warning(f"cancel_orphan_brackets [{ticker}]: absent from positions but no filled "
-                                f"sell corroborates a genuine close — suspected bad broker read, leaving "
-                                f"resting order in place (not cancelling)")
+            if ticker in in_ledger:
+                logger.warning(f"cancel_orphan_brackets [{ticker}]: absent from positions but OPEN in live_trades — "
+                               f"check_live_exits owns it (entry-dated fill search); not cancelling")
+                continue
+            refs = [t for t in (last_buy.get(ticker), _ts(o.get("submitted_at"))) if t is not None]
+            ref = max(refs) if refs else None
+            if ref is None or not any(f > ref for f in sell_fills.get(ticker, [])):
+                logger.warning(f"cancel_orphan_brackets [{ticker}]: absent from positions but no filled sell after "
+                               f"the current entry ({ref.isoformat() if ref else 'entry time unknown'}) corroborates "
+                               f"a genuine close — suspected bad broker read, leaving resting order in place")
                 continue
             try:
                 n = broker.cancel_open_orders(ticker)
