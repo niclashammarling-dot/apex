@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pre-push: the parameter-registry ratchet (0.7 s) before anything reaches origin.
+# Pre-push: the CI guard (below) and the parameter-registry ratchet (0.7 s) before anything reaches origin.
 # Niclas 2026-10-15, after CI run #139: fcf96e8 added REFERENCE_WEEKS without a
 # registry entry and was pushed with only the weekly-report tests run; CI mailed the
 # red five minutes later. The full suite (~3.5 min) stays in CI.
@@ -11,6 +11,13 @@
 # logs/pre-push-history.log (APEX_PRE_PUSH_HISTORY overrides it; tests point it at tmp):
 #   <ISO time> | <HEAD sha> | rc=<n> | <seconds>s | <pytest summary line>
 # Reader: the INDEX review "APEX parameter ratchet by name + pre-push hook" (2026-11-01).
+# CI guard (2026-11-07, Niclas: "Viktig upptäckt med förslag. Bygg"): CI runs 291-294 stacked four commits on a red
+# master (290, a registry pin) because no one read 290 before the next push. Before anything else the hook reads, for
+# each ref pushed, the APEX Tests conclusion of the remote tip it builds on (GitHub API, public repo, no token):
+#   failure          → blocked, unless APEX_CI_RED_OK names that run (a fix on top of red must stay pushable)
+#   still running    → a visible warning, not a block (reading CI before the next push stays the rule)
+#   unreadable / none → a visible warning "CI state unknown", not a block (an offline push is not a red tree)
+# APEX_CI_API overrides the API base; a local directory there is read as <dir>/<sha>.json (the tests' fixtures).
 repo=$(git rev-parse --show-toplevel) || exit 1
 hist="${APEX_PRE_PUSH_HISTORY:-$repo/logs/pre-push-history.log}"
 record() {  # $1 = rc, $2 = seconds, $3 = summary
@@ -25,6 +32,47 @@ if [ -z "$py" ]; then
     record 1 0 "no python — blocked"
     exit 1
 fi
+api="${APEX_CI_API:-https://api.github.com/repos/niclashammarling-dot/apex/actions/runs}"
+ci_runs() {  # $1 = sha
+    case "$api" in
+        /*) cat "$api/$1.json" 2>/dev/null ;;
+        *)  curl -s --max-time 6 "$api?head_sha=$1&per_page=20" 2>/dev/null ;;
+    esac
+}
+while read -r _lref _lsha _rref rsha; do
+    [ -z "$rsha" ] || [ "$rsha" = "0000000000000000000000000000000000000000" ] && continue   # a new branch
+    state=$(ci_runs "$rsha" | "$py" -c '
+import json, sys
+try:
+    runs = [r for r in json.load(sys.stdin).get("workflow_runs", []) if r.get("name") == "APEX Tests"]
+except Exception:
+    runs = None
+if not runs:
+    print("unknown -")
+else:
+    r = max(runs, key=lambda r: r.get("run_number", 0))
+    print(r.get("conclusion") or r.get("status") or "unknown", r.get("run_number", "-"))
+' 2>/dev/null)
+    set -- ${state:-unknown -}
+    case "$1" in
+        success) ;;
+        failure|cancelled|timed_out)
+            if [ "${APEX_CI_RED_OK:-}" = "$2" ]; then
+                echo "pre-push: CI run $2 on ${rsha:0:7} ($_rref) is $1 — pushed on top with APEX_CI_RED_OK=$2" >&2
+                record 0 0 "CI guard: pushed on red run $2 (acknowledged)"
+            else
+                echo "pre-push: CI run $2 on the remote tip ${rsha:0:7} ($_rref) is $1 — push blocked." >&2
+                echo "  Read why it is red first. A push that fixes it: APEX_CI_RED_OK=$2 git push" >&2
+                record 1 0 "CI guard: blocked on red run $2 (${rsha:0:7})"
+                exit 1
+            fi ;;
+        queued|in_progress|requested|waiting|pending)
+            echo "pre-push: CI run $2 on ${rsha:0:7} ($_rref) is still running — read it before the next push" >&2 ;;
+        *)
+            echo "pre-push: CI state unknown for ${rsha:0:7} ($_rref) — no run found or the API is unreachable" >&2 ;;
+    esac
+done
+
 t0=$(date +%s.%N)
 cd "$repo" && "$py" -m pytest -q -p no:cacheprovider tests/test_parameter_registry.py >/tmp/apex-pre-push.log 2>&1
 rc=$?
