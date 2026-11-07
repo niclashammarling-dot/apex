@@ -488,10 +488,13 @@ RETIRE_SCOPE = ("Silence without a control cannot be told from a broken check. P
 
 def _registry_rows() -> list[dict]:
     """Active rows of audit/CHECKS.md: number, last_triggered (a date or None) and the control column."""
+    from audit.mechanical_checks import registry_cells
     out = []
     for line in (REPO / "audit" / "CHECKS.md").read_text(encoding="utf-8").splitlines():
         m = re.match(r"\|\s*(\d+)\s*\|", line)
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        # Unescaped pipes only (registry_cells): rows 79 and 82 quote `\|` in prose, and a plain split left both
+        # out of the retirement and NO RUNNER lines until 2026-11-07.
+        cells = registry_cells(line.strip())[1:-1]
         if m and len(cells) == 8:
             lt = cells[5] if re.match(r"\d{4}-\d{2}-\d{2}$", cells[5]) else None
             out.append({"num": int(m.group(1)), "name": cells[1], "last": lt,

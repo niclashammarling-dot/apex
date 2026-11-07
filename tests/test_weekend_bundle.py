@@ -370,6 +370,8 @@ class TestRetirementPartB:
     def test_registry_parser_reads_the_real_table(self):
         rows = bundle._registry_rows()
         assert len(rows) > 50 and all(isinstance(r["num"], int) for r in rows)
+        nums = {r["num"] for r in rows}
+        assert {79, 82} <= nums                  # rows quoting `\|` in prose (found 2026-11-07: a plain split dropped them)
         assert any(r["control"] for r in rows) and any(r["control"] is None for r in rows)
 
 
