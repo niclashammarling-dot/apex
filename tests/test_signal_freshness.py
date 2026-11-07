@@ -199,10 +199,19 @@ class TestCheck87:
         assert "live: 1 rows checked" in f[0][2]
         assert "live: 0 of 1 in-session rows on a non-session bar" in f[1][2]
 
-    def test_post_open_prior_bar_is_reported_per_sector_not_critical(self, run87):
+    def test_post_open_prior_bar_entered_warns_and_is_reported_per_sector(self, run87):
+        # 2026-11-01 (Niclas): an entry on a non-session bar warns, so it reaches the Friday bundle; until then
+        # it was INFO only, which no reader routes. Parent control: the INFO-only code fails this test.
         f = run87(live=[("FRI", "TRADE_EXECUTED", self.CYC, "2031-03-07T14:50:00+00:00", "2031-03-06")])
+        assert {x[1] for x in f} == {"INFO", "WARNING"}
+        warn = [x for x in f if x[1] == "WARNING"]
+        assert len(warn) == 1 and "FRI" in warn[0][2] and "non-session bar" in warn[0][2]
+        assert any("live: 1 of 1 in-session rows on a non-session bar (Technology 1/1 entered)" in x[2] for x in f)
+
+    def test_post_open_prior_bar_not_entered_stays_info(self, run87):
+        f = run87(live=[("FRJ", "FILTERED_L2", self.CYC, "2031-03-07T14:50:00+00:00", "2031-03-06")])
         assert {x[1] for x in f} == {"INFO"}
-        assert "live: 1 of 1 in-session rows on a non-session bar (Technology 1/1 entered)" in f[1][2]
+        assert any("live: 1 of 1 in-session rows on a non-session bar (Technology 1/0 entered)" in x[2] for x in f)
 
     def test_the_1007_shape_is_critical(self, run87):
         """TT/NOW 10-07: entered 15:34 CEST on the 14:20 CEST signal."""

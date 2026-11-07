@@ -93,7 +93,7 @@ function LeaderboardRow({ entry, i, isOpen, onToggle }) {
           display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 24px",
         }}>
           <TraceRow label="recovering tickers"   value={trace.recovering_tickers ?? "—"} />
-          <TraceRow label="ETF consecutive days" value={trace.etf_consecutive_days ?? "—"} />
+          <TraceRow label="ETF signed streak"    value={trace.etf_signed_streak ?? "—"} />
           <TraceRow label="leader decline days"  value={trace.leader_decline_days ?? "—"} />
           <TraceRow label="IPO share"            value={trace.ipo_share != null ? `${(trace.ipo_share * 100).toFixed(0)}%` : "—"} />
           <TraceRow label="prior"                value={trace.prior != null ? (trace.prior * 100).toFixed(1) + "%" : "—"} />
