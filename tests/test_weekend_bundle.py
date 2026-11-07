@@ -371,3 +371,13 @@ class TestRetirementPartB:
         rows = bundle._registry_rows()
         assert len(rows) > 50 and all(isinstance(r["num"], int) for r in rows)
         assert any(r["control"] for r in rows) and any(r["control"] is None for r in rows)
+
+
+def test_evaluated_nums_reads_ran_and_skipped_from_the_state(tmp_path, monkeypatch):
+    state = tmp_path / "latest.json"
+    state.write_text('{"evaluated": [3, 4], "skipped": [[73, "watchdog", "x", "not present"]]}')
+    monkeypatch.setattr(bundle, "LATEST", state)
+    assert bundle._evaluated_nums() == {3, 4, 73}
+    state.write_text("{}")
+    with pytest.raises(KeyError):
+        bundle._evaluated_nums()                        # no evaluated list: unreadable, never "nothing ran"
