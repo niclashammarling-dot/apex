@@ -43,7 +43,7 @@
       "value": 60,
       "kind": "chosen",
       "tier": "ops",
-      "source": "Claude 2026-10-17, CHECK 91: the same 60-day horizon as lock1_eligibility._check_calendar_expiry, so the bundle sees what the log warning saw; about two Friday bundles of lead time.",
+      "source": "Claude 2026-10-17, CHECK 91: the same 60-day horizon as l1_eligibility._check_calendar_expiry, so the bundle sees what the log warning saw; about two Friday bundles of lead time.",
       "date": "2026-10-17",
       "review": "2026-10-31"
     },
@@ -108,14 +108,6 @@
       "tier": "ops",
       "source": "Annualisation convention for daily returns (NYSE sessions per year, the factor engine_fast._compute_metrics already uses as sqrt(252)). Report-only: no gate, size or exit reads it.",
       "date": "2026-10-17"
-    },
-    "backend/backtest/live_shape.py::DAILY_LOSS_CAP_PCT": {
-      "value": 0.05,
-      "kind": "chosen",
-      "tier": "money",
-      "source": "Niclas 2026-10-17: the engines' daily loss cap as live has it, 5 % of the starting balance (live $500 / $10,000, demo $100 / $2,000). Replaces config's $100 on a $10,000 simulation (1 %). Equity-based (5 % of current capital, Niclas's preference) is next Saturday's question.",
-      "date": "2026-10-17",
-      "review": "2026-10-24"
     },
     "backend/backtest/exit_rules.py::STOP_SLIP_INTRADAY_PCT": {
       "value": 0.0002,
@@ -311,7 +303,7 @@
       "value": 0.65,
       "kind": "structural",
       "tier": "ops",
-      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): live Lock 1 threshold (data/live_config.json lock1_threshold 0.65); SECTOR_THRESHOLD_FLOORS is empty, so a pick is score >= 0.65. Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): live Lock 1 threshold (data/live_config.json l3_score_threshold_min 0.65); SECTOR_THRESHOLD_FLOORS is empty, so a pick is score >= 0.65. Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
       "date": "2026-10-20"
     },
     "backend/backtest/ladder_2026_10.py::L0_HORIZONS": {
@@ -350,7 +342,7 @@
       ],
       "kind": "structural",
       "tier": "ops",
-      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): T3 cohort sizes fixed on the card: 9 is live max_positions, 5 a concentrated half. Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-test-ladder-and-cards.md (cards T1-T6, vault 7f89f49f, written before the run): T3 cohort sizes fixed on the card: 9 is live l2_risk_max_positions_count, 5 a concentrated half. Ladder probe only (2026-10-20): no live gate, size or exit reads it.",
       "date": "2026-10-20"
     },
     "backend/backtest/ladder_2026_10.py::SEED": {
@@ -526,7 +518,7 @@
       "kind": "structural",
       "tier": "ops",
       "date": "2026-10-21",
-      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 2b: the level class is the live gate's own threshold (config.MACRO_VIX_THRESHOLD 30, live_config vix_threshold 30), inclusive as live (engine 7cfbb8b). S14 L0 probe only (2026-10-21): no live gate, size or exit reads it."
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 2b: the level class is the live gate's own threshold (config.L1_ELIGIBILITY_VIX_MAX 30, live_config l1_eligibility_vix_max 30), inclusive as live (engine 7cfbb8b). S14 L0 probe only (2026-10-21): no live gate, size or exit reads it."
     },
     "backend/backtest/s14_vix_l0_2026_10_21.py::WARMUP": {
       "value": 60,
@@ -847,7 +839,7 @@
       "source": "Vault raw/notes/2026-10/2026-10-24-apex-atr-leg-ablation-card.md (ATR leg ablation card, vault 368b3b64, written before the code): reproducibility: RNG seed for the live entries' draws. Ablation probe only (2026-10-24): no live gate, size or exit reads it.",
       "date": "2026-10-24"
     },
-    "backend/config.py::M4_DRAWDOWN_PCT": {
+    "backend/config.py::LIVE_L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX": {
       "value": 0.06,
       "kind": "chosen",
       "tier": "money",
@@ -855,15 +847,15 @@
       "date": "2026-10-24",
       "review": "2026-11-21"
     },
-    "backend/config.py::M4_DAILY_LOSS_CAP_PCT": {
+    "backend/config.py::LIVE_L0_PORTFOLIO_LOSS_CAP_MAX": {
       "value": 0.05,
       "kind": "chosen",
       "tier": "money",
-      "source": "M4 stop rule, ruled by Niclas 2026-10-24 (vault INDEX go-criterion line; apex audit/QUESTIONS.md G7/M4); run in live's L0 Portfolio from 2026-10-24 (Niclas: \"m4: då sätter vi de tre reglerna i L0 som hindrar L1 att ens starta. Kör på live redan nu\"). Daily loss cap as a share of current equity (\"5% av aktuellt kapital kan skala upp och ner, vilket är bättre\"); the level 4 % or 6 % is open until the 2026-11-21 review, 5 % is the interim, equal to the $500 fixed cap it replaces at the $10,000 starting balance.",
+      "source": "M4 stop rule, ruled by Niclas 2026-10-24 (vault INDEX go-criterion line; apex audit/QUESTIONS.md G7/M4); run in live's L0 Portfolio from 2026-10-24 (Niclas: \"m4: då sätter vi de tre reglerna i L0 som hindrar L1 att ens starta. Kör på live redan nu\"). Daily loss cap as a share of current equity (\"5% av aktuellt kapital kan skala upp och ner, vilket är bättre\"); the level 4 % or 6 % is open until the 2026-11-21 review, 5 % is the interim, equal to the $500 fixed cap it replaces at the $10,000 starting balance. Since 2026-11-01 also the engines' default (× initial balance), replacing live_shape.DAILY_LOSS_CAP_PCT (same 0.05; its provenance: Niclas 2026-10-17: the engines' daily loss cap as live has it, 5 % of the starting balance (live $500 / $10,000, demo $100 / $2,000). Replaces config's $100 on a $10,000 simulation (1 %). Equity-based (5 % of current capital, Niclas's preference) is next Saturday's question.)",
       "date": "2026-10-24",
       "review": "2026-11-21"
     },
-    "backend/config.py::M4_EXPECTANCY_N": {
+    "backend/config.py::LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT": {
       "value": 40,
       "kind": "chosen",
       "tier": "money",
@@ -1044,21 +1036,21 @@
       "value": 0.05,
       "kind": "structural",
       "tier": "ops",
-      "source": "INDEX 'APEX candidate ledger' (scoped 2026-10-11; built 2026-10-24 in engine_fast, Niclas: \"placeringen måste bli engine fast\"). Ledger builder only: no live gate, size or exit reads it. Live's macro_pre_event_penalty (0.05); the band read is score in [threshold, threshold / (1 - p)) on pre-event days.",
+      "source": "INDEX 'APEX candidate ledger' (scoped 2026-10-11; built 2026-10-24 in engine_fast, Niclas: \"placeringen måste bli engine fast\"). Ledger builder only: no live gate, size or exit reads it. Live's l1_eligibility_macro_pre_event_penalty (0.05); the band read is score in [threshold, threshold / (1 - p)) on pre-event days.",
       "date": "2026-10-24"
     },
     "backend/backtest/candidate_ledger_2026_10.py::VIX_LEVEL": {
       "value": 30.0,
       "kind": "structural",
       "tier": "ops",
-      "source": "INDEX 'APEX candidate ledger' (scoped 2026-10-11; built 2026-10-24 in engine_fast, Niclas: \"placeringen måste bli engine fast\"). Ledger builder only: no live gate, size or exit reads it. Live's vix_threshold (30); the class split for the S14 R1 card.",
+      "source": "INDEX 'APEX candidate ledger' (scoped 2026-10-11; built 2026-10-24 in engine_fast, Niclas: \"placeringen måste bli engine fast\"). Ledger builder only: no live gate, size or exit reads it. Live's l1_eligibility_vix_max (30); the class split for the S14 R1 card.",
       "date": "2026-10-24"
     },
     "backend/gate/history_classify.py::PRE_EVENT_RATIO": {
       "value": 0.95,
       "kind": "structural",
       "tier": "ops",
-      "source": "chain.py multiplies the score by 1 - macro_pre_event_penalty before the score test; the penalty has been 0.05 in live and demo config since it shipped (fdd1a7a, 2026-06-16), so a pre-event bite stores score / signal_score = 0.95: 172 of 172 reasoned FILTERED_L1 rows after 06-16 (probed 2026-10-28). Identifies those rows in the lock labels phase 2 classifier; no gate, size or exit reads it."
+      "source": "chain.py multiplies the score by 1 - l1_eligibility_macro_pre_event_penalty before the score test; the penalty has been 0.05 in live and demo config since it shipped (fdd1a7a, 2026-06-16), so a pre-event bite stores score / signal_score = 0.95: 172 of 172 reasoned FILTERED_L1 rows after 06-16 (probed 2026-10-28). Identifies those rows in the lock labels phase 2 classifier; no gate, size or exit reads it."
     },
     "backend/gate/gate_runner_live.py::LIVE_MIN_ORDER": {
       "value": 10.0,
@@ -1074,14 +1066,14 @@
       "source": "Demo minimum order: the literal `amount < 50` in wallet.execute_trade since 0660e4a (2026-03-25), never measured. Named 2026-10-29 (lock labels phase 2) when L1's affordability check also runs before the chain on the largest possible notional.",
       "review": "2026-11-14"
     },
-    "backend/gate/history_classify.py::GATE_COOLOFF_HOURS": {
+    "backend/gate/history_classify.py::L1_ELIGIBILITY_COOLOFF_HOURS": {
       "value": {
         "live": 4,
         "demo": 5
       },
       "kind": "structural",
       "tier": "ops",
-      "source": "gate_cooloff_hours as data/live_config.json (4) and data/demo_config.json (5) hold it since the configs are tracked (2026-06-26). History replay only (lock labels phase 2, the cooloff split, 2026-10-29): with these and the cooloff set in force, every SKIPPED_COOLOFF row in the three tables is explained; no live gate, size or exit reads it.",
+      "source": "l1_eligibility_cooloff_hours as data/live_config.json (4) and data/demo_config.json (5) hold it since the configs are tracked (2026-06-26). History replay only (lock labels phase 2, the cooloff split, 2026-10-29): with these and the cooloff set in force, every SKIPPED_COOLOFF row in the three tables is explained; no live gate, size or exit reads it.",
       "date": "2026-10-29"
     },
     "backend/backtest/s14_r1_vix_gate_2026_10.py::N_BOOT": {
@@ -1163,7 +1155,7 @@
       ],
       "kind": "structural",
       "tier": "ops",
-      "source": "S14 R1 follow-up, exploratory (2026-10-27): Niclas's questions after the S14 R1 run (vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md § 10). Probe only: no live gate, size or exit reads it. VIX bins for the class table; 30 is live's vix_threshold, 40 Niclas's 10-27 question",
+      "source": "S14 R1 follow-up, exploratory (2026-10-27): Niclas's questions after the S14 R1 run (vault raw/notes/2026-10/2026-10-24-apex-s14-r1-vix-gate-card.md § 10). Probe only: no live gate, size or exit reads it. VIX bins for the class table; 30 is live's l1_eligibility_vix_max, 40 Niclas's 10-27 question",
       "date": "2026-10-27"
     },
     "backend/backtest/s14_r1_followup_2026_10.py::HIGH": {

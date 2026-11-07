@@ -10,8 +10,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-# Persisted reason prefix for a Lock 5 fail-closed result (API unavailable, not
-# a Claude HOLD). lock5_claude._fail_closed writes `<prefix>: <cause>`; CHECK 81
+# Persisted reason prefix for an L6 REVIEW fail-closed result (API unavailable, not
+# a Claude HOLD). l6_review._fail_closed writes `<prefix>: <cause>`; CHECK 81
 # matches on this prefix. Lives here so the audit can import it without
 # importing the anthropic client.
 L5_UNAVAILABLE_PREFIX = "anthropic_unavailable"
@@ -26,17 +26,17 @@ class LockResult:
         passed  — True if the ticker cleared this lock.
         score   — Numeric confidence / strength (0.0–1.0).
                   Meaning is lock-specific:
-                    Lock 1  — 1.0 (pass) / 0.0 (fail), binary
-                    Lock 2  — signal_score from aggregator
-                    Lock 3  — Grok sentiment score (-1 to 1, normalised)
-                    Lock 4  — fraction of sub-checks passed (0–1)
-                    Lock 5  — Claude confidence (0–1, extracted from response)
+                    L1 ELIGIBILITY — 1.0 (pass) / 0.0 (fail), binary
+                    L3 SCORE       — signal_score from aggregator
+                    L4 SENTIMENT   — Grok sentiment score (-1 to 1, normalised)
+                    L5 POSITIONING — fraction of sub-checks passed (0–1)
+                    L6 REVIEW      — Claude confidence (0–1, extracted from response)
         reason  — Human-readable explanation, used in gate_history and
-                  Lock 5 context building.
+                  L6 REVIEW context building.
         data    — Lock-specific payload. Downstream locks and the
                   Claude context builder read from this dict.
                   Keys are lock-specific (see each lock module).
-        lock_id — Lock number (1–5), set automatically by each module.
+        lock_id — the chain lock (0–6, backend/gate/lock_codes.LOCKS), set by each module.
     """
     passed:  bool
     score:   float

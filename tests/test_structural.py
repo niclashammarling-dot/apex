@@ -27,12 +27,12 @@ def test_sector_etf_names_match_config():
 
 
 def test_lock3_context_parity():
-    """Demo and live gate runners must build identical risk_limits keys for Lock 3."""
+    """Demo and live gate runners must build identical risk_limits keys for L6 REVIEW."""
     assert check_context_parity() == []
 
 
 def test_promote_exclusions():
-    """starting_balance and daily_loss_cap must never appear in the promotable set."""
+    """starting_balance and l0_portfolio_loss_cap_max must never appear in the promotable set."""
     assert check_promote_exclusions() == []
 
 

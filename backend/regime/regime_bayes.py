@@ -12,10 +12,10 @@ Two-stage calculation:
 
 The allocation output is consumed by:
   - Lock chain: determines how many tickers can be traded per sector
-  - Lock 4 (Claude): full regime context for final approval
+  - L6 REVIEW (Claude): full regime context for final approval
   - Ticker allocation: sector % split proportionally by individual signal scores
 
-Ticker-level thresholds (Lock 1) are sector-specific and handled downstream.
+Ticker-level thresholds (L3 SCORE) are sector-specific and handled downstream.
 The regime module only knows about sectors, not individual tickers.
 
 What the posterior is — mechanically (2026-10-17; what it is meant to MEAN is
@@ -411,7 +411,7 @@ class RegimeBayes:
         all_sectors = [e.sector for e in entries]
         active_posteriors = {s: self._posteriors[s] for s in all_sectors if s in self._posteriors}
         self._save_session_posteriors(today_str, active_posteriors, restore=before.posteriors)
-        # Only after the persist: _last_result is what the gates, Lock 1 and the
+        # Only after the persist: _last_result is what the gates, L1 ELIGIBILITY and the
         # trackers read. Assigned before it (until 2026-09-26), a failed persist
         # left them trading on a session the DB, cache and history never got.
         self._last_result = result
@@ -657,7 +657,7 @@ class RegimeBayes:
 
         sector_allocation: the sector's portfolio percentage from RegimeResult
         ticker_scores: {ticker: signal_score} — only tickers already passing
-                       their sector-specific Lock 1 threshold should be passed in.
+                       their sector-specific L3 SCORE threshold should be passed in.
                        This function does no filtering.
 
         Leading ticker gets largest proportion, scaled by relative signal score.
@@ -955,11 +955,11 @@ class RegimeBayes:
 
 
 
-# ── Claude Lock 4 context payload ─────────────────────────────────────────────
+# ── L6 REVIEW (Claude) context payload ────────────────────────────────────────
 
 def regime_context_for_claude(result: RegimeResult) -> str:
     """
-    Structured regime summary for injection into Claude Lock 4 context.
+    Structured regime summary for injection into L6 REVIEW (Claude) context.
     Shows allocation percentages, posterior confidence, and signal drivers
     so Claude understands the full portfolio distribution when approving trades.
     """

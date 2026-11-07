@@ -35,8 +35,8 @@ from backend.backtest import engine_fast as ef
 from backend.backtest import ladder_2026_10 as ld
 
 LIVE_EXIT = {"tp": 0.06, "sl": 0.06, "pl": [0.04, 0.01], "tdays": 25}
-MACRO_P = 0.05                   # live's macro_pre_event_penalty (the band read, INDEX scope)
-VIX_LEVEL = 30.0                 # live's vix_threshold
+MACRO_P = 0.05                   # live's l1_eligibility_macro_pre_event_penalty (the band read, INDEX scope)
+VIX_LEVEL = 30.0                 # live's l1_eligibility_vix_max
 
 _SHARED: dict = {}
 

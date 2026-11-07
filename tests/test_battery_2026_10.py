@@ -25,7 +25,7 @@ def test_a_unit_shared_by_cells_runs_once():
     assert len(bt.ordered(allu)) == len({u.key() for u in allu})
     # the 3B baseline and the cap 0.30 point are the same run as plain R2 only when the
     # override equals the incumbent; they are their own units otherwise, never merged by name
-    assert bt.unit("IS", bt.R2, max_sector_exposure=0.30).key() != r2
+    assert bt.unit("IS", bt.R2, l2_risk_sector_cap_max=0.30).key() != r2
 
 
 def test_keys_separate_everything_that_changes_a_run():
@@ -207,12 +207,12 @@ def test_cap_reader_neighbours_exclude_030_and_need_four_folds():
     for b in (bt.R2, bt.R1):
         for c in bt.CAP_GRID:
             good = c in (0.25, 0.26, 0.29, 0.35)
-            s.put(bt.unit("IS", b, max_sector_exposure=c),
+            s.put(bt.unit("IS", b, l2_risk_sector_cap_max=c),
                   _rec(1.2 if good else 0.8, folds=win if good else dict.fromkeys(bt.CAP_FOLDS, 0.0)))
-        s.recs[bt.unit("IS", b, max_sector_exposure=0.30).key()] = _rec(1.0, folds=dict.fromkeys(bt.CAP_FOLDS, 1.0))
+        s.recs[bt.unit("IS", b, l2_risk_sector_cap_max=0.30).key()] = _rec(1.0, folds=dict.fromkeys(bt.CAP_FOLDS, 1.0))
     for c in (0.25, 0.30):
-        s.put(bt.unit("OOS", bt.R2, max_sector_exposure=c), _rec(0.1, {"2015": 1}))
-        s.put(bt.unit("OOS", bt.R1, max_sector_exposure=c), _rec(0.1, {"2015": 1}))
+        s.put(bt.unit("OOS", bt.R2, l2_risk_sector_cap_max=c), _rec(0.1, {"2015": 1}))
+        s.put(bt.unit("OOS", bt.R1, l2_risk_sector_cap_max=c), _rec(0.1, {"2015": 1}))
     g = bt.read_sector_cap(s)["IS_R2"]["grid"]
     assert g["0.29"]["passes"] is False                   # neighbours 0.28 (bad) and 0.35
     assert g["0.25"]["passes"] is False                   # neighbour 0.20 is bad
@@ -318,8 +318,8 @@ def test_macro_revert_enters_on_hard_block_days():
 def test_vix_revert_lets_the_threshold_day_through():
     pre = synthetic_precomputed()
     pre = {**pre, "vix_cache": {d.isoformat(): 30.0 for d in pre["trading_days"]}}
-    assert _ef(pre, vix_threshold=30.0)["total_trades"] == 0
-    assert _ef(pre, vix_threshold=30.0, vix_block_inclusive=False)["total_trades"] > 0
+    assert _ef(pre, l1_eligibility_vix_max=30.0)["total_trades"] == 0
+    assert _ef(pre, l1_eligibility_vix_max=30.0, vix_block_inclusive=False)["total_trades"] > 0
 
 
 def _reentries_after(trades, reason, days):
@@ -350,7 +350,7 @@ def test_rnd_fills_the_reference_slots_above_the_roof_without_the_score_bar():
     rnd = {"seed": 3, "per_day": dict.fromkeys(days, 5), "open_cap": dict.fromkeys(days, 3)}
     # lock1 0.99: row 14's bar above the roof cannot be met by any score, so a score bar
     # would hold RND at one position; the reference's 3 slots are what it gets instead.
-    res = _ef(pre, max_positions=1, lock1_threshold=0.99, overflow_quant_increment=None, random_entries=rnd)
+    res = _ef(pre, l2_risk_max_positions_count=1, l3_score_threshold_min=0.99, l2_risk_overflow_step=None, random_entries=rnd)
     opened = bt.open_after_entries(res["trade_log"], days)
     assert max(opened.values()) == 3
 
@@ -385,11 +385,11 @@ def test_etf_reader_needs_start0_and_eleven_of_twenty():
     s = FakeStore()
     e = lambda pf: {"engine": {"profit_factor": pf, "cagr": 0.05, "max_drawdown": 0.1}}
     for st in bt.starts():
-        s.put(bt.unit("IS", bt.R2, st, etf_negative_penalty=None), e(1.0))
+        s.put(bt.unit("IS", bt.R2, st, l2_risk_etf_penalty=None), e(1.0))
         for r in bt.ETF_RATES:
             for f in bt.ETF_FLOORS:
                 good = (r == 0.15 and st < 11) or (r == 0.20 and 0 < st <= 15)
-                s.put(bt.unit("IS", bt.R2, st, etf_negative_penalty=r, etf_negative_floor=f), e(1.05 if good else 1.0))
+                s.put(bt.unit("IS", bt.R2, st, l2_risk_etf_penalty=r, l2_risk_etf_floor=f), e(1.05 if good else 1.0))
     v = bt.read_etf(s)
     assert v["grid"]["0.15"]["floors"]["-1.0"]["meets_starts"] == "11/20" and v["rules"][0]["passed"] is True
     assert v["grid"]["0.2"]["floors"]["-1.0"]["passes"] is False            # 15/20 but not at start 0

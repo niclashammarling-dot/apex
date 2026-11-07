@@ -5,10 +5,10 @@ Runs once at market open via scheduler. Queries the watchlist table for all
 active tickers, fetches RSS content via Jina Reader for each, and writes to
 the sentiment_cache table in apex.db.
 
-Lock 3 reads from this cache during the trading day. The cached RSS content
+L4 SENTIMENT reads from this cache during the trading day. The cached RSS content
 supplements Grok's native X/Twitter search — Grok receives both.
 
-If cache is missing for a ticker (new watchlist addition mid-day), Lock 3
+If cache is missing for a ticker (new watchlist addition mid-day), L4 SENTIMENT
 falls back gracefully to Grok's live X/web search only.
 
 Pipeline:
@@ -239,7 +239,7 @@ def get_combined_content(ticker: str) -> str:
     """
     Return cached RSS content for a ticker as a single string,
     ready to include in the Grok prompt as pre-fetched context.
-    Returns empty string if no cache exists — Lock 3 falls back to Grok's live search only.
+    Returns empty string if no cache exists — L4 SENTIMENT falls back to Grok's live search only.
     """
     try:
         conn = get_db()

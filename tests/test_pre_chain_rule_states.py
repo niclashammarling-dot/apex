@@ -1,7 +1,7 @@
 """
 The rules that run before the chain name themselves too (lock labels phase 2, writer 5): L1's skips (the live
 blocklist, an open position, gate cooloff, exit cooloff; Niclas 2026-10-29: "Skipped cooloff och exit cooloff bör
-vara olika markörer") and L0's M4 rules, which run once per live cycle (portfolio_l0). Every evaluated row
+vara olika markörer") and L0's M4 rules, which run once per live cycle (l0_portfolio). Every evaluated row
 carries their verdicts, so its L0 and L1 columns show what ran.
 """
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 from contextlib import ExitStack
 from unittest.mock import patch
 
-from backend.gate import gate_runner, lock_codes, portfolio_l0
+from backend.gate import gate_runner, lock_codes, l0_portfolio
 from backend.gate.lock_codes import FAIL, NO_DATA, PASS
 from backend.gate.lock_codes import rule_key as K
 
@@ -31,28 +31,28 @@ def test_each_pre_chain_check_gives_its_own_verdict():
 
 
 def test_m4_verdicts_per_rule_and_expectancy_is_no_data_below_its_sample():
-    v = {"drawdown": {"drawdown": 0.0}, "day_loss": 0.0, "daily_loss_cap": 500.0,
+    v = {"drawdown": {"drawdown": 0.0}, "day_loss": 0.0, "l0_portfolio_loss_cap_max": 500.0,
          "expectancy": {"n": 1, "needed": 40, "breached": False}}
-    assert portfolio_l0.rule_verdicts(v) == {portfolio_l0.HALT_DRAWDOWN: PASS, portfolio_l0.HALT_LOSS_CAP: PASS,
-                                             portfolio_l0.HALT_EXPECTANCY: NO_DATA}
-    v = {"drawdown": {"drawdown": 0.07}, "day_loss": 600.0, "daily_loss_cap": 500.0,
+    assert l0_portfolio.rule_verdicts(v) == {l0_portfolio.HALT_DRAWDOWN: PASS, l0_portfolio.HALT_LOSS_CAP: PASS,
+                                             l0_portfolio.HALT_EXPECTANCY: NO_DATA}
+    v = {"drawdown": {"drawdown": 0.07}, "day_loss": 600.0, "l0_portfolio_loss_cap_max": 500.0,
          "expectancy": {"n": 40, "needed": 40, "breached": True}}
     states = {}
-    for ident, verdict in portfolio_l0.rule_verdicts(v).items():
+    for ident, verdict in l0_portfolio.rule_verdicts(v).items():
         lock_codes.put(states, ident, verdict)
     assert set(states.values()) == {FAIL}
-    # All three fail: the drawdown halt first, as portfolio_l0.evaluate names it.
+    # All three fail: the drawdown halt first, as l0_portfolio.evaluate names it.
     assert lock_codes.stop_of(states) == (0, "halt_m4_drawdown")
 
 
 def test_m4_verdicts_agree_with_the_halt_evaluate_names():
     # One rule fails at a time: rule_verdicts and evaluate name the same rule.
-    for dd, loss, breached, reason in ((0.07, 0.0, False, portfolio_l0.HALT_DRAWDOWN),
-                                       (0.0, 600.0, False, portfolio_l0.HALT_LOSS_CAP),
-                                       (0.0, 0.0, True, portfolio_l0.HALT_EXPECTANCY)):
-        v = {"drawdown": {"drawdown": dd}, "day_loss": loss, "daily_loss_cap": 500.0,
+    for dd, loss, breached, reason in ((0.07, 0.0, False, l0_portfolio.HALT_DRAWDOWN),
+                                       (0.0, 600.0, False, l0_portfolio.HALT_LOSS_CAP),
+                                       (0.0, 0.0, True, l0_portfolio.HALT_EXPECTANCY)):
+        v = {"drawdown": {"drawdown": dd}, "day_loss": loss, "l0_portfolio_loss_cap_max": 500.0,
              "expectancy": {"n": 40, "needed": 40, "breached": breached}}
-        assert [i for i, x in portfolio_l0.rule_verdicts(v).items() if x == FAIL] == [reason]
+        assert [i for i, x in l0_portfolio.rule_verdicts(v).items() if x == FAIL] == [reason]
 
 
 def test_a_live_row_carries_the_m4_and_pre_chain_verdicts():
@@ -74,7 +74,7 @@ def test_a_pre_rotation_row_shows_the_blocklist_was_not_checked():
     patches = _live_patches(candidates=[main])
     with ExitStack() as st:
         mocks = [st.enter_context(p) for p in patches]
-        mocks[6].side_effect = [[main], [pre]]                     # get_lock1_candidates: main, then pre-rotation
+        mocks[6].side_effect = [[main], [pre]]                     # get_l3_score_candidates: main, then pre-rotation
         mocks[20].return_value = {"available": False, "watching": [{"sector": "Technology"}], "likely_next": []}
         from backend.gate import gate_runner_live
         results = gate_runner_live.run()
@@ -106,7 +106,7 @@ def test_demo_refuses_an_unaffordable_cycle_before_the_chain():
     assert results == []
     mocks[9].assert_not_called()                                       # evaluate_chain
     row = mocks[8].call_args[0][0]
-    assert row["stop_code"] == "FILTERED_L1_ELIGIBILITY_NOTIONAL_TOO_SMALL" and row["lock1_pass"] is None
+    assert row["stop_code"] == "FILTERED_L1_ELIGIBILITY_NOTIONAL_TOO_SMALL" and row["l3_score_pass"] is None
 
 
 def test_a_live_unknown_outcome_is_mailed_once_per_cycle():

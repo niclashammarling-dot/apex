@@ -6,7 +6,7 @@ every backtest trade, then buckets by range position and reports win rate and
 profit factor per bucket.
 
 If win rate / PF degrades monotonically above some threshold, that threshold is
-the RANGE_EXHAUSTION_CEILING candidate for Lock 1 check 6.  If the distribution
+the RANGE_EXHAUSTION_CEILING candidate for an L1 ELIGIBILITY check.  If the distribution
 is flat, the filter adds no value and should not be shipped.
 
 The range cache is built from a separate yfinance download with a 400-calendar-
@@ -37,15 +37,15 @@ import yfinance as yf
 from loguru import logger
 
 from backend.config import (
-    DAILY_LOSS_CAP,
+    DEMO_L0_PORTFOLIO_LOSS_CAP_MAX,
     EXCLUDED_SECTORS,
-    LOCK1_THRESHOLD,
-    MAX_POSITION_SIZE,
-    MAX_POSITIONS,
-    MAX_SECTOR_EXPOSURE,
+    DEMO_L3_SCORE_THRESHOLD_MIN,
+    DEMO_MAX_POSITION_SIZE,
+    DEMO_L2_RISK_MAX_POSITIONS_COUNT,
+    DEMO_L2_RISK_SECTOR_CAP_MAX,
     SECTORS,
-    STOP_LOSS_PCT,
-    TAKE_PROFIT_PCT,
+    DEMO_STOP_LOSS_PCT,
+    DEMO_TAKE_PROFIT_PCT,
     TIME_STOP_DAYS,
     WIN_RATE_MIN_TRADES,
 )
@@ -197,10 +197,10 @@ def _simulate(
     range_cache:  dict,
     diag_start:   date,
 ) -> list[TradeWithRange]:
-    tp    = TAKE_PROFIT_PCT
-    sl    = STOP_LOSS_PCT
+    tp    = DEMO_TAKE_PROFIT_PCT
+    sl    = DEMO_STOP_LOSS_PCT
     tdays = TIME_STOP_DAYS
-    l1    = LOCK1_THRESHOLD
+    l1    = DEMO_L3_SCORE_THRESHOLD_MIN
     SL_COOLDOWN = 5
 
     balance       = 10_000.0
@@ -253,20 +253,20 @@ def _simulate(
         daily_loss_today = daily_losses.get(today_str, 0.0)
 
         for sig in sorted(candidates, key=lambda s: s["signal_score"], reverse=True):
-            if len(open_trades) >= MAX_POSITIONS:
+            if len(open_trades) >= DEMO_L2_RISK_MAX_POSITIONS_COUNT:
                 break
             if sig["ticker"] in open_tickers:
                 continue
             if sl_cooldown.get(sig["ticker"], date.min) > today:
                 continue
-            if daily_loss_today >= DAILY_LOSS_CAP:
+            if daily_loss_today >= DEMO_L0_PORTFOLIO_LOSS_CAP_MAX:
                 break
 
             sector    = sig["sector"]
-            alloc_pct = min(sig["kelly_size"] if sig["kelly_size"] > 0 else 0.10, MAX_POSITION_SIZE)
+            alloc_pct = min(sig["kelly_size"] if sig["kelly_size"] > 0 else 0.10, DEMO_MAX_POSITION_SIZE)
             amount    = balance * alloc_pct
             projected = sector_exp.get(sector, 0.0) + (amount / balance)
-            if projected > MAX_SECTOR_EXPOSURE:
+            if projected > DEMO_L2_RISK_SECTOR_CAP_MAX:
                 continue
 
             entry_price = price_cache.get((sig["ticker"], today_str))

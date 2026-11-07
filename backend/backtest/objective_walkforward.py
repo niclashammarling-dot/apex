@@ -14,7 +14,7 @@ Arms
   SPY        engine spy_return_pct per test window, reference only
 
 Criterion 1 (diagnostic): six cold-start runs per objective on the full
-window, seeds shared; sample sigma of argmax max_positions / lock1_threshold /
+window, seeds shared; sample sigma of argmax l2_risk_max_positions_count / l3_score_threshold_min /
 total_trades. Pass = shrinks on >= 2, widens on none. Score sigma is not a
 statistic (uncapping widens it mechanically).
 
@@ -97,13 +97,13 @@ OBJECTIVES = {"capped": score_capped, "uncapped": score_uncapped}
 def incumbent_params() -> dict:
     """Live tunables from config.py — the arm the optimizer has to beat."""
     return dict(
-        lock1_threshold=config.LOCK1_THRESHOLD,
-        take_profit_pct=config.TAKE_PROFIT_PCT,
-        stop_loss_pct=config.STOP_LOSS_PCT,
+        l3_score_threshold_min=config.DEMO_L3_SCORE_THRESHOLD_MIN,
+        take_profit_pct=config.DEMO_TAKE_PROFIT_PCT,
+        stop_loss_pct=config.DEMO_STOP_LOSS_PCT,
         trailing_stop_pct=None,
         time_stop_days=config.TIME_STOP_DAYS,
-        max_positions=config.MAX_POSITIONS,
-        vix_threshold=None,
+        l2_risk_max_positions_count=config.DEMO_L2_RISK_MAX_POSITIONS_COUNT,
+        l1_eligibility_vix_max=None,
     )
 
 
@@ -174,19 +174,19 @@ def criterion_1() -> dict:
             r = hill_climb(fn, start, end, pc, seed)
             a = r["argmax"]; m = next(h["metrics"] for h in r["history"] if _pkey(h["params"]) == _pkey(a))
             runs[name].append({"seed": seed, "score": r["score"], "kept": r["kept"],
-                               "max_positions": a["max_positions"], "lock1_threshold": a["lock1_threshold"],
+                               "l2_risk_max_positions_count": a["l2_risk_max_positions_count"], "l3_score_threshold_min": a["l3_score_threshold_min"],
                                "total_trades": m["total_trades"], "sharpe": m["sharpe"],
                                "win_rate": m["win_rate"], "params": a})
             logger.info(f"C1 {name} seed={seed} score={r['score']:.4f} kept={r['kept']} "
-                        f"pos={a['max_positions']} L1={a['lock1_threshold']} n={m['total_trades']} ({time.time()-t0:.0f}s)")
+                        f"pos={a['l2_risk_max_positions_count']} L1={a['l3_score_threshold_min']} n={m['total_trades']} ({time.time()-t0:.0f}s)")
     stats = {}
     for name in OBJECTIVES:
         stats[name] = {k: round(st.stdev([x[k] for x in runs[name]]), 4)
-                       for k in ("max_positions", "lock1_threshold", "total_trades")}
+                       for k in ("l2_risk_max_positions_count", "l3_score_threshold_min", "total_trades")}
         stats[name]["score_sigma_not_a_statistic"] = round(st.stdev([x["score"] for x in runs[name]]), 4)
-    shrinks = [k for k in ("max_positions", "lock1_threshold", "total_trades")
+    shrinks = [k for k in ("l2_risk_max_positions_count", "l3_score_threshold_min", "total_trades")
                if stats["uncapped"][k] < stats["capped"][k]]
-    widens  = [k for k in ("max_positions", "lock1_threshold", "total_trades")
+    widens  = [k for k in ("l2_risk_max_positions_count", "l3_score_threshold_min", "total_trades")
                if stats["uncapped"][k] > stats["capped"][k]]
     verdict = "PASS" if len(shrinks) >= 2 and not widens else "FAIL"
     return {"runs": runs, "sigma": stats, "shrinks": shrinks, "widens": widens, "verdict": verdict}

@@ -9,7 +9,7 @@ Sector regime analysis — derives three actionable signals from sector history:
 
 Results are used by:
   - dynamic sector caps (duration weighting)
-  - Lock 3 context (LLM gets regime + sector signal)
+  - L6 REVIEW context (LLM gets regime + sector signal)
   - Dashboard SectorRegime panel
 """
 from __future__ import annotations

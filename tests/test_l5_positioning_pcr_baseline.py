@@ -1,5 +1,5 @@
 """
-Lock 4 per-ticker PCR baseline (pcr_baseline.py), its wiring into
+L5 POSITIONING per-ticker PCR baseline (pcr_baseline.py), its wiring into
 _check_put_call_ratio / evaluate_chain, and CHECK 80's branches.
 """
 import json
@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from backend.gate import lock4_leading as l4
+from backend.gate import l5_positioning as l4
 from backend.gate import pcr_baseline as pb
 
 
@@ -91,37 +91,37 @@ def test_per_ticker_mode_falls_back_when_no_baseline_and_says_so():
     assert r["threshold"] == l4.PCR_THRESHOLD and r["pass"] is True
 
 
-def test_chain_passes_cfg_mode_to_lock4():
+def test_chain_passes_cfg_mode_to_l5_positioning():
     from backend.gate.types import LockResult
-    with patch("backend.gate.chain.lock1_evaluate", return_value=LockResult.pass_(lock_id=1, score=0.9, reason="", data={})), \
-         patch("backend.gate.chain.lock2_evaluate", return_value=LockResult.pass_(lock_id=2, score=0.9, reason="", data={})), \
-         patch("backend.gate.chain.lock3_evaluate", return_value=LockResult.pass_(lock_id=3, score=0.9, reason="", data={})), \
-         patch("backend.gate.chain.lock4_evaluate", return_value=LockResult.fail(lock_id=4, reason="x", data={})) as m4:
+    with patch("backend.gate.chain.l1_eligibility_evaluate", return_value=LockResult.pass_(lock_id=1, score=0.9, reason="", data={})), \
+         patch("backend.gate.chain.l3_score_evaluate", return_value=LockResult.pass_(lock_id=3, score=0.9, reason="", data={})), \
+         patch("backend.gate.chain.l4_sentiment_evaluate", return_value=LockResult.pass_(lock_id=4, score=0.9, reason="", data={})), \
+         patch("backend.gate.chain.l5_positioning_evaluate", return_value=LockResult.fail(lock_id=5, reason="x", data={})) as m5:
         from backend.gate.chain import evaluate_chain
-        evaluate_chain("A", "Energy", 0.9, {}, {"lock4_pcr_mode": "per_ticker_p25"})
-    assert m4.call_args.kwargs["pcr_mode"] == "per_ticker_p25"
+        evaluate_chain("A", "Energy", 0.9, {}, {"l5_positioning_leading_mode": "per_ticker_p25"})
+    assert m5.call_args.kwargs["pcr_mode"] == "per_ticker_p25"
 
 
 def test_demo_and_live_defaults_are_demo_first():
     from backend.demo_config import _defaults as demo
     from backend.live_config import _defaults as live
-    assert demo()["lock4_pcr_mode"] == "per_ticker_p25"
-    assert live()["lock4_pcr_mode"] == "pooled_scalar"
+    assert demo()["l5_positioning_leading_mode"] == "per_ticker_p25"
+    assert live()["l5_positioning_leading_mode"] == "pooled_scalar"
     from backend.live_config import _PROMOTE_EXCLUDE
-    assert "lock4_pcr_mode" not in _PROMOTE_EXCLUDE   # promote carries it, deliberately
+    assert "l5_positioning_leading_mode" not in _PROMOTE_EXCLUDE   # promote carries it, deliberately
 
 
 # ── CHECK 80 ──────────────────────────────────────────────────────────────────
 
 def _c80_db(path, base, post, hist):
     conn = sqlite3.connect(path)
-    conn.execute("CREATE TABLE demo_gate_history (id INTEGER PRIMARY KEY, timestamp TEXT, ticker TEXT, lock_leading_checks TEXT)")
+    conn.execute("CREATE TABLE demo_gate_history (id INTEGER PRIMARY KEY, timestamp TEXT, ticker TEXT, l5_positioning_checks TEXT)")
     conn.execute("CREATE TABLE lock4_pcr_history (ticker TEXT, pcr REAL, is_dislocation INTEGER DEFAULT 0)")
     for t, passed in base:
-        conn.execute("INSERT INTO demo_gate_history (timestamp, ticker, lock_leading_checks) VALUES (?, ?, ?)",
+        conn.execute("INSERT INTO demo_gate_history (timestamp, ticker, l5_positioning_checks) VALUES (?, ?, ?)",
                      ("2026-08-01T14:00:00", t, json.dumps({"put_call_ratio": {"pass": passed, "pc_ratio": 0.7}})))
     for t, passed, mode in post:
-        conn.execute("INSERT INTO demo_gate_history (timestamp, ticker, lock_leading_checks) VALUES (?, ?, ?)",
+        conn.execute("INSERT INTO demo_gate_history (timestamp, ticker, l5_positioning_checks) VALUES (?, ?, ?)",
                      ("2026-09-18T14:00:00", t, json.dumps({"put_call_ratio": {"pass": passed, "pc_ratio": 0.7, "threshold_mode": mode}})))
     conn.executemany("INSERT INTO lock4_pcr_history (ticker, pcr) VALUES (?, ?)", hist)
     conn.commit()
@@ -163,7 +163,7 @@ def test_check80_reports_accumulating_when_thin(tmp_path, monkeypatch):
 
 def test_check80_counts_fallback_rows_as_warning(tmp_path, monkeypatch):
     out = _run80(tmp_path, monkeypatch, [], [("OPN", True, "pooled_scalar_fallback")] * 3, HIST)
-    assert any(s == "WARNING" and "3 demo Lock 4 row(s)" in f for s, f in out)
+    assert any(s == "WARNING" and "3 demo L5 POSITIONING row(s)" in f for s, f in out)
 
 
 def test_check80_warns_when_composition_does_not_rotate(tmp_path, monkeypatch):
@@ -209,7 +209,7 @@ def test_check80_warns_when_three_sessions_are_under_half_covered(tmp_path, monk
     conn = sqlite3.connect(repo / "data/apex.db")
     for d in ("2026-09-21", "2026-09-22", "2026-09-23"):      # three full sessions, 2 cycles each
         for hm in ("14:00", "14:20"):
-            conn.execute("INSERT INTO demo_gate_history (timestamp, ticker, lock_leading_checks) VALUES (?, ?, ?)",
+            conn.execute("INSERT INTO demo_gate_history (timestamp, ticker, l5_positioning_checks) VALUES (?, ?, ?)",
                          (f"{d}T{hm}:00", "OPN", json.dumps({"put_call_ratio": {"pass": True, "pc_ratio": 0.7, "threshold_mode": "per_ticker_p25"}})))
     conn.commit(); conn.close()
     monkeypatch.setattr(cg, "_c80_closed_sessions", _sessions_until("2026-09-23"))

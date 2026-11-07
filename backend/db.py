@@ -63,6 +63,44 @@ def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, de
 LIVE_OPEN_TICKER_INDEX = "ux_live_trades_held_ticker"
 
 
+# Lock labels phase 3 (2026-11-07): gate columns take the names lock_codes derives, l<n>_<lock>_<what>
+# (vault raw/notes/2026-10/2026-10-31-apex-lock-labels-phase3-plan.md, Columns; ruled 2026-10-26/31). init_db renames
+# them in place before any _add_column_if_missing runs, so a database still on the old names is renamed, never given
+# a second, empty column under the new name; a fresh one is created with the new names.
+GATE_COLUMN_RENAMES = {
+    "lock1_pass":            "l3_score_pass",
+    "lock2_pass":            "l4_sentiment_pass",
+    "lock_leading_pass":     "l5_positioning_pass",
+    "lock3_pass":            "l6_review_pass",
+    "lock_leading_checks":   "l5_positioning_checks",
+    "l2_summary":            "l4_sentiment_summary",
+    "lock3_sentiment_score": "l4_sentiment_score",
+    "lock3_conviction":      "l4_sentiment_conviction",
+    "macro_reason":          "l1_eligibility_reason",
+    "lock3_reasoning":       "decision_reason",
+}
+GATE_COLUMN_TABLES = ("live_gate_history", "demo_gate_history", "signals")
+
+
+def _rename_gate_columns(conn: sqlite3.Connection) -> list[str]:
+    """Rename every old gate column that is present, in one transaction. A table holding both the old and the new
+    name raises: one of them was added by a start that skipped the rename, and which holds the rows is not ours to
+    guess. Returns the renames done, as table.old -> new."""
+    done = []
+    with conn:
+        for table in GATE_COLUMN_TABLES:
+            cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+            for old, new in GATE_COLUMN_RENAMES.items():
+                if old in cols and new in cols:
+                    raise RuntimeError(f"{table} has both {old} and {new}: resolve by hand before starting")
+                if old in cols:
+                    conn.execute(f"ALTER TABLE {table} RENAME COLUMN {old} TO {new}")
+                    done.append(f"{table}.{old} -> {new}")
+    for d in done:
+        logger.info(f"DB migration: renamed {d}")
+    return done
+
+
 def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = get_db()
@@ -84,11 +122,11 @@ def init_db() -> None:
                 volume_score    REAL,
                 ev              REAL,
                 kelly_size      REAL,
-                lock1_pass      INTEGER DEFAULT 0,
-                lock2_pass      INTEGER DEFAULT 0,
-                lock3_pass      INTEGER DEFAULT 0,
+                l3_score_pass      INTEGER DEFAULT 0,
+                l4_sentiment_pass      INTEGER DEFAULT 0,
+                l6_review_pass      INTEGER DEFAULT 0,
                 gate_decision   TEXT,
-                lock3_reasoning TEXT
+                decision_reason TEXT
             );
 
             CREATE TABLE IF NOT EXISTS trades (
@@ -142,11 +180,11 @@ def init_db() -> None:
                 ticker          TEXT NOT NULL,
                 sector          TEXT NOT NULL,
                 signal_score    REAL,
-                lock1_pass      INTEGER DEFAULT 0,
-                lock2_pass      INTEGER DEFAULT 0,
-                lock3_pass      INTEGER DEFAULT 0,
+                l3_score_pass      INTEGER DEFAULT 0,
+                l4_sentiment_pass      INTEGER DEFAULT 0,
+                l6_review_pass      INTEGER DEFAULT 0,
                 gate_decision   TEXT,
-                lock3_reasoning TEXT,
+                decision_reason TEXT,
                 alpaca_order_id TEXT
             );
 
@@ -156,15 +194,15 @@ def init_db() -> None:
                 ticker              TEXT NOT NULL,
                 sector              TEXT NOT NULL,
                 signal_score        REAL,
-                lock1_pass          INTEGER DEFAULT 0,
-                lock2_pass          INTEGER DEFAULT 0,
-                lock_leading_pass   INTEGER DEFAULT 0,
-                lock_leading_checks TEXT,
-                lock3_pass          INTEGER DEFAULT 0,
+                l3_score_pass          INTEGER DEFAULT 0,
+                l4_sentiment_pass          INTEGER DEFAULT 0,
+                l5_positioning_pass   INTEGER DEFAULT 0,
+                l5_positioning_checks TEXT,
+                l6_review_pass          INTEGER DEFAULT 0,
                 gate_decision       TEXT,
-                lock3_reasoning     TEXT,
-                l2_summary          TEXT,
-                macro_reason        TEXT
+                decision_reason     TEXT,
+                l4_sentiment_summary          TEXT,
+                l1_eligibility_reason        TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_signals_ticker    ON signals(ticker);
@@ -286,7 +324,7 @@ def init_db() -> None:
 
             -- One row per scheduled job: when its last run started and ended
             -- (2026-10-03). Gate history is not proof of life — a cycle with no
-            -- Lock 1 candidates or a live halt writes no row — so the off-process
+            -- L3 SCORE candidates or a live halt writes no row — so the off-process
             -- cycle watch (scripts/cycle_watch.py) reads this instead.
             -- Sessions whose results must not be read as a normal trading day
             -- (2026-10-03, after 10-02 ran 8/19 cycles). Written outside the backend
@@ -384,12 +422,13 @@ def init_db() -> None:
         logger.info(f"DB initialised at {DB_PATH}")
 
         # Migrations — safe to run every startup
+        _rename_gate_columns(conn)   # first: before any add could create a new name beside an old one
         _add_column_if_missing(conn, "sector_posterior_history", "written_at", "TEXT")
         _add_column_if_missing(conn, "trades",  "price_exit",  "REAL")
         _add_column_if_missing(conn, "trades",  "exited_at",   "TEXT")
         _add_column_if_missing(conn, "trades",  "exit_reason", "TEXT")
         # high_60d, low_60d, effective_sl, macd_hist (and avg_vol_30d in the base schema)
-        # stopped being written 2026-10-10: no reader since the 03-27 Lock 3 context strip
+        # stopped being written 2026-10-10: no reader since the 03-27 L6 REVIEW context strip
         # (ded5edf) or ever; range position was tested and dropped 05-13; all recomputable
         # from OHLCV (Niclas: "Stop the 6, store info"). Columns and history are kept.
         # trades.wallet_balance_after left the schema 04-01 (cc2aa23), never written since.
@@ -397,17 +436,17 @@ def init_db() -> None:
         _add_column_if_missing(conn, "signals", "low_60d",          "REAL")
         _add_column_if_missing(conn, "signals", "atr_pct",          "REAL")
         _add_column_if_missing(conn, "signals", "effective_sl",     "REAL")
-        _add_column_if_missing(conn, "signals", "lock3_reasoning",  "TEXT")
+        _add_column_if_missing(conn, "signals", "decision_reason",  "TEXT")
         # Session 7 — new signals
         _add_column_if_missing(conn, "signals", "trend_score",      "REAL")
         _add_column_if_missing(conn, "signals", "macd_hist",        "REAL")
         _add_column_if_missing(conn, "signals", "ma50",             "REAL")
         _add_column_if_missing(conn, "signals", "rs_score",         "REAL")
         # Leading lock columns
-        _add_column_if_missing(conn, "signals",           "lock_leading_pass",   "INTEGER DEFAULT 0")
-        _add_column_if_missing(conn, "signals",           "lock_leading_checks", "TEXT")
-        _add_column_if_missing(conn, "live_gate_history", "lock_leading_pass",   "INTEGER DEFAULT 0")
-        _add_column_if_missing(conn, "live_gate_history", "lock_leading_checks", "TEXT")
+        _add_column_if_missing(conn, "signals",           "l5_positioning_pass",   "INTEGER DEFAULT 0")
+        _add_column_if_missing(conn, "signals",           "l5_positioning_checks", "TEXT")
+        _add_column_if_missing(conn, "live_gate_history", "l5_positioning_pass",   "INTEGER DEFAULT 0")
+        _add_column_if_missing(conn, "live_gate_history", "l5_positioning_checks", "TEXT")
         # Trailing stop — peak price tracking
         _add_column_if_missing(conn, "trades",      "peak_price", "REAL")
         _add_column_if_missing(conn, "live_trades", "peak_price", "REAL")
@@ -417,16 +456,16 @@ def init_db() -> None:
         """)
         conn.commit()
         # Gate fail reasoning — why each lock failed
-        _add_column_if_missing(conn, "signals",           "l2_summary",   "TEXT")
-        _add_column_if_missing(conn, "signals",           "macro_reason", "TEXT")
-        _add_column_if_missing(conn, "live_gate_history", "l2_summary",   "TEXT")
-        _add_column_if_missing(conn, "live_gate_history", "macro_reason", "TEXT")
+        _add_column_if_missing(conn, "signals",           "l4_sentiment_summary",   "TEXT")
+        _add_column_if_missing(conn, "signals",           "l1_eligibility_reason", "TEXT")
+        _add_column_if_missing(conn, "live_gate_history", "l4_sentiment_summary",   "TEXT")
+        _add_column_if_missing(conn, "live_gate_history", "l1_eligibility_reason", "TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_demo_gate_ts ON demo_gate_history(timestamp DESC)")
-        # Lock 3 (Grok sentiment) score and conviction — added alongside L3 gate
-        _add_column_if_missing(conn, "demo_gate_history", "lock3_sentiment_score", "REAL")
-        _add_column_if_missing(conn, "demo_gate_history", "lock3_conviction",      "TEXT")
-        _add_column_if_missing(conn, "live_gate_history", "lock3_sentiment_score", "REAL")
-        _add_column_if_missing(conn, "live_gate_history", "lock3_conviction",      "TEXT")
+        # L4 SENTIMENT (Grok) score and conviction — added with the Grok gate
+        _add_column_if_missing(conn, "demo_gate_history", "l4_sentiment_score", "REAL")
+        _add_column_if_missing(conn, "demo_gate_history", "l4_sentiment_conviction",      "TEXT")
+        _add_column_if_missing(conn, "live_gate_history", "l4_sentiment_score", "REAL")
+        _add_column_if_missing(conn, "live_gate_history", "l4_sentiment_conviction",      "TEXT")
         # Ticker signal state — per-ticker regime signal at gate evaluation time
         # Values: breakout | extended | trending | rising | breakdown | recovering | weak
         # NULL on pre-existing rows: historical rows predate signal state tracking
@@ -437,7 +476,7 @@ def init_db() -> None:
         _add_column_if_missing(conn, "demo_gate_history", "days_to_earnings",  "INTEGER")
         _add_column_if_missing(conn, "live_gate_history", "earnings_near",     "INTEGER")
         _add_column_if_missing(conn, "live_gate_history", "days_to_earnings",  "INTEGER")
-        # overflow_slot: 1 when the trade executed into a slot beyond max_positions
+        # overflow_slot: 1 when the trade executed into a slot beyond l2_risk_max_positions_count
         _add_column_if_missing(conn, "live_gate_history", "overflow_slot",     "INTEGER DEFAULT 0")
         _add_column_if_missing(conn, "demo_gate_history", "overflow_slot",     "INTEGER DEFAULT 0")
         # outcome_reason: why a live TRADE_REJECTED / TRADE_FAILED happened — position_open |
@@ -667,7 +706,7 @@ def get_ticker_daily_scores(days: int = 180) -> list[dict]:
         conn.close()
 
 
-def get_lock1_candidates(threshold: float | None = None,
+def get_l3_score_candidates(threshold: float | None = None,
                          sector_thresholds: dict | None = None,
                          stale_out: list | None = None,
                          now: datetime | None = None) -> list[dict]:
@@ -688,14 +727,14 @@ def get_lock1_candidates(threshold: float | None = None,
     calendar unavailable) nothing is fresh: [] with reason no_session.
 
     NOTE: this pre-filter uses only the ticker_thresholds DB table, not
-    SECTOR_THRESHOLD_FLOORS (empty since 2026-10-10). Lock 2 applies floors on
+    SECTOR_THRESHOLD_FLOORS (empty since 2026-10-10). L3 SCORE applies floors on
     top. Tickers blocked here never reach gate evaluation and produce no
     gate_history row.
     """
-    from backend.config import LOCK1_THRESHOLD
+    from backend.config import DEMO_L3_SCORE_THRESHOLD_MIN
     from backend.gate.freshness import NO_SESSION, NOT_IN_UNIVERSE, session_for, stale_reason
     from backend.ticker_config import get_sectors
-    fallback = threshold if threshold is not None else LOCK1_THRESHOLD
+    fallback = threshold if threshold is not None else DEMO_L3_SCORE_THRESHOLD_MIN
     conn = get_db()
     try:
         rows = conn.execute("""
@@ -729,7 +768,7 @@ def get_lock1_candidates(threshold: float | None = None,
     try:
         session = session_for(now)
     except Exception as e:
-        logger.warning(f"get_lock1_candidates: NYSE calendar unavailable ({e}) — no candidate is fresh")
+        logger.warning(f"get_l3_score_candidates: NYSE calendar unavailable ({e}) — no candidate is fresh")
         session = None
     if session is None:
         for c in candidates:
@@ -757,31 +796,31 @@ def update_signal_gate(signal_id: int, result: dict) -> None:
     try:
         conn.execute("""
             UPDATE signals
-            SET lock1_pass          = :lock1_pass,
-                lock2_pass          = :lock2_pass,
-                lock_leading_pass   = :lock_leading_pass,
-                lock_leading_checks = :lock_leading_checks,
-                lock3_pass          = :lock3_pass,
+            SET l3_score_pass          = :l3_score_pass,
+                l4_sentiment_pass          = :l4_sentiment_pass,
+                l5_positioning_pass   = :l5_positioning_pass,
+                l5_positioning_checks = :l5_positioning_checks,
+                l6_review_pass          = :l6_review_pass,
                 gate_decision       = :gate_decision,
                 stop_code           = :stop_code,
                 rule_states         = :rule_states,
-                lock3_reasoning     = :lock3_reasoning,
-                l2_summary          = :l2_summary,
-                macro_reason        = :macro_reason
+                decision_reason     = :decision_reason,
+                l4_sentiment_summary          = :l4_sentiment_summary,
+                l1_eligibility_reason        = :l1_eligibility_reason
             WHERE id = :id
         """, {
             # Flags NULL where the lock did not run (ruling D); the schema's DEFAULT 0 is never relied on.
-            "lock1_pass":          result.get("lock1_pass"),
-            "lock2_pass":          result.get("lock2_pass"),
-            "lock_leading_pass":   result.get("lock_leading_pass"),
-            "lock_leading_checks": result.get("lock_leading_checks"),
-            "lock3_pass":          result.get("lock3_pass"),
+            "l3_score_pass":          result.get("l3_score_pass"),
+            "l4_sentiment_pass":          result.get("l4_sentiment_pass"),
+            "l5_positioning_pass":   result.get("l5_positioning_pass"),
+            "l5_positioning_checks": result.get("l5_positioning_checks"),
+            "l6_review_pass":          result.get("l6_review_pass"),
             "gate_decision":       result["gate_decision"],
             "stop_code":           result.get("stop_code"),
             "rule_states":         json.dumps(result["rule_states"]) if result.get("rule_states") is not None else None,
-            "lock3_reasoning":     result.get("claude_reasoning"),
-            "l2_summary":          result.get("l2_summary"),
-            "macro_reason":        result.get("macro_reason"),
+            "decision_reason":     result.get("claude_reasoning"),
+            "l4_sentiment_summary":          result.get("l4_sentiment_summary"),
+            "l1_eligibility_reason":        result.get("l1_eligibility_reason"),
             "id":                  signal_id,
         })
         conn.commit()
@@ -790,8 +829,8 @@ def update_signal_gate(signal_id: int, result: dict) -> None:
 
 
 def get_wallet_context() -> dict:
-    """Returns current wallet state for Lock 3 context."""
-    from backend.config import STARTING_BALANCE
+    """Returns current wallet state for L6 REVIEW's context."""
+    from backend.config import DEMO_STARTING_BALANCE
     conn = get_db()
     try:
         exposure_rows = conn.execute("""
@@ -814,11 +853,11 @@ def get_wallet_context() -> dict:
 
         invested     = sum(r["total"] for r in exposure_rows) if exposure_rows else 0
         realized_pnl = closed_pnl_row["total"] if closed_pnl_row else 0
-        balance      = STARTING_BALANCE + realized_pnl
+        balance      = DEMO_STARTING_BALANCE + realized_pnl
         open_positions = open_row["cnt"] if open_row else 0
 
         sector_exposure = {
-            r["sector"]: round(r["total"] / STARTING_BALANCE, 3)
+            r["sector"]: round(r["total"] / DEMO_STARTING_BALANCE, 3)
             for r in exposure_rows
         } if invested > 0 else {}
 
@@ -826,7 +865,7 @@ def get_wallet_context() -> dict:
             "balance":         round(balance, 2),
             "open_positions":  open_positions,
             "sector_exposure": sector_exposure,
-            "starting_balance": STARTING_BALANCE,
+            "starting_balance": DEMO_STARTING_BALANCE,
         }
     finally:
         conn.close()
@@ -967,11 +1006,12 @@ def get_recently_failed_tickers(hours: float) -> set[str]:
         conn.close()
 
 
-def get_recently_exited_tickers(sl_hours: float, tp_hours: float) -> set[str]:
-    """Return tickers blocked from re-entry after a recent exit.
+def get_recently_exited_tickers(sl_hours: float, tp_hours: float) -> tuple[set[str], set[str]]:
+    """Return tickers blocked from re-entry after a recent exit, as (exit_cooloff, exit_cooloff_win):
+    the two L1 rules (phase 3, Niclas 2026-10-31). A ticker can be in both.
 
-    Only genuine TP/TSL wins use tp_hours (7d).
-    REGIME wins, TIME wins, LOSS, and EXPIRED all use sl_hours (24h).
+    Only genuine TP/TSL wins use tp_hours (7d), under exit_cooloff_win.
+    REGIME wins, TIME wins, LOSS, and EXPIRED all use sl_hours (24h), under exit_cooloff.
     """
     from datetime import datetime, timedelta, timezone
     now = datetime.now(timezone.utc)
@@ -980,7 +1020,7 @@ def get_recently_exited_tickers(sl_hours: float, tp_hours: float) -> set[str]:
     conn = get_db()
     try:
         rows = conn.execute("""
-            SELECT DISTINCT ticker FROM trades
+            SELECT DISTINCT ticker, outcome = 'WIN' AND exit_reason IN ('TP', 'TSL') AS win FROM trades
             WHERE exited_at IS NOT NULL
               AND outcome IN ('WIN', 'LOSS', 'EXPIRED')
               AND exited_at > CASE
@@ -988,7 +1028,7 @@ def get_recently_exited_tickers(sl_hours: float, tp_hours: float) -> set[str]:
                   ELSE ?
               END
         """, (tp_cutoff, sl_cutoff)).fetchall()
-        return {r[0] for r in rows}
+        return {r[0] for r in rows if not r[1]}, {r[0] for r in rows if r[1]}
     finally:
         conn.close()
 
@@ -1006,16 +1046,16 @@ def get_open_live_tickers() -> set[str]:
 def _ticker_gate_fails(table: str, ticker: str, limit: int) -> list[dict]:
     """
     Recent gate decisions for a ticker, newest first, skips left out (lock_codes.is_skip: stopped before any
-    chain lock ran, no judgement on the candidate), for L6 REVIEW's (lock5_claude) ticker_gate_history. Each
+    chain lock ran, no judgement on the candidate), for L6 REVIEW's (l6_review) ticker_gate_history. Each
     row: date, the stored code (`outcome`: the owner's lock code or TRADE_EXECUTED), the stage it stopped at
-    (`stage`: the owner's lock label, the names the Lock 5 prompt uses) and `detail`, the reason recorded.
+    (`stage`: the owner's lock label, the names the L6 REVIEW prompt uses) and `detail`, the reason recorded.
 
-    `detail` is lock3_reasoning first: the writers put the stopping lock's reason there, and Claude's reasoning
-    once L6 ran (gate_runner._chain_to_gate_result, _run_l5_for_result). Only when it is empty does it fall back
-    to the owner's own column: L1's macro_reason, L4's summary, L5's checks. An execution-phase stop before L6
+    `detail` is decision_reason first: the writers put the stopping lock's reason there, and Claude's reasoning
+    once L6 ran (gate_runner._chain_to_gate_result, _run_l6_review_for_result). Only when it is empty does it fall back
+    to the owner's own column: L1's l1_eligibility_reason, L4's summary, L5's checks. An execution-phase stop before L6
     (overflow) has none, so its detail is None and `stage` says what stopped it. From lock labels phase 2
     (2026-10-31) the stage is the lock that owns the stop, so the guard reads L0 · Portfolio and an unavailable
-    source reads as its lock's `unavailable` rule (the Lock 5 prompt approved 2026-10-26 is unchanged; review 11-07).
+    source reads as its lock's `unavailable` rule (the L6 REVIEW prompt approved 2026-10-26 is unchanged; review 11-07).
     """
     import json as _json
 
@@ -1023,8 +1063,8 @@ def _ticker_gate_fails(table: str, ticker: str, limit: int) -> list[dict]:
     conn = get_db()
     try:
         rows = conn.execute(f"""
-            SELECT timestamp, gate_decision, stop_code, l2_summary, macro_reason,
-                   lock_leading_checks, lock3_reasoning
+            SELECT timestamp, gate_decision, stop_code, l4_sentiment_summary, l1_eligibility_reason,
+                   l5_positioning_checks, decision_reason
             FROM {table}
             WHERE ticker = ?
               AND gate_decision IS NOT NULL
@@ -1037,18 +1077,18 @@ def _ticker_gate_fails(table: str, ticker: str, limit: int) -> list[dict]:
 
     result = []
     for r in (dict(x) for x in rows):
-        detail = r["lock3_reasoning"]
+        detail = r["decision_reason"]
         try:
-            owner, rule = parse_stop_code(r["stop_code"] or "")
+            owner, _ = parse_stop_code(r["stop_code"] or "")
         except KeyError:
-            owner, rule = None, None
+            owner = None
         if not detail and owner == 1:
-            detail = r["macro_reason"]
+            detail = r["l1_eligibility_reason"]
         elif not detail and owner == 4:
-            detail = r["l2_summary"]
-        elif not detail and owner == 5 and r["lock_leading_checks"]:
+            detail = r["l4_sentiment_summary"]
+        elif not detail and owner == 5 and r["l5_positioning_checks"]:
             try:
-                checks = _json.loads(r["lock_leading_checks"])
+                checks = _json.loads(r["l5_positioning_checks"])
                 failed = [k for k, v in checks.items() if not v.get("pass")]
                 reasons = [checks[k].get("reason", "") for k in failed if checks[k].get("reason")]
                 detail = "leading failed: " + "; ".join(reasons) if reasons else "leading checks failed"
@@ -1095,11 +1135,12 @@ def get_recently_failed_live_tickers(hours: float) -> set[str]:
         conn.close()
 
 
-def get_recently_exited_live_tickers(sl_hours: float, tp_hours: float) -> set[str]:
-    """Return live tickers blocked from re-entry after a recent exit.
+def get_recently_exited_live_tickers(sl_hours: float, tp_hours: float) -> tuple[set[str], set[str]]:
+    """Return live tickers blocked from re-entry after a recent exit, as (exit_cooloff, exit_cooloff_win):
+    the two L1 rules (phase 3, Niclas 2026-10-31). A ticker can be in both.
 
-    Only genuine TP/TSL wins use tp_hours (7d).
-    REGIME wins, TIME wins, LOSS, and EXPIRED all use sl_hours (24h).
+    Only genuine TP/TSL wins use tp_hours (7d), under exit_cooloff_win.
+    REGIME wins, TIME wins, LOSS, and EXPIRED all use sl_hours (24h), under exit_cooloff.
     """
     from datetime import datetime, timedelta, timezone
     now = datetime.now(timezone.utc)
@@ -1108,7 +1149,7 @@ def get_recently_exited_live_tickers(sl_hours: float, tp_hours: float) -> set[st
     conn = get_db()
     try:
         rows = conn.execute("""
-            SELECT DISTINCT ticker FROM live_trades
+            SELECT DISTINCT ticker, outcome = 'WIN' AND exit_reason IN ('TP', 'TSL') AS win FROM live_trades
             WHERE exited_at IS NOT NULL
               AND outcome IN ('WIN', 'LOSS', 'EXPIRED')
               AND exited_at > CASE
@@ -1116,7 +1157,7 @@ def get_recently_exited_live_tickers(sl_hours: float, tp_hours: float) -> set[st
                   ELSE ?
               END
         """, (tp_cutoff, sl_cutoff)).fetchall()
-        return {r[0] for r in rows}
+        return {r[0] for r in rows if not r[1]}, {r[0] for r in rows if r[1]}
     finally:
         conn.close()
 
@@ -1138,16 +1179,16 @@ def insert_demo_gate_result(row: dict) -> None:
         _SQL = """
             INSERT INTO demo_gate_history
                 (timestamp, ticker, sector, signal_score,
-                 lock1_pass, lock2_pass, lock_leading_pass, lock_leading_checks,
-                 lock3_pass, gate_decision, lock3_reasoning, l2_summary,
-                 lock3_sentiment_score, lock3_conviction, macro_reason, ticker_signal,
+                 l3_score_pass, l4_sentiment_pass, l5_positioning_pass, l5_positioning_checks,
+                 l6_review_pass, gate_decision, decision_reason, l4_sentiment_summary,
+                 l4_sentiment_score, l4_sentiment_conviction, l1_eligibility_reason, ticker_signal,
                  earnings_near, days_to_earnings, overflow_slot, cycle_started_at,
                  signal_ts, bar_date, outcome_reason, stop_code, rule_states)
             VALUES
                 (:timestamp, :ticker, :sector, :signal_score,
-                 :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
-                 :lock3_pass, :gate_decision, :lock3_reasoning, :l2_summary,
-                 :lock3_sentiment_score, :lock3_conviction, :macro_reason, :ticker_signal,
+                 :l3_score_pass, :l4_sentiment_pass, :l5_positioning_pass, :l5_positioning_checks,
+                 :l6_review_pass, :gate_decision, :decision_reason, :l4_sentiment_summary,
+                 :l4_sentiment_score, :l4_sentiment_conviction, :l1_eligibility_reason, :ticker_signal,
                  :earnings_near, :days_to_earnings, :overflow_slot, :cycle_started_at,
                  :signal_ts, :bar_date, :outcome_reason, :stop_code, :rule_states)
         """
@@ -1155,8 +1196,8 @@ def insert_demo_gate_result(row: dict) -> None:
         conn.execute(_SQL, {**row,
               "stop_code":             row.get("stop_code"),
               "rule_states":           json.dumps(row["rule_states"]) if row.get("rule_states") is not None else None,
-              "lock3_sentiment_score": row.get("lock3_sentiment_score"),
-              "lock3_conviction":      row.get("lock3_conviction"),
+              "l4_sentiment_score": row.get("l4_sentiment_score"),
+              "l4_sentiment_conviction":      row.get("l4_sentiment_conviction"),
               "ticker_signal":         row.get("ticker_signal"),
               "earnings_near":         row.get("earnings_near"),
               "days_to_earnings":      row.get("days_to_earnings"),
@@ -1178,9 +1219,9 @@ def get_demo_gate_history(since: str | None = None, limit: int | None = 500) -> 
         limit_clause = f"LIMIT {int(limit)}" if limit else ""
         rows = conn.execute(f"""
             SELECT ticker, sector, timestamp, signal_score,
-                   gate_decision, stop_code, rule_states, lock1_pass, lock2_pass, lock_leading_pass,
-                   lock_leading_checks, lock3_pass, lock3_reasoning,
-                   l2_summary, lock3_sentiment_score, lock3_conviction, macro_reason,
+                   gate_decision, stop_code, rule_states, l3_score_pass, l4_sentiment_pass, l5_positioning_pass,
+                   l5_positioning_checks, l6_review_pass, decision_reason,
+                   l4_sentiment_summary, l4_sentiment_score, l4_sentiment_conviction, l1_eligibility_reason,
                    ticker_signal, earnings_near, days_to_earnings, overflow_slot, outcome_reason
             FROM demo_gate_history
             {where}
@@ -1242,7 +1283,7 @@ def get_equity_curve(current_prices: dict[str, float] | None = None) -> list[dic
     """
     from datetime import datetime, timezone
 
-    from backend.config import STARTING_BALANCE
+    from backend.config import DEMO_STARTING_BALANCE
     conn = get_db()
     try:
         closed = conn.execute("""
@@ -1252,8 +1293,8 @@ def get_equity_curve(current_prices: dict[str, float] | None = None) -> list[dic
             ORDER BY exited_at ASC
         """).fetchall()
 
-        points = [{"ts": "Start", "balance": STARTING_BALANCE, "mtm": False}]
-        balance = STARTING_BALANCE
+        points = [{"ts": "Start", "balance": DEMO_STARTING_BALANCE, "mtm": False}]
+        balance = DEMO_STARTING_BALANCE
         for r in closed:
             balance += r["pnl"] or 0
             points.append({"ts": r["ts"][:10], "balance": round(balance, 2), "mtm": False})
@@ -1352,7 +1393,7 @@ def get_live_equity_curve(unrealised_total: float = 0.0, since: str | None = Non
 
 def get_portfolio_summary() -> dict:
     """Lightweight summary for risk checks during trade execution."""
-    from backend.config import STARTING_BALANCE
+    from backend.config import DEMO_STARTING_BALANCE
     conn = get_db()
     try:
         open_rows = conn.execute("""
@@ -1368,10 +1409,10 @@ def get_portfolio_summary() -> dict:
 
         invested     = sum(r["total"] for r in open_rows)
         realized_pnl = closed_pnl_row["total"]
-        cash         = STARTING_BALANCE - invested + realized_pnl
+        cash         = DEMO_STARTING_BALANCE - invested + realized_pnl
 
         sector_exposure = {
-            r["sector"]: round(r["total"] / STARTING_BALANCE, 3)
+            r["sector"]: round(r["total"] / DEMO_STARTING_BALANCE, 3)
             for r in open_rows
         }
 
@@ -1394,29 +1435,29 @@ def insert_live_gate_result(row: dict) -> int:
         _SQL = """
             INSERT INTO live_gate_history
               (timestamp, ticker, sector, signal_score,
-               lock1_pass, lock2_pass, lock_leading_pass, lock_leading_checks,
-               lock3_pass, gate_decision, lock3_reasoning, alpaca_order_id,
-               l2_summary, lock3_sentiment_score, lock3_conviction, macro_reason,
+               l3_score_pass, l4_sentiment_pass, l5_positioning_pass, l5_positioning_checks,
+               l6_review_pass, gate_decision, decision_reason, alpaca_order_id,
+               l4_sentiment_summary, l4_sentiment_score, l4_sentiment_conviction, l1_eligibility_reason,
                ticker_signal, earnings_near, days_to_earnings, overflow_slot,
                outcome_reason, cap_check, cycle_started_at, signal_ts, bar_date, stop_code, rule_states)
             VALUES
               (:timestamp, :ticker, :sector, :signal_score,
-               :lock1_pass, :lock2_pass, :lock_leading_pass, :lock_leading_checks,
-               :lock3_pass, :gate_decision, :lock3_reasoning, :alpaca_order_id,
-               :l2_summary, :lock3_sentiment_score, :lock3_conviction, :macro_reason,
+               :l3_score_pass, :l4_sentiment_pass, :l5_positioning_pass, :l5_positioning_checks,
+               :l6_review_pass, :gate_decision, :decision_reason, :alpaca_order_id,
+               :l4_sentiment_summary, :l4_sentiment_score, :l4_sentiment_conviction, :l1_eligibility_reason,
                :ticker_signal, :earnings_near, :days_to_earnings, :overflow_slot,
                :outcome_reason, :cap_check, :cycle_started_at, :signal_ts, :bar_date, :stop_code, :rule_states)
         """
         _assert_insert_fields("insert_live_gate_result", _SQL, row)
         cur = conn.execute(_SQL, {**row,
-              "lock_leading_pass":      row.get("lock_leading_pass"),
+              "l5_positioning_pass":      row.get("l5_positioning_pass"),
               "stop_code":              row.get("stop_code"),
               "rule_states":            json.dumps(row["rule_states"]) if row.get("rule_states") is not None else None,
-              "lock_leading_checks":    row.get("lock_leading_checks"),
-              "l2_summary":             row.get("l2_summary"),
-              "lock3_sentiment_score":  row.get("lock3_sentiment_score"),
-              "lock3_conviction":       row.get("lock3_conviction"),
-              "macro_reason":           row.get("macro_reason"),
+              "l5_positioning_checks":    row.get("l5_positioning_checks"),
+              "l4_sentiment_summary":             row.get("l4_sentiment_summary"),
+              "l4_sentiment_score":  row.get("l4_sentiment_score"),
+              "l4_sentiment_conviction":       row.get("l4_sentiment_conviction"),
+              "l1_eligibility_reason":           row.get("l1_eligibility_reason"),
               "ticker_signal":          row.get("ticker_signal"),
               "earnings_near":          row.get("earnings_near"),
               "days_to_earnings":       row.get("days_to_earnings"),
@@ -1464,7 +1505,7 @@ def insert_pcr_observation(
     is_dislocation: bool = False,
 ) -> None:
     """
-    Insert a daily P/C ratio observation for Lock 4 baseline calibration.
+    Insert a daily P/C ratio observation for L5 POSITIONING baseline calibration.
     Skips silently on duplicate (ticker, date) — idempotent.
     """
     conn = get_db()
@@ -2259,7 +2300,7 @@ def get_latest_sector_scores(as_of: str | None = None) -> dict[str, float]:
     Rows older than _sector_score_floor(as_of) are ignored — the same query had
     no lower bound, which is how the fossils survived. A polled sector with no
     row inside the bound is omitted and logged: compute_dynamic_caps then gives
-    it the flat max_sector_exposure and leaves it out of the mean; RegimeBayes
+    it the flat l2_risk_sector_cap_max and leaves it out of the mean; RegimeBayes
     reads it as aggregate_score 0.0, so it cannot lead or qualify that day.
 
     Ties on (sector, timestamp) resolve to the highest id — the historical
@@ -2634,7 +2675,7 @@ def get_drift_alerts(severity: str | None = None,
         conn.close()
 
 
-# ── Lock 5 token usage ────────────────────────────────────────────────────────
+# ── L6 REVIEW token usage ─────────────────────────────────────────────────────
 
 def acknowledge_drift_alert(alert_id: int) -> None:
     conn = get_db()

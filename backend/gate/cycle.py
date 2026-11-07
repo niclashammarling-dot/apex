@@ -1,7 +1,7 @@
 """
 One gate cycle, recorded whether or not it writes a gate row (2026-10-04).
 
-Coverage counted cycles from gate rows, and a cycle with no Lock 1 candidates,
+Coverage counted cycles from gate rows, and a cycle with no L3 SCORE candidates,
 every candidate skipped, or a live halt writes none: quiet days read as
 outages (CHECK 80, 85), a quiet second scheduler left no fingerprint (CHECK
 83). Every cycle now goes through run_recorded(), from the scheduler and from
@@ -16,12 +16,12 @@ is unchanged — the manual endpoints and tests consume it.
 Reasons: no_candidates, no_fresh_candidates, all_skipped, all_excluded, evaluated,
 evaluated_some_raised, all_raised; live adds disabled, halt_unreconciled,
 broker_unreachable, account_blocked, halt_data_quality, loss_cap (L0, a share of
-equity since 2026-10-24), halt_m4_drawdown, halt_m4_expectancy (L0 Portfolio, backend/gate/portfolio_l0.py).
+equity since 2026-10-24), halt_m4_drawdown, halt_m4_expectancy (L0 Portfolio, backend/gate/l0_portfolio.py).
 busy (2026-10-31, Finding 2): another live gate run held the runner's lock, nothing was placed.
 A runner that exits without setting one records None.
 
 stale_excluded (Finding 1, 2026-10-10): distinct tickers refused by the session
-bound this cycle (get_lock1_candidates stale_out), main and pre-rotation
+bound this cycle (get_l3_score_candidates stale_out), main and pre-rotation
 candidates together. no_fresh_candidates = every would-be candidate was refused.
 """
 from dataclasses import dataclass
@@ -45,7 +45,7 @@ class GateCycle:
         return cls("unrecorded", "direct", datetime.now(timezone.utc).isoformat())
 
 
-# TODO(bundle 2026-10-29): a candidate whose evaluation raises leaves no gate row, the first UNKNOWN case (Niclas 2026-10-29: "ett första fall av unknown") — it vanishes from gate activity and the funnel, seen only as this cycle reason and a log line (0 cycles since 10-05, 0 log lines since 10-07), and the paths that can raise are traced (10-29) — scope: (1) both runners write FILTERED_UNKNOWN with the exception's type and text as its reason, in the cycle's UNKNOWN mail (lock labels phase 2 alert path); (2) close each traced path in its own lock, failing closed as that lock's `unavailable` with the cause, or fix the defect at its source: the options checks run outside the fetch's try (lock4_leading _check_put_call_ratio / _check_unusual_call_volume index openInterest / volume; pcr_threshold_for reads the DB), Grok's float(score) is outside its try (lock3_sentiment.py:290), Lock 5's payload is built before its try (lock5_claude.py:109), build_base_context indexes cfg keys and regime_bayes attributes, and _chain_to_gate_result json.dumps the L5 checks; (3) Lock 5 records a malformed answer (JSONDecodeError, a non-numeric confidence) as anthropic_unavailable: Claude did answer, so it gets its own cause; (4) tests: a raise on each path gives that lock's row, and a forced raise in _evaluate gives one UNKNOWN row and one mail
+# TODO(bundle 2026-10-29): a candidate whose evaluation raises leaves no gate row, the first UNKNOWN case (Niclas 2026-10-29: "ett första fall av unknown") — it vanishes from gate activity and the funnel, seen only as this cycle reason and a log line (0 cycles since 10-05, 0 log lines since 10-07), and the paths that can raise are traced (10-29) — scope: (1) both runners write FILTERED_UNKNOWN with the exception's type and text as its reason, in the cycle's UNKNOWN mail (lock labels phase 2 alert path); (2) close each traced path in its own lock, failing closed as that lock's `unavailable` with the cause, or fix the defect at its source: the options checks run outside the fetch's try (l5_positioning _check_put_call_ratio / _check_unusual_call_volume index openInterest / volume; pcr_threshold_for reads the DB), Grok's float(score) is outside its try (l4_sentiment.py:290), L6 REVIEW's payload is built before its try (l6_review.py:109), build_base_context indexes cfg keys and regime_bayes attributes, and _chain_to_gate_result json.dumps the L5 checks; (3) L6 REVIEW records a malformed answer (JSONDecodeError, a non-numeric confidence) as anthropic_unavailable: Claude did answer, so it gets its own cause; (4) tests: a raise on each path gives that lock's row, and a forced raise in _evaluate gives one UNKNOWN row and one mail
 def evaluated_reason(n_candidates: int, n_evaluated: int) -> str:
     if n_evaluated == 0:
         return "all_raised"

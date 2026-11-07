@@ -1,5 +1,5 @@
 """
-Quantitative sentiment signal fetcher for Lock 2.
+Quantitative sentiment signal fetcher for L4 SENTIMENT.
 
 Collects analyst consensus, short interest, recent analyst actions,
 and news titles from yfinance. All fields fail gracefully — never raises.

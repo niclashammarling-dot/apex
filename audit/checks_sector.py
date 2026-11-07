@@ -2,7 +2,7 @@
 Sector-domain mechanical checks — CHECKs 5, 27, 36, 41, 42, 43, 57, 63, 65, 71.
 
 Covers: sector name string consistency, GICS classification parity,
-L4 sub-check pass rates, new-sector integrity, sector addition completeness,
+L5 POSITIONING sub-check pass rates, new-sector integrity, sector addition completeness,
 SIC_TO_SECTOR/SECTORS key parity, Healthcare dilution, posterior saturation,
 and the per-sector entry-floor ceiling sweep.
 """
@@ -138,17 +138,17 @@ def check27():
                 flag(27, "GICS sector classification parity", "CRITICAL",
                      "data/tickers.json",
                      f"{ticker} is in APEX sector '{apex_sector}' but GICS assigns it to '{expected}'; "
-                     f"Lock 4 ETF benchmark and sector score will be wrong")
+                     f"L5 POSITIONING ETF benchmark and sector score will be wrong")
 
 
-# ── CHECK 36 — L4 sub-check pass rates ───────────────────────────────────────
+# ── CHECK 36 — L5 POSITIONING sub-check pass rates ────────────────────────────
 
 def check36():
     """
-    L4 sub-check pass rates must all be above a dead-weight floor.
+    L5 POSITIONING sub-check pass rates must all be above a dead-weight floor.
 
     A 2-of-N gate can absorb a permanently-failing sub-check without surfacing
-    it in aggregate pass rate. L4 ran as 2-of-3 for its entire operational life
+    it in aggregate pass rate. L5 POSITIONING ran as 2-of-3 for its entire operational life
     while the architecture said 2-of-4 — insider_cluster had 0% pass rate over
     101 evaluations, invisible at the gate level.
 
@@ -159,7 +159,7 @@ def check36():
     WINDOW_DAYS    = 30
 
     db = REPO / "data/apex.db"
-    if not require_data_file(36, "L4 sub-check pass rates", db):
+    if not require_data_file(36, "L5 POSITIONING sub-check pass rates", db):
         return
 
     cutoff = (date.today() - timedelta(days=WINDOW_DAYS)).isoformat()
@@ -167,13 +167,13 @@ def check36():
     try:
         conn = sqlite3.connect(db)
         rows = conn.execute(
-            "SELECT lock_leading_checks FROM signals "
-            "WHERE lock_leading_checks IS NOT NULL AND timestamp >= ?",
+            "SELECT l5_positioning_checks FROM signals "
+            "WHERE l5_positioning_checks IS NOT NULL AND timestamp >= ?",
             (cutoff,)
         ).fetchall()
         conn.close()
     except Exception as e:
-        flag(36, "L4 sub-check pass rates", "WARNING", "data/apex.db:signals",
+        flag(36, "L5 POSITIONING sub-check pass rates", "WARNING", "data/apex.db:signals",
              f"could not query signals table: {e}")
         return
 
@@ -198,9 +198,9 @@ def check36():
             continue
         rate = passes / total
         if rate < DEAD_THRESHOLD:
-            flag(36, "L4 sub-check pass rates", "WARNING",
+            flag(36, "L5 POSITIONING sub-check pass rates", "WARNING",
                  "data/apex.db:signals",
-                 f"L4 sub-check '{name}' passed {passes}/{total} times "
+                 f"L5 POSITIONING sub-check '{name}' passed {passes}/{total} times "
                  f"({rate*100:.1f}%) over {WINDOW_DAYS}d — likely dead weight; "
                  f"review base-rate assumption for the APEX universe")
 
@@ -217,7 +217,7 @@ def check41():
       C. Neither sector appears in EXCLUDED_SECTORS.
 
     Prevented by: 2026-05-17 sector expansion sweep. Both sectors passed PF > 1.0
-    at baseline L1=0.70. Isolated threshold sweep (2026-05-18) confirmed:
+    at the baseline L3 SCORE threshold 0.70. Isolated threshold sweep (2026-05-18) confirmed:
     Semiconductors PF 1.431 at 0.70 (all tickers positive); Defense PF 1.692 at
     0.70, floor at 0.75 removed (22 trades, portfolio-sweep contamination).
     Silent removal or ETF drift would resume evaluating them under the wrong

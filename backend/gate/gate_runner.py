@@ -16,7 +16,7 @@ from loguru import logger
 
 from backend import wallet
 from backend.db import (
-    get_lock1_candidates,
+    get_l3_score_candidates,
     get_open_tickers,
     get_recently_exited_tickers,
     get_recently_failed_tickers,
@@ -57,7 +57,7 @@ def _pre_chain_result(c: dict, states: dict[str, str], refusal: str | None = Non
     """The result of a candidate stopped before the chain: a skip, or an affordability refusal (`refusal`)."""
     return {"ticker": c["ticker"], "sector": c.get("sector", ""), "signal_id": c.get("id"),
             "timestamp": datetime.now(timezone.utc).isoformat(), "outcome": STOPPED, "rule_states": states,
-            "outcome_reason": refusal, "lock_leading_checks": None, "claude_reasoning": None}
+            "outcome_reason": refusal, "l5_positioning_checks": None, "claude_reasoning": None}
 
 
 def _affordability(states: dict[str, str], notional: float, price: float | None, *,
@@ -94,19 +94,19 @@ def _write_demo(signal: dict, result: dict, ts: str, unknown: list[dict]) -> Non
         "ticker":                 signal["ticker"],
         "sector":                 signal.get("sector", ""),
         "signal_score":           signal["signal_score"],
-        "lock1_pass":             result["lock1_pass"],
-        "lock2_pass":             result["lock2_pass"],
-        "lock_leading_pass":      result["lock_leading_pass"],
-        "lock_leading_checks":    result.get("lock_leading_checks"),
-        "lock3_pass":             result["lock3_pass"],
+        "l3_score_pass":             result["l3_score_pass"],
+        "l4_sentiment_pass":             result["l4_sentiment_pass"],
+        "l5_positioning_pass":      result["l5_positioning_pass"],
+        "l5_positioning_checks":    result.get("l5_positioning_checks"),
+        "l6_review_pass":             result["l6_review_pass"],
         "gate_decision":          result["gate_decision"],
         "stop_code":              result["stop_code"],
         "rule_states":            result["rule_states"],
-        "lock3_reasoning":        result.get("claude_reasoning"),
-        "l2_summary":             result.get("l2_summary"),
-        "lock3_sentiment_score":  result.get("lock3_sentiment_score"),
-        "lock3_conviction":       result.get("lock3_conviction"),
-        "macro_reason":           result.get("macro_reason"),
+        "decision_reason":        result.get("claude_reasoning"),
+        "l4_sentiment_summary":             result.get("l4_sentiment_summary"),
+        "l4_sentiment_score":  result.get("l4_sentiment_score"),
+        "l4_sentiment_conviction":       result.get("l4_sentiment_conviction"),
+        "l1_eligibility_reason":           result.get("l1_eligibility_reason"),
         "ticker_signal":          result.get("ticker_signal"),
         "earnings_near":          result.get("earnings_near"),
         "days_to_earnings":       result.get("days_to_earnings"),
@@ -131,27 +131,28 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
 
     sector_thresholds = get_ticker_thresholds()
     stale: list[dict] = []
-    candidates = get_lock1_candidates(threshold=cfg["lock1_threshold"],
+    candidates = get_l3_score_candidates(threshold=cfg["l3_score_threshold_min"],
                                       sector_thresholds=sector_thresholds,
                                       stale_out=stale)
     record_stale(cycle, stale, "Gate runner")
     n_stale_main = len(stale)
 
     if not candidates:
-        logger.info("Gate runner: no Lock 1 candidates this cycle")
+        logger.info("Gate runner: no L3 SCORE candidates this cycle")
         cycle.reason = "no_fresh_candidates" if stale else "no_candidates"
         _persist_multiplier_stats({}, None, [])
         return []
 
     # Skip tickers already held, in gate cooloff, or in exit cooloff
     open_tickers   = get_open_tickers()
-    failed_tickers = get_recently_failed_tickers(cfg.get("gate_cooloff_hours", 4))
-    exited_tickers = get_recently_exited_tickers(
-        sl_hours=cfg.get("exit_cooloff_hours", 24),
-        tp_hours=cfg.get("tp_cooloff_hours", 168),
+    failed_tickers = get_recently_failed_tickers(cfg.get("l1_eligibility_cooloff_hours", 4))
+    exited_tickers, won_tickers = get_recently_exited_tickers(
+        sl_hours=cfg.get("l1_eligibility_exit_cooloff_hours", 24),
+        tp_hours=cfg.get("l1_eligibility_exit_cooloff_win_hours", 168),
     )
-    blocked = open_tickers | failed_tickers | exited_tickers
-    pre_checks = {"position_open": open_tickers, "cooloff": failed_tickers, "exit_cooloff": exited_tickers}
+    blocked = open_tickers | failed_tickers | exited_tickers | won_tickers
+    pre_checks = {"position_open": open_tickers, "cooloff": failed_tickers, "exit_cooloff": exited_tickers,
+                  "exit_cooloff_win": won_tickers}
     skipped = [c for c in candidates if c["ticker"] in blocked]
     candidates = [c for c in candidates if c["ticker"] not in blocked]
 
@@ -167,7 +168,8 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
         logger.info(f"Gate runner: skipped {len(skipped)} candidate(s) "
                     f"(held={len(open_tickers & skipped_set)}, "
                     f"cooloff={len(failed_tickers & skipped_set)}, "
-                    f"exit_cooloff={len(exited_tickers & skipped_set)}) "
+                    f"exit_cooloff={len(exited_tickers & skipped_set)}, "
+                    f"exit_cooloff_win={len(won_tickers & skipped_set)}) "
                     f"— book holds {len(open_tickers)}")
 
     if not candidates:
@@ -190,7 +192,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     results    = []
 
     # Compute dynamic sector caps + regime + rotation scores once per gate cycle
-    from backend.config import MAX_SECTOR_EXPOSURE
+    from backend.config import DEMO_L2_RISK_SECTOR_CAP_MAX
     from backend.scheduler import _get_regime_bayes
     from backend.sector_caps import compute_dynamic_caps
     from backend.sector_regime import compute_sector_regime, compute_ticker_signals
@@ -199,9 +201,9 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
         get_rotation_forecast,
     )
     regime_bayes_result = _get_regime_bayes().last_result()
-    dynamic_caps    = compute_dynamic_caps(cfg.get("max_sector_exposure", MAX_SECTOR_EXPOSURE),
+    dynamic_caps    = compute_dynamic_caps(cfg.get("l2_risk_sector_cap_max", DEMO_L2_RISK_SECTOR_CAP_MAX),
                                            regime_result=regime_bayes_result)
-    wallet_ctx = {**wallet_ctx, "dynamic_caps": dynamic_caps}   # Lock 5 judges the enforced cap (2026-10-17)
+    wallet_ctx = {**wallet_ctx, "dynamic_caps": dynamic_caps}   # L6 REVIEW judges the enforced cap (2026-10-17)
     sector_regime   = compute_sector_regime()
     rotation_scores = compute_ticker_rotation_scores()
     ticker_signals  = compute_ticker_signals()
@@ -213,11 +215,11 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     watching_sectors = {w["sector"] for w in forecast.get("watching", [])}
     if watching_sectors:
         pr_sector_thresholds = {
-            s: (sector_thresholds or {}).get(s, cfg["lock1_threshold"]) * PRE_ROTATION_FLOOR
+            s: (sector_thresholds or {}).get(s, cfg["l3_score_threshold_min"]) * PRE_ROTATION_FLOOR
             for s in watching_sectors
         }
-        pr_candidates = get_lock1_candidates(
-            threshold=cfg["lock1_threshold"] * PRE_ROTATION_FLOOR,
+        pr_candidates = get_l3_score_candidates(
+            threshold=cfg["l3_score_threshold_min"] * PRE_ROTATION_FLOOR,
             sector_thresholds=pr_sector_thresholds,
             stale_out=stale,
         )
@@ -239,10 +241,10 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
 
     # L1 affordability before the chain (Niclas 2026-10-28: "L1 måste kontrollera först att beloppet räcker …
     # Kan vi spara anrop så är det bra"): the largest notional any later size can reach is cash × max_position_size
-    # (Lock 5's size and the Bayesian scaling are capped by it), so a refusal on it moves no order that could fill.
-    from backend.config import MAX_POSITION_SIZE
+    # (L6 REVIEW's size and the Bayesian scaling are capped by it), so a refusal on it moves no order that could fill.
+    from backend.config import DEMO_MAX_POSITION_SIZE
     from backend.db import get_portfolio_summary
-    max_notional = get_portfolio_summary()["cash"] * cfg.get("max_position_size", MAX_POSITION_SIZE)
+    max_notional = get_portfolio_summary()["cash"] * cfg.get("max_position_size", DEMO_MAX_POSITION_SIZE)
     pre_states: dict[str, dict] = {}
     affordable = []
     for c in candidates:
@@ -286,23 +288,23 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     cycle.reason = evaluated_reason(len(candidates), len(evaluated))
 
     evaluated.sort(key=lambda x: (0 if x[0].get("pre_rotation") else 1, x[0].get("signal_score", 0)), reverse=True)
-    max_positions        = cfg["max_positions"]
-    overflow_increment   = cfg.get("overflow_quant_increment", 0.05)
+    l2_risk_max_positions_count        = cfg["l2_risk_max_positions_count"]
+    overflow_increment   = cfg.get("l2_risk_overflow_step", 0.05)
     open_count           = len(open_tickers)  # snapshot; incremented on each executed trade
     bayesian_multipliers = _compute_bayesian_multipliers(evaluated, regime_bayes_result)
     # Count queued outcomes before the serial loop mutates them to EXECUTED/REJECTED.
     pre_exec_queued = sum(
         1 for _, r in evaluated
-        if r["outcome"] in ("TRADE_QUEUED", "TRADE_QUEUED_PENDING_L5")
+        if r["outcome"] in ("TRADE_QUEUED", "TRADE_QUEUED_PENDING_L6")
     )
 
     for signal, result in evaluated:
         ticker = signal["ticker"]
 
         # L5 deferred path — run Claude only when a slot is confirmed available.
-        if result["outcome"] == "TRADE_QUEUED_PENDING_L5":
+        if result["outcome"] == "TRADE_QUEUED_PENDING_L6":
             sector         = signal.get("sector", "")
-            base_threshold = (sector_thresholds or {}).get(sector, cfg["lock1_threshold"])
+            base_threshold = (sector_thresholds or {}).get(sector, cfg["l3_score_threshold_min"])
             states = result.setdefault("rule_states", {})
             lock_codes.put(states, "position_open", lock_codes.FAIL if ticker in open_tickers else lock_codes.PASS)
             if ticker in open_tickers:
@@ -311,8 +313,8 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
                 result["outcome_reason"] = "position_open"
                 result.pop("_l5_lock_results", None)
                 result.pop("_l5_context", None)
-            elif open_count >= max_positions:
-                overflow_level     = open_count - max_positions + 1
+            elif open_count >= l2_risk_max_positions_count:
+                overflow_level     = open_count - l2_risk_max_positions_count + 1
                 overflow_threshold = round(base_threshold * (1 + overflow_level * overflow_increment), 4)
                 _overflow_state(result, signal["signal_score"] < overflow_threshold)
                 if signal["signal_score"] < overflow_threshold:
@@ -324,32 +326,32 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
                     result.pop("_l5_lock_results", None)
                     result.pop("_l5_context", None)
                 else:
-                    _run_l5_for_result(signal, result, cfg)
+                    _run_l6_review_for_result(signal, result, cfg)
             else:
                 _overflow_state(result, False)          # a free slot passes overflow
-                _run_l5_for_result(signal, result, cfg)
+                _run_l6_review_for_result(signal, result, cfg)
 
-        # Apply Bayesian sector sizing — scale Lock 5 recommendation by relative
+        # Apply Bayesian sector sizing — scale L6 REVIEW recommendation by relative
         # signal strength within the sector's portfolio allocation.
-        if result["outcome"] == "TRADE_QUEUED" and result.get("lock3"):
+        if result["outcome"] == "TRADE_QUEUED" and result.get("l6_review"):
             _scale = bayesian_multipliers.get(ticker, 1.0)
             if _scale != 1.0:
-                _raw  = result["lock3"]["position_size_pct"]
-                result["lock3"]["position_size_pct"] = min(
+                _raw  = result["l6_review"]["position_size_pct"]
+                result["l6_review"]["position_size_pct"] = min(
                     round(_raw * _scale, 4),
                     cfg.get("max_position_size", 0.10),
                 )
                 logger.info(
                     f"Gate [{ticker}]: Bayesian size scale={_scale:.3f} "
-                    f"({_raw:.4f} → {result['lock3']['position_size_pct']:.4f})"
+                    f"({_raw:.4f} → {result['l6_review']['position_size_pct']:.4f})"
                 )
 
         if result["outcome"] == "TRADE_QUEUED":
-            if open_count >= max_positions:
+            if open_count >= l2_risk_max_positions_count:
                 # Overflow slot — check escalating quant threshold
                 sector           = signal.get("sector", "")
-                base_threshold   = (sector_thresholds or {}).get(sector, cfg["lock1_threshold"])
-                overflow_level   = open_count - max_positions + 1
+                base_threshold   = (sector_thresholds or {}).get(sector, cfg["l3_score_threshold_min"])
+                overflow_level   = open_count - l2_risk_max_positions_count + 1
                 overflow_threshold = round(base_threshold * (1 + overflow_level * overflow_increment), 4)
                 _overflow_state(result, signal["signal_score"] < overflow_threshold)
                 if signal["signal_score"] < overflow_threshold:
@@ -396,7 +398,7 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
     ticker       = signal["ticker"]
     sector       = signal.get("sector", "")
     signal_score = signal["signal_score"]
-    # Pre-rotation tickers use the watchlist 15% discount in Lock 2 — same as PRE_ROTATION_FLOOR
+    # Pre-rotation tickers use the watchlist 15% discount in L3 SCORE — same as PRE_ROTATION_FLOOR
     on_watchlist = signal.get("pre_rotation", False)
 
     signal = dict(signal)
@@ -411,11 +413,11 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
         regime_bayes_result=regime_bayes_result,
     )
     chain   = evaluate_chain(ticker, sector, signal_score, context, cfg,
-                             on_watchlist=on_watchlist, stop_after_lock=4,
+                             on_watchlist=on_watchlist, defer_l6_review=True,
                              sector_thresholds=sector_thresholds)
     result  = _chain_to_gate_result(signal, chain)
     # Stash L5 inputs so the serial executor can run L5 only when a slot is available.
-    if chain.l5_pending:
+    if chain.l6_review_pending:
         result["_l5_lock_results"] = chain.lock_results
         result["_l5_context"]      = context
     return result
@@ -433,27 +435,27 @@ def _pre_chain_states(ticker: str, checks: dict[str, set[str]]) -> dict[str, str
 
 
 def _overflow_state(result: dict, refused: bool) -> None:
-    """L2 overflow's verdict on a candidate beyond max_positions (both runners' execution phase). With a slot
-    free the rule does not run: the row's L2 stays open until max_positions is reached (ruling E, 2026-10-26)."""
+    """L2 overflow's verdict on a candidate beyond l2_risk_max_positions_count (both runners' execution phase). With a slot
+    free the rule does not run: the row's L2 stays open until l2_risk_max_positions_count is reached (ruling E, 2026-10-26)."""
     lock_codes.put(result.setdefault("rule_states", {}), "overflow", lock_codes.FAIL if refused else lock_codes.PASS)
 
 
-def _run_l5_for_result(signal: dict, result: dict, cfg: dict) -> None:
+def _run_l6_review_for_result(signal: dict, result: dict, cfg: dict) -> None:
     """
-    Run Lock 5 (Claude) in the serial execution phase using stashed inputs.
-    Mutates result in-place: sets outcome, lock3, lock3_pass, claude_reasoning.
+    Run L6 REVIEW (Claude) in the serial execution phase using stashed inputs.
+    Mutates result in-place: sets outcome, lock3, l6_review_pass, claude_reasoning.
     """
-    from backend.gate.lock5_claude import evaluate as lock5_evaluate
+    from backend.gate.l6_review import evaluate as l6_review_evaluate
     ticker       = signal["ticker"]
     sector       = signal.get("sector", "")
     lock_results = result.pop("_l5_lock_results", {})
     context      = result.pop("_l5_context", {})
 
-    l5      = lock5_evaluate(ticker, sector, lock_results, context,
-                             confidence_min=cfg.get("lock3_confidence_min"))
+    l5      = l6_review_evaluate(ticker, sector, lock_results, context,
+                             confidence_min=cfg.get("l6_review_claude_min"))
     l5_data = l5.data if l5 else {}
 
-    result["lock3"] = {
+    result["l6_review"] = {
         "passed":            l5.passed,
         "decision":          l5_data.get("decision"),
         "confidence":        l5_data.get("confidence", 0.0),
@@ -461,7 +463,7 @@ def _run_l5_for_result(signal: dict, result: dict, cfg: dict) -> None:
         "reasoning":         l5_data.get("reasoning"),
         "model":             l5_data.get("model"),
     }
-    result["lock3_pass"]       = int(l5.passed)
+    result["l6_review_pass"]       = int(l5.passed)
     result.setdefault("rule_states", {}).update(verdict_states(6, "claude", l5))
     result["claude_reasoning"] = l5_data.get("reasoning")
     result["outcome"]         = "TRADE_QUEUED" if l5.passed else STOPPED
@@ -470,57 +472,57 @@ def _run_l5_for_result(signal: dict, result: dict, cfg: dict) -> None:
 def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
     """Translate ChainResult into the flat result dict expected by run() and DB writers.
 
-    The stored codes and the pass flags (lock1_pass = the score test, lock2_pass = L4, lock_leading_pass = L5,
-    lock3_pass = L6) are not set here: _finalize derives them from rule_states when the row is written
+    The stored codes and the pass flags (l3_score_pass = the score test, l4_sentiment_pass = L4, l5_positioning_pass = L5,
+    l6_review_pass = L6) are not set here: _finalize derives them from rule_states when the row is written
     (lock_codes.codes_for, lock_codes.flags). Phase 3 part a renames the columns to the chain (l3_score_pass …;
     ruling 2026-10-28, eighth round).
     """
-    lr = chain.lock_results
-    l1 = lr.get(1)   # Eligibility
-    l2 = lr.get(2)   # Quant      → DB lock1_pass
-    l3 = lr.get(3)   # Sentiment  → DB lock2_pass
-    l4 = lr.get(4)   # Leading
-    l5 = lr.get(5)   # Claude     → DB lock3_pass
+    lr = chain.lock_results           # keyed by chain lock (the drawdown guard's under 0, read through exit_reason)
+    l1 = lr.get(1)   # L1 ELIGIBILITY
+    l3 = lr.get(3)   # L3 SCORE      → DB l3_score_pass
+    l4 = lr.get(4)   # L4 SENTIMENT  → DB l4_sentiment_pass
+    l5 = lr.get(5)   # L5 POSITIONING
+    l6 = lr.get(6)   # L6 REVIEW     → DB l6_review_pass
 
     outcome = (
         "TRADE_QUEUED"            if chain.approved    else
-        "TRADE_QUEUED_PENDING_L5" if chain.l5_pending  else
+        "TRADE_QUEUED_PENDING_L6" if chain.l6_review_pending  else
         STOPPED
     )
 
-    # Lock 5 (Claude) — backward compat with result["lock3"]["position_size_pct"] in wallet.py
-    l5_data = l5.data if l5 else {}
-    _l5_reasoning = l5_data.get("reasoning") or chain.exit_reason or (l5.reason if l5 else None)
-    lock3_compat = {
-        "passed":            l5.passed if l5 else False,
-        "decision":          l5_data.get("decision"),
-        "confidence":        l5_data.get("confidence", 0.0),
-        "position_size_pct": l5_data.get("position_size_pct", 0.0),
-        "reasoning":         _l5_reasoning,
-        "model":             l5_data.get("model"),
+    # L6 REVIEW (Claude) — backward compat with result["l6_review"]["position_size_pct"] in wallet.py
+    l6_data = l6.data if l6 else {}
+    _l6_reasoning = l6_data.get("reasoning") or chain.exit_reason or (l6.reason if l6 else None)
+    l6_review_compat = {
+        "passed":            l6.passed if l6 else False,
+        "decision":          l6_data.get("decision"),
+        "confidence":        l6_data.get("confidence", 0.0),
+        "position_size_pct": l6_data.get("position_size_pct", 0.0),
+        "reasoning":         _l6_reasoning,
+        "model":             l6_data.get("model"),
     }
 
-    # Lock 4 (Leading) — flatten pass_count and the two groups for _log_summary()
-    l4_data   = l4.data if l4 else {}
-    # lock4_leading uses "checks"; "sub_checks" is a DB-compat alias (same dict)
-    l4_checks = l4_data.get("checks") or l4_data.get("sub_checks", {})
-    lock_leading_compat = None
-    if l4:
-        lock_leading_compat = {
-            "passed":     l4.passed,
-            "score":      l4.score,
-            "reason":     l4.reason,
-            "pass_count": l4_data.get("pass_count", 0),
-            "price_group_pass":   l4_data.get("price_group_pass"),
-            "options_group_pass": l4_data.get("options_group_pass"),
-            "checks":     l4_checks,
+    # L5 POSITIONING — flatten pass_count and the two groups for _log_summary()
+    l5_data   = l5.data if l5 else {}
+    # l5_positioning uses "checks"; "sub_checks" is a DB-compat alias (same dict)
+    l5_checks = l5_data.get("checks") or l5_data.get("sub_checks", {})
+    l5_positioning_compat = None
+    if l5:
+        l5_positioning_compat = {
+            "passed":     l5.passed,
+            "score":      l5.score,
+            "reason":     l5.reason,
+            "pass_count": l5_data.get("pass_count", 0),
+            "price_group_pass":   l5_data.get("price_group_pass"),
+            "options_group_pass": l5_data.get("options_group_pass"),
+            "checks":     l5_checks,
         }
 
-    # Lock 3 (Sentiment) data — for DB sentiment_score and l2_summary columns
-    l3_data = l3.data if l3 else {}
+    # L4 SENTIMENT data — for DB sentiment_score and l4_sentiment_summary columns
+    l4_data = l4.data if l4 else {}
 
-    # For _log_summary: show Quant (L2) if it ran, else Eligibility (L1)
-    lock1_compat = l2.to_dict() if l2 else (l1.to_dict() if l1 else {"passed": False, "score": 0.0})
+    # For _log_summary: show L3 SCORE if it ran, else L1 ELIGIBILITY
+    l3_score_compat = l3.to_dict() if l3 else (l1.to_dict() if l1 else {"passed": False, "score": 0.0})
 
     return {
         "ticker":        signal["ticker"],
@@ -530,21 +532,21 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
         "ticker_signal": signal.get("ticker_signal"),
         "timestamp":    datetime.now(timezone.utc).isoformat(),
         "outcome":      outcome,
-        "rule_states":  dict(chain.rule_states),   # lock_codes.rule_key → verdict; L6 added by _run_l5_for_result
+        "rule_states":  dict(chain.rule_states),   # lock_codes.rule_key → verdict; L6 added by _run_l6_review_for_result
         # Named lock dicts (used by _log_summary and wallet.execute_trade)
-        "lock1":        lock1_compat,
-        "lock2":        l3.to_dict() if l3 else None,
-        "lock_leading": lock_leading_compat,
-        "lock3":        lock3_compat,
+        "l3_score":       l3_score_compat,
+        "l4_sentiment":   l4.to_dict() if l4 else None,
+        "l5_positioning": l5_positioning_compat,
+        "l6_review":      l6_review_compat,
         # Flat DB fields (the codes and pass flags are derived from rule_states when the row is written, _finalize)
-        "lock_leading_checks": json.dumps(l4_checks) if l4 else None,
-        "claude_confidence":   l5_data.get("confidence"),
-        "claude_reasoning":    _l5_reasoning,
-        "sentiment_score":        l3_data.get("score"),
-        "l2_summary":             l3_data.get("summary"),
-        "lock3_sentiment_score":  l3_data.get("score"),
-        "lock3_conviction":       l3_data.get("conviction"),
-        "macro_reason":           l1.reason if (l1 and not l1.passed) else None,
+        "l5_positioning_checks": json.dumps(l5_checks) if l5 else None,
+        "claude_confidence":   l6_data.get("confidence"),
+        "claude_reasoning":    _l6_reasoning,
+        "sentiment_score":        l4_data.get("score"),
+        "l4_sentiment_summary":             l4_data.get("summary"),
+        "l4_sentiment_score":  l4_data.get("score"),
+        "l4_sentiment_conviction":       l4_data.get("conviction"),
+        "l1_eligibility_reason":           l1.reason if (l1 and not l1.passed) else None,
         "earnings_near":          int(l1.data.get("earnings_near", False)) if l1 and l1.passed else None,
         "days_to_earnings":       l1.data.get("days_to_earnings") if l1 and l1.passed else None,
     }
@@ -572,7 +574,7 @@ def _persist_multiplier_stats(
     """
     today = date.today().isoformat()
     queued_count    = pre_exec_queued if pre_exec_queued is not None else sum(
-        1 for _, r in evaluated if r["outcome"] in ("TRADE_QUEUED", "TRADE_QUEUED_PENDING_L5")
+        1 for _, r in evaluated if r["outcome"] in ("TRADE_QUEUED", "TRADE_QUEUED_PENDING_L6")
     )
     regime_present  = regime_bayes_result is not None and bool(
         getattr(regime_bayes_result, "allocation", {})
@@ -641,7 +643,7 @@ def _compute_bayesian_multipliers(
 
     sector_queued: dict[str, list[tuple[str, float]]] = defaultdict(list)
     for signal, result in evaluated:
-        if result["outcome"] in ("TRADE_QUEUED", "TRADE_QUEUED_PENDING_L5"):
+        if result["outcome"] in ("TRADE_QUEUED", "TRADE_QUEUED_PENDING_L6"):
             sector_queued[signal.get("sector", "")].append(
                 (signal["ticker"], signal["signal_score"])
             )
@@ -655,19 +657,19 @@ def _mark(passed: bool | None) -> str:
 
 
 def _log_summary(ticker: str, result: dict) -> None:
-    l1        = result["lock1"]
-    l2        = result.get("lock2")
-    l_leading = result.get("lock_leading")
-    l3        = result.get("lock3")
+    l3        = result["l3_score"]
+    l4        = result.get("l4_sentiment")
+    l5        = result.get("l5_positioning")
+    l6        = result.get("l6_review")
     outcome   = result["outcome"]
 
-    parts = [f"L1={'✓' if l1['passed'] else '✗'}({l1['score']:.3f})"]
-    if l2:
-        parts.append(f"L2={'✓' if l2['passed'] else '✗'}({l2.get('score', '?')})")
-    if l_leading:
-        parts.append(f"LD={'✓' if l_leading['passed'] else '✗'}(price {_mark(l_leading.get('price_group_pass'))} "
-                     f"options {_mark(l_leading.get('options_group_pass'))})")
-    if l3:
-        parts.append(f"L3={'✓' if l3['passed'] else '✗'}({l3.get('decision')} {l3.get('confidence', 0):.2f})")
+    parts = [f"L3={'✓' if l3['passed'] else '✗'}({l3['score']:.3f})"]
+    if l4:
+        parts.append(f"L4={'✓' if l4['passed'] else '✗'}({l4.get('score', '?')})")
+    if l5:
+        parts.append(f"L5={'✓' if l5['passed'] else '✗'}(price {_mark(l5.get('price_group_pass'))} "
+                     f"options {_mark(l5.get('options_group_pass'))})")
+    if l6:
+        parts.append(f"L6={'✓' if l6['passed'] else '✗'}({l6.get('decision')} {l6.get('confidence', 0):.2f})")
 
     logger.info(f"Gate [{ticker}]: {' → '.join(parts)} → {outcome}")

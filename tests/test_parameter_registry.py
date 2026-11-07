@@ -58,10 +58,10 @@ def test_unregistered_set_is_pinned_both_ways():
 
 def test_ratchet_names_the_added_and_the_gone_key():
     # Positive control: the message names the exact key, not a tail of the list.
-    base = {"data/live_config.json:vix_threshold", "backend/a.py::OLD"}
-    found = ratchet_problems(["data/live_config.json:vix_threshold", "backend/a.py::OLD", "backend/z.py::NEW"], base)
-    assert len(found) == 1 and "['backend/z.py::NEW']" in found[0] and "vix_threshold" not in found[0]
-    found = ratchet_problems(["data/live_config.json:vix_threshold"], base)
+    base = {"data/live_config.json:l1_eligibility_vix_max", "backend/a.py::OLD"}
+    found = ratchet_problems(["data/live_config.json:l1_eligibility_vix_max", "backend/a.py::OLD", "backend/z.py::NEW"], base)
+    assert len(found) == 1 and "['backend/z.py::NEW']" in found[0] and "l1_eligibility_vix_max" not in found[0]
+    found = ratchet_problems(["data/live_config.json:l1_eligibility_vix_max"], base)
     assert len(found) == 1 and "['backend/a.py::OLD']" in found[0] and "delete their lines" in found[0]
     assert ratchet_problems(sorted(base), base) == []
 

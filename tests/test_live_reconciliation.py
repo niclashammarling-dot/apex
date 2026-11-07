@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backend.config import M4_DAILY_LOSS_CAP_PCT
+from backend.config import LIVE_L0_PORTFOLIO_LOSS_CAP_MAX
 from backend.db import (
     close_live_trade,
     get_db,
@@ -1289,7 +1289,7 @@ class TestGateRefusal:
             stack.enter_context(patch("backend.gate.gate_runner_live._compute_apex_day_pnl",
                                        return_value=(0.0, [], {})))
             candidates_mock = stack.enter_context(patch(
-                "backend.gate.gate_runner_live.get_lock1_candidates"))
+                "backend.gate.gate_runner_live.get_l3_score_candidates"))
 
             from backend.gate import gate_runner_live
             result = gate_runner_live.run()
@@ -1357,7 +1357,7 @@ class TestGateRefusal:
                 stack.enter_context(patch(
                     "backend.brokers.alpaca.get_account",
                     return_value={"trading_blocked": False, "account_blocked": False, "day_pnl": -500.0,
-                                  "equity": 100.0 / M4_DAILY_LOSS_CAP_PCT},   # L0: a $100 cap
+                                  "equity": 100.0 / LIVE_L0_PORTFOLIO_LOSS_CAP_MAX},   # L0: a $100 cap
                 ))
                 stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
                 # APEX-side reconstruction agrees with the broker (within the
@@ -1368,7 +1368,7 @@ class TestGateRefusal:
                                            return_value=(-480.0, [], {})))
                 stack.enter_context(patch(
                     "backend.live_config.get_live_config",
-                    return_value={"daily_loss_cap": 100.0, "starting_balance": 10000.0},
+                    return_value={"l0_portfolio_loss_cap_max": 100.0, "starting_balance": 10000.0},
                 ))
                 stack.enter_context(patch("backend.db.get_ticker_thresholds", return_value={}))
                 stack.enter_context(patch("backend.gate.gate_runner_live._ny_today", return_value=day))
@@ -1413,13 +1413,13 @@ class TestDataQualityDivergence:
                 "backend.brokers.alpaca.get_account",
                 return_value={"trading_blocked": False, "account_blocked": False, "day_pnl": day_pnl,
                               # L0 (2026-10-24): the cap is a share of equity; this equity makes it `cap`
-                              "equity": cap / M4_DAILY_LOSS_CAP_PCT},
+                              "equity": cap / LIVE_L0_PORTFOLIO_LOSS_CAP_MAX},
             ))
             stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
             stack.enter_context(patch("backend.gate.gate_runner_live._compute_apex_day_pnl",
                                        return_value=(apex_pnl, missing, {})))
             stack.enter_context(patch(
-                "backend.live_config.get_live_config", return_value={"daily_loss_cap": cap, "starting_balance": 10000.0},
+                "backend.live_config.get_live_config", return_value={"l0_portfolio_loss_cap_max": cap, "starting_balance": 10000.0},
             ))
             stack.enter_context(patch("backend.db.get_ticker_thresholds", return_value={}))
             stack.enter_context(patch("backend.gate.gate_runner_live._ny_today", return_value=latch_day))
@@ -1529,7 +1529,7 @@ class TestDataQualityDivergence:
             stack.enter_context(patch(
                 "backend.brokers.alpaca.get_positions", side_effect=Exception("timeout")))
             stack.enter_context(patch(
-                "backend.live_config.get_live_config", return_value={"daily_loss_cap": 500.0}))
+                "backend.live_config.get_live_config", return_value={"l0_portfolio_loss_cap_max": 500.0}))
             stack.enter_context(patch("backend.db.get_ticker_thresholds", return_value={}))
             stack.enter_context(patch(
                 "backend.gate.gate_runner_live._ny_today", return_value="2026-08-11"))
@@ -1567,7 +1567,7 @@ class TestDataQualityDivergence:
                 "backend.gate.gate_runner_live._compute_apex_day_pnl",
                 side_effect=Exception("db locked")))
             stack.enter_context(patch(
-                "backend.live_config.get_live_config", return_value={"daily_loss_cap": 500.0}))
+                "backend.live_config.get_live_config", return_value={"l0_portfolio_loss_cap_max": 500.0}))
             stack.enter_context(patch("backend.db.get_ticker_thresholds", return_value={}))
             stack.enter_context(patch(
                 "backend.gate.gate_runner_live._ny_today", return_value="2026-08-11"))

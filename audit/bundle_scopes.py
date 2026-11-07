@@ -30,7 +30,7 @@ BY_CHECK: dict[int, str] = {
          "ticker's polls (universe, data gaps). Premise corrected 2026-10-10 (ADI false positive)."),
     45: ("Static analysis (ruff and the `with get_db()` scan). Per finding: read the line and its references "
          "before fixing. Never `ruff --fix` blind: an F401 on a re-exported name breaks its importers (10-23: "
-         "lock1_eligibility's calendar aliases are imported by tests/test_lock1_macro_blackout.py; kept with a "
+         "l1_eligibility's calendar aliases are imported by tests/test_l1_eligibility_macro_blackout.py; kept with a "
          "noqa and a reason). `with get_db() as conn` leaks: `conn = get_db(); try: … finally: conn.close()`. "
          "One commit, ruff clean on the touched files, full suite. ~20 min."),
     54: ("Gate lock labels have one source (backend/gate/lock_codes.py, served in the gate-history responses; lock labels "
@@ -67,7 +67,7 @@ BY_CHECK: dict[int, str] = {
     91: ("Macro calendar ends within 60 days. Scope: add next year's FOMC dates (federalreserve.gov/monetarypolicy/"
          "fomccalendars.htm, decision day) and BLS CPI and Employment Situation dates (bls.gov/schedule/<year>) to "
          "backend/macro_calendar.py and tests/test_macro_calendar.py; check the current year's rows against the same pages. ~20 min."),
-    90: ("Lock 5 prompt follow-up (rationale corrected 2026-10-17, live from 10-19). Scope: read the approval "
+    90: ("L6 REVIEW prompt follow-up (rationale corrected 2026-10-17, live from 10-19). Scope: read the approval "
          "share and median notional before vs since; with about 18 L5 decisions a week (71 in the four weeks to 10-16) only a large move "
          "means anything. Read three or four L5 reasoning texts from W43 for whether they now cite the upstream "
          "allocation correctly. Decide at the 10-24 review: keep the check, re-evaluate, or retire it. ~15 min."),

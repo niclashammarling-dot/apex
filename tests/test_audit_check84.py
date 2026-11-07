@@ -1,4 +1,4 @@
-"""CHECK 84 — Lock 5 decided on a stale position count (cycle-start state)."""
+"""CHECK 84 — L6 REVIEW decided on a stale position count (cycle-start state)."""
 import sqlite3
 from datetime import date, timedelta
 
@@ -12,7 +12,7 @@ def _run84(tmp_path, monkeypatch, gate_rows, trades):
     repo = tmp_path / "repo"
     (repo / "data").mkdir(parents=True)
     conn = sqlite3.connect(repo / "data/apex.db")
-    conn.execute("CREATE TABLE live_gate_history (timestamp TEXT, ticker TEXT, gate_decision TEXT, lock3_reasoning TEXT)")
+    conn.execute("CREATE TABLE live_gate_history (timestamp TEXT, ticker TEXT, gate_decision TEXT, decision_reason TEXT)")
     conn.execute("CREATE TABLE live_trades (id INTEGER PRIMARY KEY, ticker TEXT, timestamp TEXT, exited_at TEXT)")
     conn.executemany("INSERT INTO live_gate_history VALUES (?, ?, 'TRADE_EXECUTED', ?)", gate_rows)
     conn.executemany("INSERT INTO live_trades (ticker, timestamp, exited_at) VALUES (?, ?, ?)", trades)

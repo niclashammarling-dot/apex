@@ -118,7 +118,7 @@ def main(out: str) -> int:
     # --- gate rows grouped into cycles ----------------------------------------------------------------
     gh = [dict(r) for r in con.execute(
         "SELECT id, timestamp, ticker, gate_decision, stop_code, signal_score, cycle_started_at, "
-        "alpaca_order_id, overflow_slot, lock_leading_pass FROM live_gate_history WHERE timestamp >= ? "
+        "alpaca_order_id, overflow_slot, l5_positioning_pass FROM live_gate_history WHERE timestamp >= ? "
         "ORDER BY timestamp", (SINCE,))]
     key, prev, cyc_first, by_cycle = None, None, {}, defaultdict(list)
     for r in gh:
@@ -228,7 +228,7 @@ def main(out: str) -> int:
                    "by_month": dict(sorted(Counter(r["timestamp"][:7] for r in refused).items())),
                    "first": refused[0]["timestamp"] if refused else None,
                    "last": refused[-1]["timestamp"] if refused else None,
-                   "lock_leading_pass": dict(Counter(str(r["lock_leading_pass"]) for r in refused))}
+                   "l5_positioning_pass": dict(Counter(str(r["l5_positioning_pass"]) for r in refused))}
 
     commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True,
                             text=True).stdout.strip()

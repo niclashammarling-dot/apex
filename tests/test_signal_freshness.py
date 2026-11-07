@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 import pytest
 
-from backend.db import get_db, get_lock1_candidates, init_db
+from backend.db import get_db, get_l3_score_candidates, init_db
 from backend.gate.cycle import GateCycle
 from backend.gate.freshness import (BEFORE_OPEN, ENFORCE_BAR_DATE, NO_SESSION, NOT_IN_UNIVERSE,
                                     STALE_BAR_DATE, bar_date_mismatch, stale_reason)
@@ -88,7 +88,7 @@ class TestCandidateBound:
         _signal("FRF", "2031-03-07T14:50:00+00:00", SESSION, score=0.10)  # fresh, below threshold
         _signal("FRI", "2031-03-07T14:50:00+00:00", "2031-03-06")   # post-open, prior bar: observed
         stale = []
-        got = get_lock1_candidates(threshold=0.5, stale_out=stale, now=NOW)
+        got = get_l3_score_candidates(threshold=0.5, stale_out=stale, now=NOW)
         mine = {c["ticker"] for c in got} & {"FRA", "FRB", "FRC", "FRD", "FRE", "FRF", "FRI"}
         assert mine == {"FRA", "FRI"}
         reasons = {s["ticker"]: s["reason"] for s in stale}
@@ -104,14 +104,14 @@ class TestCandidateBound:
         universe(["FRG"])
         _signal("FRG", "2031-03-07T13:20:00+00:00", "2031-03-06")
         _signal("FRG", "2031-03-07T14:50:00+00:00", SESSION)
-        got = get_lock1_candidates(threshold=0.5, now=NOW)
+        got = get_l3_score_candidates(threshold=0.5, now=NOW)
         assert "FRG" in {c["ticker"] for c in got}
 
     def test_non_session_day_has_no_fresh_candidate(self, universe):
         universe(["FRH"])
         _signal("FRH", "2031-03-08T15:00:00+00:00", "2031-03-08")   # Saturday
         stale = []
-        got = get_lock1_candidates(threshold=0.5, stale_out=stale,
+        got = get_l3_score_candidates(threshold=0.5, stale_out=stale,
                                    now=datetime(2031, 3, 8, 15, 30, tzinfo=timezone.utc))
         assert got == []
         assert {s["reason"] for s in stale} == {NO_SESSION}
@@ -142,7 +142,7 @@ class TestRunnerLabelsTheRefusal:
         with ExitStack() as stack:
             mocks = [stack.enter_context(p) for p in _demo_patches(candidates=[])]
             lock1 = next(m for m, p in zip(mocks, _demo_patches(candidates=[]))
-                         if getattr(p, "attribute", "") == "get_lock1_candidates")
+                         if getattr(p, "attribute", "") == "get_l3_score_candidates")
             lock1.side_effect = self._stale_side_effect
             assert gate_runner.run(cycle=cycle) == []
         assert cycle.reason == "no_fresh_candidates"

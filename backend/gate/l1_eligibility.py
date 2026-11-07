@@ -1,5 +1,5 @@
 """
-gate/lock1_eligibility.py — Lock 1: Eligibility
+gate/l1_eligibility.py — L1 ELIGIBILITY
 
 The first and coarsest gate in the apex lock chain. Combines two checks:
 
@@ -11,7 +11,8 @@ The first and coarsest gate in the apex lock chain. Combines two checks:
   B. Macro filter — are current conditions safe for new entries?
        1. VIX above threshold — market-wide fear, block all tickers
        2. Within N days of a scheduled macro event (FOMC, CPI, NFP)
-       3. Ticker earnings within N days
+     The ticker's earnings rules are L2 RISK's (backend/gate/l2_risk.py, phase 3 2026-10-31); they still run
+     here, at the point they always did, until phase 4 moves them.
 
 If the regime singleton hasn't run yet this session, the lock fails
 safely with a clear reason rather than crashing downstream locks.
@@ -20,7 +21,7 @@ Deliberately minimal — no scoring logic, no signal computation.
 Downstream locks (Quant, Sentiment, Leading, Claude) handle quality.
 
 Public API:
-    from gate.lock1_eligibility import evaluate
+    from gate.l1_eligibility import evaluate
     result = evaluate(ticker, sector, cfg)
 """
 from __future__ import annotations
@@ -32,11 +33,12 @@ from datetime import date
 from loguru import logger
 
 from backend.config import EXCLUDED_SECTORS
+from backend.gate import l2_risk
 from backend.gate.lock_codes import FAIL, NO_DATA, PASS
 from backend.gate.types import LockResult
-# One calendar for Lock 1 and both backtest engines (2026-10-17, Niclas: "live måste ha
+# One calendar for L1 ELIGIBILITY and both backtest engines (2026-10-17, Niclas: "live måste ha
 # en enda kalender att gå efter"): backend/macro_calendar.py, official FOMC / BLS dates.
-# _CPI/_FOMC/_NFP_DATES are re-exported: tests/test_lock1_macro_blackout.py imports them from here.
+# _CPI/_FOMC/_NFP_DATES are re-exported: tests/test_l1_eligibility_macro_blackout.py imports them from here.
 from backend.macro_calendar import (CPI_DATES as _CPI_DATES, FOMC_DATES as _FOMC_DATES,  # noqa: F401
                                     MACRO_DATES as _MACRO_DATES, NFP_DATES as _NFP_DATES,  # noqa: F401
                                     macro_status as _shared_macro_status)
@@ -53,13 +55,8 @@ _VIX_TTL   = 30 * 60   # 30 minutes
 # Imported at the top from backend/macro_calendar.py.
 
 # FOMC spans two meeting days; pre-event window is 2 to cover the full session.
-# CPI and NFP are single-day releases; their window comes from macro_event_blackout_days (cfg).
+# CPI and NFP are single-day releases; their window comes from l1_eligibility_macro_event_days (cfg).
 _FOMC_PRE_EVENT_DAYS = 2
-
-# ── Earnings cache ────────────────────────────────────────────────────────────
-_earnings_cache: dict[str, dict] = {}
-_EARNINGS_TTL = 6 * 3600
-
 
 def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
     """
@@ -84,9 +81,9 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
         ticker: Stock ticker symbol
         sector: Apex sector name
         cfg:    Config dict (demo_config or live_config) — supplies
-                vix_threshold, macro_event_blackout_days,
-                macro_earnings_blackout_days, macro_earnings_near_days,
-                macro_earnings_near_penalty
+                l1_eligibility_vix_max, l1_eligibility_macro_event_days,
+                l2_risk_earnings_days, l2_risk_earnings_near_days,
+                l2_risk_earnings_near_penalty
 
     Returns:
         LockResult with lock_id=1
@@ -170,23 +167,17 @@ def _evaluate(ticker: str, sector: str, cfg: dict, states: dict[str, str]) -> Lo
     states["regime"] = PASS
 
     # ── B. Macro filter ───────────────────────────────────────────────────────
-    _vt = cfg.get("vix_threshold")
-    vix_threshold     = 25.0 if _vt is None else _vt
-    _ep2 = cfg.get("macro_pre_event_penalty")
-    macro_pre_event_penalty = 0.05 if _ep2 is None else _ep2
-    _ea = cfg.get("macro_earnings_blackout_days")
-    earnings_blackout = 3    if _ea is None else _ea
-    _en = cfg.get("macro_earnings_near_days")
-    earnings_near_days = 14  if _en is None else _en
-    _ep = cfg.get("macro_earnings_near_penalty")
-    earnings_near_penalty = 0.15 if _ep is None else _ep
+    _vt = cfg.get("l1_eligibility_vix_max")
+    l1_eligibility_vix_max     = 25.0 if _vt is None else _vt
+    _ep2 = cfg.get("l1_eligibility_macro_pre_event_penalty")
+    l1_eligibility_macro_pre_event_penalty = 0.05 if _ep2 is None else _ep2
     today             = date.today()
 
     vix = _get_vix()
-    if vix is not None and vix >= vix_threshold:
+    if vix is not None and vix >= l1_eligibility_vix_max:
         return LockResult.fail(
             lock_id=LOCK_ID,
-            reason=f"VIX={vix:.1f} >= threshold {vix_threshold}",
+            reason=f"VIX={vix:.1f} >= threshold {l1_eligibility_vix_max}",
             data={
                 "regime_available": True,
                 "adjusted_score":   adjusted_score,
@@ -197,7 +188,7 @@ def _evaluate(ticker: str, sector: str, cfg: dict, states: dict[str, str]) -> Lo
 
     states["vix"] = PASS if vix is not None else NO_DATA
 
-    _eb = cfg.get("macro_event_blackout_days")
+    _eb = cfg.get("l1_eligibility_macro_event_days")
     cpi_nfp_blackout = 1 if _eb is None else _eb
     macro_status, event_desc = _macro_status(today, _FOMC_PRE_EVENT_DAYS, cpi_nfp_blackout)
     if macro_status == "hard_block":
@@ -218,39 +209,22 @@ def _evaluate(ticker: str, sector: str, cfg: dict, states: dict[str, str]) -> Lo
         macro_penalty_data = {
             "macro_pre_event":         True,
             "macro_pre_event_event":   event_desc,
-            "macro_pre_event_penalty": macro_pre_event_penalty,
+            "l1_eligibility_macro_pre_event_penalty": l1_eligibility_macro_pre_event_penalty,
         }
 
-    earnings = _get_earnings_date(ticker)
-    earnings_data: dict = {}
-    if earnings:
-        delta = (earnings - today).days  # positive = future (pre-event), negative = past
-        if 0 <= delta <= earnings_blackout:
-            return LockResult.fail(
-                lock_id=LOCK_ID,
-                reason=f"Earnings on {earnings.isoformat()} (Δ{delta}d)",
-                data={
-                    "regime_available": True,
-                    "adjusted_score":   adjusted_score,
-                    "fail_type":        "earnings",
-                    "earnings_date":    earnings.isoformat(),
-                    "days_to_earnings": delta,
-                    "vix":              vix,
-                },
-            )
-        elif earnings_blackout < delta <= earnings_near_days:
-            earnings_data = {
-                "earnings_near":         True,
-                "earnings_date":         earnings.isoformat(),
-                "days_to_earnings":      delta,
-                "earnings_near_penalty": earnings_near_penalty,
-            }
-
-    states["earnings"] = PASS if earnings else NO_DATA
+    # L2 RISK's earnings rules (l2_risk.check_earnings), at the point they always ran.
+    earnings_fail, earnings_data, states["earnings"] = l2_risk.check_earnings(ticker, cfg, today)
+    if earnings_fail:
+        reason = earnings_fail.pop("reason")
+        return LockResult.fail(
+            lock_id=LOCK_ID,
+            reason=reason,
+            data={"regime_available": True, "adjusted_score": adjusted_score, **earnings_fail, "vix": vix},
+        )
 
     # ── Pass ──────────────────────────────────────────────────────────────────
     logger.debug(
-        f"Lock 1 [{ticker}] PASS — sector={sector} "
+        f"L1 ELIGIBILITY [{ticker}] PASS — sector={sector} "
         f"adj={adjusted_score:.3f} alloc={allocation:.1%} rank={rank}"
         + (f" VIX={vix:.1f}" if vix else "")
     )
@@ -291,7 +265,7 @@ def _get_regime_result():
             return None
         return rb.last_result()
     except Exception as e:
-        logger.warning(f"Lock 1: could not access regime singleton: {e}")
+        logger.warning(f"L1 ELIGIBILITY: could not access regime singleton: {e}")
         return None
 
 
@@ -324,17 +298,17 @@ def _get_vix() -> float | None:
         value = float(data["Close"].values.flatten()[-1]) if not data.empty else None
         if value is not None and value > _VIX_SANITY_CEILING:
             logger.warning(
-                f"Lock 1: VIX reading {value:.1f} exceeds sanity ceiling "
+                f"L1 ELIGIBILITY: VIX reading {value:.1f} exceeds sanity ceiling "
                 f"{_VIX_SANITY_CEILING} — discarding as data error, treating as unavailable"
             )
             value = None
         with _vix_lock:
             _vix_cache["value"]      = value
             _vix_cache["expires_at"] = time.time() + _VIX_TTL
-        logger.debug(f"Lock 1: VIX={value:.2f}" if value else "Lock 1: VIX fetch empty")
+        logger.debug(f"L1 ELIGIBILITY: VIX={value:.2f}" if value else "L1 ELIGIBILITY: VIX fetch empty")
         return value
     except Exception as e:
-        logger.warning(f"Lock 1: VIX fetch failed — {e}")
+        logger.warning(f"L1 ELIGIBILITY: VIX fetch failed — {e}")
         return None
 
 
@@ -357,40 +331,15 @@ def _check_calendar_expiry() -> None:
     today       = date.today()
     future      = [d for d in _MACRO_DATES if d >= today]
     if not future:
-        logger.error("Lock 1: macro event calendar is exhausted — update backend/macro_calendar.py")
+        logger.error("L1 ELIGIBILITY: macro event calendar is exhausted — update backend/macro_calendar.py")
         return
     last_date   = max(future)
     days_left   = (last_date - today).days
     if days_left < 60:
         logger.warning(
-            f"Lock 1: macro calendar expires in {days_left}d (last entry {last_date.isoformat()}) "
+            f"L1 ELIGIBILITY: macro calendar expires in {days_left}d (last entry {last_date.isoformat()}) "
             "— add next year's official dates to backend/macro_calendar.py before it runs dry"
         )
 
 _check_calendar_expiry()
 
-# ── Earnings helpers ──────────────────────────────────────────────────────────
-
-def _get_earnings_date(ticker: str) -> date | None:
-    now = time.time()
-    cached = _earnings_cache.get(ticker)
-    if cached and cached["expires_at"] > now:
-        return cached["date"]
-
-    try:
-        import yfinance as yf
-        cal = yf.Ticker(ticker).calendar
-        earnings_date = None
-        if cal is not None and not cal.empty:
-            col = "Earnings Date" if "Earnings Date" in cal.columns else cal.columns[0]
-            val = cal[col].iloc[0]
-            if hasattr(val, "date"):
-                earnings_date = val.date()
-            elif isinstance(val, date):
-                earnings_date = val
-        _earnings_cache[ticker] = {"date": earnings_date, "expires_at": now + _EARNINGS_TTL}
-        return earnings_date
-    except Exception as e:
-        logger.debug(f"Lock 1: earnings fetch [{ticker}] failed — {e}")
-        _earnings_cache[ticker] = {"date": None, "expires_at": now + _EARNINGS_TTL}
-        return None

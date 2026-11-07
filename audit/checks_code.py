@@ -3,9 +3,9 @@ Code-health mechanical checks — CHECKs 3, 6, 10, 12, 16, 30, 31, 45, 48, 49,
 50, 58, 59, 60, 61, 62, 74, 76.
 
 Covers: fractional qty in broker, test DB isolation, ticker signal data
-coverage, Lock3 context key parity, yfinance scalar extraction pattern,
+coverage, L6 REVIEW context key parity, yfinance scalar extraction pattern,
 startup live regime exit reconciliation, live bracket TIF/exit fallback,
-static code analysis (ruff + connection-leak patterns), L4 yfinance retry
+static code analysis (ruff + connection-leak patterns), L5 POSITIONING yfinance retry
 coverage, and — CHECK 74 — a static scan of tests/ for hardcoded dates
 exposed to a decaying (>=, <=, <, >, timedelta) wall-clock comparison.
 """
@@ -67,7 +67,7 @@ def check10():
                          f"compute_ticker_signals calls get_ticker_daily_scores(days={m.group(1)}), need 180")
 
 
-# ── CHECK 12 — Lock3 context key parity (demo vs live) ───────────────────────
+# ── CHECK 12 — L6 REVIEW context key parity (demo vs live) ───────────────────
 
 def check12():
     """
@@ -132,12 +132,12 @@ def check12():
     live_keys = extract_ctx_keys(live_file.read_text(), "_build_base_context") - DEMO_ONLY
 
     for k in sorted(demo_keys - live_keys):
-        flag(12, "Lock3 context parity", "CRITICAL",
+        flag(12, "L6 REVIEW context parity", "CRITICAL",
              "backend/gate/gate_runner_live.py:_build_base_context",
              f"key '{k}' in demo _build_base_context but missing from live _build_base_context")
 
     for k in sorted(live_keys - demo_keys):
-        flag(12, "Lock3 context parity", "WARNING",
+        flag(12, "L6 REVIEW context parity", "WARNING",
              "backend/gate/gate_runner.py:_build_base_context",
              f"key '{k}' in live _build_base_context but missing from demo _build_base_context")
 
@@ -336,7 +336,7 @@ def check45():
 
 def check48():
     """
-    Verify that all three yfinance fetch paths in lock4_leading.py have retry
+    Verify that all three yfinance fetch paths in l5_positioning.py have retry
     loops to handle silently-broken responses from the shared curl_cffi session.
 
     Three paths must each show `for attempt in range(2)`:
@@ -344,14 +344,14 @@ def check48():
       2. _check_relative_strength — partial batch response (ticker column absent)
       3. _check_volume_accumulation — wrong-ticker columns (curl_cffi session collision)
 
-    Prevented by: 2026-06-02 incident where AVGO failed all four L4 sub-checks
+    Prevented by: 2026-06-02 incident where AVGO failed all four L5 POSITIONING sub-checks
     repeatedly. Root cause: shared BoringSSL TLS singleton returns stale/partial
     data under concurrent yfinance load. Retry paths close the false-negative loop.
     """
-    lock4 = REPO / "backend/gate/lock4_leading.py"
+    lock4 = REPO / "backend/gate/l5_positioning.py"
     if not lock4.exists():
-        flag(48, "L4 yfinance retry coverage", "CRITICAL", str(lock4),
-             "lock4_leading.py not found")
+        flag(48, "L5 POSITIONING yfinance retry coverage", "CRITICAL", str(lock4),
+             "l5_positioning.py not found")
         return
 
     src = lock4.read_text()
@@ -361,8 +361,8 @@ def check48():
     try:
         tree = ast.parse(src)
     except SyntaxError as e:
-        flag(48, "L4 yfinance retry coverage", "CRITICAL", str(lock4),
-             f"syntax error parsing lock4_leading.py: {e}")
+        flag(48, "L5 POSITIONING yfinance retry coverage", "CRITICAL", str(lock4),
+             f"syntax error parsing l5_positioning.py: {e}")
         return
 
     # Extract function bodies as source slices by line range
@@ -384,15 +384,15 @@ def check48():
             missing.append(fn)
 
     if missing:
-        flag(48, "L4 yfinance retry coverage", "CRITICAL",
-             "backend/gate/lock4_leading.py",
+        flag(48, "L5 POSITIONING yfinance retry coverage", "CRITICAL",
+             "backend/gate/l5_positioning.py",
              f"retry loop missing from: {', '.join(missing)} — "
              "silent yfinance failures under concurrent load will surface as permanent sub-check failures")
 
 
 def check49():
     """
-    Verify Lock 4 uses group-constraint logic (not flat min_pass) and that
+    Verify L5 POSITIONING uses group-constraint logic (not flat min_pass) and that
     price-check error paths carry "error": True.
 
     The MSFT/June-2026 post-mortem showed that a flat 2-of-4 pass threshold
@@ -407,10 +407,10 @@ def check49():
       _check_volume_accumulation carry "error": True so the group logic can
       distinguish data errors from genuine signal failures.
     """
-    lock4 = REPO / "backend/gate/lock4_leading.py"
+    lock4 = REPO / "backend/gate/l5_positioning.py"
     if not lock4.exists():
-        flag(49, "L4 group constraint", "CRITICAL", str(lock4),
-             "lock4_leading.py not found")
+        flag(49, "L5 POSITIONING group constraint", "CRITICAL", str(lock4),
+             "l5_positioning.py not found")
         return
 
     src = lock4.read_text()
@@ -419,8 +419,8 @@ def check49():
     try:
         tree = ast.parse(src)
     except SyntaxError as e:
-        flag(49, "L4 group constraint", "CRITICAL", str(lock4),
-             f"syntax error parsing lock4_leading.py: {e}")
+        flag(49, "L5 POSITIONING group constraint", "CRITICAL", str(lock4),
+             f"syntax error parsing l5_positioning.py: {e}")
         return
 
     lines = src.splitlines()
@@ -436,8 +436,8 @@ def check49():
     missing_vars = [v for v in ("price_group_pass", "options_group_pass")
                     if v not in evaluate_body]
     if missing_vars:
-        flag(49, "L4 group constraint", "CRITICAL",
-             "backend/gate/lock4_leading.py",
+        flag(49, "L5 POSITIONING group constraint", "CRITICAL",
+             "backend/gate/l5_positioning.py",
              f"group constraint variables missing from evaluate(): {', '.join(missing_vars)} — "
              "flat min_pass threshold reinstated; options-only passes will be approved when price checks error")
 
@@ -445,15 +445,15 @@ def check49():
     for fn in ("_check_relative_strength", "_check_volume_accumulation"):
         body = funcs.get(fn, "")
         if '"error": True' not in body and "'error': True" not in body:
-            flag(49, "L4 group constraint", "CRITICAL",
-                 "backend/gate/lock4_leading.py",
+            flag(49, "L5 POSITIONING group constraint", "CRITICAL",
+                 "backend/gate/l5_positioning.py",
                  f"{fn}() missing '\"error\": True' on data-error return paths — "
                  "group logic cannot distinguish data errors from signal failures")
 
 
 def check50():
     """
-    Verify no recent TRADE_EXECUTED entry passed L4 on a single group.
+    Verify no recent TRADE_EXECUTED entry passed L5 POSITIONING on a single group.
 
     The 2026-06-02 CRM/NVDA/FDX incident: flat 2-of-4 min_pass let through
     entries where the price group (RS+VA) or options group (PCR+UC) was
@@ -466,24 +466,24 @@ def check50():
 
     A failure here means either: (a) the group constraint code was bypassed,
     (b) a regression to flat min_pass, or (c) a data serialisation bug where
-    lock_leading_checks doesn't match the actual pass decision.
+    l5_positioning_checks doesn't match the actual pass decision.
     """
     import json
     import sqlite3
 
     db_path = REPO / "data" / "apex.db"
-    if not require_data_file(50, "L4 group constraint (live data)", db_path):
+    if not require_data_file(50, "L5 POSITIONING group constraint (live data)", db_path):
         return
 
     con = sqlite3.connect(db_path)
     try:
         rows = con.execute(
             """
-            SELECT ticker, timestamp, lock_leading_checks
+            SELECT ticker, timestamp, l5_positioning_checks
             FROM live_gate_history
             WHERE gate_decision = 'TRADE_EXECUTED'
-              AND lock_leading_pass = 1
-              AND lock_leading_checks IS NOT NULL
+              AND l5_positioning_pass = 1
+              AND l5_positioning_checks IS NOT NULL
               AND timestamp >= '2026-06-03'
             ORDER BY timestamp DESC
             """
@@ -506,12 +506,12 @@ def check50():
         options_group = pcr_pass or uc_pass
 
         if not price_group:
-            flag(50, "L4 group constraint (live data)", "CRITICAL",
+            flag(50, "L5 POSITIONING group constraint (live data)", "CRITICAL",
                  "data/apex.db:live_gate_history",
                  f"{ticker} @ {ts[:10]}: TRADE_EXECUTED with both price sub-checks failing "
                  f"(RS={rs_pass}, VA={va_pass}) — group constraint bypassed or code regressed")
         elif not options_group:
-            flag(50, "L4 group constraint (live data)", "CRITICAL",
+            flag(50, "L5 POSITIONING group constraint (live data)", "CRITICAL",
                  "data/apex.db:live_gate_history",
                  f"{ticker} @ {ts[:10]}: TRADE_EXECUTED with both options sub-checks failing "
                  f"(PCR={pcr_pass}, UC={uc_pass}) — group constraint bypassed or code regressed")
@@ -523,8 +523,8 @@ def check58():
     """
     Every call site of insert_demo_gate_result() / insert_live_gate_result()
     must supply all five fields that db.py added defaults for piecemeal
-    (ticker_signal, earnings_near, days_to_earnings, lock3_sentiment_score,
-    lock3_conviction) — db.py's per-field .get() fallback only covers the
+    (ticker_signal, earnings_near, days_to_earnings, l4_sentiment_score,
+    l4_sentiment_conviction) — db.py's per-field .get() fallback only covers the
     fields someone remembered to add there; a call site missing a field
     that db.py does NOT default raises sqlite3.ProgrammingError and kills
     the whole gate cycle silently (2026-06-23: demo's skipped-ticker call
@@ -538,7 +538,7 @@ def check58():
 
     REQUIRED_KEYS = {
         "ticker_signal", "earnings_near", "days_to_earnings",
-        "lock3_sentiment_score", "lock3_conviction",
+        "l4_sentiment_score", "l4_sentiment_conviction",
     }
     targets = {
         "insert_demo_gate_result": REPO / "backend/gate/gate_runner.py",
@@ -599,11 +599,11 @@ def check59():
                      "to eliminate the concurrent-first-import deadlock")
 
 
-# ── CHECK 60 — Lock 4 yfinance futures must specify a timeout ────────────────
+# ── CHECK 60 — L5 POSITIONING yfinance futures must specify a timeout ────────
 
 def check60():
     """
-    Every fut.result(...) call in lock4_leading.py's evaluate() must pass
+    Every fut.result(...) call in l5_positioning.py's evaluate() must pass
     an explicit timeout=. yf.Ticker().options/.option_chain() take no
     timeout parameter, and curl_cffi's shared BoringSSL singleton has been
     observed to hang outright under concurrent load rather than raise.
@@ -613,7 +613,7 @@ def check60():
     """
     import ast
 
-    path = REPO / "backend/gate/lock4_leading.py"
+    path = REPO / "backend/gate/l5_positioning.py"
     if not path.exists():
         return
     try:
@@ -633,8 +633,8 @@ def check60():
         if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                 and node.func.attr == "result"
                 and not any(kw.arg == "timeout" for kw in node.keywords)):
-            flag(60, "Lock 4 futures must specify a timeout", "CRITICAL",
-                 f"backend/gate/lock4_leading.py:{node.lineno}",
+            flag(60, "L5 POSITIONING futures must specify a timeout", "CRITICAL",
+                 f"backend/gate/l5_positioning.py:{node.lineno}",
                  ".result() called without timeout= — a hung yfinance call can "
                  "block the gate cycle forever")
 
@@ -669,7 +669,7 @@ def check61():
 
 def check62():
     """
-    Lock 4's evaluate() and data-fetch paths must retain two concurrency guards:
+    L5 POSITIONING's evaluate() and data-fetch paths must retain two concurrency guards:
       1. NoneType guard: check results accessed via `v and v.get("pass")` not
          bare `v["pass"]`; ThreadPoolExecutor may return None if a check function
          exits via an unhandled exception path (2026-06-30 incident).
@@ -681,20 +681,20 @@ def check62():
     """
     import re
 
-    path = REPO / "backend/gate/lock4_leading.py"
+    path = REPO / "backend/gate/l5_positioning.py"
     if not path.exists():
         return
     text = path.read_text()
 
     if not re.search(r'v\s+and\s+v\.get\(', text):
-        flag(62, "Lock 4 NoneType guard missing", "CRITICAL",
-             "backend/gate/lock4_leading.py",
+        flag(62, "L5 POSITIONING NoneType guard missing", "CRITICAL",
+             "backend/gate/l5_positioning.py",
              "v and v.get() guard absent from evaluate() — bare v['pass'] crashes "
              "on None futures results from ThreadPoolExecutor")
 
     if not re.search(r'isinstance\(.*\.columns.*MultiIndex\)', text):
-        flag(62, "Lock 4 MultiIndex normalization missing", "CRITICAL",
-             "backend/gate/lock4_leading.py",
+        flag(62, "L5 POSITIONING MultiIndex normalization missing", "CRITICAL",
+             "backend/gate/l5_positioning.py",
              "isinstance(raw.columns, MultiIndex) guard absent — concurrent yfinance "
              "session reuse can inject MultiIndex structure into single-ticker downloads")
 
@@ -711,8 +711,10 @@ _C74_REVIEWED: dict[str, tuple[str, str, str]] = {
         "that must postdate _open_trade's fixed entry, and time-stop tests want an old entry; re-reviewed "
         "2026-10-13 after adding filled_at = None to a fake order (no date change); re-reviewed 2026-10-24 after the "
         "L0 loss-cap tests gained equity and starting_balance mocks (no date change); re-reviewed 2026-10-31 after "
-        "the corroborated-exit test stubbed _current_price (Finding 5 Yahoo guard; no date change)", "2027-04-10",
-        "4b6641a1aa44bc58"),
+        "the corroborated-exit test stubbed _current_price (Finding 5 Yahoo guard; no date change); re-reviewed "
+        "2026-10-31 after the config mocks took the phase 3 key names (no date change); re-reviewed 2026-11-01 "
+        "after the L0 constant and the candidate query took their derived names (no date change)", "2027-04-10",
+        "01bc103798563b4a"),
     "tests/test_entry_fill.py": (
         "reviewed 2026-10-13: exit-check entries are an hour before now (_open_trade default); the fixed "
         "dates are fill timestamps and CHECK 89 entries read with a fixed now; re-reviewed 2026-10-31 after the "
@@ -888,8 +890,8 @@ def check74():
 # one engine without the other is a new divergence and must be recorded here
 # and in PRODUCTION_GAP.md before this list is extended.
 CHECK76_ACCEPTED_SLOW_ONLY: set[str] = set()
-# etf_negative_floor / etf_negative_penalty left this list 2026-10-18: engine_fast has row 11.
-# macro_hard_block / macro_pre_event_penalty left this list 2026-10-17: engine_fast has rows 7/10.
+# l2_risk_etf_floor / l2_risk_etf_penalty left this list 2026-10-18: engine_fast has row 11.
+# macro_hard_block / l1_eligibility_macro_pre_event_penalty left this list 2026-10-17: engine_fast has rows 7/10.
 CHECK76_ACCEPTED_FAST_ONLY = {"precomputed", "regime_layer",   # regime_layer: rows 2/5/20/21, off by default (2026-10-17)
                               "random_entries",                  # RND placebo for the profit read, off by default (2026-10-17)
                               "kelly_factor",                    # H-V1 VIX sizing experiment, off by default (2026-10-17)
@@ -906,7 +908,7 @@ CHECK76_ACCEPTED_FAST_ONLY = {"precomputed", "regime_layer",   # regime_layer: r
                               "atr_exit_mult",
                               # L3+M4 card: per-trade ATR lock and an ATR stop ceiling, off by default (2026-10-24)
                               "atr_lock_mult", "atr_sl_cap",
-                              # Candidate ledger: rows per Lock 1 candidate before penalties, off by default (2026-10-24)
+                              # Candidate ledger: rows per L3 SCORE candidate before penalties, off by default (2026-10-24)
                               "candidate_ledger"}
 
 # Layer 2 — production components documented ABSENT from engine_fast.py
@@ -994,7 +996,7 @@ def check76():
         # Row 11 is compared at live's values (2026-10-18); off by default in both engines.
         from backend.live_config import get_live_config
         _lc = get_live_config()
-        etf_kw = dict(etf_negative_penalty=_lc["etf_negative_penalty"], etf_negative_floor=_lc["etf_negative_floor"])
+        etf_kw = dict(l2_risk_etf_penalty=_lc["l2_risk_etf_penalty"], l2_risk_etf_floor=_lc["l2_risk_etf_floor"])
         # Row 7 is no longer neutralised (2026-10-17): both engines read
         # backend/macro_calendar.py, so the macro blackout is compared, not removed.
         try:
@@ -1114,7 +1116,7 @@ def check79():
 
     A code comment that says "interim: replace with X once <table> has N weeks"
     is a commitment with no surfacing mechanism — nothing reads comments on a
-    schedule. Found 2026-09-16 by one grep: PCR_THRESHOLD=0.85 (lock4_leading.py,
+    schedule. Found 2026-09-16 by one grep: PCR_THRESHOLD=0.85 (l5_positioning.py,
     gate 4–8 weeks, 17 weeks old, replacement never written — get_pcr_history has
     no caller), regime-bucket _WEIGHTS (aggregator.py) and bull/bear thresholds
     (regime_bayes.py), both gated on ≥4 weeks of sector_posterior_history at 16

@@ -11,6 +11,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from audit._audit_core import run_tool, REPO, flag
+from backend.gate.lock_codes import upgrade_keys
 
 
 # ── CHECK 4 — Config parity ───────────────────────────────────────────────────
@@ -21,8 +22,8 @@ def check4():
     if not all(p.exists() for p in [demo, live]):
         return
 
-    demo_keys = set(json.loads(demo.read_text()).keys())
-    live_keys = set(json.loads(live.read_text()).keys())
+    demo_keys = set(upgrade_keys(json.loads(demo.read_text())).keys())
+    live_keys = set(upgrade_keys(json.loads(live.read_text())).keys())
     # One exception list (2026-10-10): backend/maintenance.py _LIVE_ONLY_KEYS names the keys
     # that legitimately exist on live only, each with a reason; this check used to have none,
     # so `live_account_since` (the 07-07 reset date, listed there) was a standing WARNING.
@@ -44,16 +45,16 @@ def check9():
     if not demo_path.exists() or not live_path.exists():
         return
 
-    demo = json.loads(demo_path.read_text())
-    live = json.loads(live_path.read_text())
+    demo = upgrade_keys(json.loads(demo_path.read_text()))
+    live = upgrade_keys(json.loads(live_path.read_text()))
 
     checks = [
-        ("lock1_threshold",  demo, "data/demo_config.json", lambda v: v < 0.60, "CRITICAL", "lock1_threshold < 0.60 — in dead zone (demo floor is 0.60, intentional)"),
-        ("lock1_threshold",  live, "data/live_config.json", lambda v: v < 0.65, "WARNING",  "lock1_threshold < 0.65 on live"),
-        ("vix_threshold",    demo, "data/demo_config.json", lambda v: v < 30,  "WARNING", "vix_threshold < 30 — blocks recovery rallies"),
-        ("vix_threshold",    live, "data/live_config.json", lambda v: v < 30,  "WARNING", "vix_threshold < 30 on live"),
+        ("l3_score_threshold_min",  demo, "data/demo_config.json", lambda v: v < 0.60, "CRITICAL", "l3_score_threshold_min < 0.60 — in dead zone (demo floor is 0.60, intentional)"),
+        ("l3_score_threshold_min",  live, "data/live_config.json", lambda v: v < 0.65, "WARNING",  "l3_score_threshold_min < 0.65 on live"),
+        ("l1_eligibility_vix_max",    demo, "data/demo_config.json", lambda v: v < 30,  "WARNING", "l1_eligibility_vix_max < 30 — blocks recovery rallies"),
+        ("l1_eligibility_vix_max",    live, "data/live_config.json", lambda v: v < 30,  "WARNING", "l1_eligibility_vix_max < 30 on live"),
         ("take_profit_pct",  demo, "data/demo_config.json", lambda v: v > 0.08, "WARNING", "take_profit_pct > 0.08 — most trades won't hit target"),
-        ("max_positions",    demo, "data/demo_config.json", lambda v: v > 15,  "WARNING", "max_positions > 15 — beyond portfolio capacity"),
+        ("l2_risk_max_positions_count",    demo, "data/demo_config.json", lambda v: v > 15,  "WARNING", "l2_risk_max_positions_count > 15 — beyond portfolio capacity"),
     ]
     for key, cfg, label, cond, sev, msg in checks:
         val = cfg.get(key)
@@ -83,15 +84,15 @@ def check11():
                     flag(11, "NaN/null pipeline", "WARNING", f"frontend/src/App.jsx:{i}",
                          "parseFloat(val) without empty-string guard")
 
-    eligibility = REPO / "backend/gate/lock1_eligibility.py"
+    eligibility = REPO / "backend/gate/l1_eligibility.py"
     if eligibility.exists():
         text = eligibility.read_text()
-        keys = ["macro_event_blackout_days", "macro_earnings_blackout_days",
-                "vix_threshold", "gate_cooloff_hours"]
+        keys = ["l1_eligibility_macro_event_days", "l2_risk_earnings_days",
+                "l1_eligibility_vix_max", "l1_eligibility_cooloff_hours"]
         for i, line in enumerate(text.splitlines(), 1):
             for k in keys:
                 if f'cfg.get("{k}",' in line or f"cfg.get('{k}'," in line:
-                    flag(11, "NaN/null pipeline", "WARNING", f"backend/gate/lock1_eligibility.py:{i}",
+                    flag(11, "NaN/null pipeline", "WARNING", f"backend/gate/l1_eligibility.py:{i}",
                          f"cfg.get({k!r}, default) — default won't fire for stored None")
 
 
@@ -141,8 +142,8 @@ def check13():
         if curr_r is None or prev_r is None:
             return
         try:
-            curr = json.loads(curr_r.stdout)
-            prev = json.loads(prev_r.stdout)
+            curr = upgrade_keys(json.loads(curr_r.stdout))
+            prev = upgrade_keys(json.loads(prev_r.stdout))
         except json.JSONDecodeError:
             continue
 
@@ -176,7 +177,7 @@ def check13():
 
 def check21():
     """
-    overflow_quant_increment must be present in both demo and live config JSON
+    l2_risk_overflow_step must be present in both demo and live config JSON
     files and within a sensible range (0.01–0.25). Outside this band the
     escalating threshold either becomes meaningless (too small) or immediately
     unreachable (too large).
@@ -187,17 +188,17 @@ def check21():
         if not path.exists():
             continue
         try:
-            val = json.loads(path.read_text()).get("overflow_quant_increment")
+            val = upgrade_keys(json.loads(path.read_text())).get("l2_risk_overflow_step")
         except Exception as e:
-            flag(21, "Overflow increment range", "WARNING", f"data/{path.name}:overflow_quant_increment",
+            flag(21, "Overflow increment range", "WARNING", f"data/{path.name}:l2_risk_overflow_step",
                  f"could not parse config: {e}")
             continue
         if val is None:
-            flag(21, "Overflow increment range", "CRITICAL", f"data/{path.name}:overflow_quant_increment",
-                 "overflow_quant_increment missing — overflow logic falls back to hardcoded 0.05")
+            flag(21, "Overflow increment range", "CRITICAL", f"data/{path.name}:l2_risk_overflow_step",
+                 "l2_risk_overflow_step missing — overflow logic falls back to hardcoded 0.05")
         elif not (0.01 <= float(val) <= 0.25):
-            flag(21, "Overflow increment range", "WARNING", f"data/{path.name}:overflow_quant_increment",
-                 f"overflow_quant_increment={val} outside expected range 0.01–0.25")
+            flag(21, "Overflow increment range", "WARNING", f"data/{path.name}:l2_risk_overflow_step",
+                 f"l2_risk_overflow_step={val} outside expected range 0.01–0.25")
 
 
 # ── CHECK 37 — Promote exclusion integrity ────────────────────────────────────
@@ -209,16 +210,16 @@ def check37():
 
     Two structural assertions:
       1. _PROMOTE_EXCLUDE in backend/live_config.py contains both "starting_balance"
-         and "daily_loss_cap" (text check — catches accidental removal).
+         and "l0_portfolio_loss_cap_max" (text check — catches accidental removal).
       2. demo_thresholds() returns neither key at runtime (import check — catches
          the filter being bypassed in code even if the constant looks correct).
 
     Prevented by: 2026-05-15. Promote wrote starting_balance=2000 into live_config,
     corrupting sector exposure denominator (notional/2000 = 735% projected, sector
-    cap 20% → all live trades unconditionally rejected). daily_loss_cap=$100 would
+    cap 20% → all live trades unconditionally rejected). l0_portfolio_loss_cap_max=$100 would
     have imposed near-zero daily limit on a $100k account.
     """
-    REQUIRED = {"starting_balance", "daily_loss_cap"}
+    REQUIRED = {"starting_balance", "l0_portfolio_loss_cap_max"}
     path = REPO / "backend/live_config.py"
     if not path.exists():
         flag(37, "Promote exclusion integrity", "CRITICAL",

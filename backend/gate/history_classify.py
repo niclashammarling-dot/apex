@@ -28,7 +28,7 @@ not a row to file under the nearest lock. Rows without a code (ungated `signals`
 are never passed here.
 
 Rule names come from lock_codes.RULES, never from this module: stop_code() refuses a name the register
-does not hold. Where the writer emitted an identifier of its own (lock1_eligibility's fail_type, live's
+does not hold. Where the writer emitted an identifier of its own (l1_eligibility's fail_type, live's
 outcome_reason), the row's text or field is read back to that identifier and the register gives the rule
 (rule_for), so history and the writers name a check the same way (Niclas 2026-10-28: "konsekvent och kan
 härledas överallt där det används").
@@ -49,7 +49,7 @@ TABLES = ("live_gate_history", "demo_gate_history", "signals")
 # Macro pre-event penalty went live 2026-06-16 (fdd1a7a); before it no penalty existed, so a score
 # rejection was the threshold itself (the earnings penalty, 6d9f497 06-09, never fired: PRODUCTION_GAP 8-9).
 MACRO_PENALTY_LIVE = "2026-06-16"
-# The pre-event penalty multiplies the score by 1 - macro_pre_event_penalty (0.05 in both configs since it
+# The pre-event penalty multiplies the score by 1 - l1_eligibility_macro_pre_event_penalty (0.05 in both configs since it
 # shipped): the reason's score ÷ signal_score is 0.95 on every reasoned row (172 of 172, probed 10-28).
 PRE_EVENT_RATIO = 0.95
 # P3 (2026-10-28): the only reasonless score rows after 06-16 are 2026-07-02, a pre-event day under the
@@ -64,12 +64,12 @@ TEST_ROW_CODE = "REMOVE_TEST_ROW"
 SKIPS = {"SKIPPED_BLOCKLIST": "blocklist", "SKIPPED_COOLOFF": "cooloff", "SKIPPED_OPEN": "position_open"}
 # The gate cooloff set held FILTERED_MACRO, the April macro gate's code, until 6794433 (2026-05-12 16:33 CEST).
 MACRO_COOLOFF_UNTIL = "2026-05-12T14:33:12+00:00"
-# gate_cooloff_hours per book and the exit windows (exit_cooloff_hours after any exit, tp_cooloff_hours after a
+# l1_eligibility_cooloff_hours per book and the exit windows (l1_eligibility_exit_cooloff_hours after any exit, l1_eligibility_exit_cooloff_win_hours after a
 # TP/TSL win), as the configs hold them since they are tracked (2026-06-26). Replayed with these and the set in
 # force, every cooloff skip in the three tables is explained (probe 2026-10-29: live 1432 gate / 1869 exit / 3 both
 # after the 133 April rows the macro code explains; demo 1846 / 2395 / 71).
-GATE_COOLOFF_HOURS = {"live": 4, "demo": 5}
-EXIT_COOLOFF_HOURS, TP_COOLOFF_HOURS = 24, 168
+L1_ELIGIBILITY_COOLOFF_HOURS = {"live": 4, "demo": 5}
+L1_ELIGIBILITY_EXIT_COOLOFF_HOURS, L1_ELIGIBILITY_EXIT_COOLOFF_WIN_HOURS = 24, 168
 # Live's whole-share sizing failure was recorded as a broker error; the order could not buy one share
 # (11 rows, LLY, 2026-10-12..10-16; PRODUCTION_GAP row 34). The text decides it, so the rule is L1 notional_too_small (eighth round).
 QTY_ZERO = "broker_error: Computed qty=0"
@@ -78,7 +78,7 @@ QTY_ZERO = "broker_error: Computed qty=0"
 # only under it, is live 19:28:19. Before it a check error was one fewer pass in 2 of 4, never the cause.
 GROUP_RULE_LIVE = "2026-06-03T19:00:00"
 
-# lock1_eligibility's reason texts → the fail_type it set with them (lock1_eligibility.py, `fail_type`), including
+# l1_eligibility's reason texts → the fail_type it set with them (l1_eligibility.py, `fail_type`), including
 # the wordings before the hysteresis band ("< allocation floor") and before the leaderboard cutoff ("not found").
 ELIGIBILITY_FAIL_TYPES: tuple[tuple[str, str], ...] = (
     (r"^VIX=", "vix"),
@@ -125,8 +125,8 @@ def pass_flags(k: Class, row: dict) -> dict[str, int | None]:
 # The first eligibility-module rows (signals 2026-04-19 22:00 UTC, live_gate_history 2026-04-20; weekly_report
 # REFERENCE_START): before them a row's L1 regime and macro checks did not run in one module before the score.
 ELIGIBILITY_LIVE = "2026-04-20T00:00:00+00:00"
-_VERDICT_RULES = {"lock1_pass": (3, "threshold"), "lock2_pass": (4, "grok"), "lock_leading_pass": (5, "leading"),
-                  "lock3_pass": (6, "claude")}
+_VERDICT_RULES = {"l3_score_pass": (3, "threshold"), "l4_sentiment_pass": (4, "grok"), "l5_positioning_pass": (5, "leading"),
+                  "l6_review_pass": (6, "claude")}
 
 
 def history_rule_states(k: Class, row: dict, flags: dict) -> dict[str, str]:
@@ -145,7 +145,7 @@ def history_rule_states(k: Class, row: dict, flags: dict) -> dict[str, str]:
     for col, (o, r) in _VERDICT_RULES.items():
         if flags.get(col) == 1:
             states.setdefault(lock_codes.rule_key(o, r), lock_codes.PASS)
-    if flags.get("lock1_pass") is not None and (row.get("timestamp") or "") >= ELIGIBILITY_LIVE:
+    if flags.get("l3_score_pass") is not None and (row.get("timestamp") or "") >= ELIGIBILITY_LIVE:
         for o, r in ((1, "regime"), (1, "macro_event")):
             states.setdefault(lock_codes.rule_key(o, r), lock_codes.PASS)
         states.setdefault(lock_codes.rule_key(2, "earnings"), lock_codes.NO_DATA)
@@ -154,10 +154,10 @@ def history_rule_states(k: Class, row: dict, flags: dict) -> dict[str, str]:
 
 def _positioning(table: str, row: dict) -> Class:
     """leading, or unavailable when a data error decided the failing group (the writer's rule from phase 2,
-    read back from lock_leading_checks, which every positioning row carries)."""
+    read back from l5_positioning_checks, which every positioning row carries)."""
     if (row.get("timestamp") or "") >= GROUP_RULE_LIVE:
         try:
-            checks = json.loads(row.get("lock_leading_checks") or "")
+            checks = json.loads(row.get("l5_positioning_checks") or "")
         except ValueError:
             raise UnclassifiedRow(f"{table} id {row.get('id')}: positioning row without readable checks") from None
         price = [checks.get(c) or {} for c in ("relative_strength", "volume_accumulation")]
@@ -183,7 +183,7 @@ def _at(ts: str) -> datetime:
 
 class CooloffIndex:
     """Which cooloff stopped each SKIPPED_COOLOFF row, replayed at the time it was decided: a gate stop (an L4/L6
-    decision, and FILTERED_MACRO until MACRO_COOLOFF_UNTIL) within gate_cooloff_hours → `cooloff`; the ticker's
+    decision, and FILTERED_MACRO until MACRO_COOLOFF_UNTIL) within l1_eligibility_cooloff_hours → `cooloff`; the ticker's
     own exit within its window → `exit_cooloff`; both → `cooloff`, first in the register (ruling 2026-10-29).
     Live reads live_gate_history and live_trades; demo reads demo_gate_history (the demo runner read the `signals`
     copy, whose row is overwritten by each cycle's decision, so a stop can be gone from it) and trades. A
@@ -203,7 +203,7 @@ class CooloffIndex:
         for book, table in (("live", "live_trades"), ("demo", "trades")):
             for t, ex, out, why in rows(f"SELECT ticker, exited_at, outcome, exit_reason FROM {table} "
                                         "WHERE exited_at IS NOT NULL AND outcome IN ('WIN', 'LOSS', 'EXPIRED')"):
-                hours = TP_COOLOFF_HOURS if (out == "WIN" and why in ("TP", "TSL")) else EXIT_COOLOFF_HOURS
+                hours = L1_ELIGIBILITY_EXIT_COOLOFF_WIN_HOURS if (out == "WIN" and why in ("TP", "TSL")) else L1_ELIGIBILITY_EXIT_COOLOFF_HOURS
                 self.exits[(book, t)].append((_at(ex), hours))
         self.demo_skips: dict[str, list] = defaultdict(list)
         for t, ts in rows("SELECT ticker, timestamp FROM demo_gate_history WHERE gate_decision = 'SKIPPED_COOLOFF'"):
@@ -228,7 +228,7 @@ class CooloffIndex:
             else:
                 when = "at the signal's time (no matched demo decision)"
         codes = ("FILTERED_L2", "FILTERED_L3") + (("FILTERED_MACRO",) if at < _at(MACRO_COOLOFF_UNTIL) else ())
-        gate = any(0 < (at - s).total_seconds() < GATE_COOLOFF_HOURS[book] * 3600 and c in codes
+        gate = any(0 < (at - s).total_seconds() < L1_ELIGIBILITY_COOLOFF_HOURS[book] * 3600 and c in codes
                    for s, c in self.stops[(book, t)])
         exit_ = any(0 < (at - x).total_seconds() < h * 3600 for x, h in self.exits[(book, t)])
         if gate:
@@ -244,8 +244,8 @@ def classify(table: str, row: dict, cooloff: CooloffIndex | None = None) -> Clas
     code = row.get("gate_decision")
     if code is None:
         raise UnclassifiedRow(f"{table} id {row.get('id')}: no gate code (ungated rows stay NULL, P1)")
-    reason = row.get("lock3_reasoning") or ""
-    macro = row.get("macro_reason") or ""
+    reason = row.get("decision_reason") or ""
+    macro = row.get("l1_eligibility_reason") or ""
     ts = row.get("timestamp") or ""
 
     if (table, row.get("id")) == TEST_ROW:
@@ -265,8 +265,8 @@ def classify(table: str, row: dict, cooloff: CooloffIndex | None = None) -> Clas
 
     if code in ("TRADE_REJECTED", "TRADE_FAILED"):
         # After the chain: L3..L5 ran; L6 ran only if Claude approved (the pre-review "position already open"
-        # reject records lock3_pass 0). outcome_reason exists on live only, from b3804fb (09-27).
-        reached = 6 if row.get("lock3_pass") == 1 else 5
+        # reject records l6_review_pass 0). outcome_reason exists on live only, from b3804fb (09-27).
+        reached = 6 if row.get("l6_review_pass") == 1 else 5
         outcome = row.get("outcome_reason")
         if outcome and outcome.startswith(QTY_ZERO):
             return _lock(1, "notional_too_small", reached)
@@ -282,7 +282,7 @@ def classify(table: str, row: dict, cooloff: CooloffIndex | None = None) -> Clas
         raise UnclassifiedRow(f"{table} id {row.get('id')}: eligibility reason {macro[:60]!r}")
 
     if code == "FILTERED_MACRO":            # legacy, 2026-04-06..04-09: the CPI 04-08 block
-        # That gate ran after the quant test: all 81 rows carry lock1_pass 1 (dry run 2026-10-28).
+        # That gate ran after the quant test: all 81 rows carry l3_score_pass 1 (dry run 2026-10-28).
         if macro.lower().startswith("macro event"):
             return _lock(1, "macro_event", 3)
         raise UnclassifiedRow(f"{table} id {row.get('id')}: legacy macro reason {macro[:60]!r}")
@@ -301,20 +301,20 @@ def classify(table: str, row: dict, cooloff: CooloffIndex | None = None) -> Clas
         raise UnclassifiedRow(f"{table} id {row.get('id')}: reasonless score rejection on {ts[:10]}")
 
     if code == "FILTERED_L2":
-        if "Grok API unavailable" in reason or "Grok API unavailable" in (row.get("l2_summary") or ""):
+        if "Grok API unavailable" in reason or "Grok API unavailable" in (row.get("l4_sentiment_summary") or ""):
             return _lock(4, "unavailable", 4)
-        if not reason and not row.get("l2_summary"):
+        if not reason and not row.get("l4_sentiment_summary"):
             return _lock(4, "unavailable_inferred", 4,
                          "inferred:no summary and no reason (the fail path sets the summary to None)")
         return _lock(4, "grok", 4)
 
     if code == "FILTERED_LEADING":
-        if row.get("lock_leading_pass") == 0:
+        if row.get("l5_positioning_pass") == 0:
             return _positioning(table, row)
-        if row.get("lock_leading_pass") == 1:      # 07-13..07-16: the ETF re-test before it had its code
+        if row.get("l5_positioning_pass") == 1:      # 07-13..07-16: the ETF re-test before it had its code
             return _lock(2, "etf", 5)
-        raise UnclassifiedRow(f"{table} id {row.get('id')}: positioning row with lock_leading_pass "
-                              f"{row.get('lock_leading_pass')!r}")
+        raise UnclassifiedRow(f"{table} id {row.get('id')}: positioning row with l5_positioning_pass "
+                              f"{row.get('l5_positioning_pass')!r}")
 
     if code == "FILTERED_ETF_PENALTY":
         return _lock(2, "etf", 5)

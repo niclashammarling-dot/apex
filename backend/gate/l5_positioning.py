@@ -1,5 +1,5 @@
 """
-gate/lock4_leading.py — Lock 4: Leading Signals
+gate/l5_positioning.py — L5 POSITIONING: leading signals
 
 Four sub-checks that ask "is informed/smart money positioning into this
 ticker ahead of a move?":
@@ -15,7 +15,7 @@ and options (put/call ratio, unusual calls). Until 2026-06-03 it passed at 2 of 
 (min_pass); that flat rule let the CRM/NVDA/FDX entries through (CHECK 49, 50).
 
 Public API:
-    from gate.lock4_leading import evaluate
+    from gate.l5_positioning import evaluate
     result = evaluate(ticker, sector)
 """
 from __future__ import annotations
@@ -43,7 +43,7 @@ _YF_SEMAPHORE = threading.Semaphore(4)
 # Hard ceiling on a single yfinance call. yf.download() defaults to timeout=10
 # internally, but Ticker.options/.option_chain() take no timeout parameter and
 # curl_cffi's shared BoringSSL singleton has been observed to hang outright
-# under concurrent load rather than raise (2026-06-23: one ticker's Lock 4
+# under concurrent load rather than raise (2026-06-23: one ticker's L5 POSITIONING
 # evaluation never returned, which blocked the entire gate cycle's
 # ThreadPoolExecutor.shutdown(wait=True) forever — no further cycles ran).
 # This bounds each sub-check's future so one hung call degrades to a logged
@@ -55,7 +55,7 @@ _YF_SEMAPHORE = threading.Semaphore(4)
 _YF_CALL_TIMEOUT_S      = 15
 _YF_SEMAPHORE_TIMEOUT_S = 20
 
-LOCK_ID  = 4
+LOCK_ID  = 5
 
 
 class _YfSemaphoreBusy(Exception):
@@ -89,7 +89,7 @@ def _yf_slot():
 # pass rate of 24.8%, own-P25 would deliver ~13.8%; the options group (PCR ∪ unusual calls)
 # moves 32.2% → 31.3% because UC absorbs the difference.
 # BUILT 2026-09-17: backend/gate/pcr_baseline.py (partial-pooled per-ticker P25, K=3), selected
-# per config by lock4_pcr_mode — demo default "per_ticker_p25", live default "pooled_scalar"
+# per config by l5_positioning_leading_mode — demo default "per_ticker_p25", live default "pooled_scalar"
 # until CHECK 80 (demo PCR-channel rate + per-ticker composition) has read out; Promote
 # carries the key. This constant is the pooled_scalar mode and the fallback when the
 # baseline table is empty — the fallback is a counted row in CHECK 80, not a silent one.
@@ -103,7 +103,7 @@ def _build_sector_etf() -> dict[str, str]:
         from backend.ticker_config import get_sectors
         return {s: cfg["etf"] for s, cfg in get_sectors().items() if s not in EXCLUDED_SECTORS}
     except Exception:
-        logger.warning("lock4_leading: ticker_config load failed — using hardcoded fallback ETF map")
+        logger.warning("l5_positioning: ticker_config load failed — using hardcoded fallback ETF map")
         return {
             "Technology":      "XLK",
             "Energy":          "XLE",
@@ -162,7 +162,7 @@ def evaluate(ticker: str, sector: str, pcr_mode: str = "pooled_scalar") -> LockR
         sector:   Apex sector name
 
     Returns:
-        LockResult with lock_id=4
+        LockResult with lock_id=5
     """
     # Run the three independent I/O fetches in parallel.
     # put_call_ratio and unusual_calls are pure computation on options_chains — no I/O.
@@ -184,11 +184,11 @@ def evaluate(ticker: str, sector: str, pcr_mode: str = "pooled_scalar") -> LockR
     try:
         options_chains = fut_options.result(timeout=_YF_CALL_TIMEOUT_S)
     except FutureTimeoutError:
-        logger.error(f"Lock 4 [{ticker}] options fetch: timed out after {_YF_CALL_TIMEOUT_S}s — abandoning")
+        logger.error(f"L5 POSITIONING [{ticker}] options fetch: timed out after {_YF_CALL_TIMEOUT_S}s — abandoning")
         options_chains    = []
         options_fetch_err = "timed out"
     except Exception as e:
-        logger.warning(f"Lock 4 [{ticker}] options fetch: {e}")
+        logger.warning(f"L5 POSITIONING [{ticker}] options fetch: {e}")
         options_chains = []
         msg = str(e)
         if isinstance(e, MissingChainError):
@@ -203,19 +203,19 @@ def evaluate(ticker: str, sector: str, pcr_mode: str = "pooled_scalar") -> LockR
     try:
         rs_result = fut_rs.result(timeout=_YF_CALL_TIMEOUT_S)
     except FutureTimeoutError:
-        logger.error(f"Lock 4 [{ticker}] relative_strength: timed out after {_YF_CALL_TIMEOUT_S}s — abandoning")
+        logger.error(f"L5 POSITIONING [{ticker}] relative_strength: timed out after {_YF_CALL_TIMEOUT_S}s — abandoning")
         rs_result = {"pass": False, "error": True, "reason": f"timed out after {_YF_CALL_TIMEOUT_S}s"}
     except Exception as e:
-        logger.warning(f"Lock 4 [{ticker}] relative_strength: {e}")
+        logger.warning(f"L5 POSITIONING [{ticker}] relative_strength: {e}")
         rs_result = {"pass": False, "error": True, "reason": f"error: {e}"}
 
     try:
         va_result = fut_va.result(timeout=_YF_CALL_TIMEOUT_S)
     except FutureTimeoutError:
-        logger.error(f"Lock 4 [{ticker}] volume_accumulation: timed out after {_YF_CALL_TIMEOUT_S}s — abandoning")
+        logger.error(f"L5 POSITIONING [{ticker}] volume_accumulation: timed out after {_YF_CALL_TIMEOUT_S}s — abandoning")
         va_result = {"pass": False, "error": True, "reason": f"timed out after {_YF_CALL_TIMEOUT_S}s"}
     except Exception as e:
-        logger.warning(f"Lock 4 [{ticker}] volume_accumulation: {e}")
+        logger.warning(f"L5 POSITIONING [{ticker}] volume_accumulation: {e}")
         va_result = {"pass": False, "error": True, "reason": f"error: {e}"}
 
     inner_pool.shutdown(wait=False)
@@ -257,7 +257,7 @@ def evaluate(ticker: str, sector: str, pcr_mode: str = "pooled_scalar") -> LockR
         # The price group fails on any error; the options group decides only when the price group passed.
         "unavailable":         (not passed) and ((not price_group_pass and price_errors > 0)
                                                  or (price_group_pass and options_errors > 0)),
-        # Kept for DB compat (lock_leading_checks serialised as JSON)
+        # Kept for DB compat (l5_positioning_checks serialised as JSON)
         "sub_checks":          checks,
     }
 
@@ -274,7 +274,7 @@ def evaluate(ticker: str, sector: str, pcr_mode: str = "pooled_scalar") -> LockR
             reason = f"options group failed ({options_errors} error(s)) — {checks['put_call_ratio']['reason'][:60]}"
         else:
             reason = "options group failed — neither PCR nor unusual calls passed"
-        logger.debug(f"Lock 4 [{ticker}] FAIL — {reason}")
+        logger.debug(f"L5 POSITIONING [{ticker}] FAIL — {reason}")
         return LockResult.fail(lock_id=LOCK_ID, reason=reason, data=data)
 
     passed_names = [k for k, v in checks.items() if v and v.get("pass")]
@@ -282,7 +282,7 @@ def evaluate(ticker: str, sector: str, pcr_mode: str = "pooled_scalar") -> LockR
         f"price+options groups passed — "
         f"{', '.join(passed_names)}"
     )
-    logger.debug(f"Lock 4 [{ticker}] PASS — {reason}")
+    logger.debug(f"L5 POSITIONING [{ticker}] PASS — {reason}")
     return LockResult.pass_(lock_id=LOCK_ID, score=score, reason=reason, data=data)
 
 
@@ -294,7 +294,7 @@ class MissingChainError(Exception):
 
 def _fetch_options_chains(ticker: str) -> list[tuple]:
     """
-    Fetch near-term options chains once per ticker per Lock 4 evaluation.
+    Fetch near-term options chains once per ticker per L5 POSITIONING evaluation.
     Returns [(calls_df, puts_df, expiry), ...] for the first 2 expiries.
     Both put_call_ratio and unusual_calls consume this shared list.
 
@@ -318,7 +318,7 @@ def _fetch_options_chains(ticker: str) -> list[tuple]:
                 expiries = t.options
                 if not expiries:
                     if attempt < 2:
-                        logger.warning(f"Lock 4 [{ticker}] options empty on attempt {attempt + 1}, retrying")
+                        logger.warning(f"L5 POSITIONING [{ticker}] options empty on attempt {attempt + 1}, retrying")
                         continue
                     return []
                 chains = []
@@ -336,8 +336,8 @@ def _fetch_options_chains(ticker: str) -> list[tuple]:
         except Exception as e:
             last_exc = e
             if attempt < 2:
-                logger.warning(f"Lock 4 [{ticker}] options attempt {attempt + 1} failed ({e}), retrying")
-    logger.warning(f"Lock 4 [{ticker}] options fetch failed after 3 attempts: {last_exc}")
+                logger.warning(f"L5 POSITIONING [{ticker}] options attempt {attempt + 1} failed ({e}), retrying")
+    logger.warning(f"L5 POSITIONING [{ticker}] options fetch failed after 3 attempts: {last_exc}")
     raise last_exc  # type: ignore[misc]
 
 
@@ -371,7 +371,7 @@ def _check_relative_strength(ticker: str, sector: str) -> dict:
         if not missing:
             break
         if attempt == 0:
-            logger.warning(f"Lock 4 [{ticker}] RS partial download {missing}, retrying")
+            logger.warning(f"L5 POSITIONING [{ticker}] RS partial download {missing}, retrying")
             continue
         return {"pass": False, "error": True, "reason": f"missing from download: {missing}"}
 
@@ -430,14 +430,14 @@ def _check_put_call_ratio(chains: list[tuple], fetch_err: str | None = None,
         base = pcr_threshold_for(ticker) if ticker else None
         if base is None:
             threshold_mode = "pooled_scalar_fallback"
-            logger.warning(f"Lock 4 [{ticker}] PCR baseline unavailable — pooled scalar {PCR_THRESHOLD} used")
+            logger.warning(f"L5 POSITIONING [{ticker}] PCR baseline unavailable — pooled scalar {PCR_THRESHOLD} used")
         else:
             threshold      = base["threshold"]
             threshold_mode = "per_ticker_p25"
             extra = {"own_p25": base["own_p25"], "pooled_p25": base["pooled_p25"],
                      "n_obs": base["n_obs"], "shrink_w": base["shrink_w"]}
     elif mode != "pooled_scalar":
-        logger.warning(f"Lock 4 [{ticker}] unknown pcr_mode {mode!r} — pooled scalar used")
+        logger.warning(f"L5 POSITIONING [{ticker}] unknown pcr_mode {mode!r} — pooled scalar used")
         threshold_mode = "pooled_scalar_fallback"
 
     passed = pc < threshold
@@ -513,7 +513,7 @@ def _check_volume_accumulation(ticker: str) -> dict:
             if not ({"Close", "Volume"} <= set(raw.columns)):
                 got = [str(c) for c in raw.columns[:4]]
                 if attempt == 0:
-                    logger.warning(f"Lock 4 [{ticker}] VA unexpected columns {got}, retrying")
+                    logger.warning(f"L5 POSITIONING [{ticker}] VA unexpected columns {got}, retrying")
                     continue
                 return {"pass": False, "error": True, "reason": f"unexpected column format: {got}"}
 
@@ -530,7 +530,7 @@ def _check_volume_accumulation(ticker: str) -> dict:
         except KeyError:
             got = [str(c) for c in raw.columns[:4]]
             if attempt == 0:
-                logger.warning(f"Lock 4 [{ticker}] VA unexpected columns {got}, retrying")
+                logger.warning(f"L5 POSITIONING [{ticker}] VA unexpected columns {got}, retrying")
                 continue
             return {"pass": False, "error": True, "reason": f"unexpected column format: {got}"}
     idx   = close.index.intersection(vol.index)

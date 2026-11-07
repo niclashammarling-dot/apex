@@ -15,8 +15,8 @@ from backend.gate.history_classify import UnclassifiedRow
 from backend.gate.history_migrate import RECORD, migrate, reverse
 
 COLS = ("id INTEGER PRIMARY KEY, timestamp TEXT, ticker TEXT, signal_score REAL, gate_decision TEXT, "
-        "lock1_pass INTEGER, lock2_pass INTEGER, lock3_pass INTEGER, lock_leading_pass INTEGER, "
-        "lock3_reasoning TEXT, l2_summary TEXT, macro_reason TEXT, outcome_reason TEXT")
+        "l3_score_pass INTEGER, l4_sentiment_pass INTEGER, l6_review_pass INTEGER, l5_positioning_pass INTEGER, "
+        "decision_reason TEXT, l4_sentiment_summary TEXT, l1_eligibility_reason TEXT, outcome_reason TEXT")
 ROWS = {
     "live_gate_history": [
         # Flags as production holds them on every FILTERED_L1 row (180/182/167, read 2026-10-29): 0 and 0.
@@ -57,8 +57,8 @@ def db(tmp_path):
 
 def _dump(conn):
     conn.row_factory = None
-    return {t: conn.execute(f"SELECT id, timestamp, ticker, signal_score, gate_decision, lock1_pass, lock2_pass, "
-                            f"lock3_pass, lock_leading_pass, lock3_reasoning, l2_summary, macro_reason, "
+    return {t: conn.execute(f"SELECT id, timestamp, ticker, signal_score, gate_decision, l3_score_pass, l4_sentiment_pass, "
+                            f"l6_review_pass, l5_positioning_pass, decision_reason, l4_sentiment_summary, l1_eligibility_reason, "
                             f"outcome_reason FROM {t} ORDER BY id").fetchall() for t in ROWS}
 
 
@@ -75,14 +75,14 @@ def test_migrate_recodes_records_and_reverse_restores(db):
     }
     assert dict(db.execute("SELECT id, gate_decision FROM live_gate_history")) == {
         1: "FILTERED_L1_ELIGIBILITY", 2: "FILTERED_L2_RISK", 3: "FILTERED_L1_ELIGIBILITY", 4: "FILTERED_L1_ELIGIBILITY"}
-    # Ruling D: (lock1_pass, lock2_pass, lock3_pass, lock_leading_pass), NULL after the last lock that ran.
+    # Ruling D: (l3_score_pass, l4_sentiment_pass, l6_review_pass, l5_positioning_pass), NULL after the last lock that ran.
     flags = lambda t: {r[0]: r[1:] for r in db.execute(
-        f"SELECT id, lock1_pass, lock2_pass, lock3_pass, lock_leading_pass FROM {t}")}
+        f"SELECT id, l3_score_pass, l4_sentiment_pass, l6_review_pass, l5_positioning_pass FROM {t}")}
     assert flags("live_gate_history") == {
         1: (0, None, None, None),          # the pre-event penalty bit at L3's re-test: the test as run failed
         2: (1, 1, None, 1),                # the ETF re-test ran after L5, before L6
         3: (1, 1, 1, 1),                   # Claude approved, the order could not buy
-        4: (None, None, None, None),       # a skip ran no lock (it wrote lock1_pass 1)
+        4: (None, None, None, None),       # a skip ran no lock (it wrote l3_score_pass 1)
     }
     assert flags("demo_gate_history") == {7439: (1, 1, None, 1)}     # the guard ran before L6
     assert flags("signals")[11] == (None, None, None, None)           # eligibility: no flagged lock ran
@@ -90,7 +90,7 @@ def test_migrate_recodes_records_and_reverse_restores(db):
     rec = db.execute(f"SELECT old_code, basis, old_pass_flags, deleted_row FROM {RECORD} "
                      f"WHERE tbl = 'demo_gate_history' AND row_id = 1276").fetchone()
     assert rec[0] == "FILTERED_L1" and '"ticker": "_TEST"' in rec[3]
-    assert '"lock1_pass": 1' in db.execute(f"SELECT old_pass_flags FROM {RECORD} WHERE row_id = 7439").fetchone()[0]
+    assert '"l3_score_pass": 1' in db.execute(f"SELECT old_pass_flags FROM {RECORD} WHERE row_id = 7439").fetchone()[0]
 
     with pytest.raises(RuntimeError):
         migrate(db)                                              # a migrated database is refused
@@ -119,7 +119,7 @@ def test_migrate_writes_the_rule_states_the_row_proves_and_reverse_clears_them(d
     # flag is 0), so only the stop and the module's regime and macro checks are known; earnings had no data.
     assert got[("live_gate_history", 1)] == {"L1_ELIGIBILITY_MACRO_PRE_EVENT": "fail", "L1_ELIGIBILITY_REGIME": "pass",
                                              "L1_ELIGIBILITY_MACRO_EVENT": "pass", "L2_RISK_EARNINGS": "no_data"}
-    # LLY: Claude approved (lock3_pass 1), the order could not buy one share.
+    # LLY: Claude approved (l6_review_pass 1), the order could not buy one share.
     assert got[("live_gate_history", 3)]["L1_ELIGIBILITY_NOTIONAL_TOO_SMALL"] == "fail"
     assert got[("live_gate_history", 3)]["L6_REVIEW_CLAUDE"] == "pass"
     # A skip ran no chain lock: only its rule.

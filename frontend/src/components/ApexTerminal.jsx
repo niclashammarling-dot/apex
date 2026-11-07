@@ -290,7 +290,7 @@ function LockChain({ D, mode }) {
 
 function Positions({ D, mode }) {
   const positions = mode === "live" ? (D.livePositions || []) : (D.positions || []);
-  const maxPos = mode === "live" ? (D.settings?.live?.max_positions ?? 6) : (D.settings?.demo?.max_positions ?? 6);
+  const maxPos = mode === "live" ? (D.settings?.live?.l2_risk_max_positions_count ?? 6) : (D.settings?.demo?.l2_risk_max_positions_count ?? 6);
   return (
     <div className="t-card">
       <div className="t-card-head">
@@ -578,12 +578,12 @@ function GateFeed({ D, mode }) {
                 const outcome   = gateOutcomeMeta(r);
                 const isSkipped = r.badge_kind === "skip";
                 const locks     = getGateLockStates(r, D.gateLocks);
-                const hasDetail = !isSkipped && !!(r.lock3_reasoning || r.lock_leading_checks || r.l2_summary || r.macro_reason);
+                const hasDetail = !isSkipped && !!(r.decision_reason || r.l5_positioning_checks || r.l4_sentiment_summary || r.l1_eligibility_reason);
                 const isExpanded = expanded[i];
                 const time = r._count > 1 ? `${fmtTs(r.ts)}–${fmtTs(r._lastTs)}` : fmtTs(r.ts);
-                const scoreColor = r.l1_threshold == null ? "inherit"
-                  : r.score >= r.l1_threshold + 0.05 ? "var(--t-accent)"
-                  : r.score >= r.l1_threshold          ? "var(--t-amber)"
+                const scoreColor = r.l3_score_threshold_min == null ? "inherit"
+                  : r.score >= r.l3_score_threshold_min + 0.05 ? "var(--t-accent)"
+                  : r.score >= r.l3_score_threshold_min          ? "var(--t-amber)"
                   : "var(--t-red)";
                 return [
                   <tr
@@ -599,8 +599,8 @@ function GateFeed({ D, mode }) {
                     </td>
                     <td style={{ fontFamily: "var(--mono)" }}>
                       <span style={{ color: scoreColor, fontWeight: 600 }}>{r.score.toFixed(3)}</span>
-                      {r.l1_threshold != null && (
-                        <div style={{ fontSize: 9, color: "var(--t-text-3)" }}>/{r.l1_threshold.toFixed(3)}</div>
+                      {r.l3_score_threshold_min != null && (
+                        <div style={{ fontSize: 9, color: "var(--t-text-3)" }}>/{r.l3_score_threshold_min.toFixed(3)}</div>
                       )}
                     </td>
                     {locks.map((s, li) => (
@@ -622,23 +622,23 @@ function GateFeed({ D, mode }) {
                         lineHeight: 1.7,
                         fontFamily: "var(--mono)",
                       }}>
-                        {r.macro_reason && (
+                        {r.l1_eligibility_reason && (
                           <div style={{ marginBottom: 6 }}>
-                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>{D.gateLocks?.detail_labels?.macro_reason}:</span>
-                            <span style={{ color: "var(--t-text-2)" }}>{r.macro_reason}</span>
+                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>{D.gateLocks?.detail_labels?.l1_eligibility_reason}:</span>
+                            <span style={{ color: "var(--t-text-2)" }}>{r.l1_eligibility_reason}</span>
                           </div>
                         )}
-                        {r.l2_summary && (
+                        {r.l4_sentiment_summary && (
                           <div style={{ marginBottom: 6 }}>
-                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>{D.gateLocks?.detail_labels?.l2_summary}:</span>
-                            <span style={{ color: "var(--t-text-2)" }}>{r.l2_summary}</span>
+                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>{D.gateLocks?.detail_labels?.l4_sentiment_summary}:</span>
+                            <span style={{ color: "var(--t-text-2)" }}>{r.l4_sentiment_summary}</span>
                           </div>
                         )}
-                        {r.lock_leading_checks && (
+                        {r.l5_positioning_checks && (
                           <div style={{ marginBottom: 6 }}>
-                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>{D.gateLocks?.detail_labels?.lock_leading_checks}:</span>
+                            <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>{D.gateLocks?.detail_labels?.l5_positioning_checks}:</span>
                             {Object.entries(GATE_LEADING_LABELS).map(([key, lbl]) => {
-                              const c = r.lock_leading_checks[key];
+                              const c = r.l5_positioning_checks[key];
                               if (!c) return null;
                               return (
                                 <span key={key} style={{ marginRight: 12 }}>
@@ -651,10 +651,10 @@ function GateFeed({ D, mode }) {
                             })}
                           </div>
                         )}
-                        {r.lock3_reasoning && (
+                        {r.decision_reason && (
                           <div>
                             <span style={{ color: "var(--t-text-3)", marginRight: 8 }}>{r.reason_label ?? "Reason"}:</span>
-                            <span style={{ color: "var(--t-text-2)" }}>{r.lock3_reasoning}</span>
+                            <span style={{ color: "var(--t-text-2)" }}>{r.decision_reason}</span>
                           </div>
                         )}
                       </td>

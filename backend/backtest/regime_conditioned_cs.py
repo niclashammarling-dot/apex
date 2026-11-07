@@ -52,11 +52,11 @@ import pandas as pd
 from loguru import logger
 
 from backend.config import (
-    LOCK1_THRESHOLD,
+    DEMO_L3_SCORE_THRESHOLD_MIN,
     SECTORS,
     SPY_TICKER,
-    STOP_LOSS_PCT,
-    TAKE_PROFIT_PCT,
+    DEMO_STOP_LOSS_PCT,
+    DEMO_TAKE_PROFIT_PCT,
     TIME_STOP_DAYS,
 )
 from backend.regime.regime_bayes import (
@@ -84,7 +84,7 @@ END    = "2026-05-01"
 POSTERIOR_LEVELS = [0.0, 0.40, 0.45, 0.50, 0.55, 0.60]
 
 # L1 threshold applied to ticker scores (standard run)
-L1 = LOCK1_THRESHOLD   # 0.70 — same gate as active sectors
+L1 = DEMO_L3_SCORE_THRESHOLD_MIN   # 0.70 — same gate as active sectors
 
 # --matrix mode: score floor and stratification bands
 MATRIX_MIN_SCORE   = 0.55
@@ -373,10 +373,10 @@ def _simulate_trades(
             pnl_pct    = (current - entry_price) / entry_price
             days_held  = i + 1
 
-            if pnl_pct >= TAKE_PROFIT_PCT:
+            if pnl_pct >= DEMO_TAKE_PROFIT_PCT:
                 outcome, exit_price, exit_reason = "WIN", current, "TP"
                 break
-            elif pnl_pct <= -STOP_LOSS_PCT:
+            elif pnl_pct <= -DEMO_STOP_LOSS_PCT:
                 outcome, exit_price, exit_reason = "LOSS", current, "SL"
                 break
             elif days_held >= TIME_STOP_DAYS:
@@ -627,7 +627,7 @@ def main() -> None:
         type=float,
         default=None,
         metavar="FLOAT",
-        help="Override the L1 score floor (default: LOCK1_THRESHOLD=0.70).",
+        help="Override the L1 score floor (default: DEMO_L3_SCORE_THRESHOLD_MIN=0.70).",
     )
     args = parser.parse_args()
 
@@ -690,12 +690,12 @@ def main() -> None:
 
     # 4. Display
     # Retrieve the per-sector calibrated threshold for matrix multiplier computation.
-    # Falls back to LOCK1_THRESHOLD if not in DB (e.g., during development runs).
+    # Falls back to DEMO_L3_SCORE_THRESHOLD_MIN if not in DB (e.g., during development runs).
     try:
         from backend.db import get_ticker_thresholds
-        sector_threshold = get_ticker_thresholds().get(sector_name, float(LOCK1_THRESHOLD))
+        sector_threshold = get_ticker_thresholds().get(sector_name, float(DEMO_L3_SCORE_THRESHOLD_MIN))
     except Exception:
-        sector_threshold = float(LOCK1_THRESHOLD)
+        sector_threshold = float(DEMO_L3_SCORE_THRESHOLD_MIN)
 
     if matrix_mode:
         _attach_multipliers(records, sector_threshold)

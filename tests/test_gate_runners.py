@@ -34,19 +34,19 @@ def _signal(ticker="NVDA", sector="Technology", score=0.65, price=200.0, sid=1):
 
 def _demo_cfg(**overrides):
     base = {
-        "lock1_threshold":              0.5,
-        "lock2_sentiment_min":          0.2,
-        "lock3_confidence_min":         0.6,
-        "vix_threshold":                25.0,
-        "macro_event_blackout_days":    1,
-        "macro_earnings_blackout_days": 3,
-        "gate_cooloff_hours":           4,
-        "max_positions":                4,
-        "max_sector_exposure":          0.25,
+        "l3_score_threshold_min":              0.5,
+        "l4_sentiment_grok_min":          0.2,
+        "l6_review_claude_min":         0.6,
+        "l1_eligibility_vix_max":                25.0,
+        "l1_eligibility_macro_event_days":    1,
+        "l2_risk_earnings_days": 3,
+        "l1_eligibility_cooloff_hours":           4,
+        "l2_risk_max_positions_count":                4,
+        "l2_risk_sector_cap_max":          0.25,
         "max_position_size":            0.15,
-        "daily_loss_cap":               500.0,
+        "l0_portfolio_loss_cap_max":               500.0,
         "starting_balance":             10000.0,
-        "max_drawdown_pct":             0.20,
+        "l0_portfolio_drawdown_guard_max":             0.20,
         "take_profit_pct":              0.08,
         "stop_loss_pct":                0.04,
     }
@@ -57,8 +57,8 @@ def _demo_cfg(**overrides):
 def _live_cfg(**overrides):
     base = _demo_cfg()
     base.update({
-        "daily_loss_cap":    500.0,
-        "max_positions":     5,
+        "l0_portfolio_loss_cap_max":    500.0,
+        "l2_risk_max_positions_count":     5,
         "max_position_size": 0.10,
         "starting_balance":  10000.0,
     })
@@ -67,20 +67,20 @@ def _live_cfg(**overrides):
 
 
 def _lr_pass(lock_id: int, score: float = 0.75, data: dict = None) -> LockResult:
-    """Build a passing LockResult with realistic data for the given lock."""
+    """Build a passing LockResult with realistic data for the given chain lock."""
     base: dict = {}
     if lock_id == 1:
         base = {"sector": "Technology", "adjusted_score": 0.8,
                 "allocation": 0.3, "rank": 1, "entry_threshold": 0.37, "exit_threshold": 0.33,
                 "regime_available": True}
-    elif lock_id == 2:
+    elif lock_id == 3:
         base = {"signal_score": score, "threshold": 0.5,
                 "effective_threshold": 0.5, "on_watchlist": False,
                 "watchlist_discount": 0.0, "sector": "Technology"}
-    elif lock_id == 3:
+    elif lock_id == 4:
         base = {"score": 0.5, "sentiment": "positive",
                 "conviction": "high", "key_themes": [], "summary": "Bullish"}
-    elif lock_id == 4:
+    elif lock_id == 5:
         base = {
             "sub_checks": {
                 "relative_strength": {"pass": True,  "reason": "outperforms"},
@@ -90,7 +90,7 @@ def _lr_pass(lock_id: int, score: float = 0.75, data: dict = None) -> LockResult
             },
             "pass_count": 3, "price_group_pass": True, "options_group_pass": True,
         }
-    elif lock_id == 5:
+    elif lock_id == 6:
         base = {"decision": "BUY", "confidence": 0.85,
                 "position_size_pct": 0.10,
                 "reasoning": "Good setup.", "model": "claude-opus-4-6"}
@@ -103,44 +103,46 @@ def _lr_fail(lock_id: int, reason: str = "fail") -> LockResult:
     return LockResult.fail(lock_id=lock_id, reason=reason, data={})
 
 
-# The rule each module lock records, in the order the chain meets them (chain.py rule_states; lock labels phase 2).
-_MODULE_RULES = {1: [(1, "regime"), (1, "vix"), (1, "macro_event"), (2, "earnings")],
-                 2: [(3, "threshold"), (1, "macro_pre_event"), (2, "earnings_near")],
-                 3: [(4, "grok")], 4: [(5, "leading"), (2, "etf"), (0, "drawdown_guard")], 5: [(6, "claude")]}
-# The rule a fixture's failing module lock stops on.
-_STOP_RULE = {1: (1, "regime"), 2: (3, "threshold"), 3: (4, "grok"), 4: (5, "leading"), 5: (6, "claude")}
+# The chain locks with a LockResult, and the rules each records in the order the chain meets them (chain.py
+# rule_states; lock labels phase 2).
+CHAIN = (1, 3, 4, 5, 6)
+_LOCK_RULES = {1: [(1, "regime"), (1, "vix"), (1, "macro_event"), (2, "earnings")],
+               3: [(3, "threshold"), (1, "macro_pre_event"), (2, "earnings_near")],
+               4: [(4, "grok")], 5: [(5, "leading"), (2, "etf"), (0, "drawdown_guard")], 6: [(6, "claude")]}
+# The rule a fixture's failing lock stops on.
+_STOP_RULE = {1: (1, "regime"), 3: (3, "threshold"), 4: (4, "grok"), 5: (5, "leading"), 6: (6, "claude")}
 
 
 def _states(upto: int, stop: int | None = None) -> dict[str, str]:
     from backend.gate.lock_codes import FAIL, PASS, rule_key
-    out = {rule_key(o, r): PASS for m in range(1, upto + 1) for (o, r) in _MODULE_RULES[m] if m != stop}
+    out = {rule_key(o, r): PASS for m in CHAIN if m <= upto for (o, r) in _LOCK_RULES[m] if m != stop}
     if stop is not None:
         out[rule_key(*_STOP_RULE[stop])] = FAIL
     return out
 
 
 def _chain_pass(ticker: str = "NVDA", sector: str = "Technology") -> ChainResult:
-    """Return a fully-passing ChainResult (all 5 locks)."""
-    lr = {i: _lr_pass(i) for i in range(1, 6)}
+    """Return a fully-passing ChainResult (every lock)."""
+    lr = {i: _lr_pass(i) for i in CHAIN}
     return ChainResult(
-        ticker=ticker, sector=sector, approved=True, exit_lock=None,
-        lock_results=lr, final_score=0.85, summary="APPROVED", rule_states=_states(5),
+        ticker=ticker, sector=sector, approved=True,
+        lock_results=lr, final_score=0.85, summary="APPROVED", rule_states=_states(6),
     )
 
 
 def _chain_fail_at(
-    exit_lock: int,
+    lock: int,
     ticker: str = "NVDA",
     sector: str = "Technology",
     reason: str = "fail",
 ) -> ChainResult:
-    """Return a ChainResult that failed at exit_lock (all prior locks passed)."""
-    lr = {i: _lr_pass(i) for i in range(1, exit_lock)}
-    lr[exit_lock] = _lr_fail(exit_lock, reason)
+    """Return a ChainResult that failed at chain lock `lock` (every earlier lock passed)."""
+    lr = {i: _lr_pass(i) for i in CHAIN if i < lock}
+    lr[lock] = _lr_fail(lock, reason)
     return ChainResult(
-        ticker=ticker, sector=sector, approved=False, exit_lock=exit_lock,
+        ticker=ticker, sector=sector, approved=False,
         lock_results=lr, final_score=0.3,
-        summary=f"REJECTED at Lock {exit_lock} — {reason}", rule_states=_states(exit_lock, stop=exit_lock),
+        summary=f"REJECTED at L{lock} — {reason}", rule_states=_states(lock, stop=lock),
     )
 
 
@@ -162,7 +164,7 @@ def _demo_patches(candidates, open_tickers=None, failed_tickers=None,
       1  get_ticker_thresholds
       2  compute_dynamic_caps
       3  compute_sector_regime
-      4  get_lock1_candidates
+      4  get_l3_score_candidates
       5  get_open_tickers
       6  get_recently_failed_tickers
       7  update_signal_gate
@@ -186,7 +188,7 @@ def _demo_patches(candidates, open_tickers=None, failed_tickers=None,
         patch("backend.sector_caps.compute_dynamic_caps",      return_value={}),          # 2
         patch("backend.sector_regime.compute_sector_regime",   return_value={"available": False}),  # 3
         # Module-level imports → patch at gate_runner scope
-        patch("backend.gate.gate_runner.get_lock1_candidates",
+        patch("backend.gate.gate_runner.get_l3_score_candidates",
               return_value=candidates),                                                    # 4
         patch("backend.gate.gate_runner.get_open_tickers",
               return_value=open_tickers or set()),                                         # 5
@@ -206,7 +208,7 @@ def _demo_patches(candidates, open_tickers=None, failed_tickers=None,
         patch("backend.gate.gate_runner.get_wallet_context",
               return_value=wallet_ctx),                                                    # 14
         patch("backend.gate.gate_runner.get_recently_exited_tickers",
-              return_value=set()),                                                          # 15
+              return_value=(set(), set())),                                                          # 15
     ]
 
 
@@ -251,33 +253,33 @@ class TestDemoGateRunner:
         # Two DB writes: one L1 position_open skip + one evaluation result
         assert mocks[7].call_count == 2
 
-    def test_eligibility_fail_returns_filtered_eligibility(self):
+    def test_eligibility_fail_returns_filtered_l1_eligibility(self):
         results, _ = _run_demo(candidates=[_signal()],
                                chain_result=_chain_fail_at(1))
         assert results[0]["outcome"]       == "FILTERED_L1_ELIGIBILITY"
         assert results[0]["gate_decision"] == "FILTERED_L1_ELIGIBILITY"
 
-    def test_l1_fail_returns_filtered_l1(self):
+    def test_score_fail_returns_filtered_l3_score(self):
         results, _ = _run_demo(candidates=[_signal()],
-                               chain_result=_chain_fail_at(2))
+                               chain_result=_chain_fail_at(3))
         assert results[0]["outcome"]       == "FILTERED_L3_SCORE"
         assert results[0]["gate_decision"] == "FILTERED_L3_SCORE"
 
-    def test_l2_fail_returns_filtered_l2(self):
+    def test_sentiment_fail_returns_filtered_l4_sentiment(self):
         results, _ = _run_demo(candidates=[_signal()],
-                               chain_result=_chain_fail_at(3))
+                               chain_result=_chain_fail_at(4))
         assert results[0]["outcome"]       == "FILTERED_L4_SENTIMENT"
         assert results[0]["gate_decision"] == "FILTERED_L4_SENTIMENT"
 
-    def test_leading_fail_returns_filtered_leading(self):
+    def test_positioning_fail_returns_filtered_l5_positioning(self):
         results, _ = _run_demo(candidates=[_signal()],
-                               chain_result=_chain_fail_at(4))
+                               chain_result=_chain_fail_at(5))
         assert results[0]["outcome"]       == "FILTERED_L5_POSITIONING"
         assert results[0]["gate_decision"] == "FILTERED_L5_POSITIONING"
 
-    def test_l3_fail_returns_filtered_l3(self):
+    def test_review_fail_returns_filtered_l6_review(self):
         results, _ = _run_demo(candidates=[_signal()],
-                               chain_result=_chain_fail_at(5))
+                               chain_result=_chain_fail_at(6))
         assert results[0]["outcome"]       == "FILTERED_L6_REVIEW"
         assert results[0]["gate_decision"] == "FILTERED_L6_REVIEW"
 
@@ -302,16 +304,16 @@ class TestDemoGateRunner:
     def test_all_lock_passes_written_to_db(self):
         results, mocks = _run_demo(candidates=[_signal()], trade_result=True)
         saved = mocks[7].call_args[0][1]  # update_signal_gate second arg
-        assert saved["lock1_pass"]        == 1  # quant (L2) → old lock1 column
-        assert saved["lock2_pass"]        == 1  # sentiment (L3) → old lock2 column
-        assert saved["lock_leading_pass"] == 1
-        assert saved["lock3_pass"]        == 1  # claude (L5) → old lock3 column
+        assert saved["l3_score_pass"]        == 1  # quant (L2) → old lock1 column
+        assert saved["l4_sentiment_pass"]        == 1  # sentiment (L3) → old lock2 column
+        assert saved["l5_positioning_pass"] == 1
+        assert saved["l6_review_pass"]        == 1  # claude (L5) → old lock3 column
 
     def test_leading_checks_json_written_to_db(self):
         results, mocks = _run_demo(candidates=[_signal()], trade_result=True)
         saved = mocks[7].call_args[0][1]
-        assert saved["lock_leading_checks"] is not None
-        parsed = json.loads(saved["lock_leading_checks"])
+        assert saved["l5_positioning_checks"] is not None
+        parsed = json.loads(saved["l5_positioning_checks"])
         assert "relative_strength" in parsed
 
     def test_multiple_candidates_all_evaluated(self):
@@ -366,7 +368,7 @@ def _live_patches(candidates, open_tickers=None, failed_tickers=None,
       3  get_live_config
       4  get_ticker_thresholds
       5  compute_sector_regime
-      6  get_lock1_candidates
+      6  get_l3_score_candidates
       7  get_open_live_tickers
       8  get_recently_failed_live_tickers
       9  insert_live_gate_result
@@ -400,7 +402,7 @@ def _live_patches(candidates, open_tickers=None, failed_tickers=None,
         patch("backend.db.get_ticker_thresholds",              return_value={}),        # 4
         patch("backend.sector_regime.compute_sector_regime",   return_value={"available": False}),  # 5
         # Module-level imports → patch at gate_runner_live scope
-        patch("backend.gate.gate_runner_live.get_lock1_candidates",
+        patch("backend.gate.gate_runner_live.get_l3_score_candidates",
               return_value=candidates),                                                  # 6
         patch("backend.gate.gate_runner_live.get_open_live_tickers",
               return_value=open_tickers or set()),                                       # 7
@@ -437,7 +439,7 @@ def _live_patches(candidates, open_tickers=None, failed_tickers=None,
         patch("backend.scheduler._get_regime_bayes",
               return_value=MagicMock(last_result=MagicMock(return_value=None))),        # 19
         patch("backend.gate.gate_runner_live.get_recently_exited_live_tickers",
-              return_value=set()),                                                       # 20
+              return_value=(set(), set())),                                                       # 20
     ]
 
 
@@ -501,7 +503,7 @@ class TestLiveGateRunner:
             results, mocks = _run_live(candidates=[_signal()],
                                    account=_account(day_pnl=-600.0),
                                    apex_day_pnl=-600.0,
-                                   cfg_overrides={"daily_loss_cap": 500.0})
+                                   cfg_overrides={"l0_portfolio_loss_cap_max": 500.0})
         clear_alert_latch("loss_cap:2026-08-11")
         assert results == []
         mocks[15].assert_called_once()   # alert_daily_loss_cap
@@ -516,7 +518,7 @@ class TestLiveGateRunner:
             results, mocks = _run_live(candidates=[_signal()],
                                    account=_account(day_pnl=-500.0),
                                    apex_day_pnl=-500.0,
-                                   cfg_overrides={"daily_loss_cap": 500.0})
+                                   cfg_overrides={"l0_portfolio_loss_cap_max": 500.0})
         clear_alert_latch("loss_cap:2026-08-12")
         assert results == []
         mocks[15].assert_called_once()
@@ -525,7 +527,7 @@ class TestLiveGateRunner:
     def test_daily_loss_below_cap_continues(self):
         results, _ = _run_live(candidates=[_signal()],
                                account=_account(day_pnl=-100.0),
-                               cfg_overrides={"daily_loss_cap": 500.0})
+                               cfg_overrides={"l0_portfolio_loss_cap_max": 500.0})
         assert len(results) == 1
 
     def test_no_candidates_returns_empty(self):
@@ -582,25 +584,25 @@ class TestLiveGateRunner:
         assert results[0]["outcome"]       == "FILTERED_L1_ELIGIBILITY"
         assert results[0]["gate_decision"] == "FILTERED_L1_ELIGIBILITY"
 
-    def test_l1_fail(self):
+    def test_score_fail(self):
         results, _ = _run_live(candidates=[_signal()],
-                               chain_result=_chain_fail_at(2))
+                               chain_result=_chain_fail_at(3))
         assert results[0]["outcome"]       == "FILTERED_L3_SCORE"
         assert results[0]["gate_decision"] == "FILTERED_L3_SCORE"
 
-    def test_l2_fail(self):
-        results, _ = _run_live(candidates=[_signal()],
-                               chain_result=_chain_fail_at(3))
-        assert results[0]["outcome"] == "FILTERED_L4_SENTIMENT"
-
-    def test_leading_fail(self):
+    def test_sentiment_fail(self):
         results, _ = _run_live(candidates=[_signal()],
                                chain_result=_chain_fail_at(4))
-        assert results[0]["outcome"] == "FILTERED_L5_POSITIONING"
+        assert results[0]["outcome"] == "FILTERED_L4_SENTIMENT"
 
-    def test_l3_fail(self):
+    def test_positioning_fail(self):
         results, _ = _run_live(candidates=[_signal()],
                                chain_result=_chain_fail_at(5))
+        assert results[0]["outcome"] == "FILTERED_L5_POSITIONING"
+
+    def test_review_fail(self):
+        results, _ = _run_live(candidates=[_signal()],
+                               chain_result=_chain_fail_at(6))
         assert results[0]["outcome"] == "FILTERED_L6_REVIEW"
 
     def test_all_pass_trade_executed(self):
@@ -613,7 +615,7 @@ class TestLiveGateRunner:
         positions = [{"ticker": f"T{i}"} for i in range(5)]
         # score=0.50 < overflow_threshold=0.525 (base 0.50 × 1.05) → overflow rejection
         results, mocks = _run_live(candidates=[_signal(score=0.50)], positions=positions,
-                                   cfg_overrides={"max_positions": 5})
+                                   cfg_overrides={"l2_risk_max_positions_count": 5})
         assert results[0]["stop_code"] == "FILTERED_L2_RISK_OVERFLOW"
         mocks[14].assert_not_called()
 
@@ -654,7 +656,7 @@ class TestLiveGateRunner:
         positions = [{"ticker": f"T{i}"} for i in range(5)]
         # score=0.50 < overflow_threshold → L2 overflow, counted under L2 · Risk in the funnel
         results, mocks = _run_live(candidates=[_signal(score=0.50)], positions=positions,
-                                   cfg_overrides={"max_positions": 5})
+                                   cfg_overrides={"l2_risk_max_positions_count": 5})
         saved = mocks[9].call_args[0][0]
         assert saved["gate_decision"] == "FILTERED_L2_RISK" and saved["stop_code"] == "FILTERED_L2_RISK_OVERFLOW"
 
@@ -671,23 +673,23 @@ class TestLiveGateRunner:
     def test_leading_checks_stored_in_db(self):
         results, mocks = _run_live(candidates=[_signal()])
         saved = mocks[9].call_args[0][0]  # insert_live_gate_result arg
-        assert saved["lock_leading_pass"] == 1
-        assert saved["lock_leading_checks"] is not None
-        parsed = json.loads(saved["lock_leading_checks"])
+        assert saved["l5_positioning_pass"] == 1
+        assert saved["l5_positioning_checks"] is not None
+        parsed = json.loads(saved["l5_positioning_checks"])
         assert "relative_strength" in parsed
 
     # ── Demo / live parity ────────────────────────────────────────────────────
 
-    @pytest.mark.parametrize("exit_lock,expected_outcome", [
+    @pytest.mark.parametrize("lock,expected_outcome", [
         (1, "FILTERED_L1_ELIGIBILITY"),
-        (2, "FILTERED_L3_SCORE"),
-        (3, "FILTERED_L4_SENTIMENT"),
-        (4, "FILTERED_L5_POSITIONING"),
-        (5, "FILTERED_L6_REVIEW"),
+        (3, "FILTERED_L3_SCORE"),
+        (4, "FILTERED_L4_SENTIMENT"),
+        (5, "FILTERED_L5_POSITIONING"),
+        (6, "FILTERED_L6_REVIEW"),
     ])
-    def test_demo_live_outcome_parity(self, exit_lock, expected_outcome):
+    def test_demo_live_outcome_parity(self, lock, expected_outcome):
         """Both runners produce identical outcome and gate_decision for each failure mode."""
-        cr = _chain_fail_at(exit_lock)
+        cr = _chain_fail_at(lock)
 
         demo_results, _ = _run_demo(candidates=[_signal()], chain_result=cr)
         live_results, _ = _run_live(candidates=[_signal()], chain_result=cr)
@@ -719,7 +721,7 @@ class TestLiveGateRunner:
 class TestMechanicalDrawdownGuard:
     """
     The drawdown guard in evaluate_chain must reject before calling L5 when
-    (starting_balance - wallet_balance) / starting_balance > max_drawdown_pct.
+    (starting_balance - wallet_balance) / starting_balance > l0_portfolio_drawdown_guard_max.
 
     This prevents the L5 failure mode observed on 2026-07-02 (BA 16:42):
     Claude returned 'REJECT on drawdown grounds' in its reasoning but 'BUY'
@@ -748,19 +750,19 @@ class TestMechanicalDrawdownGuard:
             context=context, cfg=cfg or _demo_cfg(),
         )
 
-    def _all_lock_patches(self, l5_return=None):
-        """Patch all five locks at the chain module's bound names."""
+    def _all_lock_patches(self, l6_return=None):
+        """Patch every lock at the chain module's bound names."""
         return [
-            patch("backend.gate.chain.lock1_evaluate", return_value=_lr_pass(1)),
-            patch("backend.gate.chain.lock2_evaluate", return_value=_lr_pass(2)),
-            patch("backend.gate.chain.lock3_evaluate", return_value=_lr_pass(3)),
-            patch("backend.gate.chain.lock4_evaluate", return_value=_lr_pass(4)),
-            patch("backend.gate.chain.lock5_evaluate",
-                  return_value=(l5_return if l5_return is not None else _lr_pass(5))),
+            patch("backend.gate.chain.l1_eligibility_evaluate", return_value=_lr_pass(1)),
+            patch("backend.gate.chain.l3_score_evaluate", return_value=_lr_pass(3)),
+            patch("backend.gate.chain.l4_sentiment_evaluate", return_value=_lr_pass(4)),
+            patch("backend.gate.chain.l5_positioning_evaluate", return_value=_lr_pass(5)),
+            patch("backend.gate.chain.l6_review_evaluate",
+                  return_value=(l6_return if l6_return is not None else _lr_pass(6))),
         ]
 
     def test_drawdown_exceeded_rejects_before_l5(self):
-        # 46.7% drawdown > 20% limit — must reject at lock 5 without calling Claude
+        # 46.7% drawdown > 20% limit — must reject at the drawdown guard without calling Claude
         context = self._context(balance=1066.37, starting=2000.0, max_dd=0.20)
         patches = self._all_lock_patches()
         with ExitStack() as stack:
@@ -768,9 +770,9 @@ class TestMechanicalDrawdownGuard:
             result = self._run_chain(context)
 
         assert result.approved is False
-        assert result.exit_lock == 5
+        assert result.stop == (0, "drawdown_guard")
         assert "drawdown" in result.summary.lower()
-        mocks[4].assert_not_called()  # lock5_evaluate must not be called
+        mocks[4].assert_not_called()  # l6_review_evaluate must not be called
 
     def test_drawdown_at_limit_passes(self):
         # Exactly at 20% — should not be rejected by the guard (strictly greater than)

@@ -1,6 +1,6 @@
 """
 Live Gate Runner — the same gate as gate_runner.py (demo = live except trading, ruling 2026-10-28) but:
-  - L0's M4 rules run first, once per cycle (portfolio_l0); a halt writes no row
+  - L0's M4 rules run first, once per cycle (l0_portfolio); a halt writes no row
   - L1 also checks the live blocklist, and affordability counts whole shares (bracket orders)
   - On TRADE_QUEUED, places a real Alpaca bracket order
   - Stores gate results in live_gate_history (not the demo signals table), under the code lock_codes derives
@@ -11,7 +11,7 @@ Bracket orders set TP + SL at Alpaca order time, so no separate exit
 checker is needed — Alpaca manages the position lifecycle natively.
 """
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import timezone
 
 from loguru import logger
 
@@ -20,7 +20,7 @@ from backend.ticker_config import get_sectors
 from backend.db import (
     get_live_ticker_gate_fails,
     get_live_trades_exited_since,
-    get_lock1_candidates,
+    get_l3_score_candidates,
     get_open_live_tickers,
     get_open_live_trades,
     get_recently_exited_live_tickers,
@@ -45,7 +45,7 @@ from backend.gate.gate_runner import (
     _persist_multiplier_stats,
     _pre_chain_result,
     _pre_chain_states,
-    _run_l5_for_result,
+    _run_l6_review_for_result,
 )
 from backend.sector_caps import compute_dynamic_caps
 
@@ -403,23 +403,23 @@ def _run(cycle: GateCycle) -> list[dict]:
         cycle.reason = "halt_data_quality"
         return []
 
-    # L0 Portfolio: the M4 stop rules (backend/gate/portfolio_l0.py), before L1 starts. Only
+    # L0 Portfolio: the M4 stop rules (backend/gate/l0_portfolio.py), before L1 starts. Only
     # reached once broker and APEX are confirmed to agree, so a trip here is a genuine loss, not a
     # snapshot artifact. The daily cap is a share of current equity; downstream readers (L5's
     # risk_limits) see the effective dollar cap through cfg.
     from backend.db import live_sample_rows
-    from backend.gate import portfolio_l0
-    l0 = portfolio_l0.evaluate(acct, live_sample_rows(), cfg["starting_balance"])
-    cfg["daily_loss_cap"] = l0["daily_loss_cap"]
+    from backend.gate import l0_portfolio
+    l0 = l0_portfolio.evaluate(acct, live_sample_rows(), cfg["starting_balance"])
+    cfg["l0_portfolio_loss_cap_max"] = l0["l0_portfolio_loss_cap_max"]
     if l0["reason"]:
         today = _ny_today()
         logger.warning(f"Live gate: L0 halt {l0['reason']} — day loss ${l0['day_loss']:.2f} / cap "
-                       f"${l0['daily_loss_cap']:.2f}; realised drawdown {l0['drawdown']['drawdown']:.2%}; "
+                       f"${l0['l0_portfolio_loss_cap_max']:.2f}; realised drawdown {l0['drawdown']['drawdown']:.2%}; "
                        f"expectancy {l0['expectancy']}")
         if set_alert_latch(f"{l0['reason']}:{today}"):
-            if l0["reason"] == portfolio_l0.HALT_LOSS_CAP:
+            if l0["reason"] == l0_portfolio.HALT_LOSS_CAP:
                 from backend.alerts import alert_daily_loss_cap
-                alert_daily_loss_cap(l0["day_loss"], l0["daily_loss_cap"])
+                alert_daily_loss_cap(l0["day_loss"], l0["l0_portfolio_loss_cap_max"])
             else:
                 from backend.alerts import alert_gate_blocked
                 alert_gate_blocked(f"L0 {l0['reason']}: realised drawdown {l0['drawdown']['drawdown']:.2%} "
@@ -428,17 +428,17 @@ def _run(cycle: GateCycle) -> list[dict]:
         cycle.reason = l0["reason"]
         return []
     l0_states: dict[str, str] = {}
-    for ident, verdict in portfolio_l0.rule_verdicts(l0).items():
+    for ident, verdict in l0_portfolio.rule_verdicts(l0).items():
         lock_codes.put(l0_states, ident, verdict)
 
     stale: list[dict] = []
-    candidates = get_lock1_candidates(threshold=cfg["lock1_threshold"],
+    candidates = get_l3_score_candidates(threshold=cfg["l3_score_threshold_min"],
                                       sector_thresholds=sector_thresholds,
                                       stale_out=stale)
     record_stale(cycle, stale, "Live gate runner")
     n_stale_main = len(stale)
     if not candidates:
-        logger.info("Live gate runner: no Lock 1 candidates this cycle")
+        logger.info("Live gate runner: no L3 SCORE candidates this cycle")
         cycle.reason = "no_fresh_candidates" if stale else "no_candidates"
         _persist_multiplier_stats({}, None, [], runner="live")
         return []
@@ -448,15 +448,15 @@ def _run(cycle: GateCycle) -> list[dict]:
     # holds, not signal-quality exclusions; see backend/config.py).
     from backend.config import LIVE_TICKER_BLOCKLIST
     open_tickers    = get_open_live_tickers()
-    failed_tickers  = get_recently_failed_live_tickers(cfg.get("gate_cooloff_hours", 4))
-    exited_tickers  = get_recently_exited_live_tickers(
-        sl_hours=cfg.get("exit_cooloff_hours", 24),
-        tp_hours=cfg.get("tp_cooloff_hours", 168),
+    failed_tickers  = get_recently_failed_live_tickers(cfg.get("l1_eligibility_cooloff_hours", 4))
+    exited_tickers, won_tickers = get_recently_exited_live_tickers(
+        sl_hours=cfg.get("l1_eligibility_exit_cooloff_hours", 24),
+        tp_hours=cfg.get("l1_eligibility_exit_cooloff_win_hours", 168),
     )
     blocklisted_tickers = set(LIVE_TICKER_BLOCKLIST)
-    blocked = open_tickers | failed_tickers | exited_tickers | blocklisted_tickers
+    blocked = open_tickers | failed_tickers | exited_tickers | won_tickers | blocklisted_tickers
     pre_checks = {"blocklist": blocklisted_tickers, "position_open": open_tickers,
-                  "cooloff": failed_tickers, "exit_cooloff": exited_tickers}
+                  "cooloff": failed_tickers, "exit_cooloff": exited_tickers, "exit_cooloff_win": won_tickers}
     skipped = [c for c in candidates if c["ticker"] in blocked]
     candidates = [c for c in candidates if c["ticker"] not in blocked]
 
@@ -473,6 +473,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                     f"(held={len(open_tickers & skipped_set)}, "
                     f"cooloff={len(failed_tickers & skipped_set)}, "
                     f"exit_cooloff={len(exited_tickers & skipped_set)}, "
+                    f"exit_cooloff_win={len(won_tickers & skipped_set)}, "
                     f"blocklist={len(blocklisted_tickers & skipped_set)}) "
                     f"— book holds {len(open_tickers)}")
 
@@ -526,9 +527,9 @@ def _run(cycle: GateCycle) -> list[dict]:
     regime_bayes_result = _get_regime_bayes().last_result()
 
     sector_exposure_live: dict[str, float] = dict(_sector_exposure)
-    dynamic_caps_live    = compute_dynamic_caps(cfg.get("max_sector_exposure", 0.30),
+    dynamic_caps_live    = compute_dynamic_caps(cfg.get("l2_risk_sector_cap_max", 0.30),
                                                 regime_result=regime_bayes_result)
-    # Lock 5 judges the cap execution enforces, not the flat base (2026-10-17).
+    # L6 REVIEW judges the cap execution enforces, not the flat base (2026-10-17).
     wallet_ctx["dynamic_caps"] = dynamic_caps_live
 
     # Pre-rotation promotion — same logic as demo gate
@@ -536,11 +537,11 @@ def _run(cycle: GateCycle) -> list[dict]:
     watching_sectors = {w["sector"] for w in forecast.get("watching", [])}
     if watching_sectors:
         pr_sector_thresholds = {
-            s: (sector_thresholds or {}).get(s, cfg["lock1_threshold"]) * PRE_ROTATION_FLOOR
+            s: (sector_thresholds or {}).get(s, cfg["l3_score_threshold_min"]) * PRE_ROTATION_FLOOR
             for s in watching_sectors
         }
-        pr_candidates = get_lock1_candidates(
-            threshold=cfg["lock1_threshold"] * PRE_ROTATION_FLOOR,
+        pr_candidates = get_l3_score_candidates(
+            threshold=cfg["l3_score_threshold_min"] * PRE_ROTATION_FLOOR,
             sector_thresholds=pr_sector_thresholds,
             stale_out=stale,
         )
@@ -562,7 +563,7 @@ def _run(cycle: GateCycle) -> list[dict]:
 
     # L1 affordability before the chain (Niclas 2026-10-28: "L1 måste kontrollera först att beloppet räcker …
     # Kan vi spara anrop så är det bra"): the largest notional any later size can reach is the available cash ×
-    # max_position_size (Lock 5's size and the Bayesian scaling are capped by it), and a bracket order needs one
+    # max_position_size (L6 REVIEW's size and the Bayesian scaling are capped by it), and a bracket order needs one
     # whole share of it, so a refusal here moves no order that could fill and spends no Grok, options or Claude call.
     max_notional = max(0.0, min(acct["equity"], acct["cash"])) * cfg["max_position_size"]
     pre_states: dict[str, dict] = {}
@@ -611,8 +612,8 @@ def _run(cycle: GateCycle) -> list[dict]:
     open_tickers   = {p["ticker"] for p in open_positions}
 
     evaluated.sort(key=lambda x: (0 if x[0].get("pre_rotation") else 1, x[0].get("signal_score", 0)), reverse=True)
-    max_positions        = cfg["max_positions"]
-    overflow_increment   = cfg.get("overflow_quant_increment", 0.05)
+    l2_risk_max_positions_count        = cfg["l2_risk_max_positions_count"]
+    overflow_increment   = cfg.get("l2_risk_overflow_step", 0.05)
     open_count           = len(open_positions)  # snapshot; incremented on each executed trade
     bayesian_multipliers = _compute_bayesian_multipliers(evaluated, regime_bayes_result)
 
@@ -621,9 +622,9 @@ def _run(cycle: GateCycle) -> list[dict]:
         order_id = None
 
         # L5 deferred path — run Claude only when a slot is confirmed available.
-        if result["outcome"] == "TRADE_QUEUED_PENDING_L5":
+        if result["outcome"] == "TRADE_QUEUED_PENDING_L6":
             sector         = signal.get("sector", "")
-            base_threshold = (sector_thresholds or {}).get(sector, cfg["lock1_threshold"])
+            base_threshold = (sector_thresholds or {}).get(sector, cfg["l3_score_threshold_min"])
             _put(result, "position_open", ticker in open_tickers)
             if ticker in open_tickers:
                 logger.info(f"Live trade skipped [{ticker}]: position already open (pre-L5)")
@@ -631,8 +632,8 @@ def _run(cycle: GateCycle) -> list[dict]:
                 result["outcome_reason"] = "position_open"
                 result.pop("_l5_lock_results", None)
                 result.pop("_l5_context", None)
-            elif open_count >= max_positions:
-                overflow_level     = open_count - max_positions + 1
+            elif open_count >= l2_risk_max_positions_count:
+                overflow_level     = open_count - l2_risk_max_positions_count + 1
                 overflow_threshold = round(base_threshold * (1 + overflow_level * overflow_increment), 4)
                 _overflow_state(result, signal["signal_score"] < overflow_threshold)
                 if signal["signal_score"] < overflow_threshold:
@@ -644,23 +645,23 @@ def _run(cycle: GateCycle) -> list[dict]:
                     result.pop("_l5_lock_results", None)
                     result.pop("_l5_context", None)
                 else:
-                    _run_l5_for_result(signal, result, cfg)
+                    _run_l6_review_for_result(signal, result, cfg)
             else:
                 _overflow_state(result, False)          # a free slot passes overflow
-                _run_l5_for_result(signal, result, cfg)
+                _run_l6_review_for_result(signal, result, cfg)
 
         # Apply Bayesian sector sizing before notional is computed.
-        if result["outcome"] == "TRADE_QUEUED" and result.get("lock3"):
+        if result["outcome"] == "TRADE_QUEUED" and result.get("l6_review"):
             _scale = bayesian_multipliers.get(ticker, 1.0)
             if _scale != 1.0:
-                _raw  = result["lock3"]["position_size_pct"]
-                result["lock3"]["position_size_pct"] = min(
+                _raw  = result["l6_review"]["position_size_pct"]
+                result["l6_review"]["position_size_pct"] = min(
                     round(_raw * _scale, 4),
                     cfg.get("max_position_size", 0.10),
                 )
                 logger.info(
                     f"Live gate [{ticker}]: Bayesian size scale={_scale:.3f} "
-                    f"({_raw:.4f} → {result['lock3']['position_size_pct']:.4f})"
+                    f"({_raw:.4f} → {result['l6_review']['position_size_pct']:.4f})"
                 )
 
         if result["outcome"] == "TRADE_QUEUED":
@@ -669,11 +670,11 @@ def _run(cycle: GateCycle) -> list[dict]:
                 logger.info(f"Live trade skipped [{ticker}]: position already open")
                 result["outcome"] = STOPPED
                 result["outcome_reason"] = "position_open"
-            elif open_count >= max_positions:
+            elif open_count >= l2_risk_max_positions_count:
                 # Overflow slot — check escalating quant threshold
                 sector             = signal.get("sector", "")
-                base_threshold     = (sector_thresholds or {}).get(sector, cfg["lock1_threshold"])
-                overflow_level     = open_count - max_positions + 1
+                base_threshold     = (sector_thresholds or {}).get(sector, cfg["l3_score_threshold_min"])
+                overflow_level     = open_count - l2_risk_max_positions_count + 1
                 overflow_threshold = round(base_threshold * (1 + overflow_level * overflow_increment), 4)
                 _overflow_state(result, signal["signal_score"] < overflow_threshold)
                 if signal["signal_score"] < overflow_threshold:
@@ -684,7 +685,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                     )
                     result["outcome"] = STOPPED
                 else:
-                    position_pct    = result["lock3"]["position_size_pct"] if result.get("lock3") else cfg["max_position_size"]
+                    position_pct    = result["l6_review"]["position_size_pct"] if result.get("l6_review") else cfg["max_position_size"]
                     available_cash  = max(0.0, min(acct["equity"], acct["cash"]))
                     notional        = available_cash * min(position_pct, cfg["max_position_size"])
                     refusal         = _order_refusal(result, ticker, notional, signal.get("price"))
@@ -694,7 +695,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                     else:
                         sector    = signal.get("sector", "")
                         cap_check = _sector_cap_check(sector, notional, sector_exposure_live, dynamic_caps_live,
-                                                      cfg.get("max_sector_exposure", 0.30), _starting_balance)
+                                                      cfg.get("l2_risk_sector_cap_max", 0.30), _starting_balance)
                         result["cap_check"] = cap_check
                         _put(result, "sector_cap", cap_check["over_cap"])
                         sec_cap, projected = cap_check["cap"], cap_check["projected"]
@@ -732,7 +733,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                                 _put(result, "broker_error", True)
             else:
                 _overflow_state(result, False)          # a free slot passes overflow
-                position_pct   = result["lock3"]["position_size_pct"] if result.get("lock3") else cfg["max_position_size"]
+                position_pct   = result["l6_review"]["position_size_pct"] if result.get("l6_review") else cfg["max_position_size"]
                 available_cash = max(0.0, min(acct["equity"], acct["cash"]))
                 notional       = available_cash * min(position_pct, cfg["max_position_size"])
                 refusal        = _order_refusal(result, ticker, notional, signal.get("price"))
@@ -742,7 +743,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                 else:
                     sector    = signal.get("sector", "")
                     cap_check = _sector_cap_check(sector, notional, sector_exposure_live, dynamic_caps_live,
-                                                  cfg.get("max_sector_exposure", 0.30), _starting_balance)
+                                                  cfg.get("l2_risk_sector_cap_max", 0.30), _starting_balance)
                     result["cap_check"] = cap_check
                     _put(result, "sector_cap", cap_check["over_cap"])
                     sec_cap, projected = cap_check["cap"], cap_check["projected"]
@@ -808,11 +809,11 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
         mode_label="LIVE — real money",
     )
     chain   = evaluate_chain(ticker, sector, signal_score, context, cfg,
-                             on_watchlist=on_watchlist, stop_after_lock=4,
+                             on_watchlist=on_watchlist, defer_l6_review=True,
                              sector_thresholds=sector_thresholds)
     result  = _chain_to_gate_result(signal, chain)
     # Stash L5 inputs so the serial executor can run L5 only when a slot is available.
-    if chain.l5_pending:
+    if chain.l6_review_pending:
         result["_l5_lock_results"] = chain.lock_results
         result["_l5_context"]      = context
     return result
@@ -849,20 +850,20 @@ def _write_live(signal: dict, result: dict, ts: str, unknown: list[dict], order_
         "ticker":                 signal["ticker"],
         "sector":                 signal.get("sector", ""),
         "signal_score":           signal["signal_score"],
-        "lock1_pass":             result["lock1_pass"],
-        "lock2_pass":             result["lock2_pass"],
-        "lock_leading_pass":      result["lock_leading_pass"],
-        "lock_leading_checks":    result.get("lock_leading_checks"),
-        "lock3_pass":             result["lock3_pass"],
+        "l3_score_pass":             result["l3_score_pass"],
+        "l4_sentiment_pass":             result["l4_sentiment_pass"],
+        "l5_positioning_pass":      result["l5_positioning_pass"],
+        "l5_positioning_checks":    result.get("l5_positioning_checks"),
+        "l6_review_pass":             result["l6_review_pass"],
         "gate_decision":          result["gate_decision"],
         "stop_code":              result["stop_code"],
         "rule_states":            result["rule_states"],
-        "lock3_reasoning":        result.get("claude_reasoning"),
+        "decision_reason":        result.get("claude_reasoning"),
         "alpaca_order_id":        order_id,
-        "l2_summary":             result.get("l2_summary"),
-        "lock3_sentiment_score":  result.get("lock3_sentiment_score"),
-        "lock3_conviction":       result.get("lock3_conviction"),
-        "macro_reason":           result.get("macro_reason"),
+        "l4_sentiment_summary":             result.get("l4_sentiment_summary"),
+        "l4_sentiment_score":  result.get("l4_sentiment_score"),
+        "l4_sentiment_conviction":       result.get("l4_sentiment_conviction"),
+        "l1_eligibility_reason":           result.get("l1_eligibility_reason"),
         "ticker_signal":          result.get("ticker_signal"),
         "earnings_near":          result.get("earnings_near"),
         "days_to_earnings":       result.get("days_to_earnings"),
@@ -879,10 +880,10 @@ def _sector_cap_check(sector: str, notional: float, exposure: dict[str, float],
                       starting_balance: float) -> dict:
     """The execution-side sector cap test, with the evidence persisted per row.
 
-    One cap since 2026-10-17: Lock 5 is shown risk_limits.sector_cap, the same
+    One cap since 2026-10-17: L6 REVIEW is shown risk_limits.sector_cap, the same
     dynamic cap execution enforces here (falling back to the flat value when
     compute_dynamic_caps returned nothing for the sector). Until then L5 judged
-    the flat max_sector_exposure while execution enforced the dynamic cap. Observe
+    the flat l2_risk_sector_cap_max while execution enforced the dynamic cap. Observe
     only (2026-09-27): `over_flat` records whether the flat cap would have
     rejected this trade, so rows where the two disagree are countable. The
     enforced test is `over_cap`, unchanged.
@@ -952,19 +953,19 @@ def _mark(passed: bool | None) -> str:
 
 
 def _log_summary(ticker: str, result: dict) -> None:
-    l1        = result["lock1"]
-    l2        = result.get("lock2")
-    l_leading = result.get("lock_leading")
-    l3        = result.get("lock3")
+    l3        = result["l3_score"]
+    l4        = result.get("l4_sentiment")
+    l5        = result.get("l5_positioning")
+    l6        = result.get("l6_review")
     outcome   = result["outcome"]
 
-    parts = [f"L1={'✓' if l1['passed'] else '✗'}({l1['score']:.3f})"]
-    if l2:
-        parts.append(f"L2={'✓' if l2['passed'] else '✗'}({l2.get('score', '?')})")
-    if l_leading:
-        parts.append(f"LD={'✓' if l_leading['passed'] else '✗'}(price {_mark(l_leading.get('price_group_pass'))} "
-                     f"options {_mark(l_leading.get('options_group_pass'))})")
-    if l3:
-        parts.append(f"L3={'✓' if l3['passed'] else '✗'}({l3.get('decision')} {l3.get('confidence', 0):.2f})")
+    parts = [f"L3={'✓' if l3['passed'] else '✗'}({l3['score']:.3f})"]
+    if l4:
+        parts.append(f"L4={'✓' if l4['passed'] else '✗'}({l4.get('score', '?')})")
+    if l5:
+        parts.append(f"L5={'✓' if l5['passed'] else '✗'}(price {_mark(l5.get('price_group_pass'))} "
+                     f"options {_mark(l5.get('options_group_pass'))})")
+    if l6:
+        parts.append(f"L6={'✓' if l6['passed'] else '✗'}({l6.get('decision')} {l6.get('confidence', 0):.2f})")
 
     logger.info(f"Live gate [{ticker}]: {' → '.join(parts)} → {outcome}")

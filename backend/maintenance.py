@@ -41,21 +41,21 @@ def check_config_parity() -> list[str]:
 
 def check_sector_names() -> list[str]:
     """
-    lock4_leading.SECTOR_ETF must map every sector defined in config.SECTORS.
-    A missing sector causes Lock 4 to fail all checks for that sector's
+    l5_positioning.SECTOR_ETF must map every sector defined in config.SECTORS.
+    A missing sector causes L5 POSITIONING to fail all checks for that sector's
     tickers with no error — just a silent 'no ETF mapped' log line.
     """
     from backend.config import EXCLUDED_SECTORS, SECTORS
-    from backend.gate.lock4_leading import SECTOR_ETF
+    from backend.gate.l5_positioning import SECTOR_ETF
     config_sectors = set(SECTORS.keys()) - set(EXCLUDED_SECTORS.keys())
     etf_sectors    = set(SECTOR_ETF.keys())
     issues = []
     missing = config_sectors - etf_sectors
     extra   = etf_sectors    - config_sectors
     if missing:
-        issues.append(f"Sectors in config.SECTORS with no ETF in lock4_leading: {sorted(missing)}")
+        issues.append(f"Sectors in config.SECTORS with no ETF in l5_positioning: {sorted(missing)}")
     if extra:
-        issues.append(f"Sectors in lock4_leading.SECTOR_ETF not in config.SECTORS: {sorted(extra)}")
+        issues.append(f"Sectors in l5_positioning.SECTOR_ETF not in config.SECTORS: {sorted(extra)}")
     return issues
 
 
@@ -63,13 +63,13 @@ def check_promote_exclusions() -> list[str]:
     """
     Account-size-specific config keys must not appear in the promotable set.
 
-    starting_balance and daily_loss_cap are calibrated to account size, not
+    starting_balance and l0_portfolio_loss_cap_max are calibrated to account size, not
     strategy. If either ends up in demo_thresholds(), Promote will overwrite
     the live values — corrupting the sector exposure denominator and the daily
     loss cap with demo-scale numbers.
     """
     from backend.live_config import _PROMOTE_EXCLUDE, demo_thresholds
-    required = {"starting_balance", "daily_loss_cap"}
+    required = {"starting_balance", "l0_portfolio_loss_cap_max"}
     issues = []
     promotable = set(demo_thresholds().keys())
     leaked = required - _PROMOTE_EXCLUDE
@@ -89,7 +89,7 @@ def check_promote_exclusions() -> list[str]:
 def check_context_parity() -> list[str]:
     """
     Demo and live gate runners must build identical risk_limits keys in the
-    Lock 3 context. A missing key means Claude gets null for that constraint
+    L6 REVIEW context. A missing key means Claude gets null for that constraint
     and has to guess.
     """
     from backend.db import get_live_ticker_gate_fails, get_ticker_gate_fails

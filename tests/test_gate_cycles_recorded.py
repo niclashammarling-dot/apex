@@ -1,6 +1,6 @@
 """gate_cycles: one row per gate cycle, whether or not it writes a gate row (2026-10-04).
 
-Quiet cycles (no Lock 1 candidates, all skipped) and live halts wrote no gate
+Quiet cycles (no L3 SCORE candidates, all skipped) and live halts wrote no gate
 row, so CHECK 80/85, /api/ops/window and the cycle watch undercounted quiet
 days, and CHECK 83 could not see a quiet second scheduler. From
 GATE_CYCLES_FROM the readers count scheduler rows in gate_cycles only.

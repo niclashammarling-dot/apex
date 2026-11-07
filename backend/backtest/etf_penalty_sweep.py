@@ -87,7 +87,7 @@ BASE_KWARGS = dict(
     profit_lock_trail_pct    = 0.01,
     sl_cooldown_days         = 1,
     tp_cooldown_days         = 7,
-    max_positions            = 10,
+    l2_risk_max_positions_count            = 10,
     use_leading_rs           = True,  # L4 RS proxy — keep active; ETF penalty is on top
 )
 
@@ -131,14 +131,14 @@ def main() -> None:
 
     # Null baseline — no ETF penalty
     print("Running null baseline (no ETF penalty) …")
-    r = run(**BASE_KWARGS, etf_negative_penalty=None)
+    r = run(**BASE_KWARGS, l2_risk_etf_penalty=None)
     grid[(None, None)] = r
 
     # Full 2D grid
     for rate, floor in product(RATES, FLOORS):
         label = f"rate={rate:.2f} floor={floor:.1f}%"
         print(f"Running {label} …")
-        r = run(**BASE_KWARGS, etf_negative_penalty=rate, etf_negative_floor=floor)
+        r = run(**BASE_KWARGS, l2_risk_etf_penalty=rate, l2_risk_etf_floor=floor)
         grid[(rate, floor)] = r
 
     null = grid[(None, None)]

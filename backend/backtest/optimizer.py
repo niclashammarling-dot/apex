@@ -3,7 +3,7 @@ Apex autoresearch optimizer — runs overnight, mutates gate parameters,
 keeps improvements, discards regressions.
 
 Inspired by Karpathy's autoresearch loop but adapted for apex:
-- Mutation space: Lock1 threshold, TP%, SL%, trailing stop, hold days,
+- Mutation space: L3 SCORE threshold, TP%, SL%, trailing stop, hold days,
   max positions, VIX threshold (per-run params, not sector-specific yet)
 - Scoring: weighted Sharpe − drawdown penalty, with floors on win rate
   and trade frequency to prevent degenerate solutions
@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from loguru import logger
+from backend.gate.lock_codes import upgrade_keys
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -49,35 +50,35 @@ FLOOR_TRADE_FREQ   = 8      # minimum trades over the lookback period
 
 # Mutation bounds — agent cannot move params outside these ranges
 BOUNDS = {
-    "lock1_threshold":  (0.50, 0.85),
+    "l3_score_threshold_min":  (0.50, 0.85),
     "take_profit_pct":  (0.05, 0.18),
     "stop_loss_pct":    (0.03, 0.10),
     "trailing_stop_pct": (None, None),   # None = can be disabled
     "time_stop_days":   (10, 50),
-    "max_positions":    (2, 8),
-    "vix_threshold":    (20, 40),        # None = disabled
+    "l2_risk_max_positions_count":    (2, 8),
+    "l1_eligibility_vix_max":    (20, 40),        # None = disabled
 }
 
 # Step sizes for each param (how much a single mutation moves it)
 STEPS = {
-    "lock1_threshold":   0.03,
+    "l3_score_threshold_min":   0.03,
     "take_profit_pct":   0.01,
     "stop_loss_pct":     0.01,
     "trailing_stop_pct": 0.01,
     "time_stop_days":    5,
-    "max_positions":     1,
-    "vix_threshold":     5,
+    "l2_risk_max_positions_count":     1,
+    "l1_eligibility_vix_max":     5,
 }
 
 
 class ParamSet(TypedDict):
-    lock1_threshold:   float
+    l3_score_threshold_min:   float
     take_profit_pct:   float
     stop_loss_pct:     float
     trailing_stop_pct: float | None
     time_stop_days:    int
-    max_positions:     int
-    vix_threshold:     float | None
+    l2_risk_max_positions_count:     int
+    l1_eligibility_vix_max:     float | None
 
 
 class ExperimentResult(TypedDict):
@@ -158,24 +159,24 @@ def _mutate(params: ParamSet, n_mutations: int = 1) -> ParamSet:
                     max(0.02, min(0.15, p["trailing_stop_pct"] + random.choice([-step, step]))), 3
                 )
 
-        elif key == "vix_threshold":
+        elif key == "l1_eligibility_vix_max":
             # Toggle between None (disabled) and a value
-            if p["vix_threshold"] is None:
-                p["vix_threshold"] = 30.0
+            if p["l1_eligibility_vix_max"] is None:
+                p["l1_eligibility_vix_max"] = 30.0
             elif random.random() < 0.2:
-                p["vix_threshold"] = None
+                p["l1_eligibility_vix_max"] = None
             else:
                 step = STEPS[key]
                 lo, hi = BOUNDS[key]
-                p["vix_threshold"] = float(
-                    max(lo, min(hi, p["vix_threshold"] + random.choice([-step, step])))
+                p["l1_eligibility_vix_max"] = float(
+                    max(lo, min(hi, p["l1_eligibility_vix_max"] + random.choice([-step, step])))
                 )
 
-        elif key == "max_positions":
+        elif key == "l2_risk_max_positions_count":
             step = STEPS[key]
             lo, hi = BOUNDS[key]
-            p["max_positions"] = int(
-                max(lo, min(hi, p["max_positions"] + random.choice([-step, step])))
+            p["l2_risk_max_positions_count"] = int(
+                max(lo, min(hi, p["l2_risk_max_positions_count"] + random.choice([-step, step])))
             )
 
         elif key == "time_stop_days":
@@ -201,13 +202,13 @@ def _default_params() -> ParamSet:
     was written (cc2aa23). Use objective_walkforward.incumbent_params() for
     the live tunables; this set is only where a cold search begins."""
     return ParamSet(
-        lock1_threshold=0.70,
+        l3_score_threshold_min=0.70,
         take_profit_pct=0.08,
         stop_loss_pct=0.05,
         trailing_stop_pct=None,
         time_stop_days=25,
-        max_positions=4,
-        vix_threshold=None,
+        l2_risk_max_positions_count=4,
+        l1_eligibility_vix_max=None,
     )
 
 
@@ -362,11 +363,11 @@ def run_optimizer(
             kept += 1
             logger.info(
                 f"  ✓ [{i}/{MAX_EXPERIMENTS}] kept  score={current_score:.4f}  "
-                f"(L1={candidate['lock1_threshold']} "
+                f"(L1={candidate['l3_score_threshold_min']} "
                 f"TP={candidate['take_profit_pct']*100:.0f}% "
                 f"SL={candidate['stop_loss_pct']*100:.0f}% "
                 f"hold={candidate['time_stop_days']}d "
-                f"pos={candidate['max_positions']})"
+                f"pos={candidate['l2_risk_max_positions_count']})"
             )
         else:
             logger.debug(f"  ✗ [{i}/{MAX_EXPERIMENTS}] discarded  score={ev[0] if ev else None}")
@@ -429,13 +430,13 @@ def _evaluate(
             start_date=start_date,
             end_date=end_date,
             initial_balance=10_000.0,
-            lock1_threshold=params["lock1_threshold"],
+            l3_score_threshold_min=params["l3_score_threshold_min"],
             take_profit_pct=params["take_profit_pct"],
             stop_loss_pct=params["stop_loss_pct"],
             trailing_stop_pct=params["trailing_stop_pct"],
             time_stop_days=params["time_stop_days"],
-            max_positions=params["max_positions"],
-            vix_threshold=params["vix_threshold"],
+            l2_risk_max_positions_count=params["l2_risk_max_positions_count"],
+            l1_eligibility_vix_max=params["l1_eligibility_vix_max"],
             precomputed=precomputed,
         )
         score = score_fn(
@@ -456,7 +457,7 @@ def _load_best_params() -> ParamSet | None:
         return None
     try:
         with open(RESULTS_PATH) as f:
-            data = json.load(f)
+            data = upgrade_keys(json.load(f))
         return data.get("best_params")
     except Exception:
         return None
@@ -522,7 +523,7 @@ def _notify(
 
         from backend.backtest.live_shape import shape_label
         try:   # the file _save_results just wrote: its live_shape_hash (if any) decides
-            saved = json.loads(RESULTS_PATH.read_text())
+            saved = upgrade_keys(json.loads(RESULTS_PATH.read_text()))
         except Exception:
             saved = {}
         label = shape_label(saved, "optimizer")
@@ -533,13 +534,13 @@ Experiments: {kept} kept / {total} total
 Best composite score: {best_score:.4f}
 
 Best params:
-  Lock1 threshold:  {best_params['lock1_threshold']}
+  L3 SCORE threshold:  {best_params['l3_score_threshold_min']}
   Take profit:      {best_params['take_profit_pct']*100:.0f}%
   Stop loss:        {best_params['stop_loss_pct']*100:.0f}%
   Trailing stop:    {f"{best_params['trailing_stop_pct']*100:.0f}%" if best_params['trailing_stop_pct'] else 'disabled'}
   Hold days:        {best_params['time_stop_days']}
-  Max positions:    {best_params['max_positions']}
-  VIX threshold:    {best_params['vix_threshold'] or 'disabled'}
+  Max positions:    {best_params['l2_risk_max_positions_count']}
+  VIX threshold:    {best_params['l1_eligibility_vix_max'] or 'disabled'}
 
 Final metrics on best params:
   Sharpe:       {m.get('sharpe', '—')}

@@ -156,14 +156,14 @@ def live_gate_history():
 
     rows = get_live_gate_history(since=market_open)
     thresholds = get_ticker_thresholds()
-    flat = get_live_config().get("lock1_threshold", 0.5)
+    flat = get_live_config().get("l3_score_threshold_min", 0.5)
     for row in rows:
-        row["l1_threshold"] = thresholds.get(row["sector"], flat)
-        if row.get("lock_leading_checks"):
+        row["l3_score_threshold_min"] = thresholds.get(row["sector"], flat)
+        if row.get("l5_positioning_checks"):
             try:
-                row["lock_leading_checks"] = _json.loads(row["lock_leading_checks"])
+                row["l5_positioning_checks"] = _json.loads(row["l5_positioning_checks"])
             except Exception:
-                row["lock_leading_checks"] = None
+                row["l5_positioning_checks"] = None
     funnel = get_live_gate_funnel_counts()
 
     blocked_reason = None
@@ -173,10 +173,10 @@ def live_gate_history():
             acct = broker.get_account()
             cfg = get_live_config()
             from backend.db import live_sample_rows
-            from backend.gate import portfolio_l0
-            l0 = portfolio_l0.evaluate(acct, live_sample_rows(), cfg["starting_balance"])
-            if l0["reason"] == portfolio_l0.HALT_LOSS_CAP:
-                blocked_reason = f"daily loss cap — ${l0['day_loss']:,.0f} loss vs ${l0['daily_loss_cap']:,.0f} cap"
+            from backend.gate import l0_portfolio
+            l0 = l0_portfolio.evaluate(acct, live_sample_rows(), cfg["starting_balance"])
+            if l0["reason"] == l0_portfolio.HALT_LOSS_CAP:
+                blocked_reason = f"daily loss cap — ${l0['day_loss']:,.0f} loss vs ${l0['l0_portfolio_loss_cap_max']:,.0f} cap"
             elif l0["reason"]:
                 blocked_reason = f"L0 {l0['reason']} — realised drawdown {l0['drawdown']['drawdown']:.1%}"
             elif acct.get("trading_blocked") or acct.get("account_blocked"):
@@ -196,8 +196,8 @@ def promote_demo_to_live():
     by demo_thresholds() via _PROMOTE_EXCLUDE:
       - starting_balance: demo=$2k, live=$100k — different denominators;
         leaked into live would corrupt sector exposure checks (notional/2000 = 1500%)
-      - daily_loss_cap: absolute dollars calibrated to account size (demo's wallet reads it; the
-        live gate has not since 2026-10-24: L0 Portfolio sets 5 % of equity, portfolio_l0.py), kept
+      - l0_portfolio_loss_cap_max: absolute dollars calibrated to account size (demo's wallet reads it; the
+        live gate has not since 2026-10-24: L0 Portfolio sets 5 % of equity, l0_portfolio.py), kept
         out of Promote so the live value stays account-scaled if L0's cap is ever removed
 
     Any new config key must be deliberately placed in _KEYS (promotable) or

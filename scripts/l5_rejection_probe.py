@@ -1,15 +1,15 @@
-"""Read-only probe: what did Lock 5 (L6 REVIEW, Claude) reject on, and when did it stop? (Saturday 2026-11-07)
+"""Read-only probe: what did L6 REVIEW (Claude) reject on, and when did it stop? (Saturday 2026-11-07)
 
 Vault: raw/notes/2026-11/2026-11-07-apex-l5-rejections-were-the-cap-and-check-90s-window-hid-the-stop.md.
 Asked by the 11-06 bundle's CHECK 90 item (L5 approval 6/6 before 11-02, 14/14 since) and Niclas 2026-11-07:
 how long is the window, and where did T7's 44 L5 rejections come from?
 
-Definitions are CHECK 90's (audit/checks_gate.py check90): an approval is lock3_pass = 1, a rejection is
+Definitions are CHECK 90's (audit/checks_gate.py check90): an approval is l6_review_pass = 1, a rejection is
 stop_code L6 claude; L6 unavailable (fail-closed) is counted apart, never as Claude's judgement. The unit
 is the ticker-day, as in T7 (raw/notes/2026-10/2026-10-20-apex-rejected-candidate-card.md: 44 L5-rejected
 ticker-days 2026-07-07..10-09).
 
-Primary reason: every rejection ticker-day's lock3_reasoning read by hand on 2026-11-07 (a keyword class
+Primary reason: every rejection ticker-day's decision_reason read by hand on 2026-11-07 (a keyword class
 on the first 200 characters was tried first and failed its control: MRNA 10-09 and LLY 10-15 mention the
 sector cap only to say it does not bind). Classes, by the block Claude names first:
   hard  a limit at or over its value: open_positions >= max_positions (live has no hard position cap, the
@@ -68,8 +68,8 @@ def main(out: str) -> int:
     claude, unavail = stop_code(6, "claude"), stop_code(6, "unavailable")
     conn = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
     rows = conn.execute(
-        "SELECT timestamp, date(timestamp), ticker, lock3_pass, stop_code, lock3_reasoning FROM live_gate_history "
-        "WHERE timestamp >= ? AND (lock3_pass = 1 OR stop_code IN (?, ?)) ORDER BY timestamp",
+        "SELECT timestamp, date(timestamp), ticker, l6_review_pass, stop_code, decision_reason FROM live_gate_history "
+        "WHERE timestamp >= ? AND (l6_review_pass = 1 OR stop_code IN (?, ?)) ORDER BY timestamp",
         (SINCE, claude, unavail)).fetchall()
     last_row = conn.execute("SELECT max(timestamp) FROM live_gate_history").fetchone()[0]
     conn.close()

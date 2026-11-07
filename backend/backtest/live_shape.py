@@ -2,7 +2,7 @@
 Is a backtest result about the book that is actually trading? (2026-09-29)
 
 The weekly sweep and optimizer both call engine_fast.run without live's shape:
-no profit-lock ratchet (neither passes profit_lock_*), max_positions searched in
+no profit-lock ratchet (neither passes profit_lock_*), l2_risk_max_positions_count searched in
 ranges that exclude live's value, and the optimizer's search space includes the
 legacy trailing stop live removed on 2026-06-03. On 2026-09-28 every stop-width
 conclusion flipped or dissolved once one more live dimension was modelled
@@ -30,7 +30,7 @@ LIVE_SHAPE_KEYS = (
     "stop_loss_pct",
     "profit_lock_trigger_pct",
     "profit_lock_trail_pct",
-    "max_positions",
+    "l2_risk_max_positions_count",
 )
 
 
@@ -42,7 +42,9 @@ def live_shape() -> dict:
 
 def live_shape_hash(shape: dict | None = None) -> str:
     shape = live_shape() if shape is None else shape
-    return hashlib.sha256(json.dumps(shape, sort_keys=True).encode()).hexdigest()[:8]
+    # Hashed under the pre-phase-3 key names, so a result labelled before the rename keeps its shape.
+    from backend.gate.lock_codes import legacy_keys
+    return hashlib.sha256(json.dumps(legacy_keys(shape), sort_keys=True).encode()).hexdigest()[:8]
 
 
 def shape_label(result: dict, kind: str) -> str | None:
@@ -58,7 +60,7 @@ def shape_label(result: dict, kind: str) -> str | None:
                 f"({_fmt(shape)}). Not a basis for live changes until re-run.")
     reasons = [
         f"no profit-lock ratchet modelled (live: {shape['profit_lock_trigger_pct']}/{shape['profit_lock_trail_pct']})",
-        f"max_positions searched, live runs {shape['max_positions']}",
+        f"l2_risk_max_positions_count searched, live runs {shape['l2_risk_max_positions_count']}",
     ]
     if kind == "optimizer":
         reasons.append("search includes the legacy trailing stop live removed 2026-06-03")
@@ -127,7 +129,7 @@ def collapse_by_outcome(rows: list[dict], axes: tuple[str, ...], limit: int = 3,
 
 
 def describe_varied(entry: dict) -> str:
-    """'' for a single combo; else e.g. 'same trades for 6 combos: vix_threshold off/30/35, use_leading_rs off/on'."""
+    """'' for a single combo; else e.g. 'same trades for 6 combos: l1_eligibility_vix_max off/30/35, use_leading_rs off/on'."""
     if entry["combos"] < 2:
         return ""
     def fmt(v):
@@ -136,38 +138,33 @@ def describe_varied(entry: dict) -> str:
     return f"same trades for {entry['combos']} combos: {axes}"
 
 
-# Daily loss cap as a fraction of the starting balance: live $500 / $10,000 and demo
-# $100 / $2,000 are both 5 % (Niclas 2026-10-17). Equity-based is next Saturday's question.
-DAILY_LOSS_CAP_PCT = 0.05
-
-
 def live_cooloff_days() -> tuple[int, int]:
     """(sl_cooldown_days, tp_cooldown_days) for both engines, from live config
     (2026-10-17, PRODUCTION_GAP row 23). Live blocks re-entry by hours
-    (`exit_cooloff_hours` after SL/loss/expiry, `tp_cooloff_hours` after a TP/TSL
+    (`l1_eligibility_exit_cooloff_hours` after SL/loss/expiry, `l1_eligibility_exit_cooloff_win_hours` after a TP/TSL
     win); the engines block by calendar day, so hours round UP to whole days
     (24 → 1, 168 → 7). Until this, both engines defaulted to 5 / 0 — every
     optimizer and walk-forward run since June used those."""
     import math
     from backend.live_config import get_live_config
     cfg = get_live_config()
-    return (math.ceil(cfg["exit_cooloff_hours"] / 24), math.ceil(cfg["tp_cooloff_hours"] / 24))
+    return (math.ceil(cfg["l1_eligibility_exit_cooloff_hours"] / 24), math.ceil(cfg["l1_eligibility_exit_cooloff_win_hours"] / 24))
 
 
 def live_macro_event_blackout_days() -> int:
     """The CPI/NFP pre-event window in days for both engines, from live config, as live and demo read it
-    (lock1_eligibility: cfg `macro_event_blackout_days`). Until 2026-10-28 the engines used
+    (l1_eligibility: cfg `l1_eligibility_macro_event_days`). Until 2026-10-28 the engines used
     macro_status's own default, equal to live's value by coincidence, not by reference (Niclas
     2026-10-28, P3: one calendar for every book: demo, live and the shadow book)."""
     from backend.live_config import get_live_config
-    return int(get_live_config()["macro_event_blackout_days"])
+    return int(get_live_config()["l1_eligibility_macro_event_days"])
 
 
 def reentry_cooloff_days(exit_reason: str, outcome: str, sl_days: int, tp_days: int) -> int:
     """Days a ticker is blocked from re-entry after this exit, as live picks the window
     (`db.get_recently_exited_live_tickers`, 2026-10-18, PRODUCTION_GAP row 23): only a
-    TP or TSL *win* gets `tp_cooloff_hours`; every other exit (SL, a TSL loss, TIME /
-    EXPIRED, REGIME) gets `exit_cooloff_hours`. Until this, both engines set no cooloff
+    TP or TSL *win* gets `l1_eligibility_exit_cooloff_win_hours`; every other exit (SL, a TSL loss, TIME /
+    EXPIRED, REGIME) gets `l1_eligibility_exit_cooloff_hours`. Until this, both engines set no cooloff
     after a TIME exit, and gave a TSL win the SL window when tp_days was 0.
     END_OF_BACKTEST is not an exit live has: 0."""
     if exit_reason == "END_OF_BACKTEST":
@@ -185,8 +182,8 @@ def reentry_cooloff_days_before_row23(exit_reason: str, outcome: str, sl_days: i
 
 
 def etf_return_as_live(closes, today) -> float | None:
-    """The sector ETF return live's Lock 4 reads (2026-10-18, PRODUCTION_GAP row 11):
-    `lock4_leading` downloads `period="8d"` (8 daily rows, measured 10-18) and takes
+    """The sector ETF return live's L5 POSITIONING reads (2026-10-18, PRODUCTION_GAP row 11):
+    `l5_positioning` downloads `period="8d"` (8 daily rows, measured 10-18) and takes
     last / first - 1, so its "5d" return spans 7 trading-day intervals; fewer than 5
     rows is an error there (no penalty). `closes` is the ETF's Close series; the
     engine evaluates at today's close where live reads today's bar in progress.
@@ -202,31 +199,31 @@ def etf_return_as_live(closes, today) -> float | None:
 def etf_penalty_fails(score: float, etf_ret: float | None, penalty: float | None,
                       floor_pct: float, threshold: float) -> bool:
     """Live's ETF negative penalty (`chain.py:156-187`): when the sector ETF return,
-    in percent rounded to 2 decimals as Lock 4 reports it, is below `floor_pct`
+    in percent rounded to 2 decimals as L5 POSITIONING reports it, is below `floor_pct`
     (live -1.0), the score times (1 - penalty) must still clear the sector threshold
-    or the ticker is filtered. It gates only: live's final_score is Lock 4's or
-    Lock 5's, so the penalised score is not carried on. None or 0 is off (live:
-    `if etf_negative_penalty > 0`)."""
+    or the ticker is filtered. It gates only: live's final_score is L5 POSITIONING's or
+    L6 REVIEW's, so the penalised score is not carried on. None or 0 is off (live:
+    `if l2_risk_etf_penalty > 0`)."""
     if not penalty or etf_ret is None or round(etf_ret * 100, 2) >= floor_pct:
         return False
     return score * (1.0 - penalty) < threshold
 
 
-def overflow_admits(score: float, open_count: int, max_positions: int,
+def overflow_admits(score: float, open_count: int, l2_risk_max_positions_count: int,
                     base_threshold: float, increment: float) -> bool:
     """Live's portfolio roof (2026-10-18, PRODUCTION_GAP row 14; `gate_runner_live.py`
-    566-627, `config.py` 115-118 "No hard cap"): below `max_positions` every candidate
+    566-627, `config.py` 115-118 "No hard cap"): below `l2_risk_max_positions_count` every candidate
     is admitted; at or above it, slot n over the roof needs the raw signal score to
     clear base_threshold x (1 + n x increment), rounded to 4 places as live does. A
     rejected candidate does not stop the cycle; the next one is tried. increment
-    math.inf is the engines' hard stop at max_positions (before 2026-10-18)."""
-    if open_count < max_positions:
+    math.inf is the engines' hard stop at l2_risk_max_positions_count (before 2026-10-18)."""
+    if open_count < l2_risk_max_positions_count:
         return True
-    level = open_count - max_positions + 1
+    level = open_count - l2_risk_max_positions_count + 1
     return score >= round(base_threshold * (1 + level * increment), 4)
 
 
 def live_overflow_increment() -> float:
-    """`overflow_quant_increment` from live config (live 0.05)."""
+    """`l2_risk_overflow_step` from live config (live 0.05)."""
     from backend.live_config import get_live_config
-    return float(get_live_config()["overflow_quant_increment"])
+    return float(get_live_config()["l2_risk_overflow_step"])

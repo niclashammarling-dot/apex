@@ -18,7 +18,7 @@ def test_label_is_the_furthest_stage_of_the_day_and_entered_wins():
 
 
 def test_codes_map_to_the_funnel_layers_not_their_numbers():
-    # FILTERED_L3 is Lock 5 Claude in weekly_report._FUNNEL_AFTER_LEADING, FILTERED_L2 Lock 3 sentiment.
+    # The old FILTERED_L3 was L6 REVIEW (Claude) in weekly_report._FUNNEL_AFTER_LEADING, FILTERED_L2 L4 SENTIMENT.
     assert rc.STAGES["FILTERED_L3"][1] == "l5" and rc.STAGES["FILTERED_L2"][1] == "sentiment"
     assert rc.STAGES["FILTERED_L1"][1] == "quant"
 

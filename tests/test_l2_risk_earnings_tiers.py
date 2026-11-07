@@ -1,5 +1,5 @@
 """
-Tests for the Lock 1 three-tier earnings gate and chain.py near-term penalty.
+Tests for the L2 RISK three-tier earnings gate and chain.py near-term penalty.
 
 Tiers:
   imminent   (0 <= delta <= blackout_days)  -> hard fail
@@ -14,8 +14,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import backend.gate.lock1_eligibility as m
-from backend.gate.lock1_eligibility import evaluate
+import backend.gate.l1_eligibility as m
+import backend.gate.l2_risk as l2m
+from backend.gate.l1_eligibility import evaluate
 
 
 # ── Shared regime mock ─────────────────────────────────────────────────────────
@@ -36,20 +37,20 @@ def _make_regime(sector: str = "Technology"):
 
 def _cfg(blackout: int = 3, near_days: int = 14, near_penalty: float = 0.15) -> dict:
     return {
-        "vix_threshold":                 99.0,   # VIX never blocks
-        "macro_event_blackout_days":     0,       # macro events never block
-        "macro_earnings_blackout_days":  blackout,
-        "macro_earnings_near_days":      near_days,
-        "macro_earnings_near_penalty":   near_penalty,
-        "max_positions":                 4,
-        "max_sector_exposure":           0.25,
+        "l1_eligibility_vix_max":                 99.0,   # VIX never blocks
+        "l1_eligibility_macro_event_days":     0,       # macro events never block
+        "l2_risk_earnings_days":  blackout,
+        "l2_risk_earnings_near_days":      near_days,
+        "l2_risk_earnings_near_penalty":   near_penalty,
+        "l2_risk_max_positions_count":                 4,
+        "l2_risk_sector_cap_max":           0.25,
         "max_position_size":             0.15,
-        "daily_loss_cap":                100.0,
+        "l0_portfolio_loss_cap_max":                100.0,
     }
 
 
 def _evaluate_with_earnings(ticker: str, delta_days: int, **cfg_overrides) -> "LockResult":
-    """Run Lock 1 evaluate() with a synthetic earnings date at today + delta_days."""
+    """Run L1 ELIGIBILITY's evaluate() (it calls L2 RISK's earnings rules) with a synthetic earnings date at today + delta_days."""
     today    = date.today()
     earnings = today + timedelta(days=delta_days)
     regime   = _make_regime()
@@ -59,7 +60,7 @@ def _evaluate_with_earnings(ticker: str, delta_days: int, **cfg_overrides) -> "L
         patch.object(m, "_get_regime_result", return_value=regime),
         patch.object(m, "_get_vix",           return_value=10.0),
         patch.object(m, "_macro_status", return_value=("clear", None)),
-        patch.object(m, "_get_earnings_date", return_value=earnings),
+        patch.object(l2m, "_get_earnings_date", return_value=earnings),
     ):
         return evaluate(ticker, "Technology", cfg)
 
@@ -134,7 +135,7 @@ def test_no_earnings_date_passes():
         patch.object(m, "_get_regime_result", return_value=regime),
         patch.object(m, "_get_vix",           return_value=10.0),
         patch.object(m, "_macro_status", return_value=("clear", None)),
-        patch.object(m, "_get_earnings_date", return_value=None),
+        patch.object(l2m, "_get_earnings_date", return_value=None),
     ):
         r = evaluate("SPY", "Technology", _cfg())
     assert r.passed
@@ -164,11 +165,11 @@ def test_chain_applies_near_term_penalty():
 
     def fake_lock2(ticker, sector, score, **kwargs):
         captured["score"] = score
-        return LockResult(passed=False, lock_id=2, score=score, reason="test stop", data={})
+        return LockResult(passed=False, lock_id=3, score=score, reason="test stop", data={})
 
     with (
-        patch("backend.gate.chain.lock1_evaluate", return_value=l1_result),
-        patch("backend.gate.chain.lock2_evaluate", side_effect=fake_lock2),
+        patch("backend.gate.chain.l1_eligibility_evaluate", return_value=l1_result),
+        patch("backend.gate.chain.l3_score_evaluate", side_effect=fake_lock2),
     ):
         evaluate_chain("AAPL", "Technology", signal_score=0.80, context={}, cfg=_cfg())
 
@@ -188,11 +189,11 @@ def test_chain_no_penalty_when_clear():
 
     def fake_lock2(ticker, sector, score, **kwargs):
         captured["score"] = score
-        return LockResult(passed=False, lock_id=2, score=score, reason="test stop", data={})
+        return LockResult(passed=False, lock_id=3, score=score, reason="test stop", data={})
 
     with (
-        patch("backend.gate.chain.lock1_evaluate", return_value=l1_result),
-        patch("backend.gate.chain.lock2_evaluate", side_effect=fake_lock2),
+        patch("backend.gate.chain.l1_eligibility_evaluate", return_value=l1_result),
+        patch("backend.gate.chain.l3_score_evaluate", side_effect=fake_lock2),
     ):
         evaluate_chain("NVDA", "Technology", signal_score=0.80, context={}, cfg=_cfg())
 

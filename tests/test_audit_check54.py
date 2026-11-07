@@ -50,7 +50,7 @@ def test_own_label_rows_are_flagged(tmp_path, monkeypatch):
 
 # C, added after the phase 1 review (R5): master's Terminal detail panel and Settings labels.
 DETAIL_PANEL = '<span style={{ color: "var(--t-text-3)", marginRight: 8 }}>L5:</span>\n'
-SETTINGS_LABEL = '  { key: "lock2_sentiment_min",  label: "Lock 2 Sentiment Min",  step: 0.01 },\n'
+SETTINGS_LABEL = '  { key: "l4_sentiment_grok_min",  label: "Lock 2 Sentiment Min",  step: 0.01 },\n'
 COMMENT_ONLY = '// The lock prefix of a Settings/Promote label comes from the backend table.\n'
 
 
@@ -62,7 +62,7 @@ def test_lock_numbers_written_in_the_frontend_are_flagged(tmp_path, monkeypatch)
 
 
 def test_table_labels_and_plain_comments_are_not_lock_numbers(tmp_path, monkeypatch):
-    panel = '<span>{D.gateLocks?.detail_labels?.l2_summary}:</span>\n<span>{r.reason_label ?? "Reason"}:</span>\n'
+    panel = '<span>{D.gateLocks?.detail_labels?.l4_sentiment_summary}:</span>\n<span>{r.reason_label ?? "Reason"}:</span>\n'
     cg, core = _setup(tmp_path, monkeypatch, COMMENT_ONLY, panel)
     cg.check54()
     assert _found(core, 54) == []
@@ -70,15 +70,20 @@ def test_table_labels_and_plain_comments_are_not_lock_numbers(tmp_path, monkeypa
 
 def test_a_rule_or_module_outside_the_chain_is_flagged(tmp_path, monkeypatch):
     # A: the table agrees with the approved chain (rewritten for lock labels phase 2: the stored code is the
-    # owner's lock code, so every rule must be owned by a lock of the chain and every module lock map to one).
+    # owner's lock code, so every rule must be owned by a lock of the chain; since phase 3 every gate module is named
+    # l<n>_<lock>.py for a lock of the chain and returns its own n as lock_id).
     cg, core = _setup(tmp_path, monkeypatch, TABLE_DRIVEN, TABLE_DRIVEN)
     stray = dataclasses.replace(lock_codes.RULES[0], owner=9, name="stray")
     monkeypatch.setattr(lock_codes, "RULES", lock_codes.RULES + (stray,))
-    monkeypatch.setattr(lock_codes, "MODULE_TO_CHAIN", {k: v for k, v in lock_codes.MODULE_TO_CHAIN.items() if k != 3})
+    real = cg._gate_module_lock_ids()
+    assert real["l4_sentiment.py"] == 4 and real["l2_risk.py"] is None
+    monkeypatch.setattr(cg, "_gate_module_lock_ids", lambda: {**real, "l4_sentiment.py": 3, "l9_x.py": None})
     cg.check54()
     out = _found(core, 54)
     assert any("rule stray is owned by lock 9" in m for m in out)
-    assert any("module lock 3 maps to no chain lock" in m for m in out)
+    assert any("module l4_sentiment.py returns lock_id 3, not its own lock 4" in m for m in out)
+    assert any("module l9_x.py names no lock of the chain" in m for m in out)
+    assert len([m for m in out if m.startswith("module ")]) == 2
 
 
 def test_check25_skips_a_table_driven_consumer_and_compares_one_with_literals(tmp_path, monkeypatch):
@@ -114,3 +119,39 @@ def test_svg_paths_and_comments_are_not_lock_numbers(tmp_path, monkeypatch):
     cg, core = _setup(tmp_path, monkeypatch, TABLE_DRIVEN, NOT_LOCKS)
     cg.check54()
     assert _found(core, 54) == []
+
+
+def test_d_a_key_that_does_not_derive_is_flagged(tmp_path, monkeypatch):
+    # D, positive control from the plan: an injected lock2_foo key.
+    cg, core = _setup(tmp_path, monkeypatch, TABLE_DRIVEN, TABLE_DRIVEN)
+    r0 = lock_codes.RULES[0]
+    bad = dataclasses.replace(r0, config_keys=r0.config_keys + ("lock2_foo",))
+    monkeypatch.setattr(lock_codes, "RULES", (bad,) + lock_codes.RULES[1:])
+    cg.check54()
+    assert any(m.startswith("config key lock2_foo does not derive from its rule") for m in _found(core, 54))
+
+
+def test_d_today_s_keys_and_a_fresh_schema_are_clean(tmp_path, monkeypatch):
+    import shutil
+
+    import backend.db as db
+    cg, core = _setup(tmp_path, monkeypatch, TABLE_DRIVEN, TABLE_DRIVEN)
+    (tmp_path / "repo/data").mkdir()
+    shutil.copy(db.DB_PATH, tmp_path / "repo/data/apex.db")   # conftest's temp DB, built by today's init_db()
+    cg.check54()
+    assert _found(core, 54) == []
+
+
+def test_d_an_old_column_in_the_database_is_flagged(tmp_path, monkeypatch):
+    # The production shape before the rename: lock3_pass (L6's flag under Lock 3) and l2_summary (L4's under L2).
+    import sqlite3
+    cg, core = _setup(tmp_path, monkeypatch, TABLE_DRIVEN, TABLE_DRIVEN)
+    (tmp_path / "repo/data").mkdir()
+    conn = sqlite3.connect(tmp_path / "repo/data/apex.db")
+    conn.execute("CREATE TABLE live_gate_history (id INTEGER, ticker TEXT, lock3_pass INTEGER, l2_summary TEXT, "
+                 "l5_positioning_checks TEXT, earnings_near INTEGER)")
+    conn.commit()
+    conn.close()
+    cg.check54()
+    out = [m for m in _found(core, 54) if m.startswith("column ")]
+    assert sorted(m.split()[1] for m in out) == ["l2_summary", "lock3_pass"]

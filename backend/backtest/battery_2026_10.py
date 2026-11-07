@@ -54,6 +54,7 @@ import numpy as np
 import pandas as pd
 
 from backend.backtest.archive_guard import IdenticalArms
+from backend.gate.lock_codes import legacy_keys, upgrade_keys
 
 WINDOWS = {"IS": ("2019-01-02", "2026-10-16"), "OOS": ("2015-01-02", "2018-12-31")}
 N_STARTS = 20
@@ -107,7 +108,9 @@ class Unit:
 
     def key(self) -> str:
         ref = self.rnd_ref.key() if self.rnd_ref else None
-        parts = [self.window, self.start, self.kw, self.regime, ref, self.seed, self.vix9d_kelly]
+        # Hashed under the pre-phase-3 keyword names, so every unit stored before the rename keeps its key.
+        parts = [self.window, self.start, _frozen(legacy_keys(dict(self.kw))), self.regime, ref, self.seed,
+                 self.vix9d_kelly]
         if self.book_ref is not None:          # appended only when set: existing keys are unchanged
             parts += [self.book_ref.key(), self.book_c, self.book_window]
         raw = json.dumps(parts, default=str)
@@ -116,7 +119,7 @@ class Unit:
 
 def unit(window: str, base: dict, start: int = 0, regime: dict | None = None,
          vix9d_kelly: bool = False, **over) -> Unit:
-    return Unit(window, start, _frozen({**base, **over}), _frozen(regime), vix9d_kelly=vix9d_kelly)
+    return Unit(window, start, _frozen(upgrade_keys({**base, **over})), _frozen(regime), vix9d_kelly=vix9d_kelly)
 
 
 def rnd_units(ref: Unit) -> list[Unit]:
@@ -138,7 +141,7 @@ class Store:
         p = self.path(u)
         if not p.exists():
             raise MissingUnit(u)
-        return json.loads(p.read_text())
+        return upgrade_keys(json.loads(p.read_text()))
 
     def put(self, u: Unit, rec: dict) -> None:
         tmp = self.path(u).with_suffix(".tmp")
@@ -184,7 +187,7 @@ def _profit_read_units(w: str) -> list[Unit]:
 CAP_GRID = [0.15, 0.20, 0.25, 0.26, 0.27, 0.28, 0.29, 0.30, 0.35, 0.40, 0.50]   # lists: the registry pins JSON lists
 RECOVERY = {"BASE": {}, "F10": {"POSTERIOR_CLAMP_FLOOR": 0.10}, "F15": {"POSTERIOR_CLAMP_FLOOR": 0.15},
             "D80": {"POSTERIOR_DECAY": 0.80}}
-HV1_ARMS = {"V1a": {}, "V1b": {"vix_threshold": None}}
+HV1_ARMS = {"V1a": {}, "V1b": {"l1_eligibility_vix_max": None}}
 ETF_RATES = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
 ETF_FLOORS = [-0.5, -1.0, -1.5, -2.0]
 COOLOFF_00 = {"sl_cooldown_days": 0, "tp_cooldown_days": 0}
@@ -206,8 +209,8 @@ def build_cells() -> dict[str, Cell]:
         Cell("noise_floor", VAULT_NOTES + "2026-10-17-apex-noise-floor-start-shift-and-vix-without-the-cut.md",
              [unit(w, b, s) for w in WINDOWS for b in (R1, R2) for s in starts()], read_noise_floor),
         Cell("sector_cap", VAULT_NOTES + "2026-10-17-apex-sector-cap-sweep-preregistration.md",
-             [unit("IS", b, max_sector_exposure=c) for b in (R2, R1) for c in CAP_GRID]
-             + [unit("OOS", b, max_sector_exposure=c) for b in (R2, R1) for c in (0.25, 0.30)], read_sector_cap),
+             [unit("IS", b, l2_risk_sector_cap_max=c) for b in (R2, R1) for c in CAP_GRID]
+             + [unit("OOS", b, l2_risk_sector_cap_max=c) for b in (R2, R1) for c in (0.25, 0.30)], read_sector_cap),
         Cell("regime_weights_3b", VAULT_NOTES + "2026-10-17-apex-regime-weights-hypothesis-3b.md",
              [unit(w, R2, row2_neutral=n) for w in WINDOWS for n in (False, True)], read_3b),
         Cell("regime_recovery", VAULT_NOTES + "2026-10-17-apex-regime-slow-reopening-mechanism-test.md",
@@ -223,8 +226,8 @@ def build_cells() -> dict[str, Cell]:
              + rnd_units(unit("IS", R1)) + rnd_units(unit("OOS", R1)), read_cooloff),
         Cell("etf_penalty", VAULT_NOTES + "2026-10-17-apex-scope-for-sunday-2026-10-18.md (ETF 0.15 cell); "
              "criterion: etf_penalty_sweep._meets_criterion",
-             [unit("IS", R2, s, etf_negative_penalty=None) for s in starts()]
-             + [unit("IS", R2, s, etf_negative_penalty=r, etf_negative_floor=f)
+             [unit("IS", R2, s, l2_risk_etf_penalty=None) for s in starts()]
+             + [unit("IS", R2, s, l2_risk_etf_penalty=r, l2_risk_etf_floor=f)
                 for r in ETF_RATES for f in ETF_FLOORS for s in starts()],
              read_etf),
         Cell("macro_blackout_gate", VAULT_NOTES + "2026-10-19-apex-macro-blackout-gate-preregistration.md",
@@ -529,7 +532,7 @@ def read_noise_floor(store: Store) -> dict:
 def read_sector_cap(store: Store) -> dict:
     out: dict = {}
     for name, b in (("R2", R2), ("R1", R1)):
-        recs = {c: store.get(unit("IS", b, max_sector_exposure=c)) for c in CAP_GRID}
+        recs = {c: store.get(unit("IS", b, l2_risk_sector_cap_max=c)) for c in CAP_GRID}
         base = recs[0.30]
         others = [c for c in CAP_GRID if c != 0.30]
         rows = {}
@@ -541,7 +544,7 @@ def read_sector_cap(store: Store) -> dict:
                             "passes": _gt(_cal(recs[c]), _cal(base)) and folds >= 4
                             and all(_gt(_cal(recs[n]), _cal(base)) for n in nbrs)}
         out[f"IS_{name}"] = {"calmar_030": _cal(base), "grid": rows, "decides": name == "R2"}
-    a, b = store.get(unit("OOS", R2, max_sector_exposure=0.25)), store.get(unit("OOS", R2, max_sector_exposure=0.30))
+    a, b = store.get(unit("OOS", R2, l2_risk_sector_cap_max=0.25)), store.get(unit("OOS", R2, l2_risk_sector_cap_max=0.30))
     ahead, of = years_ahead(a, b)
     out["OOS"] = {"rules": [_rule("0.25 beats 0.30 on R2: window Calmar and >= 3 of 4 years",
                                   _gt(_cal(a), _cal(b)) and ahead >= 3, rid="h", calmar=[_cal(a), _cal(b)], years=f"{ahead}/{of}")]}
@@ -790,13 +793,13 @@ def read_etf(store: Store) -> dict:
     1.12 between neighbours). The criterion was written 2026-07-17 for engine.py; here it is
     read on engine_fast, so the 0.15 decision's evidence is not of its 07-17 form."""
     from backend.backtest.etf_penalty_sweep import _meets_criterion
-    null = lambda s: store.get(unit("IS", R2, s, etf_negative_penalty=None))["engine"]
+    null = lambda s: store.get(unit("IS", R2, s, l2_risk_etf_penalty=None))["engine"]
     nulls = [null(s) for s in starts()]
     grid = {}
     for r in ETF_RATES:
         row = {}
         for f in ETF_FLOORS:
-            arm = [store.get(unit("IS", R2, s, etf_negative_penalty=r, etf_negative_floor=f))["engine"] for s in starts()]
+            arm = [store.get(unit("IS", R2, s, l2_risk_etf_penalty=r, l2_risk_etf_floor=f))["engine"] for s in starts()]
             met = [_meets_criterion(a, n) for a, n in zip(arm, nulls)]
             e = arm[0]
             row[str(f)] = {"profit_factor": e["profit_factor"], "cagr": e["cagr"], "max_drawdown": e["max_drawdown"],
@@ -827,8 +830,8 @@ FIXES = {   # every engine fix since the 10-17 archive commits, as the run() kwa
     "macro_rows_7_10 (60ea0f3)":   ("60ea0f3", {"macro_blackout": False}),
     "r8_intraday_tp_24b (8177535)": ("8177535", {"intraday_tp": False}),
     "cooloff_window_row23 (6f3921d)": ("6f3921d", {"cooloff_per_exit": False}),
-    "etf_penalty_row11 (6e22f5a)": ("6e22f5a", {"etf_negative_penalty": None}),
-    "overflow_row14 (3d921a7)":    ("3d921a7", {"overflow_quant_increment": math.inf}),
+    "etf_penalty_row11 (6e22f5a)": ("6e22f5a", {"l2_risk_etf_penalty": None}),
+    "overflow_row14 (3d921a7)":    ("3d921a7", {"l2_risk_overflow_step": math.inf}),
 }
 
 _PR = VAULT_NOTES + "2026-10-16-apex-profit-read-preregistration.md"
@@ -1237,8 +1240,8 @@ def producer(commit: str, argv: list[str], why: str) -> dict:
 # naming the parameters, unless the pair is explained here with its evidence: "no effect in
 # this window" and "never reached the engine" look the same in the output.
 EXPLAINED_IDENTICAL = {
-    frozenset({unit("OOS", R2, vix9d_kelly=True).key(), unit("OOS", R2, vix9d_kelly=True, vix_threshold=None).key()}):
-        "H-V1 V1a/V1b, OOS start 0: the VIX block off (vix_threshold None) is wired, since the same arm moves IS "
+    frozenset({unit("OOS", R2, vix9d_kelly=True).key(), unit("OOS", R2, vix9d_kelly=True, l1_eligibility_vix_max=None).key()}):
+        "H-V1 V1a/V1b, OOS start 0: the VIX block off (l1_eligibility_vix_max None) is wired, since the same arm moves IS "
         "start 0 from 1,670 to 1,752 trades, and in OOS it had nothing to stop: the 9 days with VIX >= 30 "
         "(2015-08-24..2018-12-26) carry no entry even with the block off (checked 2026-10-20).",
 }

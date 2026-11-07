@@ -303,7 +303,7 @@ def parity_items(db: Path | None = None) -> list[dict]:
                              f"reads {target}, which does not exist"))
 
     # top-level functions referenced nowhere but their definition
-    out += _control("functions", bool([x for x in _refs(texts, "get_lock1_candidates")
+    out += _control("functions", bool([x for x in _refs(texts, "get_l3_score_candidates")
                                        if x != db_py]))
     for p in [x for x in texts if x.suffix == ".py"]:
         try:
@@ -326,10 +326,10 @@ def config_snapshot() -> dict:
     sys.path.insert(0, str(REPO))
     import backend.config as cfg
     snap = {
-        "SECTOR_THRESHOLD_FLOORS": dict(cfg.SECTOR_THRESHOLD_FLOORS),
-        "EXCLUDED_SECTORS":        sorted(cfg.EXCLUDED_SECTORS),
-        "LIVE_TICKER_BLOCKLIST":   sorted(cfg.LIVE_TICKER_BLOCKLIST),
-        "LOCK1_THRESHOLD":         cfg.LOCK1_THRESHOLD,
+        "SECTOR_THRESHOLD_FLOORS":     dict(cfg.SECTOR_THRESHOLD_FLOORS),
+        "EXCLUDED_SECTORS":            sorted(cfg.EXCLUDED_SECTORS),
+        "LIVE_TICKER_BLOCKLIST":       sorted(cfg.LIVE_TICKER_BLOCKLIST),
+        "DEMO_L3_SCORE_THRESHOLD_MIN": cfg.DEMO_L3_SCORE_THRESHOLD_MIN,
     }
     for name in ("live_config", "demo_config"):
         f = REPO / "data" / f"{name}.json"

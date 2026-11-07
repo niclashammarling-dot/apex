@@ -36,9 +36,9 @@ def test_null_draw_is_centred_shifted_and_keeps_episode_ids():
 
 def test_overrides_differ_only_in_the_gate():
     on, off, unit = s.over("ON"), s.over("OFF"), s.over("R1UNIT")
-    assert on["vix_threshold"] == 30.0 and off["vix_threshold"] is None
-    assert {k: v for k, v in on.items() if k != "vix_threshold"} == l3.over("STATIC")
-    assert {k: v for k, v in off.items() if k != "vix_threshold"} == l3.over("STATIC")
+    assert on["l1_eligibility_vix_max"] == 30.0 and off["l1_eligibility_vix_max"] is None
+    assert {k: v for k, v in on.items() if k != "l1_eligibility_vix_max"} == l3.over("STATIC")
+    assert {k: v for k, v in off.items() if k != "l1_eligibility_vix_max"} == l3.over("STATIC")
     assert set(unit) == {"peak_from_high", "peak_haircut"}
 
 

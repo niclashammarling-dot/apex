@@ -1,4 +1,4 @@
-"""CHECK 90 — Lock 5 output after the 2026-10-19 prompt change (2026-10-17)."""
+"""CHECK 90 — L6 REVIEW output after the 2026-10-19 prompt change (2026-10-17)."""
 import sqlite3
 from datetime import date
 
@@ -10,7 +10,7 @@ def _run90(tmp_path, monkeypatch, gate_rows, trade_rows, today):
     (repo / "data").mkdir(parents=True, exist_ok=True)
     (repo / "data/apex.db").unlink(missing_ok=True)
     conn = sqlite3.connect(repo / "data/apex.db")
-    conn.execute("CREATE TABLE live_gate_history (timestamp TEXT, lock3_pass INTEGER, stop_code TEXT)")
+    conn.execute("CREATE TABLE live_gate_history (timestamp TEXT, l6_review_pass INTEGER, stop_code TEXT)")
     conn.execute("CREATE TABLE live_trades (timestamp TEXT, notional REAL)")
     conn.executemany("INSERT INTO live_gate_history VALUES (?, ?, ?)", gate_rows)
     conn.executemany("INSERT INTO live_trades VALUES (?, ?)", trade_rows)
@@ -25,7 +25,7 @@ def _run90(tmp_path, monkeypatch, gate_rows, trade_rows, today):
     return [(f[2], f[4]) for f in core.findings if f[0] == 90]
 
 
-# Rows as stored from lock labels phase 2 (the history migrated the same way): Claude's approval is lock3_pass 1,
+# Rows as stored from lock labels phase 2 (the history migrated the same way): Claude's approval is l6_review_pass 1,
 # Claude's rejection stop_code L6 claude; a fail-closed row (L6 unavailable) and a row that never reached L6 are
 # not Claude's judgement.
 APPROVED = (1, "TRADE_EXECUTED")

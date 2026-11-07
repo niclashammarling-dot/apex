@@ -35,7 +35,7 @@ def test_positive_control_modified_tracked_code_reads_dirty(tmp_path):
 
 def test_runtime_config_under_data_is_not_dirty_code(tmp_path):
     _repo(tmp_path)
-    (tmp_path / "data" / "live_config.json").write_text('{"max_positions": 9}\n')
+    (tmp_path / "data" / "live_config.json").write_text('{"l2_risk_max_positions_count": 9}\n')
     assert read_code_identity(tmp_path)["dirty"] is False
 
 

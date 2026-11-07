@@ -528,13 +528,13 @@ def card_t5(store: "b.Store", seeds: int, workers: int, log) -> dict:
 
 T6_VARIANTS = {
     "live_overflow_0.05": {},
-    "hardcap": {"overflow_quant_increment": math.inf},
-    "hardcap_cap0.40": {"overflow_quant_increment": math.inf, "max_sector_exposure": 0.40},
-    "hardcap_cap0.50": {"overflow_quant_increment": math.inf, "max_sector_exposure": 0.50},
-    "hardcap_slots12": {"overflow_quant_increment": math.inf, "max_positions": 12},
-    "overflow_0.10": {"overflow_quant_increment": 0.10},
-    "overflow_0.20": {"overflow_quant_increment": 0.20},
-    "threshold_0.70": {"lock1_threshold": 0.70},
+    "hardcap": {"l2_risk_overflow_step": math.inf},
+    "hardcap_cap0.40": {"l2_risk_overflow_step": math.inf, "l2_risk_sector_cap_max": 0.40},
+    "hardcap_cap0.50": {"l2_risk_overflow_step": math.inf, "l2_risk_sector_cap_max": 0.50},
+    "hardcap_slots12": {"l2_risk_overflow_step": math.inf, "l2_risk_max_positions_count": 12},
+    "overflow_0.10": {"l2_risk_overflow_step": 0.10},
+    "overflow_0.20": {"l2_risk_overflow_step": 0.20},
+    "threshold_0.70": {"l3_score_threshold_min": 0.70},
 }
 
 

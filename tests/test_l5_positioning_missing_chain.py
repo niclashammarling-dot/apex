@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-import backend.gate.lock4_leading as l4m
+import backend.gate.l5_positioning as l4m
 
 EXP = ("2026-10-30", "2026-11-06")
 RS_OK = {"pass": True, "reason": "rs"}

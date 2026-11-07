@@ -1,7 +1,7 @@
-"""Row 14 (2026-10-18): live's portfolio roof has no hard cap. At or above max_positions,
+"""Row 14 (2026-10-18): live's portfolio roof has no hard cap. At or above l2_risk_max_positions_count,
 slot n over the roof needs the raw signal score to clear the sector threshold x
-(1 + n x overflow_quant_increment); a rejection moves on to the next candidate.
-Both engines used to stop at max_positions."""
+(1 + n x l2_risk_overflow_step); a rejection moves on to the next candidate.
+Both engines used to stop at l2_risk_max_positions_count."""
 import inspect
 import math
 from datetime import date, timedelta
@@ -21,10 +21,10 @@ def test_roof_rule():
 
 
 def test_increment_comes_from_live_config():
-    with patch("backend.live_config.get_live_config", return_value={"overflow_quant_increment": 0.05}):
+    with patch("backend.live_config.get_live_config", return_value={"l2_risk_overflow_step": 0.05}):
         assert live_overflow_increment() == 0.05
     for mod in (engine, engine_fast):
-        assert inspect.signature(mod.run).parameters["overflow_quant_increment"].default is None
+        assert inspect.signature(mod.run).parameters["l2_risk_overflow_step"].default is None
         assert "overflow_admits(" in inspect.getsource(mod.run)
 
 
@@ -39,9 +39,9 @@ def _max_concurrent(log):
 
 
 def test_engine_fast_goes_over_the_roof_only_when_the_bar_allows():
-    """Fails on the parent: engine_fast broke out of the entry loop at max_positions."""
+    """Fails on the parent: engine_fast broke out of the entry loop at l2_risk_max_positions_count."""
     pre = synthetic_precomputed()
     run = lambda **x: engine_fast.run(START.isoformat(), END.isoformat(), precomputed=pre,
-                                      **{**RUN_KW, "max_positions": 1, **x})["trade_log"]
-    assert _max_concurrent(run(overflow_quant_increment=math.inf)) == 1
-    assert _max_concurrent(run(overflow_quant_increment=0.0)) > 1      # a flat bar: no roof
+                                      **{**RUN_KW, "l2_risk_max_positions_count": 1, **x})["trade_log"]
+    assert _max_concurrent(run(l2_risk_overflow_step=math.inf)) == 1
+    assert _max_concurrent(run(l2_risk_overflow_step=0.0)) > 1      # a flat bar: no roof

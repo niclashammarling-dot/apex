@@ -19,14 +19,17 @@ ALPACA_BASE_URL   = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.marke
 LIVE_ENABLED      = os.getenv("LIVE_ENABLED", "false").lower() == "true"
 
 # --- Signal thresholds ---
-LOCK1_THRESHOLD       = 0.70
-LOCK2_SENTIMENT_MIN   = 0.1
-LOCK3_CONFIDENCE_MIN  = 0.60
+# A gate constant is its config key in capitals (lock_codes.constant_name); a value that belongs to one
+# book carries the book's name (DEMO_, LIVE_; a shadow or real-money book takes its own), a value every
+# book shares carries none (Niclas 2026-11-01: "Skilj demo och live genom boknamn").
+DEMO_L3_SCORE_THRESHOLD_MIN = 0.70
+DEMO_L4_SENTIMENT_GROK_MIN  = 0.1
+DEMO_L6_REVIEW_CLAUDE_MIN   = 0.60
 
 # Sectors excluded from entry evaluation — no validated momentum edge.
 # Determined by 2021-2026 threshold sweep (2026-05-07): PF < 1.0 across all
 # viable threshold levels; structurally incompatible with momentum-based signals.
-# Lock 1 (Eligibility) blocks these before any further evaluation.
+# L1 ELIGIBILITY blocks these before any further evaluation.
 EXCLUDED_SECTORS: dict[str, str] = {
     "Financials":      "Rate-driven sector; momentum signal has no structural validity; PF 0.46 at baseline, no crossover at any threshold",
     "Utilities":       "Rate-driven sector; PF never crosses 1.0 across 0.55–0.80 sweep; incompatible with momentum model. Anti-correlation confirmed: post≥0.50 PF 0.690 (2026-05-18 conditioned sweep) — same defensive rotation mechanism as ConsumerStaples.",
@@ -34,7 +37,7 @@ EXCLUDED_SECTORS: dict[str, str] = {
     "Materials":       "PF never crosses 1.0 at any threshold (0.55–0.75 sweep, isolated backtest, 2026-05-18). Best: PF 0.81 at 0.55. Commodity-driven momentum not captured by APEX signal stack. ETF: XME.",
 }
 
-# Minimum Lock 2 signal score floors per sector, applied above the calibrated
+# Minimum L3 SCORE floors per sector, applied above the calibrated
 # threshold when calibration landed below a sweep-validated edge threshold.
 SECTOR_THRESHOLD_FLOORS: dict[str, float] = {
     # ConsumerDisc: floor 0.75 removed 2026-10-10 (Niclas: "Keep the 0.59 for now"), so the
@@ -68,15 +71,15 @@ EXIT_CHECK_INTERVAL   = 5
 GROK_CACHE_TTL        = 60  # minutes
 
 # --- Wallet ---
-STARTING_BALANCE      = 2_000.0
-MAX_POSITIONS         = 4
-MAX_SECTOR_EXPOSURE   = 0.25
-MAX_POSITION_SIZE     = 0.15  # max 15% of balance per trade (~$300 on $2k)
-DAILY_LOSS_CAP        = 100.0
+DEMO_STARTING_BALANCE            = 2_000.0
+DEMO_L2_RISK_MAX_POSITIONS_COUNT = 4
+DEMO_L2_RISK_SECTOR_CAP_MAX      = 0.25
+DEMO_MAX_POSITION_SIZE           = 0.15  # max 15% of balance per trade (~$300 on $2k)
+DEMO_L0_PORTFOLIO_LOSS_CAP_MAX   = 100.0
 
 # --- Exit conditions ---
-TAKE_PROFIT_PCT         = 0.06
-STOP_LOSS_PCT           = 0.05
+DEMO_TAKE_PROFIT_PCT = 0.06
+DEMO_STOP_LOSS_PCT   = 0.05
 
 # Realized payoffs from 2021-2026 backtest (clean sector mix, 2026-05-07).
 # Used as Kelly B inputs in place of nominal TP/SL — actual exit quality
@@ -87,59 +90,58 @@ TIME_STOP_DAYS          = 40
 PROFIT_LOCK_TRIGGER_PCT = 0.04   # peak gain that activates tighter TSL — sweep-validated 2026-05-27
 PROFIT_LOCK_TRAIL_PCT   = 0.01   # drawdown from peak once profit-lock activates — sweep-validated 2026-05-27
 
-# --- Macro filter (Lock 1.5) ---
-MACRO_VIX_THRESHOLD           = 30.0
-MACRO_EVENT_BLACKOUT_DAYS     = 1     # days before CPI/NFP that count as pre-event (FOMC: fixed 2-day hard block, lock1 _FOMC_PRE_EVENT_DAYS)
-MACRO_EARNINGS_BLACKOUT_DAYS  = 3     # days before a ticker's earnings (hard block)
-MACRO_EARNINGS_NEAR_DAYS      = 14    # near-term earnings window above hard block
-MACRO_EARNINGS_NEAR_PENALTY   = 0.15  # score multiplier reduction in near-term window
-MACRO_PRE_EVENT_PENALTY       = 0.05  # score multiplier reduction in the CPI/NFP pre-event window (FOMC never reaches it: hard block)
-GATE_COOLOFF_HOURS            = 4     # hours before re-evaluating a ticker that failed L2/L3/MACRO
-EXIT_COOLOFF_HOURS            = 24    # hours before a LOSS/EXPIRED ticker can re-enter the gate
-TP_COOLOFF_HOURS              = 168   # hours before a WIN ticker can re-enter (7d — sweep-validated 2026-06-03)
-ETF_NEGATIVE_FLOOR            = -1.0  # sector ETF 5d return (%) below which penalty fires; -0.3% is noise
-ETF_NEGATIVE_PENALTY          = 0.0   # score multiplier reduction when ETF is below floor (0 = off; 0.20 blocks LRCX-shape entries)
+# --- L1 ELIGIBILITY (VIX, macro calendar, cooloffs) and L2 RISK (earnings, ETF) ---
+L1_ELIGIBILITY_VIX_MAX                 = 30.0
+L1_ELIGIBILITY_MACRO_EVENT_DAYS        = 1     # days before CPI/NFP that count as pre-event (FOMC: fixed 2-day hard block, l1_eligibility._FOMC_PRE_EVENT_DAYS)
+L2_RISK_EARNINGS_DAYS                  = 3     # days before a ticker's earnings (hard block)
+L2_RISK_EARNINGS_NEAR_DAYS             = 14    # near-term earnings window above hard block
+L2_RISK_EARNINGS_NEAR_PENALTY          = 0.15  # score multiplier reduction in near-term window
+L1_ELIGIBILITY_MACRO_PRE_EVENT_PENALTY = 0.05  # score multiplier reduction in the CPI/NFP pre-event window (FOMC never reaches it: hard block)
+L1_ELIGIBILITY_COOLOFF_HOURS           = 4     # hours before re-evaluating a ticker that failed L2/L3/MACRO
+L1_ELIGIBILITY_EXIT_COOLOFF_HOURS      = 24    # hours before a LOSS/EXPIRED ticker can re-enter the gate
+L1_ELIGIBILITY_EXIT_COOLOFF_WIN_HOURS  = 168   # hours before a WIN ticker can re-enter (7d — sweep-validated 2026-06-03)
+L2_RISK_ETF_FLOOR                      = -1.0  # sector ETF 5d return (%) below which penalty fires; -0.3% is noise
+L2_RISK_ETF_PENALTY                    = 0.0   # score multiplier reduction when ETF is below floor (0 = off; 0.20 blocks LRCX-shape entries)
                                       # live_config.json carries 0.15, set by the 2026-07-17 sweep. Evidential status
                                       # (2026-09-16): resting on an unreproducible run — the sweep's engine had a NaN-
                                       # poisoned ETF regime multiplier (CHECK 76 finding c) and its window/universe have
                                       # since moved. Not validated, not invalidated; re-run queued in apex-moc OT.
 
-# --- Lock Leading ---
+# --- L5 POSITIONING ---
 # PCR sub-check threshold form: "pooled_scalar" (PCR_THRESHOLD=0.85 for every ticker) or
 # "per_ticker_p25" (partial-pooled per-ticker P25, backend/gate/pcr_baseline.py). Demo runs
 # per-ticker first (2026-09-17); live stays pooled until CHECK 80 has read out on demo.
-LOCK4_PCR_MODE      = "per_ticker_p25"
-LIVE_LOCK4_PCR_MODE = "pooled_scalar"
+DEMO_L5_POSITIONING_LEADING_MODE = "per_ticker_p25"
+LIVE_L5_POSITIONING_LEADING_MODE = "pooled_scalar"
 
 # --- Portfolio roof overflow ---
-# For each position slot beyond max_positions, the quant threshold multiplies by
-# (1 + overflow_level * OVERFLOW_QUANT_INCREMENT).
+# For each position slot beyond l2_risk_max_positions_count, the quant threshold multiplies by
+# (1 + overflow_level * L2_RISK_OVERFLOW_STEP).
 # Position 6 = ×1.05, position 7 = ×1.10, etc. No hard cap — the escalating bar
 # is self-limiting.
-OVERFLOW_QUANT_INCREMENT = 0.05
+L2_RISK_OVERFLOW_STEP = 0.05
 
-# --- Lock 3 risk limits ---
-LOCK3_MAX_DRAWDOWN_PCT = 0.20  # drawdown threshold passed to Claude in context
+# --- L0 PORTFOLIO drawdown guard (shown to L6 REVIEW in risk_limits) ---
+L0_PORTFOLIO_DRAWDOWN_GUARD_MAX = 0.20  # drawdown threshold passed to Claude in context
 
 # --- P(win) base rate (decoupled from signal score) ---
 BASE_WIN_RATE        = 0.55
 WIN_RATE_MIN_TRADES  = 20  # use rolling win rate only after this many closed trades
 
-# --- Live starting balance (used for drawdown calc in Lock 3 context) ---
+# --- Live starting balance (the drawdown in L6 REVIEW's context) ---
 LIVE_STARTING_BALANCE = float(os.getenv("LIVE_STARTING_BALANCE", "100000.0"))
 
 # --- Live gate thresholds — defaults only. Runtime values live in data/live_config.json
 # (written by the Promote feature). Import get_live_config() to read effective values.
-LIVE_LOCK1_THRESHOLD      = float(os.getenv("LIVE_LOCK1_THRESHOLD", "0.65"))
-LIVE_LOCK2_SENTIMENT_MIN  = float(os.getenv("LIVE_LOCK2_SENTIMENT_MIN", "0.2"))
-LIVE_LOCK3_CONFIDENCE_MIN = float(os.getenv("LIVE_LOCK3_CONFIDENCE_MIN", "0.75"))
+LIVE_L3_SCORE_THRESHOLD_MIN = float(os.getenv("LIVE_L3_SCORE_THRESHOLD_MIN", "0.65"))
+LIVE_L4_SENTIMENT_GROK_MIN  = float(os.getenv("LIVE_L4_SENTIMENT_GROK_MIN", "0.2"))
+LIVE_L6_REVIEW_CLAUDE_MIN   = float(os.getenv("LIVE_L6_REVIEW_CLAUDE_MIN", "0.75"))
 
 # --- Live wallet / risk controls ---
-LIVE_MAX_POSITIONS       = int(os.getenv("LIVE_MAX_POSITIONS", "4"))
-LIVE_MAX_SECTOR_EXPOSURE = float(os.getenv("LIVE_MAX_SECTOR_EXPOSURE", "0.20"))
-LIVE_MAX_POSITION_SIZE   = float(os.getenv("LIVE_MAX_POSITION_SIZE", "0.10"))
-LIVE_DAILY_LOSS_CAP      = float(os.getenv("LIVE_DAILY_LOSS_CAP", "200.0"))
-# --- L0 Portfolio: the M4 stop rules (ruled 2026-10-24; backend/gate/portfolio_l0.py) ---
+LIVE_L2_RISK_MAX_POSITIONS_COUNT = int(os.getenv("LIVE_L2_RISK_MAX_POSITIONS_COUNT", "4"))
+LIVE_L2_RISK_SECTOR_CAP_MAX      = float(os.getenv("LIVE_L2_RISK_SECTOR_CAP_MAX", "0.20"))
+LIVE_MAX_POSITION_SIZE           = float(os.getenv("LIVE_MAX_POSITION_SIZE", "0.10"))
+# --- L0 Portfolio: the M4 stop rules (ruled 2026-10-24; backend/gate/l0_portfolio.py) ---
 # Drawdown on realised equity: Niclas 2026-10-24 "6 %" ("i överkant men det är värdefullt att veta"),
 # "m4: realiserat". Daily loss cap as a share of current equity: ruled as a share ("5% av aktuellt
 # kapital kan skala upp och ner"), level 4 % or 6 % open until the 2026-11-21 review; 5 % is the
@@ -147,11 +149,13 @@ LIVE_DAILY_LOSS_CAP      = float(os.getenv("LIVE_DAILY_LOSS_CAP", "200.0"))
 # 40 in-session trades (Niclas "sätt den på 40"), below the frozen in-session reference's one-sided
 # 95 % lower bound; reference = the 34 in-session trades closed by 2026-10-23 13:58 UTC, return on
 # notional mean 1.85 %, sd 3.95 % (measured 2026-10-24 from db.live_sample_rows).
-M4_DRAWDOWN_PCT        = 0.06
-M4_DAILY_LOSS_CAP_PCT  = 0.05
-M4_EXPECTANCY_N        = 40
-M4_EXPECTANCY_REF      = {"mean": 0.0185, "sd": 0.0395, "n": 34,
-                          "frozen_after_exit": "2026-10-23T13:58:48.412222+00:00"}
+# The live loss cap is this share of equity; the demo's (DEMO_L0_PORTFOLIO_LOSS_CAP_MAX) is dollars. Live's
+# stored l0_portfolio_loss_cap_max is the dollar product, written by L0 every cycle (gate_runner_live).
+LIVE_L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX     = 0.06
+LIVE_L0_PORTFOLIO_LOSS_CAP_MAX             = 0.05
+LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT = 40
+LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_REF   = {"mean": 0.0185, "sd": 0.0395, "n": 34,
+                                              "frozen_after_exit": "2026-10-23T13:58:48.412222+00:00"}
 LIVE_TAKE_PROFIT_PCT     = float(os.getenv("LIVE_TAKE_PROFIT_PCT", "0.12"))
 LIVE_STOP_LOSS_PCT       = float(os.getenv("LIVE_STOP_LOSS_PCT", "0.04"))
 # A daily-loss-cap trip where broker-reported day P&L and APEX's own

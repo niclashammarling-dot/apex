@@ -1,4 +1,4 @@
-"""Rows 7 / 10 in engine_fast (2026-10-17): Lock 1 B2's macro blackout, as engine.py and live."""
+"""Rows 7 / 10 in engine_fast (2026-10-17): L1 ELIGIBILITY B2's macro blackout, as engine.py and live."""
 from datetime import date
 
 from backend.backtest import engine, engine_fast
@@ -30,7 +30,7 @@ def test_pre_event_penalty_and_flag():
     assert pre_ev
     base = {t["entry_date"] for t in _run(pre)["trade_log"]}
     assert base & pre_ev                                             # positive control: entries happen on eves
-    assert not {t["entry_date"] for t in _run(pre, macro_pre_event_penalty=0.99)["trade_log"]} & pre_ev
+    assert not {t["entry_date"] for t in _run(pre, l1_eligibility_macro_pre_event_penalty=0.99)["trade_log"]} & pre_ev
     assert not {t["entry_date"] for t in _run(pre, macro_hard_block=True)["trade_log"]} & pre_ev
 
 
@@ -45,20 +45,20 @@ def test_shared_rule_precedence_and_engine_wrapper():
 
 def test_the_cpi_nfp_window_is_live_config_by_reference(monkeypatch):
     """P3 (Niclas 2026-10-28): one calendar for every book. The engines read live's
-    macro_event_blackout_days, as lock1_eligibility does, not macro_status's own default."""
+    l1_eligibility_macro_event_days, as l1_eligibility does, not macro_status's own default."""
     pre = synthetic_precomputed()
     wide = _days(pre, "pre_event", window=2) - _days(pre, "pre_event")
     assert wide                                                       # the wider window adds eves
-    entries = lambda **kw: {t["entry_date"] for t in _run(pre, macro_pre_event_penalty=0.99, **kw)["trade_log"]}
-    assert entries(macro_event_blackout_days=1) & wide                # positive control: window 1 trades them
-    assert not entries(macro_event_blackout_days=2) & wide
+    entries = lambda **kw: {t["entry_date"] for t in _run(pre, l1_eligibility_macro_pre_event_penalty=0.99, **kw)["trade_log"]}
+    assert entries(l1_eligibility_macro_event_days=1) & wide                # positive control: window 1 trades them
+    assert not entries(l1_eligibility_macro_event_days=2) & wide
     import backend.live_config as live_config
     real = live_config.get_live_config
-    monkeypatch.setattr(live_config, "get_live_config", lambda: {**real(), "macro_event_blackout_days": 2})
-    assert entries() == entries(macro_event_blackout_days=2)          # None follows live config
+    monkeypatch.setattr(live_config, "get_live_config", lambda: {**real(), "l1_eligibility_macro_event_days": 2})
+    assert entries() == entries(l1_eligibility_macro_event_days=2)          # None follows live config
     # engine.py downloads its data and runs nowhere offline; its wrapper takes the window as a required
     # argument, so a call that does not pass it fails, and run() resolves None the same way.
     import inspect
-    assert inspect.signature(engine.run).parameters["macro_event_blackout_days"].default is None
+    assert inspect.signature(engine.run).parameters["l1_eligibility_macro_event_days"].default is None
     assert engine._macro_status(date(2026, 9, 9), 2) == "pre_event"   # CPI 09-11 in 2 d
     assert engine._macro_status(date(2026, 9, 9), 1) == "clear"

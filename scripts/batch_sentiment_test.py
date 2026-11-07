@@ -31,7 +31,7 @@ logger.add(sys.stderr, level="WARNING")
 
 from backend.data.fetcher_sentiment import fetch_market_signals
 from backend.data.fetcher_rss import fetch_headlines
-from backend.gate.lock3_sentiment import _call_grok, _build_prompt
+from backend.gate.l4_sentiment import _call_grok, _build_prompt
 from backend.db import get_db
 
 TICKERS_JSON    = Path("data/tickers.json")

@@ -44,7 +44,7 @@ def test_pure_core_is_what_the_wrapper_returns():
 
 
 EVALUATED = [({"ticker": t, "sector": s, "signal_score": sc}, {"outcome": o}) for t, s, sc, o in [
-    ("AAPL", "Technology", 0.71, "TRADE_QUEUED"), ("MSFT", "Technology", 0.66, "TRADE_QUEUED_PENDING_L5"),
+    ("AAPL", "Technology", 0.71, "TRADE_QUEUED"), ("MSFT", "Technology", 0.66, "TRADE_QUEUED_PENDING_L6"),
     ("NVDA", "Technology", 0.80, "TRADE_QUEUED"), ("XOM", "Energy", 0.58, "TRADE_QUEUED"),
     ("CVX", "Energy", 0.61, "BLOCKED_L2"), ("PLD", "RealEstate", 0.70, "TRADE_QUEUED")]]
 PARENT_MULT = {"AAPL": 0.9818, "MSFT": 0.9125, "NVDA": 1.1062, "XOM": 1.0}

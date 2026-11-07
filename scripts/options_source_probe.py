@@ -25,7 +25,7 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import GetOptionContractsRequest
 
 from backend.config import ALPACA_API_KEY, ALPACA_BASE_URL, ALPACA_SECRET_KEY
-from backend.gate.lock4_leading import (
+from backend.gate.l5_positioning import (
     _check_put_call_ratio,
     _check_unusual_call_volume,
     _fetch_options_chains,

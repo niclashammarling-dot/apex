@@ -4,7 +4,7 @@ Pins the weekly-report fixes from the 2026-10-03 read against the DB
 
 - The funnel counts each row once, under the lock and rule that stopped it
   (stop_code; lock labels phase 2, 2026-10-29). The old query counted open/cooloff
-  skips as "L1 pass" and gated the eligibility row on lock1_pass=1, which has
+  skips as "L1 pass" and gated the eligibility row on l3_score_pass=1, which has
   never occurred; the skips are L1's rules now.
 - Decisions the stages don't name are shown, never dropped.
 - Per-sector closed P&L uses the same population as the totals.

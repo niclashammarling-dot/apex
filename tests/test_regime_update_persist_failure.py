@@ -1,7 +1,7 @@
 """
 RegimeBayes.update's in-memory result must follow the persist (2026-09-26).
 
-_last_result is what every consumer reads (both gate runners, Lock 1, both
+_last_result is what every consumer reads (both gate runners, L1 ELIGIBILITY, both
 trackers). It was assigned before _save_session_posteriors, so a failed persist
 restored _posteriors but left the gate trading on the unpersisted session's
 leader and allocation, while DB, cache and history stayed on the previous one.

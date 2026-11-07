@@ -26,8 +26,8 @@ from loguru import logger
 from backend.config import (
     SECTORS,
     SPY_TICKER,
-    STOP_LOSS_PCT,
-    TAKE_PROFIT_PCT,
+    DEMO_STOP_LOSS_PCT,
+    DEMO_TAKE_PROFIT_PCT,
     TIME_STOP_DAYS,
 )
 from backend.signals import aggregator, momentum, relative_strength, trend, volume
@@ -169,10 +169,10 @@ def _simulate_trades(
             pnl_pct   = (current - entry_price) / entry_price
             days_held = i + 1
 
-            if pnl_pct >= TAKE_PROFIT_PCT:
+            if pnl_pct >= DEMO_TAKE_PROFIT_PCT:
                 outcome, exit_price = "WIN", current
                 break
-            elif pnl_pct <= -STOP_LOSS_PCT:
+            elif pnl_pct <= -DEMO_STOP_LOSS_PCT:
                 outcome, exit_price = "LOSS", current
                 break
             elif days_held >= TIME_STOP_DAYS:

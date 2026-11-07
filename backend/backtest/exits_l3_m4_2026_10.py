@@ -30,7 +30,7 @@ from backend.backtest import exits_atr_2026_10 as xa
 from backend.backtest import ladder_2026_10 as ld
 from backend.backtest.archive_guard import fingerprint
 from backend.backtest.exit_rules import POLLED_PEAK_GAP
-from backend.config import M4_DRAWDOWN_PCT as M4_DD  # the live L0 halt, one source
+from backend.config import LIVE_L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX as M4_DD  # the live L0 halt, one source
 
 START_BALANCE = 10_000.0         # ladder._engine's initial balance
 DD_TOL = 0.01                    # card item 5: realised drawdown at most 1 point deeper
