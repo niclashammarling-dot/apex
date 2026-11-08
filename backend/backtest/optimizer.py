@@ -224,38 +224,58 @@ def _date_range() -> tuple[str, str]:
 
 # ── Run-to-run noise floor ────────────────────────────────────────────────────
 #
-# Measured 2026-09-14: six cold-start runs (warm_start=False, 200 experiments
-# each) on identical data (window 2025-12-15 → 2026-09-11, same precompute
-# cache, same start score 0.29495). Best scores 0.6479, 0.7045, 0.6896,
-# 0.6497, 0.6830, 0.6183 → mean 0.666, σ 0.032, range 0.086. Kept 3/8/9/8/4/5
-# → 6.2 ± 2.5.
+# Measured 2026-11-08 (scripts/noise_floor_runs.py; vault
+# raw/notes/2026-11/2026-11-08-apex-noise-floor-remeasured.md): six cold-start
+# runs (warm_start=False, seeds 0-5, 200 experiments each) on identical data:
+# window 2026-02-09 → 2026-11-06, one precompute cache, the same start score
+# -0.0097 in all six; rerun with the same seeds reproduced every score. Best
+# scores 0.5447, 0.5447, 0.6361, 0.6315, 0.6428, 0.7208 → mean 0.620, σ 0.067
+# (sample), range 0.176. Kept 4/4/2/5/5/6 → 4.3 ± 1.4.
 #
-# Threshold derivation, two routes to the same number: (a) observed range
-# 0.086; (b) the difference of two independent runs has σ√2 ≈ 0.045, so a 2σ
-# band on a run-to-run comparison is 0.090. A week-over-week move in the
-# best score below NOISE_FLOOR["threshold"] is not distinguishable from
-# search noise and the weekly report says so.
+# A new floor, not the 09-14 floor grown: the window, the engine (signal-code
+# hash) and the roster all differ from the 2026-09-14 measurement (σ 0.032,
+# threshold 0.09 on 2025-12-15 → 2026-09-11), so the two are not comparable.
+#
+# Threshold, two routes: (a) observed range 0.176; (b) the difference of two
+# independent runs has σ√2 ≈ 0.095, so a 2σ band on a run-to-run comparison is
+# 0.189. The larger, 0.19. A week-over-week move in the best score below
+# NOISE_FLOOR["threshold"] is not distinguishable from search noise and the
+# weekly report says so.
+#
+# Discarded experiments (_evaluate returned None), per run 0/15/1/46/2/13 = 77:
+# every one failed FLOOR_WIN_RATE (no exception, no other floor), and every one
+# had stop_loss_pct 0.03-0.04. The win-rate floor censors the tight-stop corner
+# of the space by design; a run that wanders there spends experiments on it
+# (run 3: 46 of 200). Cause known, not a silent failure.
+#
+# Equivalent levels: l1_eligibility_vix_max 35, 40 and None give the same trades
+# on this window (VIX close max 31.05 on 2026-03-27, 0 days above 35), which is
+# why runs 0 and 1 tied at 0.5447 with only that parameter different. 20/25/30
+# do bind. Collapse levels above the window's VIX max before the next
+# measurement (INDEX); a removal of the whole dimension would drop live levels.
 #
 # Validity: the floor is a property of this composite, on this window, on
 # this engine. It is tied to a hash of _composite_score's source, the weights,
 # the floors, LOOKBACK_DAYS, and (since 2026-09-16) the signal-code hash from
-# engine_fast — the engine that produces every score the floor was measured
-# on changed that day (SPY return_20d aligned to production; CHECK 76) and
-# the floor had no way to notice. If any change, noise_floor_valid() returns False and the
-# report renders the floor as stale until it is re-measured (run
-# run_optimizer(warm_start=False, notify=False, results_path=...) several
-# times and update this block). A stored number without its validity
-# condition is exactly the stale-fact shape this codebase keeps digging out.
+# engine_fast. If any change, noise_floor_valid() returns False and the report
+# renders the floor as stale until it is re-measured (scripts/noise_floor_runs.py,
+# then update this block). The roster the runs used (103 tickers, hash below) is
+# recorded but is NOT in the validity key: whether a roster change invalidates
+# the floor is an open decision (apex-moc {OT-apex-041}, INDEX), kept out of this
+# measurement on purpose. A stored number without its validity condition is
+# exactly the stale-fact shape this codebase keeps digging out.
 NOISE_FLOOR = {
-    "measured":  "2026-09-14",
+    "measured":  "2026-11-08",
     "n_runs":    6,
-    "mean":      0.666,
-    "sigma":     0.032,
-    "range":     0.086,
-    "threshold": 0.09,
-    "kept_mean": 6.2,
-    "kept_sigma": 2.5,
-    "objective_hash": "a9a7a936",   # set by _objective_hash() at measurement time
+    "mean":      0.62,
+    "sigma":     0.067,
+    "range":     0.176,
+    "threshold": 0.19,
+    "kept_mean": 4.3,
+    "kept_sigma": 1.4,
+    "discarded": [0, 15, 1, 46, 2, 13],   # per run, all FLOOR_WIN_RATE, all stop_loss_pct 0.03-0.04
+    "roster": {"n_tickers": 103, "hash": "6fa09571"},   # scripts/noise_floor_runs.py roster(); not in the key
+    "objective_hash": "9961f0f0",   # set by _objective_hash() at measurement time
 }
 
 
