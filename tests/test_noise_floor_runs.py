@@ -28,3 +28,13 @@ def test_none_cause_follows_the_composite_score_order():
     assert none_cause(None, r, 8, 0.30) == "win_rate_below_floor"
     assert none_cause(None, {**r, "win_rate": 0.5, "sharpe": float("nan")}, 8, 0.30) == "sharpe_not_finite"
     assert none_cause(None, {**r, "win_rate": 0.5}, 8, 0.30) == "unclassified"
+
+
+def test_roster_counts_unique_tickers_and_hashes_them_in_order(monkeypatch):
+    import backend.ticker_config as tc
+    from scripts.noise_floor_runs import roster
+    monkeypatch.setattr(tc, "get_sectors", lambda: {"A": {"tickers": ["MSFT", "AAPL"]}, "B": {"tickers": ["AAPL", "XOM"]}})
+    r = roster()
+    assert r["n_tickers"] == 3
+    monkeypatch.setattr(tc, "get_sectors", lambda: {"B": {"tickers": ["XOM", "AAPL"]}, "A": {"tickers": ["MSFT"]}})
+    assert roster()["hash"] == r["hash"]                    # same set, any order: same hash

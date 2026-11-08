@@ -9,6 +9,7 @@ other scripts/identity_replay.py     # read-only measurement (phase 3 verificati
 other scripts/surface_replay.py      # read-only measurement
 other scripts/verify_gate_column_rename.py   # read-only measurement of a migration
 other scripts/reader_writer_inventory.py     # read-only inventory
+other scripts/noise_floor_runs.py          # research measurement: writes only its OUTDIR and the engine cache (2026-11-08)
 other backend/weekly_report.py       # report module
 
 # Named for the record; unmatched files are money anyway.
