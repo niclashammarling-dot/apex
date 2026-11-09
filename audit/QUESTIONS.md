@@ -46,7 +46,7 @@ the questions themselves, and each go group's threshold status, which changes on
 | id | question | answers | threshold | answered by |
 |---|---|---|---|---|
 | O3 | Is APEX trustworthy enough for real money? | — | — | G1, G2, G3, G4, G5, G6, G7 |
-| G1 | Edge: a measured edge in the battery, then shown live over max(3, n/rate) months at 90 % power | O3 | set (formula ruled 10-19; O3 direction: hit rate above 72 % on in-session entries) | Q-SIG, Q-EXE, Q-VER, S16, M1 |
+| G1 | Edge: a measured edge in the battery, then shown live over max(3, n/rate) months at 90 % power | O3 | set (formula ruled 10-19; O3 direction: hit rate above 72 % on in-session entries) | Q-SIG, Q-EXE, Q-VER, S16, M1, M9 |
 | G2 | Risk: drawdown, worst day, losing streak and largest loss inside what the ported backtest predicts | O3 | not set | Q-PAR, Q-EXE |
 | G3 | Robustness: positive without the best trades and the best sector; the 2022 fold; the parameters on a plateau | O3 | not set (plateau) | Q-PAR, S7, M2 |
 | G4 | Live matches the model: live inside the ported backtest's distribution, slippage charged | O3 | scored after the port | Q-PAR, CHECK-89, CHECK-93 |
@@ -81,6 +81,7 @@ when its own register row exists; the reference above is replaced in the same co
 | M6 | The regime port merged into master (criterion ruled 10-19) | Q-PAR | done 2026-10-24 (`0964e7e`); leaves this table when Q-PAR's answered-by list is re-read |
 | M7 | Calibrated L2 instrument: the episode-percentile CI false-passes at 6 % against a nominal 2.5 % (S14 R1 follow-up 2026-10-27, `9ec1b6b`); a null-distribution test runs at 3.0 %; alternatives (wild cluster bootstrap, bootstrap-t, CR2, calendar shift, episode sign test) in vault S14 card § 12.2, the wild bootstrap's calibration to be measured in the time-stop card | Q-VER | the card template and the next runner (S14 R2 card, vault INDEX 2026-11-14); S21b used the same CI, its unanswered reading stands |
 | M8 | Split-exit booking check: a take-profit partially filled and the rest sold by the resized stop is booked whole at the stop price with no flag (`backend/live_trades_tracker.py:691-697`). Alpaca docs read 2026-11-09: it can occur; measured 0 of 77 brackets 07-07..11-05 (control: 68 filled exit legs, all full). Ruled R026 (vault): a CHECK in the 16:33 ET audit, CRITICAL and mailed the same evening | Q-EXE | a CHECKS.md row, APEX Saturday 2026-11-21 (vault INDEX); the reference becomes that CHECK |
+| M9 | Live entry edge against same-exit random entries (T7 line, ruled 2026-10-21): live mean return per trade minus same-day, volatility-matched random entries under the same exits, win rate and its baseline beside it. Read by hand 2026-11-09 on 62 canonical trades (entries 07-07..10-15, IS window ends 10-16): excess +1.21 %/trade, p 0.042 (1,000 draws, R9); win rate 67.7 % against 54.2 %, p 0.011. Second look at a growing sample (10-21: p 0.07 on 57), not a pre-registered test (vault `raw/notes/2026-11/2026-11-09-apex-t7-same-exit-baseline-read-62-canonical-trades.md`) | G1 | the monthly read's T7 line with its test, APEX Saturday 2026-11-14 (vault INDEX); the reference becomes that read |
 
 ## Rows that answer no question
 None at the time of writing: every S-row S1–S22 and every GAP row 1–34 (with 22b, 24b) is named
