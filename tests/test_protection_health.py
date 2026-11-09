@@ -32,6 +32,13 @@ def test_no_resting_stop_raises():
         assert [f["severity"] for f in found] == ["CRITICAL"] and "no resting STOP" in found[0]["what"]
 
 
+def test_no_resting_take_profit_warns():             # R024: a cancelled stop leg took the TP with it
+    for tp in ({"order_type": "limit", "status": "canceled", "stop_price": None}, None):
+        legs = ([tp] if tp else []) + [{"order_type": "stop", "status": "held", "stop_price": 90.0}]
+        found = evaluate([POS], [TRADE], lambda _id, l=legs: {"legs": l})
+        assert [f["severity"] for f in found] == ["WARNING"] and "no resting take-profit" in found[0]["what"]
+
+
 def test_short_position_raises():                       # both bracket legs filled
     found = evaluate([{**POS, "qty": -3.0, "side": "short"}], [TRADE], lambda _id: _order())
     assert [f["severity"] for f in found] == ["CRITICAL"] and "short" in found[0]["what"]

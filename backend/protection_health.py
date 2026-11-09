@@ -23,6 +23,9 @@ leg filled four minutes later, and the mail said "unprotected"). When the leg si
 (the ratchet's last logged stop, else the row's sl_price) and the market is open, it is "price through the stop,
 fill pending": a WARNING, re-read next cycle by the caller, which escalates a second sighting to CRITICAL. A level
 matching neither, or a crossed leg still resting with the market closed, stays CRITICAL.
+
+A position whose bracket has no resting take-profit leg is a WARNING (2026-11-09, R024): the stop still protects,
+but the exit the strategy expects is gone.
 """
 from __future__ import annotations
 
@@ -73,6 +76,13 @@ def evaluate(positions: list[dict], open_trades: list[dict],
             out.append({"severity": "CRITICAL", "ticker": ticker,
                         "what": f"no resting STOP leg on order {t['alpaca_order_id']}: the position is unprotected"})
             continue
+        # The take-profit leg (2026-11-09, R024): Alpaca cancels the rest of a bracket group when one order is
+        # cancelled, so a cancelled stop leg took the TP with it; the stop-move fallback that did so is removed.
+        if not any("limit" == (leg.get("order_type") or "").lower() and leg.get("status") not in TERMINAL
+                   for leg in (order.get("legs") or [])):
+            out.append({"severity": "WARNING", "ticker": ticker,
+                        "what": f"no resting take-profit leg on order {t['alpaca_order_id']}: the stop protects, "
+                                f"nothing takes the profit"})
         stop, price = stops[0].get("stop_price"), p.get("current_price")
         if stop is None or price is None:
             out.append({"severity": "WARNING", "ticker": ticker,

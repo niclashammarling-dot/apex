@@ -425,7 +425,6 @@ backend/brokers/alpaca.py::get_fee_activities	money
 backend/brokers/alpaca.py::get_portfolio_history	money
 backend/brokers/alpaca.py::get_prior_close	money
 backend/brokers/alpaca.py::place_bracket_order	money
-backend/brokers/alpaca.py::replace_stop_leg	money
 backend/data/fetcher_rss.py::fetch_headlines	money
 backend/data/fetcher_sentiment.py::_analyst_label	money
 backend/data/fetcher_sentiment.py::fetch_market_signals	money

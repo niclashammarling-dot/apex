@@ -505,13 +505,12 @@ def replace_stop_leg(leg_id: str, new_stop_price: float, qty: int, ticker: str) 
     Confirmed against paper trading on 2026-05-31: HELD stop leg, PATCH issued,
     old_id → OrderStatus.REPLACED, new_id → OrderStatus.HELD atomically.
 
-    Fallback: cancel old leg + place a new standalone GTC stop order. Used only
-    when PATCH is rejected (e.g. leg already in a terminal state). This path has
-    an explicit gap window: cancel succeeds, then place is a second API call. A
-    failure on the place step raises, leaving the position without a stop until the
-    next check cycle. The two paths are not equivalent — PATCH is safer. Do not
-    promote the fallback to primary without re-confirming PATCH behaviour on the
-    target account type (paper vs live).
+    No fallback (2026-11-09, ruling R024): a PATCH failure raises and the caller retries next
+    cycle with the old stop and the take-profit still resting. The cancel + standalone stop that
+    stood here since 2026-05-31 (a12af72) cancelled the take-profit too, since Alpaca cancels the
+    rest of a bracket group when one of its orders is cancelled (docs, Bracket Orders: "If any one
+    of the orders is canceled, any remaining open order in the group is canceled"), and its stop
+    sat outside the bracket, where the ratchet and protection_health do not look.
     """
     import uuid as _uuid
 
@@ -532,39 +531,7 @@ def replace_stop_leg(leg_id: str, new_stop_price: float, qty: int, ticker: str) 
                 f"replace_stop_leg [{ticker}] leg={leg_id[:8]}: "
                 f"order in terminal state — {patch_err}"
             ) from patch_err
-        logger.warning(
-            f"Alpaca replace_stop_leg [{ticker}]: PATCH failed ({patch_err}) "
-            f"— falling back to cancel + new stop"
-        )
-    except Exception as patch_err:
-        logger.warning(
-            f"Alpaca replace_stop_leg [{ticker}]: PATCH failed ({patch_err}) "
-            f"— falling back to cancel + new stop"
-        )
-
-    # Fallback: cancel the old leg, place a standalone GTC stop sell order.
-    try:
-        _client().cancel_order_by_id(_uuid.UUID(leg_id))
-    except Exception as cancel_err:
-        logger.error(
-            f"Alpaca replace_stop_leg [{ticker}] fallback: cancel {leg_id[:8]} failed — {cancel_err}"
-        )
         raise
-
-    req = StopOrderRequest(
-        symbol=ticker,
-        qty=qty,
-        side=OrderSide.SELL,
-        time_in_force=TimeInForce.GTC,
-        stop_price=new_stop_price,
-    )
-    result = _client().submit_order(req)
-    new_id = str(result.id)
-    logger.info(
-        f"Alpaca replace_stop_leg [{ticker}] fallback: new stop order {new_id[:8]} "
-        f"stop=${new_stop_price:.2f} (cancel+new)"
-    )
-    return new_id
 
 
 def close_position(ticker: str) -> dict:
