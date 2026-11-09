@@ -58,7 +58,7 @@ the questions themselves, and each go group's threshold status, which changes on
 
 | id | question | answers | answered by |
 |---|---|---|---|
-| Q-VER | Can each verdict below be trusted: rule written before the run, controls passed, enough power? | G1, G2, G3 | CHECK-76, S9, S10, M1, M7 |
+| Q-VER | Can each verdict below be trusted: rule written before the run, controls passed, enough power? | G1, G2, G3 | CHECK-76, CHECK-98, S9, S10, M1, M7 |
 | Q-EXE | Do exits and sizing deliver the expected value per trade that group 1 rests on? | G1, G2, G7 | S15, GAP-4, GAP-24, GAP-24b, GAP-25, GAP-31, CHECK-31, CHECK-39, CHECK-46, CHECK-47, CHECK-92, CHECK-93, PARAM-money |
 | Q-PAR | Can a backtest verdict be trusted for live? | G2, G3, G4 | GAP-1, GAP-2, GAP-3, GAP-5, GAP-6, GAP-7, GAP-10, GAP-11, GAP-12, GAP-13, GAP-14, GAP-15, GAP-16, GAP-17, GAP-18, GAP-19, GAP-20, GAP-21, GAP-22, GAP-22b, GAP-23, GAP-26, GAP-27, GAP-30, GAP-32, GAP-33, GAP-34, CHECK-7, CHECK-12, CHECK-25, CHECK-26, CHECK-54, CHECK-76, M6 |
 | Q-SIG | Which inputs carry a measured direction edge? | G1 | S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12, S13, S14, S17, S18, S19, S20, S21, S22 |

@@ -1,6 +1,6 @@
 """
 Code-health mechanical checks — CHECKs 3, 6, 10, 12, 16, 30, 31, 45, 48, 49,
-50, 58, 59, 60, 61, 62, 74, 76.
+50, 58, 59, 60, 61, 62, 74, 76, 79, 98.
 
 Covers: fractional qty in broker, test DB isolation, ticker signal data
 coverage, L6 REVIEW context key parity, yfinance scalar extraction pattern,
@@ -1198,6 +1198,41 @@ def check79():
          f"2026-09-16). Decide, re-date the gate, or remove the marker.{extra}")
 
 
+def check98(valid=None, floor=None, current_roster=None) -> None:
+    """NOISE_FLOOR is valid for the optimizer as it stands (2026-11-09, Niclas: "alla resultat måste in i
+    pyramiden direkt"). The 11-08 re-measure reached the session audit but no register row, so Q-VER could
+    not show it. This row carries it: clean while noise_floor_valid() holds (objective, weights, floors,
+    window length, signal-code hash), WARNING once it does not, since every week-over-week optimizer move
+    is then read against a floor measured on something else. The roster is recorded beside the floor but
+    is not in its key (R016, policy open {OT-apex-041}): a roster change reports INFO, never invalidates."""
+    name = "NOISE_FLOOR valid"
+    if valid is None or floor is None:
+        from backend.backtest.optimizer import NOISE_FLOOR, noise_floor_valid
+        valid, floor = noise_floor_valid(), NOISE_FLOOR
+    if not valid:
+        flag(98, name, "WARNING", "backend/backtest/optimizer.py:NOISE_FLOOR",
+             f"stale: measured {floor.get('measured')} on objective {floor.get('objective_hash')}, the optimizer "
+             f"has changed since; optimizer moves cannot be read against threshold {floor.get('threshold')} until "
+             f"scripts/noise_floor_runs.py re-measures it")
+        return
+    rec = floor.get("roster") or {}
+    if current_roster is None:
+        try:
+            import hashlib
+            from backend.ticker_config import get_sectors
+            tickers = sorted({t for cfg in get_sectors().values() for t in cfg.get("tickers", [])})
+            current_roster = {"n_tickers": len(tickers),
+                              "hash": hashlib.sha256(",".join(tickers).encode()).hexdigest()[:8]}
+        except Exception as e:  # the roster is information here, not validity
+            flag(98, name, "INFO", "backend/ticker_config.py:get_sectors", f"roster unreadable: {e}")
+            return
+    if rec and current_roster.get("hash") != rec.get("hash"):
+        flag(98, name, "INFO", "backend/backtest/optimizer.py:NOISE_FLOOR",
+             f"roster {current_roster.get('n_tickers')} / {current_roster.get('hash')} differs from the measured "
+             f"{rec.get('n_tickers')} / {rec.get('hash')}; not in the validity key (R016), policy open "
+             f"{{OT-apex-041}}")
+
+
 def run() -> None:
     check3()
     check6()
@@ -1218,3 +1253,4 @@ def run() -> None:
     check74()
     check76()
     check79()
+    check98()
