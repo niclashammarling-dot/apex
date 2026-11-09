@@ -29,3 +29,15 @@ def test_roster_change_is_info_not_invalid(monkeypatch):
 def test_the_committed_floor_is_valid_now():
     from backend.backtest.optimizer import noise_floor_valid
     assert noise_floor_valid(), "NOISE_FLOOR no longer matches the optimizer: re-measure, then update the block"
+
+
+def test_run_registers_check98(monkeypatch):
+    # run() was a baseline untested money function; adding check98 to it edits it, so it gets its test
+    # (change gate, 2026-11-09). Every check is stubbed: this pins the registration, not the checks.
+    import re
+    from audit import checks_code as cc
+    called = []
+    for n in [m for m in dir(cc) if re.fullmatch(r"check\d+", m)]:
+        monkeypatch.setattr(cc, n, lambda *a, _n=n, **k: called.append(_n))
+    cc.run()
+    assert "check98" in called and "check76" in called

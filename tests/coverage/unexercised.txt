@@ -28,7 +28,6 @@ audit/checks_code.py::check61	money
 audit/checks_code.py::check62	money
 audit/checks_code.py::check76	money
 audit/checks_code.py::check79	money
-audit/checks_code.py::run	money
 audit/checks_config.py::check11	money
 audit/checks_config.py::check13	money
 audit/checks_config.py::check21	money
