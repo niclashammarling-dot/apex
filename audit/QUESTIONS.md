@@ -59,7 +59,7 @@ the questions themselves, and each go group's threshold status, which changes on
 | id | question | answers | answered by |
 |---|---|---|---|
 | Q-VER | Can each verdict below be trusted: rule written before the run, controls passed, enough power? | G1, G2, G3 | CHECK-76, CHECK-98, S9, S10, M1, M7 |
-| Q-EXE | Do exits and sizing deliver the expected value per trade that group 1 rests on? | G1, G2, G7 | S15, GAP-4, GAP-24, GAP-24b, GAP-25, GAP-31, CHECK-31, CHECK-39, CHECK-46, CHECK-47, CHECK-92, CHECK-93, PARAM-money |
+| Q-EXE | Do exits and sizing deliver the expected value per trade that group 1 rests on? | G1, G2, G7 | S15, GAP-4, GAP-24, GAP-24b, GAP-25, GAP-31, CHECK-31, CHECK-39, CHECK-46, CHECK-47, CHECK-92, CHECK-93, PARAM-money, M8 |
 | Q-PAR | Can a backtest verdict be trusted for live? | G2, G3, G4 | GAP-1, GAP-2, GAP-3, GAP-5, GAP-6, GAP-7, GAP-10, GAP-11, GAP-12, GAP-13, GAP-14, GAP-15, GAP-16, GAP-17, GAP-18, GAP-19, GAP-20, GAP-21, GAP-22, GAP-22b, GAP-23, GAP-26, GAP-27, GAP-30, GAP-32, GAP-33, GAP-34, CHECK-7, CHECK-12, CHECK-25, CHECK-26, CHECK-54, CHECK-76, M6 |
 | Q-SIG | Which inputs carry a measured direction edge? | G1 | S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12, S13, S14, S17, S18, S19, S20, S21, S22 |
 | Q-DAT | Are the inputs there and true, live and in the tested period? | Q-SIG, Q-PAR | GAP-8, GAP-9, GAP-28, GAP-29, CHECK-10, CHECK-14, CHECK-15, CHECK-17, CHECK-22, CHECK-35, CHECK-55, CHECK-56, CHECK-75, CHECK-77, CHECK-78, CHECK-86, CHECK-87, CHECK-91, M5 |
@@ -80,6 +80,7 @@ when its own register row exists; the reference above is replaced in the same co
 | M5 | Survivorship-free universe: delisted prices from 2015 (PRODUCTION_GAP prose, no numbered row) | Q-DAT | a PRODUCTION_GAP row; scope 2026-10-31 |
 | M6 | The regime port merged into master (criterion ruled 10-19) | Q-PAR | done 2026-10-24 (`0964e7e`); leaves this table when Q-PAR's answered-by list is re-read |
 | M7 | Calibrated L2 instrument: the episode-percentile CI false-passes at 6 % against a nominal 2.5 % (S14 R1 follow-up 2026-10-27, `9ec1b6b`); a null-distribution test runs at 3.0 %; alternatives (wild cluster bootstrap, bootstrap-t, CR2, calendar shift, episode sign test) in vault S14 card § 12.2, the wild bootstrap's calibration to be measured in the time-stop card | Q-VER | the card template and the next runner (S14 R2 card, vault INDEX 2026-11-14); S21b used the same CI, its unanswered reading stands |
+| M8 | Split-exit booking check: a take-profit partially filled and the rest sold by the resized stop is booked whole at the stop price with no flag (`backend/live_trades_tracker.py:691-697`). Alpaca docs read 2026-11-09: it can occur; measured 0 of 77 brackets 07-07..11-05 (control: 68 filled exit legs, all full). Ruled R026 (vault): a CHECK in the 16:33 ET audit, CRITICAL and mailed the same evening | Q-EXE | a CHECKS.md row, APEX Saturday 2026-11-21 (vault INDEX); the reference becomes that CHECK |
 
 ## Rows that answer no question
 None at the time of writing: every S-row S1–S22 and every GAP row 1–34 (with 22b, 24b) is named
