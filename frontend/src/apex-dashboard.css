@@ -98,6 +98,9 @@
 .t-tbl-pad th:first-child, .t-tbl-pad td:first-child { padding-left: 16px; }
 .t-tbl tr:last-child td { border-bottom: none; }
 .t-tbl-feed tr:hover td { background: var(--t-bg-3); }
+/* Column labels stay at the top of a scrolling feed (2026-11-09, Niclas: the gate feed's labels scrolled away).
+   Under border-collapse the th border does not travel with a sticky cell, so the rule is drawn as a shadow. */
+.t-tbl-feed thead th { position: sticky; top: 0; z-index: 1; background: var(--t-bg-2); box-shadow: inset 0 -1px 0 var(--t-text-3); }
 .t-row-dim td { color: var(--t-text-3); }
 /* Funnel */
 .t-funnel { display: flex; flex-direction: column; gap: 6px; }
