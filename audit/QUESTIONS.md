@@ -59,9 +59,9 @@ the questions themselves, and each go group's threshold status, which changes on
 | id | question | answers | answered by |
 |---|---|---|---|
 | Q-VER | Can each verdict below be trusted: rule written before the run, controls passed, enough power? | G1, G2, G3 | CHECK-76, CHECK-98, S9, S10, M1, M7 |
-| Q-EXE | Do exits and sizing deliver the expected value per trade that group 1 rests on? | G1, G2, G7 | S15, GAP-4, GAP-24, GAP-24b, GAP-25, GAP-31, CHECK-31, CHECK-39, CHECK-46, CHECK-47, CHECK-92, CHECK-93, PARAM-money, M8 |
+| Q-EXE | Do exits and sizing deliver the expected value per trade that group 1 rests on? | G1, G2, G7 | S15, S23, GAP-4, GAP-24, GAP-24b, GAP-25, GAP-31, CHECK-31, CHECK-39, CHECK-46, CHECK-47, CHECK-92, CHECK-93, PARAM-money, M8 |
 | Q-PAR | Can a backtest verdict be trusted for live? | G2, G3, G4 | GAP-1, GAP-2, GAP-3, GAP-5, GAP-6, GAP-7, GAP-10, GAP-11, GAP-12, GAP-13, GAP-14, GAP-15, GAP-16, GAP-17, GAP-18, GAP-19, GAP-20, GAP-21, GAP-22, GAP-22b, GAP-23, GAP-26, GAP-27, GAP-30, GAP-32, GAP-33, GAP-34, CHECK-7, CHECK-12, CHECK-25, CHECK-26, CHECK-54, CHECK-76, M6 |
-| Q-SIG | Which inputs carry a measured direction edge? | G1 | S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12, S13, S14, S17, S18, S19, S20, S21, S22 |
+| Q-SIG | Which inputs carry a measured direction edge? | G1 | S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12, S13, S14, S17, S18, S19, S20, S21, S22, S23 |
 | Q-DAT | Are the inputs there and true, live and in the tested period? | Q-SIG, Q-PAR | GAP-8, GAP-9, GAP-28, GAP-29, CHECK-10, CHECK-14, CHECK-15, CHECK-17, CHECK-22, CHECK-35, CHECK-55, CHECK-56, CHECK-75, CHECK-77, CHECK-78, CHECK-86, CHECK-87, CHECK-91, M5 |
 | Q-OPS | Does the machinery run as built, every session? | G5 | CHECK-*, PARAM-ops |
 
@@ -84,5 +84,5 @@ when its own register row exists; the reference above is replaced in the same co
 | M9 | Live entry edge against same-exit random entries (T7 line, ruled 2026-10-21): live mean return per trade minus same-day, volatility-matched random entries under the same exits, win rate and its baseline beside it. Read by hand 2026-11-09 on 62 canonical trades (entries 07-07..10-15, IS window ends 10-16): excess +1.21 %/trade, p 0.042 (1,000 draws, R9); win rate 67.7 % against 54.2 %, p 0.011. Second look at a growing sample (10-21: p 0.07 on 57), not a pre-registered test (vault `raw/notes/2026-11/2026-11-09-apex-t7-same-exit-baseline-read-62-canonical-trades.md`) | G1 | the monthly read's T7 line with its test, APEX Saturday 2026-11-14 (vault INDEX); the reference becomes that read |
 
 ## Rows that answer no question
-None at the time of writing: every S-row S1–S22 and every GAP row 1–34 (with 22b, 24b) is named
-above. S15 answers Q-EXE and S16 answers G1 directly. The test keeps it that way.
+None at the time of writing: every S-row S1–S23 and every GAP row 1–34 (with 22b, 24b) is named
+above. S15 answers Q-EXE and S16 answers G1 directly; S23 answers both Q-SIG (does the re-pass select) and Q-EXE (does the add raise expected value per capital-day). The test keeps it that way.
