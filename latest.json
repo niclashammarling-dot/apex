@@ -1,20 +1,20 @@
 {
- "generated_at": "2026-11-11T21:35:35+00:00",
- "host_commit": "bf7da44",
+ "generated_at": "2026-11-12T21:35:45+00:00",
+ "host_commit": "4e6101d",
  "findings": [
   [
    80,
    "L5 POSITIONING PCR channel under per-ticker P25 (demo)",
    "INFO",
    "data/apex.db:demo_gate_history",
-   "Session coverage since build (cycles written / expected at 20m): 11-04 19/19, 11-05 19/19, 11-06 19/19, 11-09 20/20, 11-10 20/20; trailing-3 mean 100%. baseline (0.85, demo since 2026-05-21): 234/1049 PCR passes = 22.3%. per_ticker_p25: 51/890 = 5.7% [4.4%, 7.5%]. Composition of passes \u2014 blocked-under-0.85 names: 20% of passes vs 47% of evaluations (baseline 0% by construction); open-under-0.85 names: 39% of passes vs 28% of evaluations (baseline 56% of passes)."
+   "Session coverage since build (cycles written / expected at 20m): 11-05 19/19, 11-06 19/19, 11-09 20/20, 11-10 20/20, 11-11 20/20; trailing-3 mean 100%. baseline (0.85, demo since 2026-05-21): 234/1049 PCR passes = 22.3%. per_ticker_p25: 51/910 = 5.6% [4.3%, 7.3%]. Composition of passes \u2014 blocked-under-0.85 names: 20% of passes vs 49% of evaluations (baseline 0% by construction); open-under-0.85 names: 39% of passes vs 30% of evaluations (baseline 85% of passes)."
   ],
   [
    81,
    "L6 REVIEW fail-closed (API unavailable)",
-   "INFO",
-   "data/apex.db:live_gate_history",
-   "1 fail-closed row(s) in the last 30 days, none in the last 2: JSONDecodeError \u00d71"
+   "CRITICAL",
+   "backend/gate/l6_review.py:_fail_closed",
+   "1 L6 REVIEW fail-closed row(s) in the last 2 days \u2014 candidates that cleared L5 POSITIONING were rejected because the Anthropic call failed, not by Claude. live: 11-12 DLR (JSONDecodeError). L6 REVIEW has answered normally since 2026-11-12T15:28:38.425530+00:00 \u2014 the outage is closed; no action, but these candidates were rejected by the failure, not on merit."
   ],
   [
    83,
@@ -35,14 +35,14 @@
    "signal age at gate time",
    "INFO",
    "data/apex.db:gate_cycles",
-   "2026-11-11: live: 540 rows checked; demo: 566 rows checked; cycles 39, 39 with stale refusals (156 ticker-cycles)"
+   "2026-11-12: live: 521 rows checked; demo: 548 rows checked; cycles 39, 39 with stale refusals (167 ticker-cycles)"
   ],
   [
    87,
    "signal age at gate time",
    "INFO",
    "backend/gate/freshness.py:ENFORCE_BAR_DATE",
-   "2026-11-11 bar_date observed, not enforced (dropped 2026-10-18; entries on a non-session bar warn): live: 0 of 540 in-session rows on a non-session bar; demo: 0 of 566 in-session rows on a non-session bar"
+   "2026-11-12 bar_date observed, not enforced (dropped 2026-10-18; entries on a non-session bar warn): live: 0 of 521 in-session rows on a non-session bar; demo: 0 of 548 in-session rows on a non-session bar"
   ],
   [
    88,
@@ -56,84 +56,84 @@
    "L6 REVIEW output after the prompt change",
    "INFO",
    "backend/gate/l6_review.py:SYSTEM_PROMPT",
-   "L6 REVIEW approval 6/6 (100%) in the 14 days before 2026-11-02 vs 16/16 (100%) since; median entry notional $1,148 (n=6) vs $861 (n=9). Change: chain names, gate-history stages and the dependency note (lock labels). Small n \u2014 a direction, not a test. Review 2026-11-09 (Niclas 10-26: \"S\u00e4tt review om 2 veckor\"): keep, re-evaluate or retire this check."
+   "L6 REVIEW approval 6/6 (100%) in the 14 days before 2026-11-02 vs 18/18 (100%) since; median entry notional $1,148 (n=6) vs $847 (n=10). Change: chain names, gate-history stages and the dependency note (lock labels). Small n \u2014 a direction, not a test. Review 2026-11-09 (Niclas 10-26: \"S\u00e4tt review om 2 veckor\"): keep, re-evaluate or retire this check."
   ],
   [
    93,
    "Live stop-fill slippage vs model",
    "INFO",
    "audit/checks_gate.py:check93",
-   "intraday: n 47 (10 forward since 2026-10-21), median +0.02 % adverse (model 0.02 %); gap: n 7 (0 forward since 2026-10-21), median +0.49 % adverse (model 0.50 %); ratchet log since 2026-10-22: 3 TSL exits matched, 0 not"
+   "intraday: n 48 (11 forward since 2026-10-21), median +0.02 % adverse (model 0.02 %); gap: n 7 (0 forward since 2026-10-21), median +0.49 % adverse (model 0.50 %); ratchet log since 2026-10-22: 4 TSL exits matched, 0 not"
   ],
   [
    77,
    "Posterior history provenance and gap count",
    "INFO",
    "data/apex.db:sector_posterior_history",
-   "13 of 115 NYSE sessions since 2026-05-29 have no posterior row (11%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-07-29, 2026-07-31, 2026-08-03, 2026-08-05, 2026-08-20, 2026-08-21, 2026-08-26, 2026-08-27. Standing level, not an event \u2014 the July\u2013August holes are unadjudicable (no written_at, logs rotated)."
+   "13 of 116 NYSE sessions since 2026-05-29 have no posterior row (11%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-07-29, 2026-07-31, 2026-08-03, 2026-08-05, 2026-08-20, 2026-08-21, 2026-08-26, 2026-08-27. Standing level, not an event \u2014 the July\u2013August holes are unadjudicable (no written_at, logs rotated)."
   ],
   [
    78,
    "PCR history gap count",
    "INFO",
    "data/apex.db:lock4_pcr_history",
-   "45 of 121 NYSE sessions since 2026-05-21 have no PCR rows (37%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-09-01, 2026-09-02, 2026-09-03, 2026-09-10, 2026-09-14, 2026-09-16, 2026-09-17, 2026-09-21. Standing level \u2014 the per-ticker P25 calibration reads a 63%-present sample."
+   "45 of 122 NYSE sessions since 2026-05-21 have no PCR rows (37%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-09-01, 2026-09-02, 2026-09-03, 2026-09-10, 2026-09-14, 2026-09-16, 2026-09-17, 2026-09-21. Standing level \u2014 the per-ticker P25 calibration reads a 63%-present sample."
   ],
   [
    89,
    "live entry recorded at the fill",
    "INFO",
    "data/apex.db:live_trades",
-   "76/77 entries at the fill; |slip| mean 0.35%, largest +2.80% (UNH 2026-07-17), 3 over 1%; excepted: id=43 HON 2026-08-04: recorded order id has no fills (orphan id; case dropped 2026-10-12, Niclas)"
+   "77/78 entries at the fill; |slip| mean 0.36%, largest +2.80% (UNH 2026-07-17), 3 over 1%; excepted: id=43 HON 2026-08-04: recorded order id has no fills (orphan id; case dropped 2026-10-12, Niclas)"
   ],
   [
    89,
    "live entry recorded at the fill",
    "INFO",
    "data/fill_reconcile.json",
-   "book vs broker fills: 70 closed rows since 2026-07-07, gap $+0.00 (entries $+0.00, exits $+0.00); fees $-1.74 over 108 fee rows, not in row P&L"
+   "book vs broker fills: 71 closed rows since 2026-07-07, gap $+0.00 (entries $+0.00, exits $+0.00); fees $-1.74 over 108 fee rows, not in row P&L"
   ],
   [
    95,
    "database backup age",
    "INFO",
-   "data/backups/auto/apex_auto_2026-11-11.db",
-   "newest backup apex_auto_2026-11-11.db (123 MB, integrity ok), 9 kept"
+   "data/backups/auto/apex_auto_2026-11-12.db",
+   "newest backup apex_auto_2026-11-12.db (125 MB, integrity ok), 10 kept"
   ],
   [
    36,
    "L5 POSITIONING sub-check pass rates",
    "WARNING",
    "data/apex.db:signals",
-   "L5 POSITIONING sub-check 'put_call_ratio' passed 15/512 times (2.9%) over 30d \u2014 likely dead weight; review base-rate assumption for the APEX universe"
+   "L5 POSITIONING sub-check 'put_call_ratio' passed 15/513 times (2.9%) over 30d \u2014 likely dead weight; review base-rate assumption for the APEX universe"
   ],
   [
    67,
    "Industrials composite dilution monitor",
-   "CRITICAL",
+   "SUPPRESSED",
    "data/apex.db:sector_snapshots",
-   "Industrials avg_score=0.4687 (at 2026-11-11T20:46:36.320741+00:00) is below critical floor 0.48; baseline was 0.6009 on 2026-08-08 (pre-ETN/PWR/TT). At neutral posterior (~0.55), adjusted_score \u2248 0.258, below ALLOCATION_ENTRY_THRESHOLD 0.37. Without ETN/PWR/TT: 0.5565. Action: remove ETN/PWR/TT via ticker_config.remove_ticker() and diagnose signal history before re-adding."
+   "[CRITICAL suppressed \u2014 market-wide decline: 8/11 sectors below 75% of their 60d peak (Communication, ConsumerDisc, Energy, Healthcare, Homebuilders, Industrials, Semiconductors, Technology). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Industrials avg_score=0.4419 (at 2026-11-12T20:46:36.154372+00:00) is below critical floor 0.48; baseline was 0.6009 on 2026-08-08 (pre-ETN/PWR/TT). At neutral posterior (~0.55), adjusted_score \u2248 0.243, below ALLOCATION_ENTRY_THRESHOLD 0.37. Without ETN/PWR/TT: 0.4935. Action: remove ETN/PWR/TT via ticker_config.remove_ticker() and diagnose signal history before re-adding."
   ],
   [
    68,
    "Defense composite dilution monitor",
-   "WARNING",
+   "SUPPRESSED",
    "data/apex.db:sector_snapshots",
-   "Defense avg_score=0.6464 (at 2026-11-11T20:46:36.320741+00:00) dropped below 0.65; baseline was 0.7169 on 2026-08-08 (pre-AXON/HWM). Investigate AXON/HWM signal quality in sector_snapshots before next gate cycle. Without AXON/HWM: 0.7344. AXON's and HWM's confirmation-window flags depend on this staying clear."
+   "[CRITICAL suppressed \u2014 market-wide decline: 8/11 sectors below 75% of their 60d peak (Communication, ConsumerDisc, Energy, Healthcare, Homebuilders, Industrials, Semiconductors, Technology). This monitor measures ticker-addition dilution; the floor breach is currently attributable to the broad decline, not the additions. Lifts itself when fewer than half the sectors are depressed.] Defense avg_score=0.5917 (at 2026-11-12T20:46:36.154372+00:00) is below critical floor 0.6; baseline was 0.7169 on 2026-08-08 (pre-AXON/HWM). At neutral posterior (~0.55), adjusted_score \u2248 0.325, below ALLOCATION_ENTRY_THRESHOLD 0.37. Without AXON/HWM: 0.6726. Action: remove AXON/HWM via ticker_config.remove_ticker() and diagnose signal history before re-adding."
   ],
   [
    69,
    "Technology composite dilution monitor",
    "INFO",
    "data/apex.db:sector_snapshots",
-   "Technology avg_score=0.3960 (at 2026-11-11T20:46:36.320741+00:00) below 0.51, and 0.3764 without ANET: the breach does not come from the additions (they move it +0.0196); removing them would not clear it"
+   "Technology avg_score=0.4237 (at 2026-11-12T20:46:36.154372+00:00) below 0.51, and 0.4034 without ANET: the breach does not come from the additions (they move it +0.0203); removing them would not clear it"
   ],
   [
    71,
    "entry-floor ceiling sweep",
    "INFO",
    "data/regime_signal_trace.jsonl",
-   "2026-11-10: 3/11 eligible sectors cannot clear the 0.37 entry floor at any posterior (composite must be \u2265 0.3895 = floor/0.95); enterable: Communication, ConsumerDisc, Defense, Healthcare, Homebuilders, Industrials, RealEstate, Transportation. Enterable by date (last 30): 3,4,3,4,4,3,6,8,7,6,5,7,7,5,8,8,8,8,8,8,8,8,7,8,8,8,7,6,8,8. Dark: Energy agg=0.3130 ceil_adj=0.2974 dark 11/30d; Semiconductors agg=0.2059 ceil_adj=0.1956 dark 20/30d; Technology agg=0.3169 ceil_adj=0.3011 dark 12/30d."
+   "2026-11-11: 2/11 eligible sectors cannot clear the 0.37 entry floor at any posterior (composite must be \u2265 0.3895 = floor/0.95); enterable: Communication, ConsumerDisc, Defense, Healthcare, Homebuilders, Industrials, RealEstate, Technology, Transportation. Enterable by date (last 30): 4,3,4,4,3,6,8,7,6,5,7,7,5,8,8,8,8,8,8,8,8,7,8,8,8,7,6,8,8,9. Dark: Energy agg=0.3472 ceil_adj=0.3298 dark 11/30d; Semiconductors agg=0.2816 ceil_adj=0.2675 dark 21/30d."
   ],
   [
    45,
@@ -150,14 +150,7 @@
    "hardcoded absolute date(s) alongside a call into decaying wall-clock function(s) check_exits \u2014 verify this still exercises the intended branch, not one it drifted into"
   ]
  ],
- "skipped": [
-  [
-   75,
-   "Prior-close fallback rate",
-   "logs/",
-   "no carried-over exit processed in the last 3 log days \u2014 path not exercised, zero fallbacks is not evidence"
-  ]
- ],
+ "skipped": [],
  "evaluated": [
   3,
   4,
@@ -220,6 +213,7 @@
   69,
   71,
   74,
+  75,
   76,
   77,
   78,
@@ -247,6 +241,6 @@
  "alert_channel": {
   "ok": true,
   "detail": "SMTP login ok as niclas.hammarling@gmail.com via smtp.gmail.com",
-  "checked_at": "2026-11-11T21:35:36+00:00"
+  "checked_at": "2026-11-12T21:35:46+00:00"
  }
 }
