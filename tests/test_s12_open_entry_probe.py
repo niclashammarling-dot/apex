@@ -102,3 +102,11 @@ def test_run_sims_dedupes_jobs_and_keys_results_by_job():
     assert len(R) == 2
     assert R[("open", 1, 0, 0.0, 0, False)][:2] == (pytest.approx(0.06, abs=1e-4), "TP")
     assert R[("open", 1, 0, 0.0, 1, False)][1] != "TP"
+
+
+def test_block_stat_counts_complete_blocks_only_when_told_the_window_length():
+    # control for the 10:13 run: a trailing partial block (rows 50-55 of 56) was weighted as a full block
+    day = pd.Series([1.0, 3.0, 2.0, 4.0, 60.0], index=[0, 25, 50, 75, 100])
+    assert s12.block_stat(day, 25)["n_blocks"] == 5
+    r = s12.block_stat(day, 25, n_rows=106)
+    assert r["n_blocks"] == 4 and r["n_days"] == 4 and r["mean"] == pytest.approx(2.5)

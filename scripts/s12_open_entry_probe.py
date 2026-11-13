@@ -103,10 +103,15 @@ def onesided(stat: dict) -> dict:
     return {**stat, "p_pos": t_sf(stat["t"], stat["n"] - 1), "p_neg": t_sf(-stat["t"], stat["n"] - 1)}
 
 
-def block_stat(day: pd.Series, size: int) -> dict:
+def block_stat(day: pd.Series, size: int, n_rows: int | None = None) -> dict:
     """Day values indexed by the window's row number; non-overlapping blocks of `size` rows from row 0,
-    block mean of the day values present (every day used); t, one-sided p and MDE over the blocks."""
+    block mean of the day values present (every day used); t, one-sided p and MDE over the blocks.
+    With n_rows, only complete blocks count (the card's 78 IS blocks = 1,959 // 25): the first run
+    (10:13) weighted the trailing partial block (9 IS days, 6 OOS days) as a full one, and in OOS
+    its last days of December 2018 moved C3 by 0.18 points between costs (diagnostic 10:25)."""
     s = day.dropna()
+    if n_rows is not None:
+        s = s[np.asarray(s.index) < (n_rows // size) * size]
     g = s.groupby(np.asarray(s.index) // size).mean()
     n = len(g)
     if n < 3:
@@ -330,6 +335,7 @@ def main(argv: list[str] | None = None) -> int:
     for w in a.windows.split(","):
         pre = ld._R._window(w)
         P = open_panels(ld.panels(pre), pre)
+        bs = functools.partial(block_stat, n_rows=len(P["days"]))
         rng = np.random.default_rng(SEED)
         S = open_sets(P, rng)
         log(f"{w}: {len(P['days'])} days, {len(P['tickers'])} tickers, open-arm picks {len(S['picks'])} "
@@ -367,7 +373,7 @@ def main(argv: list[str] | None = None) -> int:
         # MDE from the random-vs-random arm, written before C2 is computed.
         rr = excess_rows({"a": S["r1"], "b": S["r2"]}, R, "a", "b", o())
         rr_day = day_series([(i, v) for i, _, v in rr])
-        mde = {"block25": block_stat(rr_day, BLOCK), "block50": block_stat(rr_day, BLOCK_SENS),
+        mde = {"block25": bs(rr_day, BLOCK), "block50": bs(rr_day, BLOCK_SENS),
                "per_trade_sd": float(np.std([v for *_, v in rr], ddof=1))}
         null_p, synth_p = [], []
         cells = S["cells"]
@@ -378,8 +384,8 @@ def main(argv: list[str] | None = None) -> int:
                 cand = cells[(i, int(qp[i, j]))]
                 u, v = R[o()(i, int(rng.choice(cand)))][0], R[o()(i, int(rng.choice(cand)))][0]
                 x.append((i, u - v)); y.append((i, u - v + SYNTH_EDGE))
-            null_p.append(block_stat(day_series(x), BLOCK)["p_pos"])
-            synth_p.append(block_stat(day_series(y), BLOCK)["p_pos"])
+            null_p.append(bs(day_series(x), BLOCK)["p_pos"])
+            synth_p.append(bs(day_series(y), BLOCK)["p_pos"])
         mde["null_rejection_rate_5pct"] = float(np.mean(np.array(null_p) <= ALPHA))
         mde["synthetic_edge_rejection_rate_5pct"] = float(np.mean(np.array(synth_p) <= ALPHA))
         mde["random_vs_random_reading"] = {k: mde["block25"][k] for k in ("mean", "t", "p_pos")}
@@ -389,12 +395,12 @@ def main(argv: list[str] | None = None) -> int:
         # C2
         ex = excess_rows(S, R, "picks", "matched", o())
         c2_day = day_series([(i, v) for i, _, v in ex])
-        out["C2"] = {"block25": block_stat(c2_day, BLOCK), "block50_sensitivity": block_stat(c2_day, BLOCK_SENS),
+        out["C2"] = {"block25": bs(c2_day, BLOCK), "block50_sensitivity": bs(c2_day, BLOCK_SENS),
                      "per_trade": {"n": len(ex), "picks_mean": float(np.mean([R[o()(i, j)][0] for i, j in S["picks"]])),
                                    "matched_mean": float(np.mean([R[o()(i, j)][0] for i, j in S["matched"]])),
                                    "excess_mean": float(np.mean([v for *_, v in ex]))}}
         synth = day_series([(i, v + SYNTH_EDGE) for i, _, v in ex])
-        out["control_synthetic_edge_on_picks"] = block_stat(synth, BLOCK)
+        out["control_synthetic_edge_on_picks"] = bs(synth, BLOCK)
 
         # C3 (as written: both open-arm terms pay the cost, so it cancels to first order)
         cex = excess_rows({"a": S["cpicks"], "b": S["cmatched"]}, R, "a", "b", cl)
@@ -402,9 +408,9 @@ def main(argv: list[str] | None = None) -> int:
 
         def c3(open_day: pd.Series) -> dict:
             d = (open_day - cday).dropna()
-            return {"block25": block_stat(d, BLOCK), "block50_sensitivity": block_stat(d, BLOCK_SENS)}
+            return {"block25": bs(d, BLOCK), "block50_sensitivity": bs(d, BLOCK_SENS)}
         out["C3"] = c3(c2_day)
-        out["C3"]["close_arm_C2"] = block_stat(cday, BLOCK)
+        out["C3"]["close_arm_C2"] = bs(cday, BLOCK)
         out["C3"]["cost_sensitivity"] = {}
         for c in COST_SENS:
             exc = excess_rows(S, R, "picks", "matched", o(c))
@@ -425,7 +431,7 @@ def main(argv: list[str] | None = None) -> int:
         # Descriptive
         D: dict = {}
         exa = excess_rows(S, R, "picks", "matched", o(an=True))
-        D["C2_bracket_on_prior_close"] = block_stat(day_series([(i, v) for i, _, v in exa]), BLOCK)
+        D["C2_bracket_on_prior_close"] = bs(day_series([(i, v) for i, _, v in exa]), BLOCK)
         pw = np.array([R[o()(i, j)][0] > 0 for i, j in S["picks"]])
         mw = np.array([R[o()(i, j)][0] > 0 for i, j in S["matched"]])
         D["win_rate"] = {"picks": float(pw.mean()), "matched_same_exit": float(mw.mean())}
@@ -435,7 +441,7 @@ def main(argv: list[str] | None = None) -> int:
         cpk = {(i, j) for i, j in S["cpicks"]}
         for c in (0.0, OPEN_COST, COST_SENS[1]):
             v = [(i - 1, R[o(c)(i, j)][0] - R[cl(i - 1, j)][0]) for i, j in S["picks"] if (i - 1, j) in cpk]
-            D["same_picks_open_minus_close"][str(c)] = {**block_stat(day_series(v), BLOCK), "n_picks": len(v)}
+            D["same_picks_open_minus_close"][str(c)] = {**bs(day_series(v), BLOCK), "n_picks": len(v)}
         sec = P["sector"]
         by_sec: dict[str, float] = {}
         for i, j, v in ex:
@@ -443,9 +449,9 @@ def main(argv: list[str] | None = None) -> int:
         best = max(by_sec, key=by_sec.get)
         top3 = sorted(range(len(ex)), key=lambda k: ex[k][2], reverse=True)[:3]
         D["group3"] = {"sector_sums": by_sec, "best_sector": best,
-                       "without_best_sector": block_stat(day_series([(i, v) for i, j, v in ex if sec[P["tickers"][j]] != best]), BLOCK),
+                       "without_best_sector": bs(day_series([(i, v) for i, j, v in ex if sec[P["tickers"][j]] != best]), BLOCK),
                        "best3": [(P["days"][ex[k][0]], P["tickers"][ex[k][1]], ex[k][2]) for k in top3],
-                       "without_best3": block_stat(day_series([(i, v) for k, (i, _, v) in enumerate(ex) if k not in top3]), BLOCK)}
+                       "without_best3": bs(day_series([(i, v) for k, (i, _, v) in enumerate(ex) if k not in top3]), BLOCK)}
         on_d = lambda S_: float(np.mean([R[o()(i, j)][2] == i for i, j in S_]))   # noqa: E731
         exd = excess_rows(S, R, "picks", "matched", o(f=1))
         D["fill_delay_bracket"] = {"share_exit_on_bar_d": {"picks": on_d(S["picks"]), "matched": on_d(S["matched"])},
