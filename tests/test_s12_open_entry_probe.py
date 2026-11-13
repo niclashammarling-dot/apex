@@ -1,7 +1,8 @@
-"""S12 L0 probe (scripts/s12_open_entry_l0.py): the open-entry wrapper and the card's statistics on
+"""S12 L0 probe (scripts/s12_open_entry_probe.py): the open-entry wrapper and the card's statistics on
 synthetic bars, so a defect is caught before the probe reads any forward return."""
 import importlib.util
 import math
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -10,8 +11,9 @@ import pytest
 
 from backend.backtest.exit_rules import Bar
 
-_spec = importlib.util.spec_from_file_location("s12", Path(__file__).resolve().parents[1] / "scripts" / "s12_open_entry_l0.py")
+_spec = importlib.util.spec_from_file_location("s12", Path(__file__).resolve().parents[1] / "scripts" / "s12_open_entry_probe.py")
 s12 = importlib.util.module_from_spec(_spec)
+sys.modules["s12"] = s12          # the pool pickles _job by module name
 _spec.loader.exec_module(s12)
 
 DAYS = [d.date().isoformat() for d in pd.bdate_range("2024-01-01", periods=6)]
@@ -88,3 +90,15 @@ def test_holm_steps_down_and_stops_at_the_first_non_rejection():
     h = s12.holm({"a": 0.001, "b": 0.03, "c": 0.013, "d": 0.5})
     assert h["a"]["reject"] and h["c"]["reject"] and not h["b"]["reject"] and not h["d"]["reject"]
     assert h["c"]["threshold"] == pytest.approx(0.05 / 3)
+
+
+def test_run_sims_dedupes_jobs_and_keys_results_by_job():
+    # control for the 10:04 crash: a job carried the exit config (a dict), which the de-duplication could not hash
+    bars = [(100, 101, 99, 100), (100, 107, 99.5, 101)] + [(101, 101.5, 100.5, 101)] * 4
+    P, pre = _world(bars)
+    s12._SHARED = {"P": P, "pre": pre, "cfg": LIVE}
+    jobs = [("open", 1, 0, 0.0, 0, False), ("open", 1, 0, 0.0, 0, False), ("open", 1, 0, 0.0, 1, False)]
+    R = s12.run_sims(jobs, 1, lambda m: None, "t")
+    assert len(R) == 2
+    assert R[("open", 1, 0, 0.0, 0, False)][:2] == (pytest.approx(0.06, abs=1e-4), "TP")
+    assert R[("open", 1, 0, 0.0, 1, False)][1] != "TP"

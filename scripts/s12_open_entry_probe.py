@@ -6,7 +6,7 @@ refuses money. The card (vault raw/notes/2026-11/2026-11-13-apex-s12-card-scope.
 today, Niclas 2026-11-13) was committed (vault 36607bef) before this script read any forward return
 from the open. Read-only and unscheduled: measurement under the 11-02 boundary, run on a weekday.
 
-How: venv/bin/python -u scripts/s12_open_entry_l0.py OUTDIR [--windows IS,OOS] [--workers 3]
+How: venv/bin/python -u scripts/s12_open_entry_probe.py OUTDIR [--windows IS,OOS] [--workers 3]
      [--battery /home/promenix/apex-battery/2026-10-19]
 Precomputes each window as the battery does, then:
   D3   identity first: TP/SL off, no lock, time stop 0 (1) => pnl == close d (d+1) / open d - 1; a
@@ -226,9 +226,9 @@ def simulate_open(P: dict, pre: dict, i: int, j: int, cfg: dict, cost: float = O
 
 
 def _job(chunk: list[tuple]) -> list[tuple]:
-    P, pre = _SHARED["P"], _SHARED["pre"]
+    P, pre, cfg = _SHARED["P"], _SHARED["pre"], _SHARED.get("cfg", LIVE)
     out = []
-    for kind, i, j, cfg, cost, first, anchor in chunk:
+    for kind, i, j, cost, first, anchor in chunk:
         r = ld._simulate(P, pre, i, j, cfg) if kind == "close" else simulate_open(P, pre, i, j, cfg, cost, first, anchor)
         out.append(((kind, i, j, cost, first, anchor), r["pnl"], r["reason"], r["exit_idx"]))
     return out
@@ -306,14 +306,14 @@ def main(argv: list[str] | None = None) -> int:
     a.outdir.mkdir(parents=True, exist_ok=True)
     repo = Path(__file__).resolve().parents[1]
     git = lambda *c: subprocess.run(["git", *c], cwd=repo, capture_output=True, text=True, check=False).stdout.strip()  # noqa: E731
-    commit, dirty = git("rev-parse", "HEAD"), git("status", "--porcelain", "--", "scripts/s12_open_entry_l0.py", "backend")
+    commit, dirty = git("rev-parse", "HEAD"), git("status", "--porcelain", "--", "scripts/s12_open_entry_probe.py", "backend")
     if dirty:
         print(f"refused: uncommitted changes under the producer's paths:\n{dirty}")
         return 2
     if git("rev-list", "--count", "origin/master..HEAD") not in ("0", ""):
         print("refused: HEAD is not pushed")
         return 2
-    producer = {"repo": "apex", "script": "scripts/s12_open_entry_l0.py", "commit": commit, "run": " ".join(sys.argv),
+    producer = {"repo": "apex", "script": "scripts/s12_open_entry_probe.py", "commit": commit, "run": " ".join(sys.argv),
                 "started": time.strftime("%Y-%m-%d %H:%M %Z"), "why": WHY, "peak": "high (R9)", "open_cost": OPEN_COST}
     t0 = time.time()
 
@@ -353,14 +353,13 @@ def main(argv: list[str] | None = None) -> int:
         out["C1"] = card_c1(P, rng)
         log(f"{w} C1 done")
 
-        L = dict(LIVE)
-        jobs = [("open", i, j, L, OPEN_COST, 0, False) for i, j in S["pool"]]
+        jobs = [("open", i, j, OPEN_COST, 0, False) for i, j in S["pool"]]
         both = S["picks"] + S["matched"]
-        jobs += [("open", i, j, L, c, 0, False) for c in COST_SENS for i, j in both]
-        jobs += [("open", i, j, L, OPEN_COST, 1, False) for i, j in both]
-        jobs += [("open", i, j, L, OPEN_COST, 0, True) for i, j in both]
-        jobs += [("close", i, j, L, 0.0, 0, False) for i, j in S["cpicks"] + S["cmatched"]]
-        _SHARED = {"P": P, "pre": pre}
+        jobs += [("open", i, j, c, 0, False) for c in COST_SENS for i, j in both]
+        jobs += [("open", i, j, OPEN_COST, 1, False) for i, j in both]
+        jobs += [("open", i, j, OPEN_COST, 0, True) for i, j in both]
+        jobs += [("close", i, j, 0.0, 0, False) for i, j in S["cpicks"] + S["cmatched"]]
+        _SHARED = {"P": P, "pre": pre, "cfg": dict(LIVE)}
         R = run_sims(jobs, a.workers, log, w)
         o = lambda c=OPEN_COST, f=0, an=False: (lambda i, j: ("open", i, j, c, f, an))   # noqa: E731
         cl = lambda i, j: ("close", i, j, 0.0, 0, False)                                   # noqa: E731
