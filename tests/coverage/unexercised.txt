@@ -5,10 +5,6 @@ audit/alert_criticals.py::send_alert	money
 audit/bundle.py::_state_history_last	money
 audit/bundle.py::config_snapshot	money
 audit/bundle.py::findings_items	money
-audit/checks_code.py::_c79_blocks	money
-audit/checks_code.py::_c79_comment_lines	money
-audit/checks_code.py::_c79_uncalled_accessors	money
-audit/checks_code.py::_c79_weeks_of	money
 audit/checks_code.py::_check76_trade_key	money
 audit/checks_code.py::check10	money
 audit/checks_code.py::check12	money
@@ -27,7 +23,6 @@ audit/checks_code.py::check60	money
 audit/checks_code.py::check61	money
 audit/checks_code.py::check62	money
 audit/checks_code.py::check76	money
-audit/checks_code.py::check79	money
 audit/checks_config.py::check11	money
 audit/checks_config.py::check13	money
 audit/checks_config.py::check21	money
@@ -458,7 +453,6 @@ backend/db.py::remove_watchlist	money
 backend/db.py::save_ticker_thresholds	money
 backend/db.py::set_live_trade_profit_lock_activated	money
 backend/db.py::set_pcr_dislocation	money
-backend/db.py::update_live_trade_peak_price	money
 backend/db.py::update_signal_gate	money
 backend/db.py::upsert_drift_alert	money
 backend/db.py::upsert_drift_baseline	money
@@ -485,7 +479,6 @@ backend/gate/l6_review.py::_get_anthropic	money
 backend/gate/l6_review.py::_parse_to_result	money
 backend/gate/l6_review.py::evaluate	money
 backend/json_io.py::_default	money
-backend/live_trades_tracker.py::_current_price	money
 backend/live_trades_tracker.py::_ticker_consecutive_down_days	money
 backend/maintenance.py::_alert_failures	money
 backend/maintenance.py::run_structural_checks	money
