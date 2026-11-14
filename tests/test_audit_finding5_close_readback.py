@@ -86,6 +86,7 @@ def _regime_exit(monkeypatch, reads):
     class _Res:
         date = "2026-11-13"
         leaderboard: list = []
+    monkeypatch.setattr(ltt, "LIVE_ENABLED", True)   # the live check returns before its guard otherwise (CI 329)
     monkeypatch.setattr(scheduler, "_get_regime_bayes", lambda: MagicMock(last_result=lambda: _Res()))
     monkeypatch.setattr(mc, "sessions_since", lambda d: 1)
     monkeypatch.setattr(ltt, "_ticker_consecutive_down_days", lambda t, n: True)

@@ -110,6 +110,7 @@ class _RB:
 def _guard_reached(monkeypatch, module, open_fn, sessions):
     """Whether a regime exit check got past its staleness guard (it then reads open trades)."""
     reached = []
+    monkeypatch.setattr(ltt, "LIVE_ENABLED", True)   # the live check returns before its guard otherwise (CI 329)
     monkeypatch.setattr(scheduler, "_get_regime_bayes", lambda: _RB())
     monkeypatch.setattr(module, open_fn, lambda: reached.append(1) or [])
     if sessions is not None:

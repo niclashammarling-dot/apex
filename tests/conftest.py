@@ -15,6 +15,12 @@ from unittest.mock import patch
 
 import pytest
 
+# The host's .env sets LIVE_ENABLED=true; CI has no .env, so it is false there. Found 2026-11-14 (CI 328/329):
+# three regime-exit tests passed on the host and failed in CI because check_live_regime_exits returns early
+# when it is false. Set before backend.config is imported (load_dotenv never overrides a set variable), so the
+# host suite sees CI's value; a test that needs it true patches the module binding.
+os.environ["LIVE_ENABLED"] = "false"
+
 
 def pytest_configure(config):
     """Redirect DB to a temp file before any test modules are imported."""
