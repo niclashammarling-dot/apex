@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { proxyErrorHandler } from "./proxyError.js";
 
 // The scheduled market-window task owns :8000 on weekdays (scripts/market_window.sh,
 // no --reload). To only *view* the live system, run `npm run dev` alone: the default
@@ -8,20 +9,19 @@ import react from "@vitejs/plugin-react";
 // `APEX_API_PORT=8001 npm run dev`. A dev backend never schedules or trades — only a
 // process started with APEX_SERVE=1 (the launcher scripts) may take the scheduler.
 const apiPort = process.env.APEX_API_PORT || "8000";
+const backend = {
+  target: `http://localhost:${apiPort}`,
+  changeOrigin: true,
+  configure: (proxy) => proxy.on("error", proxyErrorHandler(apiPort)),
+};
 
 export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
     proxy: {
-      "/api": {
-        target: `http://localhost:${apiPort}`,
-        changeOrigin: true,
-      },
-      "/health": {
-        target: `http://localhost:${apiPort}`,
-        changeOrigin: true,
-      },
+      "/api": backend,
+      "/health": backend,
     },
   },
 });
