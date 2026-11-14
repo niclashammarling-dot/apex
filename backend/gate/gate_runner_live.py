@@ -717,14 +717,8 @@ def _run(cycle: GateCycle) -> list[dict]:
                             result["outcome"] = STOPPED
                             result["outcome_reason"] = "sector_cap"
                         else:
-                            try:
-                                order_id = broker.place_bracket_order(
-                                    ticker          = ticker,
-                                    notional        = notional,
-                                    current_price   = signal["price"],
-                                    take_profit_pct = cfg["take_profit_pct"],
-                                    stop_loss_pct   = cfg["stop_loss_pct"],
-                                )
+                            order_id, failure = _submit_entry(broker, ticker, notional, signal["price"], cfg, ts)
+                            if order_id:
                                 result["outcome"]       = "TRADE_EXECUTED"
                                 result["overflow_slot"] = True
                                 cash_left = max(0.0, cash_left - notional)
@@ -737,11 +731,9 @@ def _run(cycle: GateCycle) -> list[dict]:
                                     f"Live gate [{ticker}]: overflow slot {overflow_level} executed — "
                                     f"score {signal['signal_score']:.4f} >= {overflow_threshold:.4f}"
                                 )
-                            except Exception as e:
-                                logger.error(f"Live trade failed [{ticker}]: {e}")
-                                result["outcome"] = STOPPED
-                                result["outcome_reason"] = f"broker_error: {e}"[:300]
-                                _put(result, "broker_error", True)
+                            else:
+                                cash_left, open_count = _submit_failed(result, failure, ticker, notional,
+                                                                       cash_left, open_count, open_tickers)
             else:
                 _overflow_state(result, False)          # a free slot passes overflow
                 position_pct   = result["l6_review"]["position_size_pct"] if result.get("l6_review") else cfg["max_position_size"]
@@ -765,14 +757,8 @@ def _run(cycle: GateCycle) -> list[dict]:
                         result["outcome"] = STOPPED
                         result["outcome_reason"] = "sector_cap"
                     else:
-                        try:
-                            order_id = broker.place_bracket_order(
-                                ticker          = ticker,
-                                notional        = notional,
-                                current_price   = signal["price"],
-                                take_profit_pct = cfg["take_profit_pct"],
-                                stop_loss_pct   = cfg["stop_loss_pct"],
-                            )
+                        order_id, failure = _submit_entry(broker, ticker, notional, signal["price"], cfg, ts)
+                        if order_id:
                             result["outcome"] = "TRADE_EXECUTED"
                             cash_left = max(0.0, cash_left - notional)
                             open_tickers.add(ticker)
@@ -780,11 +766,9 @@ def _run(cycle: GateCycle) -> list[dict]:
                             sector_exposure_live[sector] = projected
                             _record_live_trade(signal, notional, order_id, cfg)
                             _fire_trade_alert(ticker, signal, notional, order_id, cfg)
-                        except Exception as e:
-                            logger.error(f"Live trade failed [{ticker}]: {e}")
-                            result["outcome"] = STOPPED
-                            result["outcome_reason"] = f"broker_error: {e}"[:300]
-                            _put(result, "broker_error", True)
+                        else:
+                            cash_left, open_count = _submit_failed(result, failure, ticker, notional,
+                                                                   cash_left, open_count, open_tickers)
 
         _write_live(signal, result, ts, unknown, order_id)
 
@@ -794,6 +778,45 @@ def _run(cycle: GateCycle) -> list[dict]:
     _alert_unknown("live", unknown)
     _persist_multiplier_stats(bayesian_multipliers, regime_bayes_result, evaluated, runner="live")
     return results
+
+
+def _submit_entry(broker, ticker: str, notional: float, price: float, cfg: dict, cycle_ts: str) -> tuple[str | None, str | None]:
+    """(order_id, failure) for one bracket entry (2026-11-14, Saturday order item 7c). The order carries a deterministic
+    client_order_id, so this decision is one order at Alpaca. On a submit exception the order is read back by that id:
+    found -> submitted (Alpaca accepted it and the response was lost); not found -> "broker_error: ..." as before;
+    the readback fails too -> "broker_unknown: ...", whether the order stands is unknown."""
+    stamp = cycle_ts[:19].replace("-", "").replace(":", "")
+    cid = broker.client_order_id("live", ticker, stamp, "buy")
+    try:
+        return broker.place_bracket_order(ticker=ticker, notional=notional, current_price=price,
+                                          take_profit_pct=cfg["take_profit_pct"], stop_loss_pct=cfg["stop_loss_pct"],
+                                          client_order_id=cid), None
+    except Exception as e:
+        try:
+            found = broker.get_order_by_client_id(cid)
+        except Exception as e2:
+            logger.error(f"Live trade [{ticker}]: submit raised ({e}) and the readback of {cid} failed ({e2}) — broker_unknown")
+            return None, f"broker_unknown: submit {e}; readback {e2}"[:300]
+        if found:
+            logger.warning(f"Live trade [{ticker}]: submit raised ({e}) but readback found order {found['id']} "
+                           f"({found.get('status')}) under {cid} — booked (readback found)")
+            return found["id"], None
+        logger.error(f"Live trade failed [{ticker}]: {e}")
+        return None, f"broker_error: {e}"[:300]
+
+
+def _submit_failed(result: dict, failure: str, ticker: str, notional: float, cash_left: float, open_count: int,
+                   open_tickers: set) -> tuple[float, int]:
+    """Record a failed entry. broker_unknown fails closed: the rest of the cycle is sized as if the order stood, the
+    ticker is not tried again this cycle, and the rule cools it (lock_codes, cooloff) until reconciled."""
+    result["outcome"] = STOPPED
+    result["outcome_reason"] = failure
+    if failure.startswith("broker_unknown"):
+        _put(result, "broker_unknown", True)
+        open_tickers.add(ticker)
+        return max(0.0, cash_left - notional), open_count + 1
+    _put(result, "broker_error", True)
+    return cash_left, open_count
 
 
 def _order_notional(cash_left: float, position_pct: float, cfg: dict) -> float:

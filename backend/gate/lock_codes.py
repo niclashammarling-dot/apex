@@ -167,6 +167,9 @@ RULES: tuple[Rule, ...] = (
          source="history: no reasoning before ba12aa2 (2026-09-18)"),
     Rule(6, "broker_error", ("broker_error",), check=False,
          source="gate_runner_live: the broker refused the approved order"),
+    Rule(6, "broker_unknown", ("broker_unknown",), check=False, cooloff=True, books=("live",),
+         source="gate_runner_live: the submit raised and the readback by client order id failed too, so whether the order "
+                "stands is unknown; fail closed and cooled until reconciled (2026-11-14, order item 7c)"),
 )
 
 # The pass flag columns (names until phase 3 part a) and the rules each one summarises: 1 when they passed, 0 when

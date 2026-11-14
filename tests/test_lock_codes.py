@@ -42,9 +42,11 @@ def test_every_judging_module_returns_its_own_chain_lock():
 
 def test_cooloff_set_is_every_sentiment_and_review_decision_and_the_guard():
     # Ruling 6: the set {FILTERED_L2, FILTERED_L3} before phase 2, which held L4, L6 and the guard; not a broker error.
+    # broker_unknown (2026-11-14, order item 7c): whether the order stands is unknown, so it cools until reconciled;
+    # a broker refusal (broker_error) still does not.
     owners = {lock_codes.parse_stop_code(c) for c in lock_codes.COOLOFF_STOPS}
     assert owners == {(4, "grok"), (4, "unavailable"), (4, "unavailable_inferred"), (6, "claude"),
-                      (6, "unavailable"), (6, "unavailable_inferred"), (0, "drawdown_guard")}
+                      (6, "unavailable"), (6, "unavailable_inferred"), (0, "drawdown_guard"), (6, "broker_unknown")}
 
 
 def test_labels_follow_the_approved_chain():
@@ -95,7 +97,7 @@ def test_cooloff_queries_select_the_cooloff_stops():
         want = {f"LC{i}" for i, c in enumerate(codes) if c in lock_codes.COOLOFF_STOPS}
         got_live = {t for t in db.get_recently_failed_live_tickers(1.0) if t.startswith("LC")}
         got_demo = {t for t in db.get_recently_failed_tickers(1.0) if t.startswith("LC")}
-        assert got_live == got_demo == want and len(want) == 7
+        assert got_live == got_demo == want and len(want) == 8                      # broker_unknown, 2026-11-14
     finally:
         # The session DB is shared: a scoreless signals row broke get_l3_score_candidates in a later file.
         _delete("DELETE FROM live_gate_history WHERE ticker LIKE 'LC%'", "DELETE FROM signals WHERE ticker LIKE 'LC%'")

@@ -441,6 +441,8 @@ def _live_patches(candidates, open_tickers=None, failed_tickers=None,
               return_value=MagicMock(last_result=MagicMock(return_value=None))),        # 19
         patch("backend.gate.gate_runner_live.get_recently_exited_live_tickers",
               return_value=(set(), set())),                                                       # 20
+        # Order item 7c (2026-11-14): a submit exception reads the order back by client id; none found by default.
+        patch("backend.brokers.alpaca.get_order_by_client_id", return_value=None),                # last
     ]
 
 

@@ -1018,8 +1018,22 @@ def get_entry_fills(limit: int = 15):
         "mean_abs_slip": sum(abs(r["slip"]) for r in slips) / len(slips) if slips else None,
         "largest":    {k: big[k] for k in ("ticker", "timestamp", "slip")} if big else None,
         "over_1pct":  sum(1 for r in slips if abs(r["slip"]) > 0.01),
+        "orders":     _order_integrity(since),
         "rows":       rows[:limit],
     }
+
+
+def _order_integrity(since: str) -> dict:
+    """Book against broker since the reset (2026-11-14): entries left broker_unknown (order item 7c, should be 0) and
+    closes booked at the quote (QUOTE_EXIT, audit finding 5). Readbacks that found an order are logged, not stored
+    (outcome_reason on an executed row would read as a refusal in the capacity panel)."""
+    from backend.db import QUOTE_EXIT
+    with closing(get_db()) as conn:
+        unknown = conn.execute("SELECT COUNT(*) FROM live_gate_history WHERE outcome_reason LIKE 'broker_unknown%' "
+                               "AND timestamp >= ?", (since,)).fetchone()[0]
+        quote = conn.execute("SELECT COUNT(*) FROM live_trades WHERE exit_confidence LIKE ? AND timestamp >= ?",
+                             (QUOTE_EXIT + "%", since)).fetchone()[0]
+    return {"broker_unknown": unknown, "quote_exits": quote, "readback_found": "logged (WARNING 'readback found')"}
 
 
 @router.get("/ops/freshness")

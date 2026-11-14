@@ -253,12 +253,33 @@ def get_fee_activities(after: str) -> list[dict]:
     return out
 
 
+def client_order_id(book: str, ticker: str, cycle: str, side: str, kind: str | None = None) -> str:
+    """apex-<book>-<ticker>-<cycle>-<side>[-<kind>] (2026-11-14, Saturday order item 7c): the same decision in the same
+    cycle always carries the same id, so Alpaca refuses a second submit of it. Alpaca's limit is 128 characters."""
+    return "-".join(x for x in ("apex", book, ticker, cycle, side, kind) if x)[:128]
+
+
+def get_order_by_client_id(client_id: str) -> dict | None:
+    """The order submitted under client_id, or None when Alpaca has none (404). Any other failure raises: the
+    caller cannot tell 'not placed' from 'unknown' then, and records broker_unknown (order item 7c)."""
+    try:
+        order = _client().get_order_by_client_id(client_id)
+    except Exception as e:
+        if getattr(e, "status_code", None) == 404 or "not found" in str(e).lower():
+            return None
+        raise
+    return {"id": str(order.id), "status": _enum_value(order.status),
+            "filled_qty": float(order.filled_qty) if order.filled_qty else None,
+            "client_order_id": getattr(order, "client_order_id", client_id)}
+
+
 def place_bracket_order(
     ticker: str,
     notional: float,
     current_price: float,
     take_profit_pct: float,
     stop_loss_pct: float,
+    client_order_id: str | None = None,
 ) -> str:
     """
     Place a market bracket order (entry + TP limit + SL stop).
@@ -287,6 +308,7 @@ def place_bracket_order(
         order_class=OrderClass.BRACKET,
         take_profit=TakeProfitRequest(limit_price=tp_price),
         stop_loss=StopLossRequest(stop_price=sl_price),
+        client_order_id=client_order_id,
     )
 
     order = _client().submit_order(req)
@@ -297,7 +319,8 @@ def place_bracket_order(
     return str(order.id)
 
 
-def place_oco_exit(ticker: str, qty: float, tp_price: float, sl_price: float) -> str:
+def place_oco_exit(ticker: str, qty: float, tp_price: float, sl_price: float,
+                   client_order_id: str | None = None) -> str:
     """
     Place a standalone OCO exit pair (TP limit + SL stop, linked — either leg
     filling cancels the other) on a position that is already held, with no
@@ -313,6 +336,7 @@ def place_oco_exit(ticker: str, qty: float, tp_price: float, sl_price: float) ->
         order_class=OrderClass.OCO,
         take_profit=TakeProfitRequest(limit_price=round(tp_price, 2)),
         stop_loss=StopLossRequest(stop_price=round(sl_price, 2)),
+        client_order_id=client_order_id,
     )
     order = _client().submit_order(req)
     logger.info(

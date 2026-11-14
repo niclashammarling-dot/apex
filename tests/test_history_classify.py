@@ -255,7 +255,7 @@ def test_every_outcome_reason_live_emits_has_one_rule_owned_by_a_lock():
     # Eighth round: open position, too small a notional and a missing price are L1's, the sector cap L2's,
     # the broker L6's.
     assert owners == {"position_open": 1, "notional_too_small": 1, "price_missing": 1, "sector_cap": 2,
-                      "broker_error": 6}
+                      "broker_error": 6, "broker_unknown": 6}                    # broker_unknown: order item 7c
     assert {r for _, r in pairs} <= checked                     # every outcome_reason is also a recorded verdict
 
 

@@ -150,13 +150,21 @@ def test_demo_gate_history_stores_outcome_reason():
 
 # ── The live execution phase (writer 4) ───────────────────────────────────────────────────────────
 
-def _run_live(price=200.0, broker_raises=None, **kw):
+_NO_READBACK = object()
+
+
+def _run_live(price=200.0, broker_raises=None, readback=_NO_READBACK, **kw):
     from tests.test_gate_runners import _live_patches, _signal
     patches = _live_patches(candidates=[_signal(price=price)], **kw)
     with ExitStack() as st:
         mocks = [st.enter_context(p) for p in patches]
         if broker_raises is not None:
             mocks[14].side_effect = broker_raises
+        if readback is not _NO_READBACK:                 # order item 7c: the readback by client order id
+            if isinstance(readback, BaseException):
+                mocks[-1].side_effect = readback          # the harness's last patch: get_order_by_client_id
+            else:
+                mocks[-1].return_value = readback
         from backend.gate import gate_runner_live
         return gate_runner_live.run(), mocks
 

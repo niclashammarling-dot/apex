@@ -40,6 +40,12 @@ export default function EntryFillsPanel() {
         {" · "}OVER 1% <strong>{data.over_1pct}</strong>
         {Object.keys(data.excepted || {}).length ? ` · EXCEPTED ${Object.keys(data.excepted).length}` : null}
       </div>
+      {data.orders ? (
+        <div className="t-meta" style={{ marginBottom: 10 }}>
+          ORDERS · BROKER UNKNOWN <strong style={{ color: data.orders.broker_unknown ? "var(--t-red)" : "var(--t-text-1)" }}>{data.orders.broker_unknown}</strong>
+          {" · "}CLOSES ON QUOTE <strong style={{ color: data.orders.quote_exits ? "var(--t-amber)" : "var(--t-text-1)" }}>{data.orders.quote_exits}</strong>
+        </div>
+      ) : null}
       <table className="t-tbl">
         <thead><tr><th>Entry</th><th>Ticker</th><th>Signal</th><th>Fill</th><th>Slip</th><th>Outcome</th></tr></thead>
         <tbody>

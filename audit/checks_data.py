@@ -1191,7 +1191,34 @@ def check89(now: datetime | None = None) -> None:
                  + " — reconcile each against the broker's fill")
         flag(89, name, "INFO", "data/apex.db:live_trades",
              f"{len(quoted)} close(s) booked at the quote since {since} ({QUOTE_EXIT}, audit finding 5)")
+    _check89_broker_unknown(db, since, now)
     _check89_reconcile(now)
+
+
+def _check89_broker_unknown(db, since: str, now: datetime) -> None:
+    """Entries whose submit raised and whose readback by client order id failed too (2026-11-14, order item 7c): the
+    position may stand at Alpaca with no live_trades row. WARNING for this week's (reconcile each against the broker),
+    INFO the total when it is not 0 (the ops card shows the 0). It should read 0."""
+    name = "live entry recorded at the fill"
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        rows = conn.execute("SELECT ticker, timestamp, outcome_reason FROM live_gate_history "
+                            "WHERE outcome_reason LIKE 'broker_unknown%' AND timestamp >= ? ORDER BY timestamp",
+                            (since,)).fetchall()
+        conn.close()
+    except Exception as e:
+        flag(89, name, "WARNING", "data/apex.db:live_gate_history", f"could not query broker_unknown rows: {e}")
+        return
+    week = (now - timedelta(days=C89_SLIP_WINDOW_DAYS)).isoformat()
+    recent = [r for r in rows if r[1] >= week]
+    if recent:
+        flag(89, name, "WARNING", "data/apex.db:live_gate_history",
+             f"{len(recent)} entr{'y' if len(recent) == 1 else 'ies'} this week with broker_unknown (submit and readback "
+             f"both failed; the order may stand with no row): " + "; ".join(f"{r[0]} {r[1][:16]} {r[2][:120]}" for r in recent[:5])
+             + " — reconcile each against Alpaca")
+    if rows:                                          # 0 is the expected reading; the ops card shows it
+        flag(89, name, "INFO", "data/apex.db:live_gate_history",
+             f"{len(rows)} broker_unknown entr{'y' if len(rows) == 1 else 'ies'} since {since}")
 
 
 C89_RECONCILE_MAX_AGE_DAYS = 4     # written each publish (Mon–Fri); a weekend plus one missed night
