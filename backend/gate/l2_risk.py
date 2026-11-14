@@ -13,7 +13,7 @@ execution phase until phase 4; lock_codes.RULES.source names each place.
 from __future__ import annotations
 
 import time
-from datetime import date
+from datetime import date, datetime
 from typing import Callable
 
 from loguru import logger
@@ -33,15 +33,7 @@ def _get_earnings_date(ticker: str) -> date | None:
 
     try:
         import yfinance as yf
-        cal = yf.Ticker(ticker).calendar
-        earnings_date = None
-        if cal is not None and not cal.empty:
-            col = "Earnings Date" if "Earnings Date" in cal.columns else cal.columns[0]
-            val = cal[col].iloc[0]
-            if hasattr(val, "date"):
-                earnings_date = val.date()
-            elif isinstance(val, date):
-                earnings_date = val
+        earnings_date = _earnings_from_calendar(yf.Ticker(ticker).calendar)
         _earnings_cache[ticker] = {"date": earnings_date, "expires_at": now + _EARNINGS_TTL}
         return earnings_date
     except Exception as e:
@@ -50,21 +42,54 @@ def _get_earnings_date(ticker: str) -> date | None:
         return None
 
 
+def _earnings_from_calendar(cal) -> date | None:
+    """The next earnings date from yf.Ticker(...).calendar: a dict ({"Earnings Date": [date, ...]}) in yfinance
+    0.2.x (0.2.66 read 2026-11-14), a DataFrame before. Found 2026-10-18: the DataFrame-only code tested
+    `cal.empty` on the dict, the AttributeError was debug-logged, and the rule never fired in recorded history.
+    A two-date range gives its earlier date, the first day the report can fall on."""
+    if cal is None:
+        return None
+    if isinstance(cal, dict):
+        val = cal.get("Earnings Date")
+        if isinstance(val, (list, tuple)):
+            val = min((v for v in val if v is not None), default=None)
+    else:
+        if getattr(cal, "empty", True):
+            return None
+        col = "Earnings Date" if "Earnings Date" in cal.columns else cal.columns[0]
+        val = cal[col].iloc[0]
+    if isinstance(val, datetime) or (val is not None and not isinstance(val, date) and hasattr(val, "date")):
+        return val.date()
+    return val if isinstance(val, date) else None
+
+
 def check_earnings(ticker: str, cfg: dict, today: date) -> tuple[dict | None, dict, str]:
     """Rules earnings and earnings_near. Returns (fail, near, state): fail is the data of an earnings stop
     (the caller builds the LockResult with its reason), near the soft-window data the score re-test reads,
-    state the earnings rule's verdict (no_data when the date source returns none)."""
+    state the earnings rule's verdict (no_data when the date source returns none).
+
+    Shadow mode (config.L2_RISK_EARNINGS_SHADOW, 2026-11-14): inside the near window (0..near_days, the blackout
+    included) the data carries {"earnings_shadow": {days_to_earnings, earnings_date}} only: nothing blocks or
+    penalises (no fail, no earnings_near_penalty key), the gate row records days_to_earnings from it, and L6's
+    payload leaves the key out (l6_review._BOOKKEEPING), so Claude does not see a report date the active rule
+    would not have shown it. The shadow read derives would-block (<= l2_risk_earnings_days) and would-penalise
+    from days_to_earnings."""
+    from backend import config
     _ea = cfg.get("l2_risk_earnings_days")
-    earnings_blackout = 3 if _ea is None else _ea
+    earnings_blackout = config.L2_RISK_EARNINGS_DAYS if _ea is None else _ea
     _en = cfg.get("l2_risk_earnings_near_days")
-    earnings_near_days = 14 if _en is None else _en
+    earnings_near_days = config.L2_RISK_EARNINGS_NEAR_DAYS if _en is None else _en
     _ep = cfg.get("l2_risk_earnings_near_penalty")
-    earnings_near_penalty = 0.15 if _ep is None else _ep
+    earnings_near_penalty = config.L2_RISK_EARNINGS_NEAR_PENALTY if _ep is None else _ep
 
     earnings = _get_earnings_date(ticker)
     near: dict = {}
     if earnings:
         delta = (earnings - today).days  # positive = future (pre-event), negative = past
+        if config.L2_RISK_EARNINGS_SHADOW:
+            if 0 <= delta <= earnings_near_days:
+                near = {"earnings_shadow": {"days_to_earnings": delta, "earnings_date": earnings.isoformat()}}
+            return None, near, PASS
         if 0 <= delta <= earnings_blackout:
             return ({"reason": f"Earnings on {earnings.isoformat()} (Δ{delta}d)", "fail_type": "earnings",
                      "earnings_date": earnings.isoformat(), "days_to_earnings": delta}, {}, FAIL)

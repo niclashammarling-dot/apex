@@ -93,7 +93,8 @@ PROFIT_LOCK_TRAIL_PCT   = 0.01   # drawdown from peak once profit-lock activates
 # --- L1 ELIGIBILITY (VIX, macro calendar, cooloffs) and L2 RISK (earnings, ETF) ---
 L1_ELIGIBILITY_VIX_MAX                 = 30.0
 L1_ELIGIBILITY_MACRO_EVENT_DAYS        = 1     # days before CPI/NFP that count as pre-event (FOMC: fixed 2-day hard block, l1_eligibility._FOMC_PRE_EVENT_DAYS)
-L2_RISK_EARNINGS_DAYS                  = 3     # days before a ticker's earnings (hard block)
+L2_RISK_EARNINGS_DAYS                  = 2     # days before a ticker's earnings (hard block); R065 a 2026-11-14:
+                                               # demo, live and this default one value (tests/test_earnings_window_parity.py)
 L2_RISK_EARNINGS_NEAR_DAYS             = 14    # near-term earnings window above hard block
 L2_RISK_EARNINGS_NEAR_PENALTY          = 0.15  # score multiplier reduction in near-term window
 L1_ELIGIBILITY_MACRO_PRE_EVENT_PENALTY = 0.05  # score multiplier reduction in the CPI/NFP pre-event window (FOMC never reaches it: hard block)
@@ -242,3 +243,10 @@ RSS_URL_TEMPLATE = "https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&
 # Revival is decided when G1-G6 reach 100 % (R030). run_weekly_research and the weekly
 # report both read this one value; False revives both jobs and the report's sections.
 WEEKLY_SWEEP_OPTIMIZER_PAUSED = True
+
+# Earnings rules in shadow mode (Niclas 2026-10-18: "ja det är min ruling"; built 2026-11-14). The blackout and the
+# near-term penalty never fired in recorded history (the date source tested `cal.empty` on yfinance's dict calendar).
+# While True, check_earnings records days_to_earnings and blocks or penalises nothing. Activation (False) only after
+# the pre-registered battery cell or the shadow read: >= 20 distinct ticker-reports among past-L1 candidates
+# (vault INDEX earnings line), counted by CHECK 99.
+L2_RISK_EARNINGS_SHADOW = True

@@ -49,7 +49,6 @@ audit/checks_data.py::check55	money
 audit/checks_data.py::check56	money
 audit/checks_data.py::check75	money
 audit/checks_data.py::check78	money
-audit/checks_data.py::run	money
 audit/checks_gate.py::_l5_recovered_after	money
 audit/checks_gate.py::check24	money
 audit/checks_gate.py::check26	money
@@ -476,7 +475,6 @@ backend/gate/chain.py::ChainResult.to_dict	money
 backend/gate/freshness.py::written_before_open	money
 backend/gate/l1_eligibility.py::_get_regime_result	money
 backend/gate/l1_eligibility.py::_get_vix	money
-backend/gate/l2_risk.py::_get_earnings_date	money
 backend/gate/l4_sentiment.py::_build_prompt	money
 backend/gate/l4_sentiment.py::_call_grok	money
 backend/gate/l4_sentiment.py::_fetch_rss	money

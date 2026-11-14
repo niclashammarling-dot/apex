@@ -19,6 +19,14 @@ import backend.gate.l2_risk as l2m
 from backend.gate.l1_eligibility import evaluate
 
 
+@pytest.fixture(autouse=True)
+def _earnings_rules_active(monkeypatch):
+    """These tests pin the earnings rules as they act once activated; the shipped value is shadow mode
+    (config.L2_RISK_EARNINGS_SHADOW, 2026-11-14), pinned in tests/test_earnings_shadow.py."""
+    import backend.config as config_module
+    monkeypatch.setattr(config_module, "L2_RISK_EARNINGS_SHADOW", False)
+
+
 # ── Shared regime mock ─────────────────────────────────────────────────────────
 
 def _make_regime(sector: str = "Technology"):

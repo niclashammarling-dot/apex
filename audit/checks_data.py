@@ -1282,6 +1282,61 @@ def _check89_reconcile(now: datetime) -> None:
              f"over {r['fee_days']} fee rows, not in row P&L")
 
 
+C99_FROM = "2026-11-16"          # the first session after the 2026-11-14 fix; earlier rows are the dead source's 100 %
+C99_WINDOW_DAYS = 10             # the no_data share is read over the last two weeks of sessions
+C99_MIN_ROWS = 50                # about two sessions of rows where the earnings rule ran (28 a day: 553 in 20 sessions to 11-13)
+C99_MAX_NO_DATA = 0.5            # a dead source reads 1.0 (553/553 live rows 10-19..11-13); a live one, a few names
+C99_READ_REPORTS = 20            # the shadow read's condition (Niclas 2026-11-14): distinct ticker-reports
+
+
+def check99(now: datetime | None = None, since: str | None = None) -> None:
+    """
+    CHECK 99 — the earnings rule has its date (2026-11-14, Saturday order item 2; ruling 2026-10-18).
+
+    The blackout and the near-term penalty never fired: _get_earnings_date tested `cal.empty` on yfinance's dict
+    calendar, and L2_RISK_EARNINGS read no_data on 553/553 live and 679/679 demo rows 10-19..11-13. The fix runs
+    in shadow mode (config.L2_RISK_EARNINGS_SHADOW): rows record days_to_earnings, nothing blocks.
+
+      WARNING  L2_RISK_EARNINGS is no_data on more than C99_MAX_NO_DATA of the live rows where the rule ran, over
+               the last C99_WINDOW_DAYS from C99_FROM, with at least C99_MIN_ROWS rows: the date source is dead
+      INFO     rows, the no_data share, the days_to_earnings fill (seasonal: near zero in December, so it is
+               reported, not alarmed), and the shadow read's counter: distinct ticker-reports inside the window
+               since C99_FROM against C99_READ_REPORTS, candidate-days beside
+    SKIPPED without apex.db. `since` replaces C99_FROM (the control reads the historical rows).
+    """
+    name = "earnings rule has its date"
+    db = REPO / "data/apex.db"
+    if not require_data_file(99, name, db):
+        return
+    now = now or datetime.now(timezone.utc)
+    start = since or C99_FROM
+    window_start = max(start, (now - timedelta(days=C99_WINDOW_DAYS)).date().isoformat())
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        rows = conn.execute(
+            "SELECT ticker, timestamp, days_to_earnings, json_extract(rule_states, '$.L2_RISK_EARNINGS') "
+            "FROM live_gate_history WHERE timestamp >= ? AND json_extract(rule_states, '$.L2_RISK_EARNINGS') IS NOT NULL",
+            (start,)).fetchall()
+        conn.close()
+    except Exception as e:
+        flag(99, name, "WARNING", "data/apex.db:live_gate_history", f"could not query: {e}")
+        return
+    recent = [r for r in rows if r[1] >= window_start]
+    no_data = sum(1 for r in recent if r[3] == "no_data")
+    if len(recent) >= C99_MIN_ROWS and no_data / len(recent) > C99_MAX_NO_DATA:
+        flag(99, name, "WARNING", "backend/gate/l2_risk.py:_get_earnings_date",
+             f"L2_RISK_EARNINGS no_data on {no_data}/{len(recent)} live rows since {window_start} "
+             f"(over {C99_MAX_NO_DATA:.0%}): the earnings date source returns nothing")
+    near = [r for r in rows if r[2] is not None]
+    reports = {(r[0], (date.fromisoformat(r[1][:10]) + timedelta(days=r[2])).isoformat()) for r in near}
+    cand_days = {(r[0], r[1][:10]) for r in near}
+    filled = sum(1 for r in recent if r[2] is not None)
+    flag(99, name, "INFO", "data/apex.db:live_gate_history",
+         f"{len(recent)} rows since {window_start}: no_data {no_data / max(len(recent), 1):.0%}, days_to_earnings "
+         f"filled {filled / max(len(recent), 1):.0%}; shadow read since {start}: {len(reports)} of {C99_READ_REPORTS} "
+         f"distinct ticker-reports, {len(cand_days)} candidate-days")
+
+
 def run() -> None:
     check14()
     check15()
@@ -1300,3 +1355,4 @@ def run() -> None:
     check78()
     check89()
     check95()
+    check99()

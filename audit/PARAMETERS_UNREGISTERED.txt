@@ -100,9 +100,6 @@ backend/config.py::DEMO_L3_SCORE_THRESHOLD_MIN
 backend/config.py::DEMO_L4_SENTIMENT_GROK_MIN
 backend/config.py::DEMO_L6_REVIEW_CLAUDE_MIN
 backend/config.py::L0_PORTFOLIO_DRAWDOWN_GUARD_MAX
-backend/config.py::L2_RISK_EARNINGS_DAYS
-backend/config.py::L2_RISK_EARNINGS_NEAR_DAYS
-backend/config.py::L2_RISK_EARNINGS_NEAR_PENALTY
 backend/config.py::L1_ELIGIBILITY_MACRO_EVENT_DAYS
 backend/config.py::L1_ELIGIBILITY_MACRO_PRE_EVENT_PENALTY
 backend/config.py::L1_ELIGIBILITY_VIX_MAX

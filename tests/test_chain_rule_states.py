@@ -43,9 +43,13 @@ def _regime():
     return MagicMock(leaderboard=[entry], leader=SECTOR, date=date.today().isoformat())
 
 
-def _l1(vix=10.0, macro=("clear", None), earnings_in=None, regime=True) -> LockResult:
+def _l1(vix=10.0, macro=("clear", None), earnings_in=None, regime=True, shadow=False) -> LockResult:
+    """shadow: config.L2_RISK_EARNINGS_SHADOW for this call only. CASES calls this at collection, before any
+    fixture, so the mode is a parameter scoped to the call, not module state (default: the rules active)."""
+    import backend.config as config_module
     earnings = date.today() + timedelta(days=earnings_in) if earnings_in is not None else None
     with ExitStack() as st:
+        st.enter_context(patch.object(config_module, "L2_RISK_EARNINGS_SHADOW", shadow))
         st.enter_context(patch.object(l1m, "_get_regime_result", return_value=_regime() if regime else None))
         st.enter_context(patch.object(l1m, "_get_vix", return_value=vix))
         st.enter_context(patch.object(l1m, "_macro_status", return_value=macro))

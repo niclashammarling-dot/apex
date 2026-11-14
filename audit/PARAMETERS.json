@@ -1353,6 +1353,55 @@
       "tier": "ops",
       "source": "Poll interval inside CLOSE_FILL_READBACK_S (audit finding 5, R064 a, 2026-11-14): six reads in the 3 s window, one get_order_by_id each; a choice, not a measurement.",
       "review": "2026-11-28"
+    },
+    "audit/checks_data.py::C99_WINDOW_DAYS": {
+      "value": 10,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "CHECK 99 (2026-11-14, Saturday order item 2): the no_data share is read over the last ten days (two weeks of sessions); a choice.",
+      "review": "2026-12-05"
+    },
+    "audit/checks_data.py::C99_MIN_ROWS": {
+      "value": 50,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "CHECK 99 (2026-11-14, Saturday order item 2): about two sessions of rows where the earnings rule ran (553 live rows in 20 sessions 10-19..11-13, read 2026-11-14 = 28 a day); a choice.",
+      "review": "2026-12-05"
+    },
+    "audit/checks_data.py::C99_MAX_NO_DATA": {
+      "value": 0.5,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "CHECK 99 (2026-11-14, Saturday order item 2): a dead date source reads 1.0 (553/553 live rows 10-19..11-13); a working one leaves a few names without a calendar date; the line sits between, a choice.",
+      "review": "2026-12-05"
+    },
+    "audit/checks_data.py::C99_READ_REPORTS": {
+      "value": 20,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "CHECK 99 (2026-11-14, Saturday order item 2): the shadow read's condition, Niclas 2026-11-14: 'minst 20 distinkta ticker-rapporter, med kandidatdagarna rapporterade bredvid' (count events, not candidate-days).",
+      "review": "2026-12-05"
+    },
+    "backend/config.py::L2_RISK_EARNINGS_DAYS": {
+      "value": 2,
+      "kind": "chosen",
+      "tier": "money",
+      "source": "R065 a (Niclas 2026-11-14): demo, live and the default carry one value, 2, live's since 8935d97 (2026-05-22). 8935d97 reasoned from a post-report window the rule never blocks (it blocks 0..N days before the report). check_earnings's fallback reads this constant. Never fired in recorded history (the date source returned None for every ticker until 2026-11-14; L2_RISK_EARNINGS no_data on 553/553 live rows 10-19..11-13); shadow mode from 2026-11-14.",
+      "review": "2026-12-05"
+    },
+    "backend/config.py::L2_RISK_EARNINGS_NEAR_DAYS": {
+      "value": 14,
+      "kind": "chosen",
+      "tier": "money",
+      "source": "Set with the three-tier gate in 6d9f497 (2026-06-09), no measurement recorded; demo and live carry the same 14. Never fired in recorded history (the date source returned None for every ticker until 2026-11-14; L2_RISK_EARNINGS no_data on 553/553 live rows 10-19..11-13); shadow mode from 2026-11-14.",
+      "review": "2026-12-05"
+    },
+    "backend/config.py::L2_RISK_EARNINGS_NEAR_PENALTY": {
+      "value": 0.15,
+      "kind": "chosen",
+      "tier": "money",
+      "source": "Set with the three-tier gate in 6d9f497 (2026-06-09), no measurement recorded; demo and live carry the same 0.15. Never fired in recorded history (the date source returned None for every ticker until 2026-11-14; L2_RISK_EARNINGS no_data on 553/553 live rows 10-19..11-13); shadow mode from 2026-11-14.",
+      "review": "2026-12-05"
     }
   }
 }

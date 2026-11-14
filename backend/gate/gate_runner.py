@@ -570,7 +570,8 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
         "l4_sentiment_conviction":       l4_data.get("conviction"),
         "l1_eligibility_reason":           l1.reason if (l1 and not l1.passed) else None,
         "earnings_near":          int(l1.data.get("earnings_near", False)) if l1 and l1.passed else None,
-        "days_to_earnings":       l1.data.get("days_to_earnings") if l1 and l1.passed else None,
+        "days_to_earnings":       (l1.data.get("days_to_earnings", (l1.data.get("earnings_shadow") or {}).get("days_to_earnings"))
+                                   if l1 and l1.passed else None),   # shadow mode records it too (2026-11-14)
     }
 
 

@@ -165,7 +165,9 @@ _PAYLOAD_KEYS = {1: "l1_eligibility", 3: "l3_score", 4: "l4_sentiment", 5: "l5_p
 # The chain's bookkeeping in a lock's data (lock labels phase 2, 2026-10-29): which rules ran and whether a data
 # error decided the lock. It names rows; it is not evidence about the candidate, and the L6 REVIEW prompt approved
 # 2026-10-26 was written without it, so Claude's input stays as it was.
-_BOOKKEEPING = ("rule_states", "unavailable", "options_errors")
+# earnings_shadow (2026-11-14): the earnings rules run in shadow mode, and their report date is recorded, not
+# shown; with it in the payload the rule would act through Claude's review without a ruling.
+_BOOKKEEPING = ("rule_states", "unavailable", "options_errors", "earnings_shadow")
 
 
 def _build_context_payload(
