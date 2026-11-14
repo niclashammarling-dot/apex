@@ -24,6 +24,8 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from contextlib import contextmanager
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import yfinance as yf
@@ -224,7 +226,8 @@ def evaluate(ticker: str, sector: str, pcr_mode: str = "pooled_scalar") -> LockR
         "relative_strength":   rs_result,
         "put_call_ratio":      _check_put_call_ratio(options_chains, options_fetch_err,
                                                      ticker=ticker, mode=pcr_mode),
-        "unusual_calls":       _check_unusual_call_volume(options_chains, options_fetch_err),
+        "unusual_calls":       _check_unusual_call_volume(options_chains, options_fetch_err,
+                                                          session=datetime.now(_NY).date()),
         "volume_accumulation": va_result,
     }
 
@@ -456,20 +459,46 @@ def _check_put_call_ratio(chains: list[tuple], fetch_err: str | None = None,
     }
 
 
-def _check_unusual_call_volume(chains: list[tuple], fetch_err: str | None = None) -> dict:
-    """Call volume >= 2x put volume across near-term expiries."""
+_NY = ZoneInfo("America/New_York")
+
+
+def _today_volume(df: pd.DataFrame, session: date) -> tuple[int, int, int] | None:
+    """(today's volume, all-days volume, contracts traded today) for one side of a chain; None when the
+    chain has no lastTradeDate, so today's volume cannot be told from an earlier day's."""
+    if df.empty:
+        return 0, 0, 0
+    if "lastTradeDate" not in df.columns:
+        return None
+    vol = df["volume"].fillna(0)
+    traded = pd.to_datetime(df["lastTradeDate"], utc=True, errors="coerce").dt.tz_convert(_NY).dt.date
+    today = (traded == session).to_numpy()
+    return int(vol[today].sum()), int(vol.sum()), int(today.sum())
+
+
+def _check_unusual_call_volume(chains: list[tuple], fetch_err: str | None = None,
+                               session: date | None = None) -> dict:
+    """Call volume >= 2x put volume across near-term expiries, counting only contracts traded in the
+    evaluating session (New York date; 2026-11-14, scope raw/notes/2026-11/2026-11-02-apex-saturday-scopes-11-07.md § 1).
+    yfinance's `volume` is each contract's last traded day's: summed without lastTradeDate, a contract
+    last traded days ago counted as today's (11-02 probe: 20 of 102 unusual_calls and 9 options-group
+    decisions flip). The row keeps the all-days sums beside today's, so the change stays observable."""
     if not chains:
         if fetch_err:   # a fetch error is a data error (L5 `unavailable`); no listed expiries is not
             return {"pass": False, "error": True, "reason": f"no options data ({fetch_err})"}
         return {"pass": False, "reason": "no options data (no listed expiries)"}
 
-    call_vol = put_vol = 0
+    session = session or datetime.now(_NY).date()
+    call_vol = put_vol = call_all = put_all = n_today = 0
     for calls, puts, *_ in chains:
-        call_vol += int(calls["volume"].fillna(0).sum())
-        put_vol  += int(puts["volume"].fillna(0).sum())
+        c, p = _today_volume(calls, session), _today_volume(puts, session)
+        if c is None or p is None:
+            return {"pass": False, "error": True,
+                    "reason": "options chain has no lastTradeDate: today's volume cannot be told from earlier days'"}
+        call_vol += c[0]; call_all += c[1]; put_vol += p[0]; put_all += p[1]; n_today += c[2] + p[2]
+    days = {"call_vol_all_days": call_all, "put_vol_all_days": put_all, "n_contracts_today": n_today}
 
     if call_vol + put_vol == 0:
-        return {"pass": False, "reason": "no volume today"}
+        return {"pass": False, "reason": "no volume today", "call_vol": 0, "put_vol": 0, **days}
 
     ratio  = call_vol / put_vol if put_vol > 0 else float("inf")
     passed = ratio >= 2.0
@@ -479,7 +508,8 @@ def _check_unusual_call_volume(chains: list[tuple], fetch_err: str | None = None
         "cv_ratio": round(ratio, 2),
         "call_vol": call_vol,
         "put_vol":  put_vol,
-        "reason":   f"call/put vol {ratio:.1f}x ({'unusual' if passed else 'normal'})",
+        **days,
+        "reason":   f"call/put vol {ratio:.1f}x today ({'unusual' if passed else 'normal'})",
     }
 
 

@@ -20,8 +20,11 @@ VA_OK = {"pass": True, "reason": "va"}
 
 
 def _chain(call_oi, put_oi):
-    return SimpleNamespace(calls=pd.DataFrame({"openInterest": [call_oi], "volume": [call_oi]}),
-                           puts=pd.DataFrame({"openInterest": [put_oi], "volume": [put_oi]}))
+    # lastTradeDate: yfinance carries it on every chain (11-02 probe); unusual_calls reads it since 2026-11-14.
+    # A past date (the 10-29 snapshot) counts as no volume today, never as an error, on any later run date.
+    traded = [pd.Timestamp("2026-10-29T15:00:00Z")]
+    return SimpleNamespace(calls=pd.DataFrame({"openInterest": [call_oi], "volume": [call_oi], "lastTradeDate": traded}),
+                           puts=pd.DataFrame({"openInterest": [put_oi], "volume": [put_oi], "lastTradeDate": traded}))
 
 
 class _Ticker:
