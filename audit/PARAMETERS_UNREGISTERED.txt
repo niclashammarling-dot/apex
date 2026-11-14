@@ -76,6 +76,7 @@ backend/backtest/regime_conditioned_cs.py::RS_RANK_DAYS
 backend/backtest/regime_conditioned_cs.py::SIGNAL_SCORE_BANDS
 backend/backtest/regime_conditioned_cs.py::TICKER_RECOVERY_DAYS
 backend/backtest/regime_conditioned_cs.py::_MATRIX_W
+backend/backtest/rejected_candidates_2026_10.py::N_FLIPS
 backend/backtest/rsi_entry_analysis.py::RSI_HARD_CAP
 backend/backtest/sector_sweep.py::MIN_TRADES
 backend/backtest/sector_sweep.py::THRESHOLDS

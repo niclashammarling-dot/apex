@@ -278,6 +278,155 @@ def read_card(M: pd.DataFrame, rng: np.random.Generator, perms: int) -> dict:
             "chain_pooled_context": within_day_perm(pooled, "entered", "rejected", "pnl", perms, rng)}
 
 
+# ── T7 line (INDEX T7 sub-bullet, ruled 2026-10-21 "Yes adopt the t7 line"; scope vault
+#    raw/notes/2026-11/2026-11-10-apex-t7-line-build-scope.md, built 2026-11-14) ──────────────────────────
+
+T7_ARCHIVE_1109 = Path("/mnt/c/Users/Nix/Niclas-KB/raw/notes/2026-11/data/2026-11-09-apex-t7-live-vs-same-exit-random.json")
+N_FLIPS = 10_000
+
+
+def t7_line(P: dict, pre: dict, live: list[dict], until: str | None, ids: list[int] | None = None) -> dict:
+    """Live's canonical closed entries before `until` against same-day, volatility-matched random entries under the
+    same exits (live_vs_engine_2026_10_20.compare, one function, no copy), under R9 and pre-R9 with a fresh generator
+    per peak model as that module's main does. `ids` restricts to given rows in live's order (the known-present control)."""
+    import backend.backtest.live_vs_engine_2026_10_20 as lve
+    keep = set(ids) if ids is not None else None
+    trades = [t for t in live if (until is None or t["timestamp"][:10] < until) and (keep is None or t["id"] in keep)]
+    out: dict = {"n_rows": len(trades), "until_exclusive": until, "n_rnd": lve.N_RND,
+                 "method": "live_vs_engine_2026_10_20.compare (ladder._simulate, the trade's own TP/SL)"}
+    rows_r9: list[dict] = []
+    for name, flag in (("r9", True), ("pre_r9", False)):
+        res = lve.compare(P, pre, trades, flag, np.random.default_rng(lve.SEED))
+        out[name] = {"n": res["n"], "by": {k: ({**v, "excess": v["live_mean"] - v["rnd_mean"]} if v.get("n") else v)
+                                            for k, v in res["by"].items()}}
+        if flag:
+            rows_r9 = res["rows"]
+    sector_of = {t["id"]: t.get("sector") for t in trades}
+    out["group3"] = group3(rows_r9, sector_of)
+    out["sector_baseline"] = sector_baseline(P, pre, trades, rows_r9)
+    return out
+
+
+def group3(rows: list[dict], sector_of: dict) -> dict:
+    """Go-criterion group 3 beside the line (Niclas 2026-11-13 "3) ja"; descriptive, post hoc, no decision use): live
+    P&L per trade and excess over the random baseline, for all trades, without the best sector, without the best 3
+    trades, and without both; best chosen per quantity (largest summed value, largest single values)."""
+    D = pd.DataFrame(rows)
+    if D.empty:
+        return {"n": 0}
+    D["sector"] = D.id.map(sector_of)
+    D["excess"] = D.live - D.rnd_mean
+    out: dict = {}
+    for q in ("live", "excess"):
+        by_sector = D.groupby("sector")[q].sum()
+        best_sector = by_sector.idxmax()
+        best3 = set(D.nlargest(3, q).id)
+
+        def read(mask) -> dict:
+            sub = D[mask]
+            return {"n": int(len(sub)), "mean": float(sub[q].mean()) if len(sub) else None}
+        out[q] = {"all": read(D.id.notna()), "best_sector": best_sector,
+                  "without_best_sector": read(D.sector != best_sector),
+                  "without_best_3": read(~D.id.isin(best3)),
+                  "without_both": read((D.sector != best_sector) & ~D.id.isin(best3)),
+                  "sum_by_sector": {k: float(v) for k, v in by_sector.items()}}
+    return out
+
+
+def day_cluster_p(days: pd.Series, d: pd.Series, flips: int = N_FLIPS, seed: int = SEED) -> float | None:
+    """One-sided sign-flip p of the summed difference with each day's sum flipped together (live_class_day_cluster)."""
+    s = pd.Series(np.asarray(d, float), index=np.asarray(days)).groupby(level=0).sum().to_numpy()
+    if len(s) < 2:
+        return None
+    signs = np.random.default_rng(seed).choice([-1.0, 1.0], size=(flips, len(s)))
+    null = (signs * s).sum(1)
+    return float((np.sum(null >= s.sum()) + 1) / (flips + 1))
+
+
+def sector_baseline(P: dict, pre: dict, trades: list[dict], rows: list[dict]) -> dict:
+    """Same-sector baseline beside the line (Niclas 2026-11-13 "1) ja den är bra bredvid"; descriptive): each trade's
+    comparator is the engine-pool name that day in its sector nearest in atr_pct, its own ticker and the day's other
+    live entries excluded, simulated with the trade's own TP/SL under R9. A trade with no candidate is counted, not
+    dropped; one with at most one candidate is flagged and the reading is repeated without them."""
+    import backend.backtest.live_vs_engine_2026_10_20 as lve
+    days, tick = P["days"], P["tickers"]
+    mask, atr = P["mask"].to_numpy(), P["atr"].to_numpy()
+    sector = np.array([P["sector"][x] for x in tick])
+    by_id = {t["id"]: t for t in trades}
+    live_on: dict[str, set] = {}
+    for t in trades:
+        live_on.setdefault(t["timestamp"][:10], set()).add(t["ticker"])
+    before = ld.PEAK
+    lve._with_peak(True)
+    recs = []
+    try:
+        for r in rows:
+            t, i, j = by_id[r["id"]], days.index(r["d"]), tick.index(r["ticker"])
+            pool = np.flatnonzero(mask[i] & (sector == sector[j]))
+            pool = pool[pool != j]
+            others = {tick.index(x) for x in live_on.get(r["d"], set()) if x in tick} - {j}
+            kept = np.array([k for k in pool if k not in others], dtype=int)
+            rec = {"id": r["id"], "d": r["d"], "cls": r["cls"], "live": r["live"], "rnd_mean": r["rnd_mean"],
+                   "cands_before": int(len(pool)), "cands": int(len(kept)), "flag_le1": len(kept) <= 1}
+            finite = kept[np.isfinite(atr[i, kept])] if len(kept) else kept
+            if len(finite) and np.isfinite(atr[i, j]):
+                k = int(finite[np.argmin(np.abs(atr[i, finite] - atr[i, j]))])
+                rec["base"] = ld._simulate(P, pre, i, k, lve._cfg(t))["pnl"]
+                rec["atr_ratio"] = float(atr[i, k] / atr[i, j]) if atr[i, j] else None
+            recs.append(rec)
+    finally:
+        ld.PEAK = before
+    S = pd.DataFrame(recs)
+    if S.empty:
+        return {"n": 0}
+
+    def read(sub: pd.DataFrame) -> dict:
+        c = sub[sub["base"].notna()] if "base" in sub else sub.iloc[0:0]
+        if c.empty:
+            return {"n": int(len(sub)), "with_comparator": 0}
+        sel, part = c.live - c.base, c.base - c.rnd_mean
+        return {"n": int(len(sub)), "with_comparator": int(len(c)), "no_comparator": int(len(sub) - len(c)),
+                "live_minus_sector": float(sel.mean()), "p_day_cluster_live_minus_sector": day_cluster_p(c.d, sel),
+                "sector_minus_random": float(part.mean()), "p_day_cluster_sector_minus_random": day_cluster_p(c.d, part),
+                "atr_ratio_median": float(c.atr_ratio.median()) if "atr_ratio" in c else None}
+    out = {"all": read(S), "by_class": {k: read(g) for k, g in S.groupby("cls")},
+           "candidates": {"before_exclusion": S.cands_before.value_counts().sort_index().to_dict(),
+                          "after_exclusion": S.cands.value_counts().sort_index().to_dict()},
+           "flagged_le1": [int(x) for x in S[S.flag_le1].id], "all_without_flagged": read(S[~S.flag_le1])}
+    return out
+
+
+def t7_control(P: dict, pre: dict, live: list[dict], archive: Path = T7_ARCHIVE_1109) -> dict:
+    """Scope item 2, the known-present control: on the battery IS window and the 11-09 archive's 62 ids, t7_line must
+    reproduce the archive's R9 numbers, and group 3 the 11-13 hand reading. A mismatch stops the build."""
+    arch = json.loads(archive.read_text())["sets"]["canonical"]["r9"]
+    ids = [r["id"] for r in arch["rows"]]
+    got = t7_line(P, pre, live, None, ids)
+    want, have = arch["by"]["all"], got["r9"]["by"]["all"]
+    keys = ("n", "live_mean", "rnd_mean", "p_live_mean", "live_wr", "rnd_wr", "p_live_wr")
+    match = {k: abs(float(have[k]) - float(want[k])) < 1e-9 for k in keys}
+    g3 = got["group3"]
+    hand = {("live", "all"): 0.0097, ("excess", "all"): 0.0121, ("live", "without_best_sector"): 0.0024,
+            ("excess", "without_best_sector"): 0.0035, ("live", "without_best_3"): 0.0070,
+            ("excess", "without_best_3"): 0.0084, ("live", "without_both"): 0.0012, ("excess", "without_both"): 0.0020}
+    g3_match = {f"{q}|{k}": abs(g3[q][k]["mean"] - v) < 0.00006 for (q, k), v in hand.items()}
+    return {"archive": str(archive), "n_ids": len(ids), "r9_all": {k: (have[k], want[k]) for k in keys},
+            "match": match, "group3_match": g3_match, "ok": all(match.values()) and all(g3_match.values())}
+
+
+def producer(argv: list[str], why: str) -> dict:
+    import subprocess
+    from datetime import datetime, timezone
+    root = Path(__file__).resolve().parents[2]
+    git = lambda *a: subprocess.run(["git", *a], cwd=root, capture_output=True, text=True).stdout.strip()
+    return {"repo": "apex", "commit": git("rev-parse", "--short", "HEAD"),
+            "script": "backend/backtest/rejected_candidates_2026_10.py",
+            "run": " ".join([".venv/bin/python", "-u", "-m", "backend.backtest.rejected_candidates_2026_10", *argv]),
+            "why": why, "run_at": datetime.now(timezone.utc).isoformat(),
+            "dirty": bool(git("status", "--porcelain", "--", "backend/", "scripts/")),
+            "pushed": subprocess.run(["git", "merge-base", "--is-ancestor", "HEAD", "origin/master"], cwd=root).returncode == 0}
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("out", type=Path)
@@ -285,7 +434,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--battery", type=Path, default=Path("/home/promenix/apex-battery/2026-10-19"))
     ap.add_argument("--unit", choices=("event", "day"), default="event", help="v2 event (default); v1 ticker-day")
     ap.add_argument("--end", default="", help="dated window end (YYYY-MM-DD or 'latest'); default: the battery IS window")
+    ap.add_argument("--t7-control", action="store_true",
+                    help="only the T7 line's known-present control (battery IS window, the 11-09 archive's 62 ids)")
+    ap.add_argument("--why", default="T7 monthly read (rejected-candidate card v2 and the T7 line)")
     a = ap.parse_args(argv)
+    argv_used = list(argv if argv is not None else sys.argv[1:])
     t0 = time.time()
     since = json.loads(LIVE_CONFIG.read_text()).get("live_account_since")   # the canonical sample's start
     ef._trading_days_count = functools.lru_cache(maxsize=None)(ef._trading_days_count)   # pure; speed only
@@ -293,10 +446,15 @@ def main(argv: list[str] | None = None) -> int:
     P = ld.panels(pre)
     until = until_for(P["days"]) if a.end else UNTIL
     con = sqlite3.connect(f"file:{LIVE_DB}?mode=ro", uri=True)
-    rows = gate_rows(con, since, until)
     import backend.db as db                          # canonical live sample, same DB, read only
     db.DB_PATH = LIVE_DB
     live = db.live_sample_rows(since=since)
+    if a.t7_control:
+        ctl = t7_control(P, pre, live)
+        a.out.write_text(json.dumps({"producer": producer(argv_used, a.why), "t7_control": ctl}, indent=1, default=str))
+        print(f"[{time.time() - t0:5.0f}s] T7 control {'OK' if ctl['ok'] else 'MISMATCH'}: {ctl['match']} {ctl['group3_match']}", flush=True)
+        return 0 if ctl["ok"] else 1
+    rows = gate_rows(con, since, until)
     td = label_ticker_days(rows)
     print(f"[{time.time() - t0:5.0f}s] {len(rows)} gate rows -> {len(td)} ticker-days "
           f"{td.layer.value_counts().to_dict()}", flush=True)
@@ -306,10 +464,13 @@ def main(argv: list[str] | None = None) -> int:
     rng = np.random.default_rng(SEED)
     M = measure(P, pre, td, rng)
     print(f"[{time.time() - t0:5.0f}s] measured", flush=True)
-    out = {"card": "raw/notes/2026-10/2026-10-20-apex-rejected-candidate-card.md", "since": since,
+    out = {"producer": producer(argv_used, a.why),
+           "card": "raw/notes/2026-10/2026-10-20-apex-rejected-candidate-card.md", "since": since,
            "until_exclusive": until, "window_end": P["days"][-1], "unit": a.unit, "live_sample": db.LIVE_SAMPLE, "exit": EXIT,
            "simulator_gate": simulator_gate(M, live), **read_card(M, rng, a.perms)}
     out["controls"] = controls(M, rng, a.perms)
+    out["t7_line"] = t7_line(P, pre, live, until)
+    print(f"[{time.time() - t0:5.0f}s] T7 line: {out['t7_line']['r9']['by'].get('all')}", flush=True)
     a.out.write_text(json.dumps(out, indent=1, default=str))
     M.to_csv(a.out.with_suffix(".rows.csv"), index=False)
     print(f"[{time.time() - t0:5.0f}s] saved {a.out}", flush=True)

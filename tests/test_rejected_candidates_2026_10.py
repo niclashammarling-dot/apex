@@ -104,3 +104,71 @@ def test_every_registered_rule_has_a_frozen_layer_or_is_dropped_on_purpose():
     from backend.gate import lock_codes
     rules = {(r.owner, r.name) for r in lock_codes.RULES}
     assert rules == set(rc._LAYER_OF_RULE) | rc.DROPPED_RULES and not set(rc._LAYER_OF_RULE) & rc.DROPPED_RULES
+
+
+# ── T7 line (scope vault raw/notes/2026-11/2026-11-10-apex-t7-line-build-scope.md, built 2026-11-14) ─────────
+
+def _trade(i, ticker, d, sector="Energy", entry=100.0):
+    return {"id": i, "ticker": ticker, "timestamp": f"{d}T15:00:00+00:00", "sector": sector, "notional": 400.0,
+            "pnl": 8.0, "entry_price": entry, "tp_price": entry * 1.06, "sl_price": entry * 0.94, "signal_class": "in_session"}
+
+
+def test_t7_line_filters_by_until_and_ids_and_runs_r9_then_pre_r9(monkeypatch):
+    import backend.backtest.live_vs_engine_2026_10_20 as lve
+    calls = []
+
+    def fake_compare(P, pre, trades, flag, rng):
+        calls.append(([t["id"] for t in trades], flag))
+        by = {"all": {"n": len(trades), "live_mean": 0.02, "rnd_mean": 0.005}}
+        return {"n": len(trades), "by": by, "rows": [{"id": t["id"], "ticker": t["ticker"], "d": t["timestamp"][:10],
+                                                     "cls": "in_session", "live": 0.02, "rnd_mean": 0.005} for t in trades]}
+    monkeypatch.setattr(lve, "compare", fake_compare)
+    monkeypatch.setattr(rc, "sector_baseline", lambda P, pre, trades, rows: {"stub": True})
+    live = [_trade(1, "XOM", "2026-10-01"), _trade(2, "CVX", "2026-10-02"), _trade(3, "EOG", "2026-11-06")]
+    out = rc.t7_line({}, {}, live, "2026-11-06")
+    assert [c[1] for c in calls] == [True, False] and calls[0][0] == [1, 2]
+    assert abs(out["r9"]["by"]["all"]["excess"] - 0.015) < 1e-12
+    calls.clear()
+    rc.t7_line({}, {}, live, None, ids=[3])
+    assert calls[0][0] == [3]
+
+
+def test_group3_removes_the_best_sector_and_the_best_three():
+    rows = [{"id": i, "live": v, "rnd_mean": 0.0} for i, v in enumerate([0.10, 0.08, 0.06, 0.01, 0.00, -0.01])]
+    sector_of = {0: "Energy", 1: "Energy", 2: "Tech", 3: "Tech", 4: "Health", 5: "Health"}
+    g = rc.group3(rows, sector_of)["live"]
+    assert g["best_sector"] == "Energy" and g["without_best_sector"]["n"] == 4
+    assert g["without_best_3"]["n"] == 3 and abs(g["without_best_3"]["mean"] - 0.0) < 1e-12
+    assert g["without_both"]["n"] == 3                                  # Energy holds two of the best three
+
+
+def _panels(days, tickers, sectors, atr_rows, mask_rows):
+    return {"days": days, "tickers": tickers, "sector": dict(zip(tickers, sectors)),
+            "atr": pd.DataFrame(atr_rows, index=days, columns=tickers),
+            "mask": pd.DataFrame(mask_rows, index=days, columns=tickers)}
+
+
+def test_sector_comparator_excludes_own_and_other_live_entries_and_takes_the_nearest_atr(monkeypatch):
+    import backend.backtest.ladder_2026_10 as ld
+    picked = []
+    monkeypatch.setattr(ld, "_simulate", lambda P, pre, i, k, cfg: picked.append(P["tickers"][k]) or {"pnl": 0.01})
+    P = _panels(["2026-10-01"], ["XOM", "CVX", "EOG", "OXY", "AAPL"], ["Energy"] * 4 + ["Tech"],
+                [[0.020, 0.021, 0.030, 0.019, 0.020]], [[True] * 5])
+    trades = [_trade(1, "XOM", "2026-10-01"), _trade(2, "CVX", "2026-10-01")]          # CVX is another live entry
+    rows = [{"id": 1, "ticker": "XOM", "d": "2026-10-01", "cls": "in_session", "live": 0.02, "rnd_mean": 0.0}]
+    out = rc.sector_baseline(P, {}, trades, rows)
+    assert picked == ["OXY"]                         # nearest ATR in Energy, own ticker and CVX excluded, AAPL other sector
+    assert out["candidates"]["before_exclusion"] == {3: 1} and out["candidates"]["after_exclusion"] == {2: 1}
+
+
+def test_a_trade_with_one_candidate_is_flagged_and_none_is_counted(monkeypatch):
+    import backend.backtest.ladder_2026_10 as ld
+    monkeypatch.setattr(ld, "_simulate", lambda P, pre, i, k, cfg: {"pnl": 0.0})
+    P = _panels(["2026-10-01"], ["XOM", "CVX", "AAPL"], ["Energy", "Energy", "Tech"],
+                [[0.02, 0.02, 0.02]], [[True, True, True]])
+    trades = [_trade(1, "XOM", "2026-10-01"), _trade(3, "AAPL", "2026-10-01", sector="Tech")]
+    rows = [{"id": 1, "ticker": "XOM", "d": "2026-10-01", "cls": "in_session", "live": 0.02, "rnd_mean": 0.0},
+            {"id": 3, "ticker": "AAPL", "d": "2026-10-01", "cls": "in_session", "live": 0.01, "rnd_mean": 0.0}]
+    out = rc.sector_baseline(P, {}, trades, rows)
+    assert out["flagged_le1"] == [1, 3]                                # one candidate (CVX); none in Tech
+    assert out["all"]["with_comparator"] == 1 and out["all"]["no_comparator"] == 1
