@@ -5,12 +5,12 @@ entries, does exiting at the 10th session's close (no TP, no SL, no lock) earn m
 live bracket (TP 6 %, SL 6 %, lock 4 %/1 %, 25 days)? The selection is given, so only the exit is tested.
 
 Every canonical live entry (db.live_sample_rows) is entered at its entry day's close through T7's simulator
-(ladder_2026_10._simulate, the engine's own exit function, T7's peak model) under LIVE and TIME10. Retro: entries
+(ladder_2026_10._simulate, the engine's own exit function, T7's peak model) under LIVE (the trade's own bracket)
+and TIME10. Retro: entries
 before 2026-10-24; forward: from it (out of sample by construction). An entry whose TIME10 or LIVE exit lies past
 the window's last session waits; it is not dropped. ALLCAP8 (capped-stop card) and TP4NS-ATR (ATR card) are
-simulated on every entry beside them, report-only (INDEX addition 2026-10-24). The 2022 row is read from T8's
-saved L2 rows (L2_IS_rows.npz), its entries rebuilt from the battery IS window and verified against T8's stored
-2022 capital-days before use.
+simulated on every entry beside them, report-only (INDEX addition 2026-10-24). The 2022 row re-simulates T8's
+L2 picks for 2022 and counts only if it reproduces T8's stored 2022 values; without it the read gives no verdict.
 
 Usage: python -u -m backend.backtest.time10_shadow_2026_11 OUT.json [--end YYYY-MM-DD|latest] [--flips 10000]
        [--previous PREV.json]
@@ -174,11 +174,15 @@ def criterion_controls(pt, pl, hl, rng: np.random.Generator, flips: int) -> dict
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 
-def arm_cfgs(atr_pct: float) -> dict[str, dict]:
+def arm_cfgs(atr_pct: float, trade: dict) -> dict[str, dict]:
+    """LIVE is the trade's own bracket (live_vs_engine._cfg: its stored TP and SL prices, lock 4 %/1 %, 25 days), so
+    the read compares TIME10 with the live exit as it stood on that trade, not the card's nominal 6/6 (Niclas
+    2026-11-14: a LIVE that is not live makes the comparison something else)."""
     from backend.backtest import exits_atr_2026_10 as xa
     from backend.backtest import exits_capped_stop_2026_10 as cs
     from backend.backtest import exits_t8_2026_10 as t8
-    return {"LIVE": dict(t8.ARMS["LIVE"]), "TIME10": dict(t8.ARMS["TIME10"]),
+    from backend.backtest import live_vs_engine_2026_10_20 as lve
+    return {"LIVE": lve._cfg(trade), "TIME10": dict(t8.ARMS["TIME10"]),
             "ALLCAP8": cs.leg_cfg("ALLCAP8", atr_pct), "TP4NS_ATR": xa.twin_cfg("P3", atr_pct)}
 
 
@@ -198,7 +202,7 @@ def simulate_entries(P: dict, pre: dict, live: list[dict], rng: np.random.Genera
             out.append(rec)
             continue
         i, j = days.index(d), tick.index(tk)
-        cfgs = arm_cfgs(float(atr[i, j]))
+        cfgs = arm_cfgs(float(atr[i, j]), t)
         sims = {a: ld._simulate(P, pre, i, j, c) for a, c in cfgs.items()}
         if i + 10 <= last and sims["LIVE"]["reason"] != "END" and sims["TIME10"]["reason"] != "END":
             rec["status"] = "complete"
@@ -254,31 +258,52 @@ def tbill_per_day(start: str | None, end: str | None) -> dict:
         return {"value": None, "reason": f"^IRX download failed: {e}"}
 
 
+ROW_2022_TOL = 5e-6               # per capital-day: one pick of ~3,926 moves it about 1e-6; T8's diff is 2.8e-4
+
+
 def row_2022(log=print) -> dict:
-    """§ 10 from T8's saved L2 IS rows (polled peak, T8's deciding model). The picks are rebuilt from the battery
-    IS window as T8 built them; the rebuild counts as T8's only if it reproduces T8's stored 2022 capital-days."""
+    """§ 10 on T8's L2 picks for 2022, simulated again under T8's arms and deciding peak (polled). T8's saved rows
+    cannot be paired with a rebuild that differs by one pick (38,338 rebuilt against 38,339 saved, 2026-11-14), so
+    the 2022 picks are re-simulated; the row counts only if their number is within one of T8's and both
+    capital-days reproduce T8's stored 2022 values within ROW_2022_TOL."""
     from backend.backtest import battery_2026_10 as b
     from backend.backtest import exits_t8_2026_10 as t8
     from backend.backtest import ladder_2026_10 as ld
-    z = np.load(T8_DIR / "L2_IS_rows.npz")
     stored = json.loads((T8_DIR / "L2_IS.json").read_text())["pairs"]
-    P = ld.panels(b.Runner(b.Store(BATTERY), "time10")._window("IS"))
+    pre = b.Runner(b.Store(BATTERY), "time10")._window("IS")
+    P = ld.panels(pre)
     picks, _ = t8.purge(ld.entry_sets(P)["picks"], len(P["days"]))
-    n = len(z["LIVE|polled|picks|pnl"])
-    if len(picks) != n:
-        return {"valid": False, "reason": f"rebuilt picks {len(picks)} != T8's {n}"}
-    keep = np.array([YEAR_2022[0] <= P["days"][i] <= YEAR_2022[1] for i, _ in picks])
+    sel = [(i, j) for i, j in picks if YEAR_2022[0] <= P["days"][i] <= YEAR_2022[1]]
+    before = ld.PEAK
+    ld.PEAK = ld.PEAK_MODELS[t8.DECIDING_PEAK]
+    try:
+        sims = {a: [ld._simulate(P, pre, i, j, t8.ARMS[a]) for i, j in sel] for a in ("TIME10", "LIVE")}
+    finally:
+        ld.PEAK = before
     res = {}
     for a in ("TIME10", "LIVE"):
-        pnl, hold = z[f"{a}|polled|picks|pnl"][keep].astype(float), z[f"{a}|polled|picks|hold"][keep].astype(float)
-        res[a] = {"n": int(keep.sum()), "capital_day": capital_day(pnl, hold), **tail(pnl),
-                  "t8_stored_capital_day": stored[f"{a}|polled|picks"]["year_2022"]["capital_day"]}
-    ok = all(abs(res[a]["capital_day"] - res[a]["t8_stored_capital_day"]) < 1e-6 for a in res)
+        pnl = np.array([s["pnl"] for s in sims[a]], float)
+        hold = np.array([s["hold"] for s in sims[a]], float)
+        st = stored[f"{a}|polled|picks"]["year_2022"]
+        res[a] = {"n": len(sel), "capital_day": capital_day(pnl, hold), **tail(pnl),
+                  "t8_stored_n": st["n"], "t8_stored_capital_day": st["capital_day"]}
+    ok = (all(abs(res[a]["n"] - res[a]["t8_stored_n"]) <= 1 for a in res)
+          and all(abs(res[a]["capital_day"] - res[a]["t8_stored_capital_day"]) <= ROW_2022_TOL for a in res))
     diff = res["TIME10"]["capital_day"] - res["LIVE"]["capital_day"]
     holds = diff >= 0 and res["TIME10"]["p95_loss"] >= res["LIVE"]["p95_loss"] - TAIL_PT
-    log(f"2022 row: rebuild {'matches' if ok else 'DOES NOT match'} T8's stored capital-days; diff {diff:+.6f}/day")
+    log(f"2022 row: re-simulation {'reproduces' if ok else 'DOES NOT reproduce'} T8's stored 2022; diff {diff:+.6f}/day")
     return {"valid": ok, "arms": res, "capital_day_diff": diff, "holds": bool(holds) if ok else None,
-            "verdict": ("holds" if holds else "regime-conditional") if ok else "invalid: rebuild does not reproduce T8"}
+            "verdict": ("holds" if holds else "regime-conditional") if ok else "invalid: does not reproduce T8's stored 2022",
+            **({} if ok else {"reason": "re-simulated 2022 picks do not reproduce T8's stored n or capital-days"})}
+
+
+def require_rows(rules: dict, row2022: dict) -> dict:
+    """A read gives no verdict while a pre-registered row is missing or invalid (Niclas 2026-11-14: a condition that
+    is computed but does not stop is the 10-22 decide() defect). § 10's 2022 row is pre-registered as its own read."""
+    if row2022.get("valid"):
+        return rules
+    return {**rules, "outcome": "no verdict: the pre-registered 2022 row is missing or invalid ("
+            + str(row2022.get("reason") or row2022.get("verdict")) + ")"}
 
 
 def instability(cur: dict, prev_path: Path | None) -> dict:
@@ -320,6 +345,9 @@ def main(argv: list[str] | None = None) -> int:
            "forward": read_population(M[M.forward], rng, a.flips, P["days"][-1])}
     out["instability"] = instability(out["retro"], a.previous)
     out["row_2022"] = row_2022(log)
+    for pop in ("retro", "forward"):
+        if "rules" in out[pop]:
+            out[pop]["rules"] = require_rows(out[pop]["rules"], out["row_2022"])
     a.out.write_text(json.dumps(out, indent=1, default=str))
     M.to_csv(a.out.with_suffix(".rows.csv"), index=False)
     log(f"saved {a.out}: retro {out['retro'].get('rules', {}).get('outcome')}; 2022 {out['row_2022'].get('verdict')}")

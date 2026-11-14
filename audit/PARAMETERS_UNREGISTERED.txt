@@ -90,6 +90,7 @@ backend/backtest/time10_shadow_2026_11.py::N_BOOT
 backend/backtest/time10_shadow_2026_11.py::N_NEGATIVE
 backend/backtest/time10_shadow_2026_11.py::N_RND
 backend/backtest/time10_shadow_2026_11.py::POSITIVE_SHIFT
+backend/backtest/time10_shadow_2026_11.py::ROW_2022_TOL
 backend/backtest/time10_shadow_2026_11.py::SEED
 backend/backtest/time10_shadow_2026_11.py::TAIL_PT
 backend/backtest/volume_divisor_analysis.py::CURRENT_DIVISOR

@@ -99,3 +99,18 @@ def test_per_criterion_controls_pass_c_when_the_power_is_there():
     pl = rng.normal(0, 0.01, 2000)
     pt = pl + rng.normal(0, 0.005, 2000)
     assert t10.criterion_controls(pt, pl, np.full(2000, 8), rng, 2000)["c_passable_at_this_n"] is True
+
+
+def test_no_verdict_while_the_2022_row_is_missing():
+    rules = {"a_fidelity": True, "b_sign_veto": False, "c_support": False, "d_tail": True,
+             "outcome": "recorded, no action (unanswered at this power, D4)"}
+    out = t10.require_rows(rules, {"valid": False, "reason": "rebuilt picks 38338 != T8's 38339"})
+    assert out["outcome"].startswith("no verdict") and "38338" in out["outcome"]
+    assert t10.require_rows(rules, {"valid": True})["outcome"] == rules["outcome"]   # control: a valid row passes through
+
+
+def test_live_is_the_trades_own_bracket():
+    trade = {"entry_price": 100.0, "tp_price": 105.0, "sl_price": 94.0}
+    c = t10.arm_cfgs(0.02, trade)
+    assert (c["LIVE"]["tp"], c["LIVE"]["sl"], c["LIVE"]["tdays"]) == (0.05, 0.06, 25)
+    assert c["TIME10"]["tdays"] == 10
