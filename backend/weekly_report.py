@@ -578,6 +578,67 @@ def _optimizer_best() -> tuple[str, str, dict | None]:
         return _SWEEP_UNREADABLE, f"data/optimizer_results.json exists but could not be read: {e}", None
 
 
+# b3, the position cap's decision rule (R009, ruled 2026-11-07, written before the numbers): at n >= 30 in slots 8+,
+# lower 9 -> 8 only if the 8+ mean minus the 1-7 mean <= -1.0 pt, one-sided permutation p <= 0.10 and the 8+ mean <= 0;
+# raise 9 -> 10 only if that difference >= 0 and the cap bound in >= 10 % of recorded live cycles; otherwise keep and
+# re-read at n >= 60. The section reads the slot fields the live gate stores from 2026-11-09 (job 1, e3431c7); the
+# history before them is scripts/b3_cap_probe.py's rebuild (it needs the broker's fills, which the report does not call).
+B3_STORED_FROM = "2026-11-09"
+B3_N_MIN = 30
+
+
+def _b3_slots(until: str) -> dict:
+    """The b3 rule's inputs from stored slot fields: closed canonical entries with their gate row's open count."""
+    import random
+    from backend.db import get_db
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT g.l2_risk_open_count AS open_count, t.pnl, t.notional FROM live_trades t "
+            "JOIN live_gate_history g ON g.alpaca_order_id = t.alpaca_order_id AND g.gate_decision = 'TRADE_EXECUTED' "
+            "WHERE g.l2_risk_open_count IS NOT NULL AND t.outcome IN ('WIN', 'LOSS', 'EXPIRED') AND t.timestamp >= ? "
+            "AND t.timestamp < ?", (B3_STORED_FROM, until)).fetchall()
+        cyc = conn.execute("SELECT COUNT(*), SUM(held_at_start >= l2_risk_max_positions_count) FROM gate_cycles "
+                           "WHERE job = 'run_live_gate' AND held_at_start IS NOT NULL AND started_at >= ? AND started_at < ?",
+                           (B3_STORED_FROM, until)).fetchone()
+    finally:
+        conn.close()
+    ret = [(r[0] + 1, (r[1] or 0) / r[2]) for r in rows if r[2]]
+    lo, hi = [x for s, x in ret if s <= 7], [x for s, x in ret if s >= 8]
+    diff = (sum(hi) / len(hi) - sum(lo) / len(lo)) if lo and hi else None
+    p = None
+    if diff is not None:
+        rng, pool, k = random.Random(7), lo + hi, len(hi)
+        hits = 0
+        for _ in range(5000):
+            rng.shuffle(pool)
+            hits += (sum(pool[:k]) / k - sum(pool[k:]) / (len(pool) - k)) <= diff
+        p = (hits + 1) / 5001                                # one-sided: 8+ worse than 1-7
+    n_cyc, at_cap = (cyc[0] or 0), (cyc[1] or 0)
+    share = at_cap / n_cyc if n_cyc else None
+    if len(hi) < B3_N_MIN:
+        verdict = f"keep 9: slots 8+ hold {len(hi)} closed entries since {B3_STORED_FROM}, the rule reads at n >= {B3_N_MIN}"
+    elif diff <= -0.01 and p <= 0.10 and sum(hi) / len(hi) <= 0:
+        verdict = "lower 9 -> 8 (R009's lowering condition holds)"
+    elif diff >= 0 and share is not None and share >= 0.10:
+        verdict = "raise 9 -> 10 (R009's raising condition holds)"
+    else:
+        verdict = "keep 9 (neither condition holds); re-read at n >= 60"
+    return {"since": B3_STORED_FROM, "n_1_7": len(lo), "n_8_plus": len(hi),
+            "mean_1_7": sum(lo) / len(lo) if lo else None, "mean_8_plus": sum(hi) / len(hi) if hi else None,
+            "diff": diff, "p_one_sided": p, "cycles": n_cyc, "cycles_at_cap": at_cap, "share_at_cap": share,
+            "verdict": verdict}
+
+
+def _b3_text(b: dict) -> str:
+    f = lambda x: "—" if x is None else f"{x * 100:+.2f}%"
+    share = "—" if b["share_at_cap"] is None else f"{b['share_at_cap']:.0%}"
+    return (f"stored since {b['since']}: slots 1-7 n {b['n_1_7']} mean {f(b['mean_1_7'])}, slots 8+ n {b['n_8_plus']} "
+            f"mean {f(b['mean_8_plus'])}, difference {f(b['diff'])}"
+            + (f" (one-sided p {b['p_one_sided']:.2f})" if b["p_one_sided"] is not None else "")
+            + f"; cap bound in {b['cycles_at_cap']}/{b['cycles']} live cycles ({share}). Rule (R009): {b['verdict']}.")
+
+
 def _walkforward_last() -> str:
     """
     One line: the last hand-run objective walk-forward, with its date, fold
@@ -1171,6 +1232,10 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None,
         opt_html = f"<p style='color:#ef4444;font-size:13px;'>Optimizer results UNREADABLE: {opt_detail}</p>"
     opt_html += f"<p style='color:#6b7280;font-size:11px;margin:2px 0;'>{_walkforward_last()}</p>"
 
+    try:
+        b3_line = _b3_text(_b3_slots(until))
+    except Exception as e:                            # a failed read is shown, never a blank section
+        b3_line = f"b3 read failed: {e}"
     commentary_html = ""
     if commentary:
         commentary_html = f"""
@@ -1204,6 +1269,9 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None,
 
     <div style='{section_style}'>L3 SCORE Thresholds</div>
     {thresh_html}
+
+    <div style='{section_style}'>Position Cap (b3)</div>
+    <p style='color:#e5e7eb;font-size:13px;margin:4px 0;'>{b3_line}</p>
 
     <div style='{section_style}'>Monday Backtest Sweep — Best Configs</div>
     {sweep_html}
@@ -1309,6 +1377,7 @@ L3 SCORE THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
     else:
         plain += f"\nAUTORESEARCH OPTIMIZER: UNREADABLE — {opt_detail}\n"
     plain += f"  {_walkforward_last()}\n"
+    plain += f"\nPOSITION CAP (b3)\n  {b3_line}\n"
 
     plain += f"\n— Generated {now.strftime('%Y-%m-%d %H:%M')} UTC"
 

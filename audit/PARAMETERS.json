@@ -1409,6 +1409,12 @@
       "tier": "ops",
       "source": "Saturday order item 7 (2026-11-14): the demo cycle's data pre-flight waits this long for one TCP connection to the data host before recording data_unreachable; a judgment (the 10-22 failures were DNS errors, immediate), no latency measurement.",
       "review": "2026-11-28"
+    },
+    "backend/weekly_report.py::B3_N_MIN": {
+      "value": 30,
+      "kind": "structural",
+      "tier": "ops",
+      "source": "R009 (ruled 2026-11-07, written before the numbers): the b3 position-cap rule reads at n >= 30 closed entries in slots 8+; the weekly report's b3 section (2026-11-14) prints the verdict against it."
     }
   }
 }

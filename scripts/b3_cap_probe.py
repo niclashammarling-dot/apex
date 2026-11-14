@@ -98,7 +98,8 @@ def main(out: str) -> int:
     con.row_factory = sqlite3.Row
     cfg = json.loads((ROOT / "data" / "live_config.json").read_text())
     assert cfg.get("live_account_since") == SINCE, cfg.get("live_account_since")
-    assert cfg.get("max_positions") == 9, cfg.get("max_positions")
+    # Phase 3 (2026-10-31) renamed the key; this reader still asserted the old one until 2026-11-14 and failed at start.
+    assert cfg.get("l2_risk_max_positions_count") == 9, cfg.get("l2_risk_max_positions_count")
 
     # --- broker positions over time, from FILL ------------------------------------------------------
     fills = sorted((ts(f["filled_at"]), f["ticker"], f["qty"] if f["side"] == "buy" else -f["qty"])
@@ -118,7 +119,8 @@ def main(out: str) -> int:
     # --- gate rows grouped into cycles ----------------------------------------------------------------
     gh = [dict(r) for r in con.execute(
         "SELECT id, timestamp, ticker, gate_decision, stop_code, signal_score, cycle_started_at, "
-        "alpaca_order_id, overflow_slot, l5_positioning_pass FROM live_gate_history WHERE timestamp >= ? "
+        "alpaca_order_id, overflow_slot, l5_positioning_pass, l2_risk_open_count, exec_rank, pre_rotation "
+        "FROM live_gate_history WHERE timestamp >= ? "
         "ORDER BY timestamp", (SINCE,))]
     key, prev, cyc_first, by_cycle = None, None, {}, defaultdict(list)
     for r in gh:
@@ -132,6 +134,12 @@ def main(out: str) -> int:
         by_cycle[key].append(r)
 
     def gate_open(r: dict) -> int | None:
+        """The row's open count: stored from 2026-11-09 (job 1, e3431c7), rebuilt before it."""
+        if r.get("l2_risk_open_count") is not None:
+            return r["l2_risk_open_count"]
+        return rebuilt_open(r)
+
+    def rebuilt_open(r: dict) -> int | None:
         start = cyc_first[r["cycle"]]
         if first_fill is None or start < first_fill:
             return None
@@ -155,8 +163,17 @@ def main(out: str) -> int:
                  "unevaluable_before_first_fill": [(r["ticker"], r["timestamp"]) for r in refused if r["open"] is None],
                  "misses": [(r["ticker"], r["timestamp"], r["open"], r["max"]) for r in evaluable if r["open"] < r["max"]],
                  "ok": bool(evaluable) and all(r["open"] >= r["max"] for r in evaluable)})
+    # Job 1 scope item 6 (2026-11-14): on rows that store the count, the rebuild must agree, or differ by one only
+    # where a pre-rotation candidate executed in the cycle (the rebuild does not model their place, ad1b134).
+    both = [r for r in gh if r["l2_risk_open_count"] is not None and rebuilt_open(r) is not None]
+    pre_rot_cycles = {r["cycle"] for r in gh if r["pre_rotation"] and r["gate_decision"] == "TRADE_EXECUTED"}
+    diffs = [(r["ticker"], r["timestamp"], r["l2_risk_open_count"], rebuilt_open(r), r["cycle"] in pre_rot_cycles)
+             for r in both if r["l2_risk_open_count"] != rebuilt_open(r)]
+    ctrl.append({"kind": "stored_equals_rebuilt", "n": len(both), "equal": len(both) - len(diffs), "differs": diffs[:20],
+                 "ok": bool(both) and all(abs(s - b) <= 1 and pre for _, _, s, b, pre in diffs)})
     n_exec_ctrl = sum(c["kind"] == "overflow_executed" for c in ctrl)
     ctrl_ok = n_exec_ctrl == 2 and all(c["ok"] for c in ctrl)
+    stored_rows = sum(1 for r in gh if r["l2_risk_open_count"] is not None)
 
     # --- read 2: n and outcome per slot -----------------------------------------------------------
     annotated = {r[0] for r in con.execute(
@@ -242,7 +259,7 @@ def main(out: str) -> int:
               "broker": {"fills": len(fills), "first_fill": first_fill.isoformat() if first_fill else None},
               "cycles": cyc, "session_time": session, "refused_at_cap": refused_out,
               "slots": {s: group(v) for s, v in sorted(per_slot.items())}, "unslotted": unslotted,
-              "slot_groups": slot_groups, "rows": rows}
+              "slot_groups": slot_groups, "stored_rows": stored_rows, "rows": rows}
     Path(out).write_text(json.dumps(result, indent=1, default=str))
     print(json.dumps({k: result[k] for k in ("controls", "broker", "cycles", "session_time", "refused_at_cap",
                                                "slots", "unslotted", "slot_groups")}, indent=1, default=str))
