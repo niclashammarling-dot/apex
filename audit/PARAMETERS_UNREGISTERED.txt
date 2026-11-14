@@ -78,6 +78,15 @@ backend/backtest/regime_conditioned_cs.py::TICKER_RECOVERY_DAYS
 backend/backtest/regime_conditioned_cs.py::_MATRIX_W
 backend/backtest/rejected_candidates_2026_10.py::N_FLIPS
 backend/backtest/rsi_entry_analysis.py::RSI_HARD_CAP
+backend/backtest/s24_va_2026_11.py::BAND
+backend/backtest/s24_va_2026_11.py::IC_ECON
+backend/backtest/s24_va_2026_11.py::K_START
+backend/backtest/s24_va_2026_11.py::N_SHUFFLE
+backend/backtest/s24_va_2026_11.py::N_ZERO_DRAWS
+backend/backtest/s24_va_2026_11.py::PICK
+backend/backtest/s24_va_2026_11.py::REF_DRAWS
+backend/backtest/s24_va_2026_11.py::SCOPE_SHARE_ABOVE
+backend/backtest/s24_va_2026_11.py::SEED
 backend/backtest/sector_sweep.py::MIN_TRADES
 backend/backtest/sector_sweep.py::THRESHOLDS
 backend/backtest/sector_sweep_isolated.py::MIN_TRADES
