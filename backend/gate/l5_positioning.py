@@ -135,11 +135,12 @@ WEIGHTS = {
     "volume_accumulation": 0.25,
 }
 
-# Up/down volume ratio threshold — 1.2 grounded in 90-day APEX universe sample
-# (65 tickers, 2026-05-14). Distribution bifurcates cleanly: active APEX names
-# (NVDA 1.89, AMD 2.21, AAPL 2.19, AMZN 2.24, QCOM 3.30) above threshold;
-# excluded sectors (Utilities, beaten-down REITs) below. Median 0.88, P75 1.35.
-# Snapshot taken during a recovery period — revisit after 3-6 months of live data.
+# Up/down volume ratio threshold. Re-dated 2026-11-14 when CHECK 79's gate had passed (11-13): S24's L0 card read
+# unanswered (vault raw/notes/2026-11/2026-11-12-apex-s24-va-l0-card.md, item 9: an IC of 0.03 at h1 excluded, h5-h25
+# and the RS-fail split under-powered), so the value waits for the L3 price-group read; revisit after 2 months.
+# The live L5 rows since September sit above it (median 1.58, 75.7 % above 1.2; QUESTIONS M11), so +-0.1 moves 3 to 7
+# of 169 ticker-days. History: 1.2 was read off a 90-day sample of 65 universe tickers in May 2026 (median 0.88,
+# P75 1.35), which described the universe, not the rows the threshold acts on.
 VOL_ACCUM_THRESHOLD = 1.2
 VOL_ACCUM_WINDOW    = 20  # trading days
 

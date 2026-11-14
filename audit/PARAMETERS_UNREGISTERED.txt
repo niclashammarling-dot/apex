@@ -163,7 +163,6 @@ backend/gate/l4_sentiment.py::_CB_COOLDOWN
 backend/gate/l4_sentiment.py::_CB_THRESHOLD
 backend/gate/l5_positioning.py::LOCK_ID
 backend/gate/l5_positioning.py::PCR_THRESHOLD
-backend/gate/l5_positioning.py::VOL_ACCUM_THRESHOLD
 backend/gate/l5_positioning.py::VOL_ACCUM_WINDOW
 backend/gate/l5_positioning.py::WEIGHTS
 backend/gate/l5_positioning.py::_YF_CALL_TIMEOUT_S
