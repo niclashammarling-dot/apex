@@ -37,6 +37,23 @@ _MAX_WORKERS = 5
 # are building momentum before they clear the standard signal filter.
 PRE_ROTATION_FLOOR = 0.85
 
+# Data reachability pre-flight (2026-11-14, Saturday order item 7; found 2026-10-24). On 10-22 the ISP outage left Yahoo
+# fetches returning 0 rows (DNS failures, 245 warnings 19-21 CEST) while every demo cycle recorded `evaluated`; live
+# recorded broker_unreachable from its account call. Demo has no broker call, so it checks its data host the same way.
+DATA_HOST = ("query1.finance.yahoo.com", 443)
+DATA_PROBE_TIMEOUT_S = 3.0
+
+
+def _data_reachable() -> bool:
+    """One TCP connection to the data host; an OSError (DNS failure, refused, timeout) is unreachable."""
+    import socket
+    try:
+        socket.create_connection(DATA_HOST, timeout=DATA_PROBE_TIMEOUT_S).close()
+        return True
+    except OSError as e:
+        logger.error(f"Gate runner: data host {DATA_HOST[0]} unreachable ({e}) — skipping cycle (data_unreachable)")
+        return False
+
 # The internal outcome of a row a rule stopped. What is stored is derived from its rule_states when the row is
 # written (_finalize), so the control flow never names a stored code.
 STOPPED = "STOPPED"
@@ -148,6 +165,9 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     cfg = get_demo_config()
 
     sector_thresholds = get_ticker_thresholds()
+    if not _data_reachable():
+        cycle.reason = "data_unreachable"
+        return []
     stale: list[dict] = []
     candidates = get_l3_score_candidates(threshold=cfg["l3_score_threshold_min"],
                                       sector_thresholds=sector_thresholds,

@@ -1402,6 +1402,13 @@
       "tier": "money",
       "source": "Set with the three-tier gate in 6d9f497 (2026-06-09), no measurement recorded; demo and live carry the same 0.15. Never fired in recorded history (the date source returned None for every ticker until 2026-11-14; L2_RISK_EARNINGS no_data on 553/553 live rows 10-19..11-13); shadow mode from 2026-11-14.",
       "review": "2026-12-05"
+    },
+    "backend/gate/gate_runner.py::DATA_PROBE_TIMEOUT_S": {
+      "value": 3.0,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "Saturday order item 7 (2026-11-14): the demo cycle's data pre-flight waits this long for one TCP connection to the data host before recording data_unreachable; a judgment (the 10-22 failures were DNS errors, immediate), no latency measurement.",
+      "review": "2026-11-28"
     }
   }
 }

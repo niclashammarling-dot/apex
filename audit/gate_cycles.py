@@ -51,7 +51,8 @@ def has_cycle_table(conn) -> bool:
 # cycling, so demo read 18/19 while live ran 5 broker_unreachable cycles; CHECK 85
 # called a correct partial flag wrong. Recorded reasons only (gate_cycles, from
 # GATE_CYCLES_FROM); gate rows before it carry no reason.
-NOT_ACTIONABLE = ("broker_unreachable",)
+# data_unreachable (2026-11-14): the demo pre-flight found its data host unreachable (the 10-22 outage shape).
+NOT_ACTIONABLE = ("broker_unreachable", "data_unreachable")
 
 
 def cycle_starts(conn, table: str, since: str, actionable: bool = False) -> dict[str, list[str]]:

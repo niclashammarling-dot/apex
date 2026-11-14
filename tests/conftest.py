@@ -238,6 +238,23 @@ def _never_reach_yahoo(request):
 
 
 @pytest.fixture(autouse=True)
+def _demo_data_preflight_offline(monkeypatch):
+    """The demo gate's data pre-flight (gate_runner._data_reachable, 2026-11-14) opens a stdlib socket to Yahoo, below
+    the curl_cffi guard above. Yahoo hosts answer as reachable without a connection, so the real function runs in
+    every test; other hosts pass through. tests/test_demo_data_unreachable.py makes the connection fail itself."""
+    import socket
+    real = socket.create_connection
+
+    class _Open:
+        def close(self):
+            pass
+
+    def _fake(address, *args, **kwargs):
+        return _Open() if "yahoo." in str(address[0]) else real(address, *args, **kwargs)
+    monkeypatch.setattr(socket, "create_connection", _fake)
+
+
+@pytest.fixture(autouse=True)
 def _no_protection_hook_in_exit_tests(monkeypatch):
     """CHECK 92's first-cycle hook in check_live_exits (2026-10-18) reads the wall clock
     (is_market_open) and calls broker.get_order_by_id per open trade. Left on, every test

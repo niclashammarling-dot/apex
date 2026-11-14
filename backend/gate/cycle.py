@@ -18,6 +18,7 @@ evaluated_some_raised, all_raised; live adds disabled, halt_unreconciled,
 broker_unreachable, account_blocked, halt_data_quality, loss_cap (L0, a share of
 equity since 2026-10-24), halt_m4_drawdown, halt_m4_expectancy (L0 Portfolio, backend/gate/l0_portfolio.py).
 busy (2026-10-31, Finding 2): another live gate run held the runner's lock, nothing was placed.
+demo adds data_unreachable (2026-11-14): its data host refused the pre-flight connection, nothing was evaluated.
 A runner that exits without setting one records None.
 
 stale_excluded (Finding 1, 2026-10-10): distinct tickers refused by the session
