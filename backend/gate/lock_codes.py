@@ -87,6 +87,11 @@ class Rule:
                                       # broker_error), which appears only as a fail
     optional: bool = False            # runs only on some rows of its book (demo's l2_risk_max_positions_count, not on an
                                       # overflow slot), so a lock can show ✓ without it
+    since: str = ""                   # the first session the rule stopped at its current place, set only where a change
+                                      # added or moved stops (R070); the weekly reference marks and nets it while the date
+                                      # lies inside its window. tests/test_rule_placements.py fails a move without it.
+    split_from: str = ""              # the rule whose stops this one took over by a rename or split (R070): the weekly
+                                      # reference sums the two instead of netting
 
 
 # The rules within each lock (phase 2, ruling B 2026-10-26: stop_code = the lock's code + "_" + rule).
@@ -122,18 +127,22 @@ RULES: tuple[Rule, ...] = (
     Rule(1, "exit_cooloff", ("exit_cooloff",), ("l1_eligibility_exit_cooloff_hours",),
          "both runners, before the chain: the ticker's own recent exit other than a TP/TSL win "
          "(db.get_recently_exited_*tickers; until phase 3 it also held the win window, as history rows do)"),
+    # since: phase 3 merged 11-07 (d357cfd); first rows 2026-11-09 in both books.
     Rule(1, "exit_cooloff_win", ("exit_cooloff_win",), ("l1_eligibility_exit_cooloff_win_hours",),
          "both runners, before the chain: the ticker's own recent TP/TSL win (its own rule from phase 3, Niclas "
-         "2026-10-31: \"egen regel låter mer konsekvent\"; history before it is under exit_cooloff)"),
+         "2026-10-31: \"egen regel låter mer konsekvent\"; history before it is under exit_cooloff)",
+         since="2026-11-09", split_from="exit_cooloff"),
     Rule(1, "regime", ("regime", "excluded_sector", "regime_unavailable", "below_leaderboard_cutoff", "regime_floor"),
          source="l1_eligibility fail_type: the regime module's verdict on the sector"),
     Rule(1, "vix", ("vix",), ("l1_eligibility_vix_max",), "l1_eligibility fail_type"),
     Rule(1, "macro_event", ("macro_event",), ("l1_eligibility_macro_event_days",), "l1_eligibility fail_type"),
     Rule(1, "macro_pre_event", ("macro_pre_event",), ("l1_eligibility_macro_pre_event_penalty",),
          "l1_eligibility data key; the penalty bites at the score re-test (chain.py)"),
+    # since: phases 1-2 merged 10-31 (848f052) and moved it before the chain; live had 11 rows at execution
+    # (LLY 10-12..10-16), then 19 on 11-02 and 486 in two weeks (W45 read, R070).
     Rule(1, "notional_too_small", ("notional_too_small",),
          source="the order cannot buy: before the chain on the largest possible notional, and at execution "
-                "(live < $10 or no whole share, demo < $50)"),
+                "(live < $10 or no whole share, demo < $50)", since="2026-11-02"),
     Rule(1, "price_missing", ("price_missing",), source="before the chain and at execution: no price"),
     Rule(2, "earnings", ("earnings",), ("l2_risk_earnings_days",),
          "l2_risk.check_earnings, called inside l1_eligibility (its fail_type)"),

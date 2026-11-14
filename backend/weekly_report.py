@@ -56,7 +56,7 @@ Rules:
 - Lead with the most notable finding, positive or negative
 - Every count in the data carries its n. Fewer than {COMMENTARY_MIN_N} trades or candidates is a description, not a finding: say what happened, do not infer a trend, edge or risk from it
 - Gate funnel: each candidate is counted once, under the lock whose rule stopped it (stops_by_lock, per rule), or as entered or unknown. Name the lock that stopped the most, with its count of the candidates. A lock's count is not a pass rate: until phase 4 the locks do not run in chain order
-- `reference` holds the prior weeks recomputed from the DB: pooled lock and win rates with their n, and the median and range of weekly counts and P&L. Call a number high or low only against its reference, and only when this week's n and the reference n are both at least {COMMENTARY_MIN_N}. Config changed inside the reference window, so a difference describes the system as it ran, not a cause
+- `reference` holds the prior weeks recomputed from the DB: pooled lock and win rates with their n, and the median and range of weekly counts and P&L. Call a number high or low only against its reference, and only when this week's n and the reference n are both at least {COMMENTARY_MIN_N}. Config changed inside the reference window, so a difference describes the system as it ran, not a cause. `reference.rule_changes` lists rules that moved, were added or were split inside the window: read a lock's rate net of a moved or added rule, and a split rule summed with its parent
 - Thresholds: pass rates are this week's rows against a threshold computed over the sector's full history (window_share = this week's fraction of it). Do not attribute a pass rate to a market move, a selloff or the regime floor, and do not suggest recalibration — what calibration did this week is in `calibration`
 - Concentration: only from open_positions_by_sector, never from thresholds or scores
 - If live trading had 0 trades this week, skip it entirely
@@ -233,7 +233,11 @@ def _funnel(book: str, since: str, until: str) -> dict:
         """, (since, until)).fetchall()
     finally:
         conn.close()
-    counts = {r["stop_code"]: r["cnt"] for r in rows}
+    return _funnel_shape({r["stop_code"]: r["cnt"] for r in rows})
+
+
+def _funnel_shape(counts: dict[str, int]) -> dict:
+    """The funnel of one book's stop-code counts."""
     stages = lock_codes.funnel_stages(counts)
     locks = [st for st in stages if st["kind"] == "lock"]
     other = {st["code"]: st["count"] for st in stages if st["kind"] == "unregistered"}
@@ -348,9 +352,71 @@ def _ref_book(ref: dict, book: str) -> dict:
         "pnl":      _spread([c["realized_pnl"] for c in closed]),
         "entered":  _spread([f["entered"] for f in funnels]),
         "candidates": sum(f["total"] for f in funnels),
-        "locks":    [{"label": locks[0]["label"], "count": sum(lk["count"] for lk in locks)}
+        "locks":    [{"label": locks[0]["label"], "count": sum(lk["count"] for lk in locks), "rules": _pooled_rules(locks)}
                      for locks in zip(*stages)] if stages else [],
     }
+
+
+def _pooled_rules(locks: tuple[dict, ...]) -> dict[str, int]:
+    """One lock's stops per rule, summed over the reference weeks."""
+    out: dict[str, int] = {}
+    for lk in locks:
+        for r in lk["rules"]:
+            out[r["rule"]] = out.get(r["rule"], 0) + r["count"]
+    return out
+
+
+# ── Rules that changed place or name inside the reference window (R012, R070) ──
+#
+# A rule that moved, was added or was split makes its lock's rate move although the system did not decide
+# differently. Neither event is readable from the rows: notional_too_small had 11 prior rows at execution before
+# phases 1-2 moved it before the chain (W45: L1 96 % against 91 %, 87 % net of it), and exit_cooloff_win split from
+# exit_cooloff at phase 3 with no prior rows of its own. So the register carries the date (Rule.since) and the parent
+# (Rule.split_from). While since lies after the window's first day, a moved or added rule is listed and netted from
+# its lock on both sides, and a split rule is summed with its parent. A rule with rows this week, none before and
+# no registered change is listed without netting (Niclas 2026-11-14, R070 a: "ingen av de två händelserna går att
+# utläsa ur raderna").
+
+def _rule_changes(dfunnel: dict, lfunnel: dict, rdemo: dict, rlive: dict,
+                  window_start: str, until: str) -> list[dict]:
+    """Per book and lock, the rules whose place or name changed inside [window_start, until), with their counts."""
+    out = []
+    for book, f, rb in (("demo", dfunnel, rdemo), ("live", lfunnel, rlive)):
+        for i, st in enumerate(f["locks"]):
+            week = {r["rule"]: r["count"] for r in st["rules"]}
+            prior = rb["locks"][i]["rules"] if rb["locks"] else {}
+            for r in lock_codes.RULES:
+                if r.owner != st["lock"] or book not in r.books:
+                    continue
+                w, p = week.get(r.name, 0), prior.get(r.name, 0)
+                row = {"book": book, "lock": i, "label": st["label"], "rule": r.name, "since": r.since,
+                       "week": w, "prior": p}
+                inside = bool(r.since) and window_start[:10] < r.since < until[:10]
+                if inside and r.split_from:
+                    pw, pp = week.get(r.split_from, 0), prior.get(r.split_from, 0)
+                    if w + p + pw + pp:
+                        out.append({**row, "kind": "split", "parent": r.split_from, "parent_week": pw, "parent_prior": pp})
+                elif inside:
+                    if w or p:
+                        out.append({**row, "kind": "new"})
+                elif w and not p:
+                    out.append({**row, "kind": "unmarked"})
+    return out
+
+
+def _rule_changes_text(changes: list[dict]) -> list[str]:
+    lines = []
+    for c in changes:
+        head = f"{c['book'].capitalize()} {c['label']} {c['rule']}"
+        if c["kind"] == "new":
+            lines.append(f"{head}: moved or added {c['since']} (this week {c['week']}, prior weeks {c['prior']}); "
+                         f"its lock's rate is also shown net of it.")
+        elif c["kind"] == "split":
+            lines.append(f"{head}: split from {c['parent']} {c['since']}; the two are summed (this week "
+                         f"{c['parent_week']} + {c['week']}, prior weeks {c['parent_prior']} + {c['prior']}).")
+        else:
+            lines.append(f"{head}: {c['week']} this week, none in the prior weeks and no registered change; not netted.")
+    return lines
 
 
 def _top_sector(since: str, until: str) -> tuple[str, float] | None:
@@ -766,6 +832,7 @@ def _gpt4o_commentary(
             "reference": {
                 **{b: _ref_book(ref, b) for b in BOOKS},
                 "closed_by_sector": ref["sectors"],
+                "rule_changes": ref.get("rule_changes", []),
             } if ref else None,
             "closed_by_sector": {"demo": sector_pnl["demo"], "live": sector_pnl["live"]},
             "open_positions_by_sector": {"demo": sector_pnl["demo_open"], "live": sector_pnl["live_open"]},
@@ -880,8 +947,10 @@ def _ratio_text(k: int, n: int) -> str:
 
 
 def _reference_rows(demo: dict, live: dict, dfunnel: dict, lfunnel: dict,
-                    rdemo: dict, rlive: dict) -> list[tuple[str, str, str, str, str]]:
-    """(measure, demo this week, demo prior weeks, live this week, live prior weeks)."""
+                    rdemo: dict, rlive: dict, changes: list[dict] | None = None) -> list[tuple[str, str, str, str, str]]:
+    """(measure, demo this week, demo prior weeks, live this week, live prior weeks). A lock with a rule moved or
+    added inside the window gets a row net of it, and a split rule a row summed with its parent (R070)."""
+    changes = changes or []
     rows = [
         ("Closed trades", str(demo["closed_total"]), _spread_text(rdemo["closed"]),
          str(live["closed_total"]), _spread_text(rlive["closed"])),
@@ -893,11 +962,29 @@ def _reference_rows(demo: dict, live: dict, dfunnel: dict, lfunnel: dict,
          str(lfunnel["entered"]), _spread_text(rlive["entered"])),
     ]
     for i, (dst, lst) in enumerate(zip(dfunnel["locks"], lfunnel["locks"])):
-        rd = rdemo["locks"][i] if rdemo["locks"] else {"count": 0}
-        rl = rlive["locks"][i] if rlive["locks"] else {"count": 0}
+        rd = rdemo["locks"][i] if rdemo["locks"] else {"count": 0, "rules": {}}
+        rl = rlive["locks"][i] if rlive["locks"] else {"count": 0, "rules": {}}
         rows.append((f"{dst['label']} stopped / candidates", _ratio_text(dst["count"], dfunnel["total"]),
                      _ratio_text(rd["count"], rdemo.get("candidates", 0)),
                      _ratio_text(lst["count"], lfunnel["total"]), _ratio_text(rl["count"], rlive.get("candidates", 0))))
+        new = [c for c in changes if c["lock"] == i and c["kind"] == "new"]
+        if new:
+            def net(book: str, count: int, key: str) -> int:
+                return count - sum(c[key] for c in new if c["book"] == book)
+            rows.append((f"{dst['label']} net of new rules",
+                         _ratio_text(net("demo", dst["count"], "week"), dfunnel["total"]),
+                         _ratio_text(net("demo", rd["count"], "prior"), rdemo.get("candidates", 0)),
+                         _ratio_text(net("live", lst["count"], "week"), lfunnel["total"]),
+                         _ratio_text(net("live", rl["count"], "prior"), rlive.get("candidates", 0))))
+        for rule, parent in sorted({(c["rule"], c["parent"]) for c in changes if c["lock"] == i and c["kind"] == "split"}):
+            def both(st: dict, pooled: dict) -> tuple[int, int]:
+                week = {r["rule"]: r["count"] for r in st["rules"]}
+                prior = pooled.get("rules", {})
+                return week.get(parent, 0) + week.get(rule, 0), prior.get(parent, 0) + prior.get(rule, 0)
+            (dw, dp), (lw, lp) = both(dst, rd), both(lst, rl)
+            rows.append((f"{dst['label']} {parent} + {rule}", _ratio_text(dw, dfunnel["total"]),
+                         _ratio_text(dp, rdemo.get("candidates", 0)), _ratio_text(lw, lfunnel["total"]),
+                         _ratio_text(lp, rlive.get("candidates", 0))))
     return rows
 
 
@@ -941,6 +1028,8 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None,
     sector_pnl = _sector_pnl(since, until)
     ref = _reference(since)
     rdemo, rlive = _ref_book(ref, "demo"), _ref_book(ref, "live")
+    ref["rule_changes"] = _rule_changes(dfunnel, lfunnel, rdemo, rlive, ref["weeks"][-1]["since"], until) \
+        if ref["weeks"] else []
     top_sector = _top_sector(since, until)
     if snapshot is not None:
         thresh_status = snapshot["thresholds"]
@@ -1051,10 +1140,14 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None,
       <tbody>{"".join(funnel_rows)}</tbody>
     </table>"""
 
-    ref_rows = _reference_rows(demo, live, dfunnel, lfunnel, rdemo, rlive)
+    ref_rows = _reference_rows(demo, live, dfunnel, lfunnel, rdemo, rlive, ref["rule_changes"])
     ref_note = _reference_note(ref, rdemo, since)
+    change_lines = _rule_changes_text(ref["rule_changes"])
     ref_html = f"""
     <p style='color:#6b7280;font-size:12px;margin:0 0 6px 0;'>{ref_note}</p>"""
+    if change_lines:
+        ref_html += f"""
+    <p style='color:#6b7280;font-size:12px;margin:0 0 6px 0;'>Rules changed inside the window (R070): {' '.join(change_lines)}</p>"""
     if ref["weeks"]:
         ref_html += f"""
     <table style='border-collapse:collapse;width:100%;font-size:13px;color:#e5e7eb;'>
@@ -1310,6 +1403,8 @@ THIS WEEK AGAINST THE PRIOR WEEKS
         plain += f"  {'':28s}{'Demo week':>14s}  {'Demo prior':<30s}{'Live week':>14s}  Live prior\n"
         for m, dw, dp, lw, lp in ref_rows:
             plain += f"  {m:28s}{dw:>14s}  {dp:<30s}{lw:>14s}  {lp}\n"
+    if change_lines:
+        plain += "  Rules changed inside the window (R070):\n" + "".join(f"    {ln}\n" for ln in change_lines)
     plain += f"""
 CLOSED TRADES BY SECTOR (n per sector; a description, not evidence of an edge)
 {_plain_sectors(sector_pnl, ref)}

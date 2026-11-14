@@ -1,0 +1,266 @@
+{
+ "_doc": "Each rule's placements, oldest first (R070, 2026-11-14). The last placement equals the rule in backend/gate/lock_codes.py RULES. A change of owner, source or split_from appends a placement that carries a later since (stops added or moved: the weekly reference nets it) or a written no_stop_change (a wording or refactor with the same stops). A rule leaving RULES appends {\"retired\": date}. tests/test_rule_placements.py reads it. Placements marked initial were taken from RULES on 2026-11-14.",
+ "rules": {
+  "halt_m4_drawdown": [
+   {
+    "owner": 0,
+    "source": "M4 rule 1, l0_portfolio.HALT_DRAWDOWN: realised equity off its peak (live, cycle level)",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "loss_cap": [
+   {
+    "owner": 0,
+    "source": "M4 rule 2 in live (l0_portfolio.HALT_LOSS_CAP, cycle level); wallet.execute_trade's fixed-dollar cap in demo",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "halt_m4_expectancy": [
+   {
+    "owner": 0,
+    "source": "M4 rule 3, l0_portfolio.HALT_EXPECTANCY: the trailing sample's expectancy (live, cycle level)",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "drawdown_guard": [
+   {
+    "owner": 0,
+    "source": "chain.py mechanical pre-L5 guard (reason ends '(mechanical pre-L5 guard)')",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "blocklist": [
+   {
+    "owner": 1,
+    "source": "gate_runner_live: the live blocklist, before the chain",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "position_open": [
+   {
+    "owner": 1,
+    "source": "both runners before the chain, and the execution re-check (gate_runner_live, wallet)",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "cooloff": [
+   {
+    "owner": 1,
+    "source": "both runners, before the chain: a recent L4/L6 stop (the gate cooloff; before 2026-10-31 SKIPPED_COOLOFF also held the exit cooloff)",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "exit_cooloff": [
+   {
+    "owner": 1,
+    "source": "both runners, before the chain: the ticker's own recent exit other than a TP/TSL win (db.get_recently_exited_*tickers; until phase 3 it also held the win window, as history rows do)",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "exit_cooloff_win": [
+   {
+    "owner": 1,
+    "source": "both runners, before the chain: the ticker's own recent TP/TSL win (its own rule from phase 3, Niclas 2026-10-31: \"egen regel låter mer konsekvent\"; history before it is under exit_cooloff)",
+    "since": "2026-11-09",
+    "split_from": "exit_cooloff",
+    "initial": true
+   }
+  ],
+  "regime": [
+   {
+    "owner": 1,
+    "source": "l1_eligibility fail_type: the regime module's verdict on the sector",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "vix": [
+   {
+    "owner": 1,
+    "source": "l1_eligibility fail_type",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "macro_event": [
+   {
+    "owner": 1,
+    "source": "l1_eligibility fail_type",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "macro_pre_event": [
+   {
+    "owner": 1,
+    "source": "l1_eligibility data key; the penalty bites at the score re-test (chain.py)",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "notional_too_small": [
+   {
+    "owner": 1,
+    "source": "the order cannot buy: before the chain on the largest possible notional, and at execution (live < $10 or no whole share, demo < $50)",
+    "since": "2026-11-02",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "price_missing": [
+   {
+    "owner": 1,
+    "source": "before the chain and at execution: no price",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "earnings": [
+   {
+    "owner": 2,
+    "source": "l2_risk.check_earnings, called inside l1_eligibility (its fail_type)",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "earnings_near": [
+   {
+    "owner": 2,
+    "source": "l2_risk.check_earnings data key; the penalty bites at the score re-test (chain.py); never fired",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "etf": [
+   {
+    "owner": 2,
+    "source": "l2_risk.check_etf, called by chain.py after L5 (FILTERED_ETF_PENALTY before 2026-10-31)",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "overflow": [
+   {
+    "owner": 2,
+    "source": "gate_runner*.py execution phase: a position beyond l2_risk_max_positions_count needs the escalated score; a free slot passes",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "max_positions": [
+   {
+    "owner": 2,
+    "source": "wallet.execute_trade: demo max positions without an overflow slot",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "sector_cap": [
+   {
+    "owner": 2,
+    "source": "execution phase: gate_runner_live, wallet.execute_trade",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "threshold": [
+   {
+    "owner": 3,
+    "source": "l3_score: score below the threshold",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "grok": [
+   {
+    "owner": 4,
+    "source": "l4_sentiment: Grok's verdict (score at or below the minimum, or low conviction)",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "unavailable": [
+   {
+    "owner": 6,
+    "source": "l6_review L5_UNAVAILABLE_PREFIX",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "unavailable_inferred": [
+   {
+    "owner": 6,
+    "source": "history: no reasoning before ba12aa2 (2026-09-18)",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "leading": [
+   {
+    "owner": 5,
+    "source": "l5_positioning: the leading-indicator checks (price and options groups; 2 of 4 before 2026-06-03)",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "claude": [
+   {
+    "owner": 6,
+    "source": "l6_review: Claude's decision (HOLD, or confidence below the minimum)",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "broker_error": [
+   {
+    "owner": 6,
+    "source": "gate_runner_live: the broker refused the approved order",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ],
+  "broker_unknown": [
+   {
+    "owner": 6,
+    "source": "gate_runner_live: the submit raised and the readback by client order id failed too, so whether the order stands is unknown; fail closed and cooled until reconciled (2026-11-14, order item 7c)",
+    "since": "",
+    "split_from": "",
+    "initial": true
+   }
+  ]
+ }
+}
