@@ -564,7 +564,6 @@ backend/scheduler.py::recalibrate_thresholds	money
 backend/scheduler.py::run_optimizer	money
 backend/scheduler.py::run_sentiment_prefetch	money
 backend/scheduler.py::run_weekend_sweep	money
-backend/scheduler.py::run_weekly_research	money
 backend/scheduler.py::send_weekly_report	money
 backend/sector_regime.py::_is_recovering	money
 backend/sector_transitions.py::_compute_raw_matrix.<locals>._rank	money
