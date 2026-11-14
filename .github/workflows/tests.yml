@@ -44,7 +44,14 @@ jobs:
         # -rs names any skip. A skip that nobody can name is a test that is not
         # running and looks like one that is; two runs on 2026-09-25 carried an
         # unidentified one.
-        run: pytest -q -rs -p no:cacheprovider
+        # FAILED/ERROR lines also go out as ::error:: annotations (2026-11-14): annotations are readable
+        # without a token, the job log is not (CI 326). pytest's exit code is kept through the pipe.
+        run: |
+          set +e
+          pytest -q -rsfE -p no:cacheprovider | tee pytest.out
+          status=${PIPESTATUS[0]}
+          grep -E '^(FAILED|ERROR) ' pytest.out | head -50 | sed 's/^/::error title=pytest::/'
+          exit $status
 
       - name: Function ratchet and change gate
         # tests/coverage/ratchet.py (2026-11-07, the every-object-tested rule): a new or regressed untested

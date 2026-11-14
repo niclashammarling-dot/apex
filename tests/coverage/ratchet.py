@@ -23,6 +23,7 @@ CLI:  python -m tests.coverage.ratchet baseline --seen SEEN.json        (writes 
 from __future__ import annotations
 
 import argparse
+import os
 import ast
 import fnmatch
 import hashlib
@@ -166,17 +167,29 @@ def main(argv=None) -> int:
         return 0
     res = evaluate(funcs, seen, load_baseline(), rules,
                    (lambda p: source_at(a.base, p)) if a.base else None)
-    labels = {"new_money": "FAIL new or regressed untested money-path function",
-              "now_exercised": "FAIL exercised now: drop it from tests/coverage/unexercised.txt",
-              "gone": "FAIL no longer defined: drop it from tests/coverage/unexercised.txt",
-              "edited_untested": f"FAIL edited since {a.base} with no test (change gate)",
-              "new_other": "REPORT untested, tier other"}
-    for kind, label in labels.items():
-        for k in res[kind]:
-            print(f"{label}: {_fmt(k)}")
+    for line in report(res, a.base, annotate=os.environ.get("GITHUB_ACTIONS") == "true"):
+        print(line)
     print(f"RATCHET: {len(funcs)} functions, {len(funcs) - len([k for k in funcs if k not in seen])} exercised; "
           + ", ".join(f"{k} {len(v)}" for k, v in res.items()))
     return 1 if failing(res) else 0
+
+
+def report(res: dict[str, list], base: str | None, annotate: bool = False) -> list[str]:
+    """The check's finding lines. annotate (2026-11-14, set under GitHub Actions): each FAIL line is also
+    written as an ::error:: workflow command, so the run's check-run annotations carry it. Annotations are
+    readable without a token and the job log is not: CI 326's cause could not be read from the session."""
+    labels = {"new_money": "FAIL new or regressed untested money-path function",
+              "now_exercised": "FAIL exercised now: drop it from tests/coverage/unexercised.txt",
+              "gone": "FAIL no longer defined: drop it from tests/coverage/unexercised.txt",
+              "edited_untested": f"FAIL edited since {base} with no test (change gate)",
+              "new_other": "REPORT untested, tier other"}
+    out = []
+    for kind, label in labels.items():
+        for k in res[kind]:
+            out.append(f"{label}: {_fmt(k)}")
+            if annotate and label.startswith("FAIL"):
+                out.append(f"::error title=function ratchet::{label}: {_fmt(k)}")
+    return out
 
 
 if __name__ == "__main__":
