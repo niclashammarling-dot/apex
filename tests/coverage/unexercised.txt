@@ -490,7 +490,6 @@ backend/gate/l6_review.py::evaluate	money
 backend/json_io.py::_default	money
 backend/live_trades_tracker.py::_current_price	money
 backend/live_trades_tracker.py::_ticker_consecutive_down_days	money
-backend/live_trades_tracker.py::check_live_regime_exits	money
 backend/maintenance.py::_alert_failures	money
 backend/maintenance.py::run_structural_checks	money
 backend/regime/ipo_sentiment.py::IpoSentiment._append_history	money
@@ -587,8 +586,6 @@ backend/ticker_threshold_calibration.py::print_calibration_report	money
 backend/ticker_threshold_calibration.py::print_calibration_report.<locals>.p	money
 backend/ticker_threshold_calibration.py::was_calibrated_this_week	money
 backend/wallet.py::_ticker_consecutive_down_days	money
-backend/wallet.py::_trading_days_since	money
-backend/wallet.py::check_regime_exits	money
 backend/wallet.py::get_portfolio	money
 backend/weekly_report.py::_this_week_label	other
 backend/weekly_report.py::build_report.<locals>._band	other

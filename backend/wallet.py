@@ -275,8 +275,8 @@ def check_regime_exits() -> list[dict]:
     deterioration that neither fires on early enough.
 
     Guards:
-      - Regime result must be ≤ 1 trading day old (calendar-day guard fails over
-        weekends — uses bdate_range). Stale result = no action.
+      - Regime result must be ≤ 1 NYSE session old (a calendar-day guard fails over
+        weekends, a weekday count over holidays). Stale result = no action.
       - Only fires during market hours (caller's responsibility).
     """
     from datetime import date
@@ -293,7 +293,8 @@ def check_regime_exits() -> list[dict]:
 
     try:
         result_date = date.fromisoformat(result.date)
-        if len(pd.bdate_range(result_date, date.today())) - 1 > 1:
+        from backend.market_calendar import sessions_since
+        if sessions_since(result_date) > 1:   # NYSE sessions since 2026-11-14 (audit finding 7)
             logger.debug(f"Regime exit check: result is stale ({result.date}) — skipping")
             return []
     except ValueError:
@@ -555,7 +556,7 @@ def _batch_prices(tickers: list[str]) -> dict[str, float]:
 
 
 def _trading_days_since(timestamp_iso: str) -> int:
-    """Count business days (Mon–Fri) between entry date and today."""
-    entry = datetime.fromisoformat(timestamp_iso).date()
-    today = datetime.now(timezone.utc).date()
-    return max(0, len(pd.bdate_range(start=entry, end=today)) - 1)
+    """NYSE sessions held since the entry (holidays skipped since 2026-11-14, audit finding 7;
+    the same count as the live book)."""
+    from backend.market_calendar import trading_days_since
+    return trading_days_since(timestamp_iso)

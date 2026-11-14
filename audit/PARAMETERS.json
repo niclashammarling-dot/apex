@@ -1339,6 +1339,20 @@
       "source": "Claude 2026-11-07, CHECK 97: three missed 5-minute exit cycles (15 min) before an open demo trade counts as unwatched; one or two can be a slow fetch. Vault raw/notes/2026-10/2026-10-31-apex-saturday-scopes.md § 1.",
       "date": "2026-11-07",
       "review": "2026-11-21"
+    },
+    "backend/live_trades_tracker.py::CLOSE_FILL_READBACK_S": {
+      "value": 3.0,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "Audit finding 5, R064 a (Niclas 2026-11-14): how long a time-stop or regime close reads its own market order back by id before it books the quote with exit_confidence QUOTE_EXIT (CHECK 89 counts those rows). A judgment: a market order in a liquid name usually fills within a second, a fast market can take longer; no measurement of Alpaca paper fill latency exists. Review against CHECK 89's QUOTE_EXIT count.",
+      "review": "2026-11-28"
+    },
+    "backend/live_trades_tracker.py::CLOSE_FILL_POLL_S": {
+      "value": 0.5,
+      "kind": "chosen",
+      "tier": "ops",
+      "source": "Poll interval inside CLOSE_FILL_READBACK_S (audit finding 5, R064 a, 2026-11-14): six reads in the 3 s window, one get_order_by_id each; a choice, not a measurement.",
+      "review": "2026-11-28"
     }
   }
 }

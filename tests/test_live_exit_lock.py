@@ -199,7 +199,7 @@ class TestUnreconciledFreezeOpenGuard:
 def _pass_where_other_process_books_during_exit_lookup(tid):
     """Reconciliation path (position gone, no fill found): another process books
     the row while this pass is looking for the exit. Returns the alert mock."""
-    def find_exit_after_other_process_booked(ticker, broker, entry_ts):
+    def find_exit_after_other_process_booked(ticker, broker, entry_ts, anchor=None):
         close_live_trade(tid, 106.0, 24.0, "WIN", "TP", "2026-10-01T14:00:00+00:00")
         return None, "", "", "both_feeds_empty"
 

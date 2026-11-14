@@ -1115,10 +1115,14 @@ def check89(now: datetime | None = None) -> None:
       WARNING  signal_price/entry_filled_at columns missing (migration not run)
       INFO     coverage (captured / population) and slip: mean |slip|, the largest,
                count over 1% — the input to the TP/SL re-anchor ruling
+      WARNING  a time-stop or regime close booked at the quote this week (exit_confidence
+               QUOTE_EXIT: its own order unfilled within the readback, audit finding 5,
+               R064 a, 2026-11-14), with the close order to reconcile; INFO the total
     Population: live_trades with an order id, timestamp >= live_account_since
     (data/live_config.json), any outcome. SKIPPED without apex.db.
     """
     from backend.db import ENTRY_FILL_EXCEPTED as C89_EXCEPTED
+    from backend.db import QUOTE_EXIT
     name = "live entry recorded at the fill"
     db = REPO / "data/apex.db"
     if not require_data_file(89, name, db):
@@ -1139,7 +1143,8 @@ def check89(now: datetime | None = None) -> None:
                  "live_trades has no signal_price/entry_filled_at — the 2026-10-13 migration has not run")
             return
         rows = conn.execute(
-            "SELECT id, ticker, timestamp, entry_price, signal_price, entry_filled_at, outcome "
+            "SELECT id, ticker, timestamp, entry_price, signal_price, entry_filled_at, outcome, "
+            "exit_reason, exited_at, exit_confidence "
             "FROM live_trades WHERE alpaca_order_id IS NOT NULL AND timestamp >= ? ORDER BY timestamp",
             (since,)).fetchall()
         conn.close()
@@ -1174,6 +1179,18 @@ def check89(now: datetime | None = None) -> None:
                  f"{C89_SLIP_WARN:.0%} from the quote the TP/SL legs are anchored on: "
                  + ", ".join(f"{r['ticker']} id={r['id']} {x:+.2%}" for x, r in wide[:8])
                  + " — the TP/SL re-anchor ruling (a, 2026-10-31) is reopened with a real case")
+    quoted = [r for r in rows if (r["exit_confidence"] or "").startswith(QUOTE_EXIT)]
+    if quoted:
+        week = now - timedelta(days=C89_SLIP_WINDOW_DAYS)
+        recent = [r for r in quoted if r["exited_at"] and datetime.fromisoformat(r["exited_at"]) >= week]
+        if recent:
+            flag(89, name, "WARNING", "data/apex.db:live_trades",
+                 f"{len(recent)} close(s) this week booked at the quote, the close order unfilled within the "
+                 f"readback: " + "; ".join(f"{r['ticker']} id={r['id']} {r['exit_reason']} — {r['exit_confidence']}"
+                                           for r in recent[:8])
+                 + " — reconcile each against the broker's fill")
+        flag(89, name, "INFO", "data/apex.db:live_trades",
+             f"{len(quoted)} close(s) booked at the quote since {since} ({QUOTE_EXIT}, audit finding 5)")
     _check89_reconcile(now)
 
 

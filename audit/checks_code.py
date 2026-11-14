@@ -705,7 +705,8 @@ def check62():
 _C74_REVIEWED: dict[str, tuple[str, str, str]] = {
     "tests/test_live_exit_lock.py": (
         "the dated literals are exit timestamps passed to close_live_trade, never compared to now; "
-        "the entry is relative to now since d02f8ab", "2027-04-10", "0fb622e9be951bc3"),
+        "the entry is relative to now since d02f8ab; re-reviewed 2026-11-14 after the fake exit lookup took "
+        "the anchor keyword (audit finding 7; no date change)", "2027-04-10", "4dc78dcec72c960a"),
     "tests/test_live_reconciliation.py": (
         "reviewed 2026-09-10: young-entry tests use _recent_timestamp(); the fixed dates are fill dates "
         "that must postdate _open_trade's fixed entry, and time-stop tests want an old entry; re-reviewed "
@@ -779,7 +780,9 @@ def check74():
     """
     import ast
 
-    _CLOCK = r'date\.today\(\)|datetime\.now\(\)'
+    # datetime.now(tz) counts too (2026-11-14): the demo book's _trading_days_since read
+    # datetime.now(timezone.utc) and was never seen by the empty-parens pattern.
+    _CLOCK = r'date\.today\(\)|datetime\.now\([^)]*\)'
     # Deliberately requires the operator (or the timedelta arithmetic) to
     # sit directly against the clock read itself, not just co-occur
     # anywhere in a large function — a backtest engine's run() uses
@@ -817,6 +820,18 @@ def check74():
                     clock_reading_functions.add(node.name)
                     if decay_op.search(segment):
                         tier_a.add(node.name)
+
+    # The clock read can sit more than one call away (2026-11-14, audit finding 7 moved
+    # the hold count's read to market_calendar._today_ny, two calls below
+    # _trading_days_since): a function that calls a clock-reading function by name reads
+    # the clock too, to a fixed point. Tier B then sees the caller that compares the result.
+    while clock_reading_functions:
+        callee = re.compile(r'\b(' + '|'.join(map(re.escape, sorted(clock_reading_functions))) + r')\s*\(')
+        grown = {n for n, seg in function_sources.items()
+                 if n not in clock_reading_functions and callee.search(seg.split("\n", 1)[-1])}
+        if not grown:
+            break
+        clock_reading_functions |= grown
 
     # Second sub-pass: Tier B — a function calling one of the clock-reading
     # functions and comparing that call's result with a decaying operator,

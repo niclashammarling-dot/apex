@@ -357,9 +357,10 @@ def _account(equity=10000.0, buying_power=10000.0, day_pnl=0.0,
 def _live_patches(candidates, open_tickers=None, failed_tickers=None,
                   chain_result=None, account=None, positions=None,
                   order_id="ord-123", cfg_overrides=None, live_enabled=True,
-                  unreconciled=None, apex_day_pnl=None):
+                  unreconciled=None, apex_day_pnl=None, forecast=None):
     """
-    Build the patch list for live gate runner tests.
+    Build the patch list for live gate runner tests. `forecast` replaces the rotation
+    forecast (default: none watching, so no pre-rotation candidates).
 
     Mock index reference:
       0  LIVE_ENABLED
@@ -435,7 +436,7 @@ def _live_patches(candidates, open_tickers=None, failed_tickers=None,
         # Lazy imports for rotation + Bayesian — patch at source
         patch("backend.sector_transitions.compute_ticker_rotation_scores", return_value={}),  # 17
         patch("backend.sector_transitions.get_rotation_forecast",
-              return_value={"available": False, "watching": [], "likely_next": []}),    # 18
+              return_value=forecast or {"available": False, "watching": [], "likely_next": []}),    # 18
         patch("backend.scheduler._get_regime_bayes",
               return_value=MagicMock(last_result=MagicMock(return_value=None))),        # 19
         patch("backend.gate.gate_runner_live.get_recently_exited_live_tickers",
@@ -575,6 +576,32 @@ class TestLiveGateRunner:
         assert results == []
         saved = mocks[9].call_args[0][0]
         assert saved["stop_code"] == "FILTERED_L1_ELIGIBILITY_BLOCKLIST"
+
+    @staticmethod
+    def _pre_rotation_lets_blocklisted_into_chain() -> bool:
+        """Whether a blocklisted ticker returned as a pre-rotation candidate reaches
+        evaluate_chain. A second, unblocked candidate keeps the cycle past the
+        all-skipped return."""
+        with patch.dict("backend.config.LIVE_TICKER_BLOCKLIST", {"HON": "probe"}, clear=True):
+            _, mocks = _run_live(candidates=[_signal("HON", sector="Industrials"), _signal("XOM", sector="Energy")],
+                                 forecast={"available": True, "watching": [{"sector": "Industrials"}], "likely_next": []})
+        return any(c.args[0] == "HON" for c in mocks[11].call_args_list)   # evaluate_chain(ticker, ...)
+
+    def test_pre_rotation_still_skips_the_blocklist(self):
+        """Codebase audit finding 6 (R013, 2026-11-14): documented behaviour, the probe's
+        positive control. Fix the pre-rotation path and this test changes with it."""
+        assert self._pre_rotation_lets_blocklisted_into_chain()
+
+    def test_blocklist_stays_empty_while_pre_rotation_skips_it(self):
+        """Finding 6's guard (R013: no code change while the list is empty). It fails the
+        day LIVE_TICKER_BLOCKLIST gets an entry while pre-rotation still lets that ticker
+        into the chain: honour the blocklist in the pre-rotation filter
+        (gate_runner_live: the append filter and the affordability checks drop it) first."""
+        from backend.config import LIVE_TICKER_BLOCKLIST
+        if self._pre_rotation_lets_blocklisted_into_chain():
+            assert LIVE_TICKER_BLOCKLIST == {}, (
+                f"LIVE_TICKER_BLOCKLIST has {sorted(LIVE_TICKER_BLOCKLIST)}, but pre-rotation candidates "
+                f"skip the blocklist: make the pre-rotation path honour it first (audit finding 6)")
 
     # ── Pipeline outcomes ─────────────────────────────────────────────────────
 

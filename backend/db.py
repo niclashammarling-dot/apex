@@ -1713,6 +1713,10 @@ def correct_exit_fill(trade_id: int, old_exit_price: float, exit_price: float, e
 LIVE_SAMPLE = ("live_sample: closed live_trades with timestamp >= live_account_since, "
                "exit_confidence != 'unverified', not annotated")
 LIVE_VERIFIED_EXIT = "COALESCE(exit_confidence, 'confirmed') != 'unverified'"
+# A time-stop or regime close whose own order had not filled within the readback window, booked at the quote
+# (audit finding 5, R064 a, 2026-11-14). exit_confidence starts with this and names the close order; CHECK 89
+# counts the rows. Such a row stays in the sample, as quote-booked closes did before.
+QUOTE_EXIT = "QUOTE_EXIT"
 
 
 def live_sample_predicate() -> str:
@@ -1803,7 +1807,8 @@ def update_live_trade_order_id(trade_id: int, alpaca_order_id: str) -> None:
         conn.close()
 
 def close_live_trade(trade_id: int, exit_price: float, pnl: float,
-                     outcome: str, exit_reason: str, exited_at: str) -> int:
+                     outcome: str, exit_reason: str, exited_at: str,
+                     exit_confidence: str | None = None) -> int:
     """
     Book an exit on an OPEN row. Returns the rowcount: 1 booked, 0 the row was
     no longer OPEN (2026-10-01). All three callers act on rows read as OPEN
@@ -1812,14 +1817,16 @@ def close_live_trade(trade_id: int, exit_price: float, pnl: float,
     UNRECONCILED freeze replaced by a booked exit. The predicate is the guard
     across processes; the tracker's _EXIT_LOCK only serialises callers in one.
     resolve_unreconciled has its own UPDATE and does not come through here.
+    exit_confidence, when given, replaces the column's default (a QUOTE_EXIT booking, 2026-11-14).
     """
     conn = get_db()
     try:
         cur = conn.execute("""
             UPDATE live_trades
-            SET exit_price = ?, pnl = ?, outcome = ?, exit_reason = ?, exited_at = ?
+            SET exit_price = ?, pnl = ?, outcome = ?, exit_reason = ?, exited_at = ?,
+                exit_confidence = COALESCE(?, exit_confidence)
             WHERE id = ? AND outcome = 'OPEN'
-        """, (exit_price, pnl, outcome, exit_reason, exited_at, trade_id))
+        """, (exit_price, pnl, outcome, exit_reason, exited_at, exit_confidence, trade_id))
         conn.commit()
         if cur.rowcount == 0:
             logger.warning(f"close_live_trade: trade {trade_id} is no longer OPEN — "

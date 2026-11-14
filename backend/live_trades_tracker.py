@@ -10,6 +10,7 @@ Called by the scheduler every EXIT_CHECK_INTERVAL minutes during market hours.
 Only runs when LIVE_ENABLED=true.
 """
 import threading
+import time
 from datetime import datetime, timezone
 
 import yfinance as yf
@@ -19,6 +20,7 @@ from loguru import logger
 from backend.brokers.alpaca import OrderTerminalError
 from backend.config import LIVE_ENABLED
 from backend.db import (
+    QUOTE_EXIT,
     append_stop_ratchet,
     clear_alert_latch,
     close_live_trade,
@@ -80,13 +82,9 @@ EXIT_IN_PROGRESS_MAX_AGE_HOURS = 24.0
 
 
 def _trading_days_since(iso_timestamp: str) -> int:
-    """Return the number of weekdays (trading days) elapsed since iso_timestamp."""
-    from datetime import date
-
-    import pandas as pd
-    start = datetime.fromisoformat(iso_timestamp).date()
-    today = date.today()
-    return len(pd.bdate_range(start, today)) - 1
+    """NYSE sessions held since iso_timestamp (holidays skipped since 2026-11-14, audit finding 7)."""
+    from backend.market_calendar import trading_days_since
+    return trading_days_since(iso_timestamp)
 
 
 def _ticker_consecutive_down_days(ticker: str, n: int) -> bool:
@@ -100,6 +98,42 @@ def _ticker_consecutive_down_days(ticker: str, n: int) -> bool:
     except Exception:
         return False
 
+
+
+# Audit finding 5 (R064 a, Niclas 2026-11-14): close_position returns before its market order fills, so a
+# time-stop or regime close reads its own order back for up to CLOSE_FILL_READBACK_S before it falls back to
+# the quote. A market order in a liquid name usually fills within a second; a fast market can take longer.
+CLOSE_FILL_READBACK_S = 3.0
+CLOSE_FILL_POLL_S = 0.5
+
+
+def _book_close(broker, ticker: str, close: dict, quote: float) -> tuple[float, str, str | None]:
+    """(exit_price, exited_at, exit_confidence) for a time-stop or regime close: the close order's fill, read
+    back by its id. Still unfilled after the window: the quote, as every such close was booked before
+    2026-11-14, with exit_confidence = QUOTE_EXIT naming the close order, so CHECK 89 counts the row and the
+    broker's fill can be reconciled against it."""
+    price, at = close.get("filled_avg_price"), close.get("filled_at")
+    order_id = close.get("order_id")
+    deadline = time.monotonic() + CLOSE_FILL_READBACK_S
+    while not price and order_id:
+        try:
+            o = broker.get_order_by_id(order_id) or {}
+        except Exception as e:
+            logger.warning(f"Close readback [{ticker}]: order {order_id} not read — {e}")
+            o = {}
+        if o.get("filled_avg_price") and not _partially_filled(o):
+            price, at = o["filled_avg_price"], o.get("filled_at")
+            break
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(CLOSE_FILL_POLL_S)
+    now = datetime.now(timezone.utc).isoformat()
+    if price:
+        return float(price), at or now, None
+    logger.warning(f"Close readback [{ticker}]: close order {order_id} unfilled after {CLOSE_FILL_READBACK_S:g}s — "
+                   f"booked at the quote ${float(quote):.2f} ({QUOTE_EXIT}, CHECK 89)")
+    return (float(quote), now,
+            f"{QUOTE_EXIT}: close order {order_id} unfilled after {CLOSE_FILL_READBACK_S:g}s readback, booked at the quote")
 
 
 def _exit_anchor(trade: dict) -> float:
@@ -437,6 +471,8 @@ def check_live_exits() -> list[dict]:
         # ── Vol slope observation (prospective data collection) ──────────────
         _log_vol_slope(trade)
 
+        exit_confidence = None   # set only by a time-stop close booked at the quote (_book_close)
+
         # ── Check TP/SL bracket legs ────────────────────────────────────────
         if filled_leg:
             exit_price  = filled_leg["filled_avg_price"]
@@ -450,7 +486,7 @@ def check_live_exits() -> list[dict]:
             logger.info(f"Live time-stop [{ticker}]: {max_hold_days} trading days elapsed — closing")
             try:
                 result = broker.close_position(ticker)
-                exit_price = float(result.get("filled_avg_price") or current or entry_price)
+                exit_price, exited_at, exit_confidence = _book_close(broker, ticker, result, current or entry_price)
             except Exception as e:
                 if "position not found" in str(e).lower() or "40410000" in str(e):
                     # alpaca_positions is a snapshot taken at the top of this
@@ -487,7 +523,7 @@ def check_live_exits() -> list[dict]:
                                        f"shows it gone — exited between the two reads; corroborating")
                     else:
                         logger.warning(f"Live time-stop [{ticker}]: position not found on broker — reconciling")
-                    fill = find_exit_fill(ticker, broker, trade["timestamp"])
+                    fill = find_exit_fill(ticker, broker, trade["timestamp"], anchor=_exit_anchor(trade))
                     exit_price, exit_reason, exited_at, evidence = \
                         fill["price"], fill["reason"], fill["exited_at"], fill["evidence"]
                     if snapshot_held and not contradiction and exit_price is not None \
@@ -597,7 +633,6 @@ def check_live_exits() -> list[dict]:
             exit_reason = "TIME"
             pnl         = round((exit_price - entry_price) * trade["qty"], 2)
             outcome     = "WIN" if pnl > 0 else "LOSS"
-            exited_at   = datetime.now(timezone.utc).isoformat()
 
         # ── Position-reconciliation fallback ─────────────────────────────────
         # Position gone from Alpaca but our DB still says OPEN. Covers:
@@ -638,7 +673,8 @@ def check_live_exits() -> list[dict]:
             # this is a suspected bad read, not a confirmed close — leave the
             # resting order in place (harmless: it can't fill against nothing)
             # and fall through to the freeze/alert below instead of acting.
-            exit_price, exit_reason, exited_at, evidence = _find_exit_from_orders(ticker, broker, trade["timestamp"])
+            exit_price, exit_reason, exited_at, evidence = _find_exit_from_orders(
+                ticker, broker, trade["timestamp"], anchor=_exit_anchor(trade))
             if exit_price is not None:
                 try:
                     cancelled = broker.cancel_open_orders(ticker)
@@ -701,12 +737,13 @@ def check_live_exits() -> list[dict]:
             continue
 
         if not close_live_trade(
-            trade_id    = trade["id"],
-            exit_price  = exit_price,
-            pnl         = pnl,
-            outcome     = outcome,
-            exit_reason = exit_reason,
-            exited_at   = exited_at,
+            trade_id        = trade["id"],
+            exit_price      = exit_price,
+            pnl             = pnl,
+            outcome         = outcome,
+            exit_reason     = exit_reason,
+            exited_at       = exited_at,
+            exit_confidence = exit_confidence,
         ):
             continue    # another exit path booked or froze it first; close_live_trade warned
 
@@ -738,7 +775,6 @@ def check_live_regime_exits() -> list[dict]:
 
     from datetime import date
 
-    import pandas as pd
     from backend.regime.regime_bayes import TICKER_RECOVERY_DAYS
     from backend.scheduler import _get_regime_bayes
 
@@ -752,7 +788,8 @@ def check_live_regime_exits() -> list[dict]:
 
     try:
         result_date = date.fromisoformat(result.date)
-        if len(pd.bdate_range(result_date, date.today())) - 1 > 1:
+        from backend.market_calendar import sessions_since
+        if sessions_since(result_date) > 1:   # NYSE sessions since 2026-11-14 (audit finding 7)
             logger.debug(f"Live regime exit check: result is stale ({result.date}) — skipping")
             return []
     except ValueError:
@@ -788,7 +825,8 @@ def check_live_regime_exits() -> list[dict]:
             logger.warning(f"Live regime exit [{ticker}]: entry fill not read — {e}")
         try:
             result_close = broker.close_position(ticker)
-            exit_price   = float(result_close.get("filled_avg_price") or price_now or trade["entry_price"])
+            exit_price, exited_at, exit_confidence = _book_close(
+                broker, ticker, result_close, price_now or trade["entry_price"])
         except Exception as e:
             logger.warning(f"Live regime exit [{ticker}]: close_position failed — {e}")
             continue
@@ -803,7 +841,8 @@ def check_live_regime_exits() -> list[dict]:
             pnl         = pnl,
             outcome     = outcome,
             exit_reason = "REGIME",
-            exited_at   = datetime.now(timezone.utc).isoformat(),
+            exited_at   = exited_at,
+            exit_confidence = exit_confidence,
         ):
             continue
 
@@ -1013,13 +1052,15 @@ def _find_filled_sell_leg(order: dict) -> dict | None:
     return None
 
 
-def _find_exit_from_orders(ticker: str, broker, entry_timestamp: str) -> tuple[float | None, str, str, str]:
+def _find_exit_from_orders(ticker: str, broker, entry_timestamp: str,
+                           anchor: float | None = None) -> tuple[float | None, str, str, str]:
     """(exit_price, exit_reason, exited_at, evidence) — see find_exit_fill."""
-    f = find_exit_fill(ticker, broker, entry_timestamp)
+    f = find_exit_fill(ticker, broker, entry_timestamp, anchor=anchor)
     return f["price"], f["reason"], f["exited_at"], f["evidence"]
 
 
-def find_exit_fill(ticker: str, broker, entry_timestamp: str, allow_partial: bool = False) -> dict:
+def find_exit_fill(ticker: str, broker, entry_timestamp: str, allow_partial: bool = False,
+                   anchor: float | None = None) -> dict:
     """
     Search recent Alpaca orders, then /account/activities, for the most
     recent filled sell for ticker. Returns a dict with keys price, qty,
@@ -1033,6 +1074,11 @@ def find_exit_fill(ticker: str, broker, entry_timestamp: str, allow_partial: boo
     since booking it would record one slice's price (TER 2026-09-23). The
     day-P&L check passes True: it counts a partial's filled quantity and flags
     the remainder, so for it a partial is evidence, not a booking.
+
+    anchor (2026-11-14, audit finding 7): the trade's exit anchor (`_exit_anchor`).
+    The orders feed labels a stop fill by `_leg_reason`, so a stop filled above the
+    anchor is TSL (168 h cooloff), as on the bracket-leg path; until then every stop
+    fill found here was SL (24 h). Without an anchor a stop fill stays SL.
 
     `evidence` names which state produced the result, because a None here
     is not one thing (2026-08-23 — the "empty/failed read indistinguishable
@@ -1136,12 +1182,7 @@ def find_exit_fill(ticker: str, broker, entry_timestamp: str, allow_partial: boo
             continue
 
         order_type = (candidate.get("type") or candidate.get("order_type") or "").lower()
-        if "limit" in order_type:
-            exit_reason = "TP"
-        elif "stop" in order_type:
-            exit_reason = "SL"
-        else:
-            exit_reason = "MANUAL"
+        exit_reason = _leg_reason({"order_type": order_type, "filled_avg_price": exit_price}, anchor)
 
         return {"price": exit_price, "qty": candidate.get("filled_qty"), "reason": exit_reason,
                 "exited_at": exited_at, "evidence": "found"}
