@@ -297,10 +297,21 @@ def t7_line(P: dict, pre: dict, live: list[dict], until: str | None, ids: list[i
     rows_r9: list[dict] = []
     for name, flag in (("r9", True), ("pre_r9", False)):
         res = lve.compare(P, pre, trades, flag, np.random.default_rng(lve.SEED))
-        out[name] = {"n": res["n"], "by": {k: ({**v, "excess": v["live_mean"] - v["rnd_mean"]} if v.get("n") else v)
-                                            for k, v in res["by"].items()}}
+        R = pd.DataFrame(res["rows"])
+        by = {}
+        for k, v in res["by"].items():
+            if not v.get("n"):
+                by[k] = v
+                continue
+            sub = R if k == "all" else R[R.cls == k]
+            # p_live_mean is per trade (the share of random draws whose mean reaches live's); the day-clustered p flips
+            # each day's summed excess together (as M9's 11-13 reading), since trades on one day are not independent.
+            by[k] = {**v, "excess": v["live_mean"] - v["rnd_mean"], "p_unit": "per trade (random-draw share)",
+                     "p_day_cluster_excess": day_cluster_p(sub.d, sub.live - sub.rnd_mean), "n_days": int(sub.d.nunique())}
+        out[name] = {"n": res["n"], "by": by}
         if flag:
             rows_r9 = res["rows"]
+            out["rows_r9"] = rows_r9
     sector_of = {t["id"]: t.get("sector") for t in trades}
     out["group3"] = group3(rows_r9, sector_of)
     out["sector_baseline"] = sector_baseline(P, pre, trades, rows_r9)
@@ -411,6 +422,8 @@ def t7_control(P: dict, pre: dict, live: list[dict], archive: Path = T7_ARCHIVE_
             ("excess", "without_best_3"): 0.0084, ("live", "without_both"): 0.0012, ("excess", "without_both"): 0.0020}
     g3_match = {f"{q}|{k}": abs(g3[q][k]["mean"] - v) < 0.00006 for (q, k), v in hand.items()}
     return {"archive": str(archive), "n_ids": len(ids), "r9_all": {k: (have[k], want[k]) for k in keys},
+            "r9_all_day_cluster": {"p": have.get("p_day_cluster_excess"), "n_days": have.get("n_days"),
+                                   "m9_1113_reading": {"p": 0.051, "n_days": 29}},
             "match": match, "group3_match": g3_match, "ok": all(match.values()) and all(g3_match.values())}
 
 

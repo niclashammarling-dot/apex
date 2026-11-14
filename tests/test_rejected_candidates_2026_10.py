@@ -172,3 +172,12 @@ def test_a_trade_with_one_candidate_is_flagged_and_none_is_counted(monkeypatch):
     out = rc.sector_baseline(P, {}, trades, rows)
     assert out["flagged_le1"] == [1, 3]                                # one candidate (CVX); none in Tech
     assert out["all"]["with_comparator"] == 1 and out["all"]["no_comparator"] == 1
+
+
+def test_day_cluster_p_flips_whole_days():
+    days = pd.Series(["d1", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8"])
+    d = pd.Series([0.05, 0.05, 0.04, 0.03, 0.06, 0.02, 0.05, 0.04, 0.03])
+    assert rc.day_cluster_p(days, d) < 0.02                              # every day positive: strong
+    mixed = pd.Series([0.05, 0.05, -0.04, 0.03, -0.06, 0.02, -0.05, 0.04, -0.03])
+    assert rc.day_cluster_p(days, mixed) > 0.2                           # control: days of both signs
+    assert rc.day_cluster_p(pd.Series(["d1", "d1"]), pd.Series([0.1, 0.1])) is None   # one day: no test
