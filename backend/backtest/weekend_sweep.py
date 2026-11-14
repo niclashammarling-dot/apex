@@ -1,12 +1,13 @@
 """
-Weekend parameter sweep — runs Saturday night.
+Weekend parameter sweep — called by scheduler.run_weekly_research (Monday 17:00 Stockholm
+since 2026-09-13); paused since 2026-11-14 (R029, config.WEEKLY_SWEEP_OPTIMIZER_PAUSED).
 
 Grids over L3 SCORE threshold, TP%, SL%, and hold days across the last 90 trading
 days. The first run downloads and caches data to disk; all subsequent combos
 load from cache, so the full grid completes in a few minutes.
 
 Results saved to data/sweep_results.json.
-Top 3 configs emailed/Slacked alongside the weekly report on Sunday.
+Top 3 configs emailed/Slacked when it runs.
 """
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 """
-Apex autoresearch optimizer — runs overnight, mutates gate parameters,
+Apex autoresearch optimizer — mutates gate parameters in a backtest search,
 keeps improvements, discards regressions.
 
 Inspired by Karpathy's autoresearch loop but adapted for apex:
@@ -9,7 +9,9 @@ Inspired by Karpathy's autoresearch loop but adapted for apex:
   and trade frequency to prevent degenerate solutions
 - Each experiment uses the fast engine (precomputed signal cache)
 - Results saved to data/optimizer_results.json
-- Runs Saturday night, feeds best config into Sunday sweep for validation
+- Called by scheduler.run_weekly_research after the sweep (Monday 17:00 Stockholm since
+  2026-09-13); paused since 2026-11-14 (R029). The weekly report reads the results;
+  nothing writes them into config, and the sweep does not read them
 
 Usage:
     python -m backend.backtest.optimizer

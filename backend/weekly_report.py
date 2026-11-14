@@ -8,7 +8,8 @@ Covers the Mon–Fri window just ending:
   - Each of those against the prior REFERENCE_WEEKS weeks, recomputed from the DB
   - Top sector by avg signal score
   - Threshold drift (demo_config vs calibrated)
-  - Best backtest sweep config (if sweep results exist)
+  - Best backtest sweep config and the optimizer result (if their files exist);
+    both sections say PAUSED while config.WEEKLY_SWEEP_OPTIMIZER_PAUSED (R029, 2026-11-14)
 """
 from __future__ import annotations
 
@@ -462,6 +463,22 @@ def _threshold_status(since: str, until: str) -> dict:
 _SWEEP_ABSENT = "absent"
 _SWEEP_UNREADABLE = "unreadable"
 _SWEEP_OK = "ok"
+# Fourth state (2026-11-14, R029): the job no longer writes the file, so its last
+# contents are history, not this week's result. Rendered as paused, never as numbers.
+_SWEEP_PAUSED = "paused"
+
+
+def _paused(path: Path) -> tuple[str, str, None]:
+    """The paused state for a results file, with the date of the run it still holds."""
+    held = "no file"
+    if path.exists():
+        try:
+            held = f"last written {str(json.loads(path.read_text()).get('generated_at', '?'))[:16]}, kept, not current"
+        except Exception as e:
+            held = f"file kept but unreadable: {e}"
+    return (_SWEEP_PAUSED,
+            f"paused since 2026-11-14 (R029): weekly_research runs the threshold calibration only; "
+            f"data/{path.name} {held}", None)
 
 
 def _shape_lines(path: Path, kind: str) -> list[tuple[str, bool]]:
@@ -511,6 +528,9 @@ def _sweep_best() -> tuple[str, str, list[dict] | None]:
     """Returns (state, detail, entries): the top 3 distinct outcomes from the saved
     top_configs, collapsed by the same helper as the sweep mail. Set only when
     state == ok."""
+    from backend import config
+    if config.WEEKLY_SWEEP_OPTIMIZER_PAUSED:
+        return _paused(_SWEEP_PATH)
     if not _SWEEP_PATH.exists():
         return _SWEEP_ABSENT, "no data/sweep_results.json — weekly_research has not written one", None
     try:
@@ -540,6 +560,9 @@ def _optimizer_best() -> tuple[str, str, dict | None]:
     2026-09-14 — 200 experiments a week written to a file nothing opened, which
     is why nobody noticed its writer was broken.
     """
+    from backend import config
+    if config.WEEKLY_SWEEP_OPTIMIZER_PAUSED:
+        return _paused(_OPT_PATH)
     if not _OPT_PATH.exists():
         return _SWEEP_ABSENT, "no data/optimizer_results.json — weekly_research has not written one", None
     try:
@@ -1086,6 +1109,8 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None,
         <p style='color:#6b7280;font-size:11px;margin-top:4px;'>
           Sweep covers last 90 trading days — L1-only backtest ({sweep_detail}). Compare vs current demo config before promoting.
         </p>"""
+    elif sweep_state == _SWEEP_PAUSED:
+        sweep_html = f"<p style='color:#6b7280;font-size:13px;'>Sweep PAUSED: {sweep_detail}.</p>"
     elif sweep_state == _SWEEP_ABSENT:
         sweep_html = f"<p style='color:#6b7280;font-size:13px;'>No sweep results: {sweep_detail} (runs Monday 17:00 Stockholm).</p>"
     else:
@@ -1138,6 +1163,8 @@ def build_report(recal_changes: dict[str, tuple[float, float]] | None = None,
           → Sharpe {fm.get('sharpe', 0):.2f}, PF {fm.get('profit_factor', 0):.2f}, WR {_pct(fm.get('win_rate'))}, DD {_pct(fm.get('max_drawdown'))}, n={fm.get('total_trades')}
           <span style='color:#6b7280;'>({opt_detail})</span>
         </p>"""
+    elif opt_state == _SWEEP_PAUSED:
+        opt_html = f"<p style='color:#6b7280;font-size:13px;'>Optimizer PAUSED: {opt_detail}.</p>"
     elif opt_state == _SWEEP_ABSENT:
         opt_html = f"<p style='color:#6b7280;font-size:13px;'>No optimizer results: {opt_detail} (runs Monday 17:00 Stockholm).</p>"
     else:
@@ -1227,7 +1254,9 @@ L3 SCORE THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
     for s in sectors_info:
         plain += f"  {s['sector']:20s}  {_thresh_text(s):34s}  {_week_text(s).replace('&lt;', '<')}\n"
 
-    if sweep_state == _SWEEP_ABSENT:
+    if sweep_state == _SWEEP_PAUSED:
+        plain += f"\nBEST BACKTEST CONFIGS: PAUSED — {sweep_detail}\n"
+    elif sweep_state == _SWEEP_ABSENT:
         plain += f"\nBEST BACKTEST CONFIGS: none — {sweep_detail}\n"
     elif sweep_state == _SWEEP_UNREADABLE:
         plain += f"\nBEST BACKTEST CONFIGS: UNREADABLE — {sweep_detail}\n"
@@ -1273,6 +1302,8 @@ L3 SCORE THRESHOLDS ({n_cal} calibrated, flat fallback: {flat})
                   f"score_thr={bp.get('l3_score_threshold_min')} TP={bp.get('take_profit_pct', 0)*100:.0f}% SL={bp.get('stop_loss_pct', 0)*100:.0f}% "
                   f"TSL={bp.get('trailing_stop_pct')} hold={bp.get('time_stop_days')}d maxpos={bp.get('l2_risk_max_positions_count')} VIX={bp.get('l1_eligibility_vix_max')} "
                   f"-> Sharpe {fm.get('sharpe', 0):.2f} PF {fm.get('profit_factor', 0):.2f} WR {_pct(fm.get('win_rate'))} n={fm.get('total_trades')}\n")
+    elif opt_state == _SWEEP_PAUSED:
+        plain += f"\nAUTORESEARCH OPTIMIZER: PAUSED — {opt_detail}\n"
     elif opt_state == _SWEEP_ABSENT:
         plain += f"\nAUTORESEARCH OPTIMIZER: none — {opt_detail}\n"
     else:

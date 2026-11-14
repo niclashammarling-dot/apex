@@ -137,8 +137,11 @@ def test_old_format_payload_still_labelled_and_counts_unknown(tmp_path):
 def test_weekly_report_plain_part_carries_label_and_outcomes(tmp_path, monkeypatch):
     """2026-10-02, first live run: the HTML part carried OFF-SHAPE and the outcome
     line, the plain-text part dropped both (the text writer bypassed _shape_html).
-    The mail's two parts must show the same warnings — read through build_report."""
+    The mail's two parts must show the same warnings — read through build_report.
+    Sweep and optimizer are paused (R029); this pins the rendering kept for their revival (R030)."""
+    import backend.config as config_module
     import backend.weekly_report as wr
+    monkeypatch.setattr(config_module, "WEEKLY_SWEEP_OPTIMIZER_PAUSED", False)
     sweep = tmp_path / "sweep_results.json"
     sweep.write_text(json.dumps({"generated_at": "2026-09-28T15:02:59", "valid_combos": 3240,
                                  "top_configs": [{"l3_score_threshold_min": 0.75, "take_profit_pct": 0.06,
@@ -208,7 +211,9 @@ def test_sweep_mail_shows_one_outcome_once(monkeypatch):
 
 
 def test_weekly_report_sweep_section_matches_the_mail(tmp_path, monkeypatch):
+    import backend.config as config_module
     import backend.weekly_report as wr
+    monkeypatch.setattr(config_module, "WEEKLY_SWEEP_OPTIMIZER_PAUSED", False)   # the revival rendering (R029/R030)
     p = tmp_path / "sweep_results.json"
     p.write_text(json.dumps({"generated_at": "2026-10-05T15:09:21", "valid_combos": 3240,
                              "top_configs": _ranked([("a", None), ("a", 30), ("a", 35), ("b", None)])}))

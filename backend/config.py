@@ -235,3 +235,10 @@ SPY_TICKER = "SPY"
 # Yahoo Finance RSS — primary news fallback when NewsAPI quota is exhausted
 # Pattern: substitute {ticker} before use
 RSS_URL_TEMPLATE = "https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
+
+# Weekly research (R029, Niclas 2026-11-10): sweep and optimizer paused, threshold
+# calibration kept. Neither job writes config, every result has been OFF-SHAPE since
+# 2026-09-29, and the machine has no calibration target until cards and S-rows set one.
+# Revival is decided when G1-G6 reach 100 % (R030). run_weekly_research and the weekly
+# report both read this one value; False revives both jobs and the report's sections.
+WEEKLY_SWEEP_OPTIMIZER_PAUSED = True

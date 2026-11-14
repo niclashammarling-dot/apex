@@ -580,7 +580,7 @@ def send_weekly_report() -> None:
 
 
 def run_weekend_sweep() -> None:
-    """Run parameter grid search over last 90d. Runs Saturday night."""
+    """Run parameter grid search over last 90d. Called by run_weekly_research unless paused (R029)."""
     try:
         from backend.backtest.weekend_sweep import run_sweep
         run_sweep()
@@ -605,10 +605,17 @@ def run_weekly_research() -> None:
     fired (no sweep_results.json / optimizer_results.json has ever been
     written). Chained rather than spaced by clock so ordering is by
     dependency, not by guessed duration.
+
+    Sweep and optimizer paused from 2026-11-14 (R029): config.WEEKLY_SWEEP_OPTIMIZER_PAUSED.
+    The calibration still runs; ticker_thresholds feeds live L3.
     """
-    logger.info("Weekly research: sweep → optimizer → recalibrate")
-    run_weekend_sweep()
-    run_optimizer()
+    from backend import config
+    if config.WEEKLY_SWEEP_OPTIMIZER_PAUSED:
+        logger.info("Weekly research: recalibrate only (sweep and optimizer paused, R029)")
+    else:
+        logger.info("Weekly research: sweep → optimizer → recalibrate")
+        run_weekend_sweep()
+        run_optimizer()
     recalibrate_thresholds()
     logger.info("Weekly research: done")
 
