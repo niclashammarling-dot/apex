@@ -1420,7 +1420,7 @@
       "value": 1.2,
       "kind": "chosen",
       "tier": "money",
-      "source": "Read off a May 2026 sample of 65 universe tickers (median 0.88, P75 1.35), which described the universe, not the L5 rows (QUESTIONS M11, measured 2026-11-12: live L5 ticker-days median 1.58). S24's L0 card (2026-11-14, apex 7b47e9c) read unanswered: an IC of 0.03 at h1 is excluded, longer horizons and the RS-fail split under-powered. Kept until the L3 price-group read.",
+      "source": "Read off a May 2026 sample of 65 universe tickers (median 0.88, P75 1.35), which described the universe, not the L5 rows (QUESTIONS M11, measured 2026-11-12: live L5 ticker-days median 1.58). S24's L0 card (2026-11-14, apex 7b47e9c) read unanswered: an IC of 0.03 at h1 is excluded, longer horizons and the RS-fail split under-powered. The L3 price-group read that could measure it was not run (R069 c, 2026-11-14); kept as chosen, the review date is the reader.",
       "review": "2027-01-14"
     }
   }
