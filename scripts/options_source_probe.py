@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -24,6 +25,8 @@ from alpaca.data.requests import OptionChainRequest
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import GetOptionContractsRequest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # backend.* when run as scripts/options_source_probe.py
+# (2026-11-20: the 15:55 run failed on `import backend`; the 11-02/11-04 runs had the repo root on the path)
 from backend.config import ALPACA_API_KEY, ALPACA_BASE_URL, ALPACA_SECRET_KEY
 from backend.gate.l5_positioning import (
     _check_put_call_ratio,
@@ -57,15 +60,18 @@ def _alpaca_snapshots(dc: OptionHistoricalDataClient, ticker: str, expiries: lis
 
 
 def _frames(contracts: list[dict], snaps: dict, expiry: str, today: str):
-    # dailyBar is the contract's last traded day, which can be weeks old: only today's counts as volume
+    # dailyBar is the contract's last traded day, which can be weeks old. Its date goes in as lastTradeDate, the
+    # column production's unusual_calls reads to keep only the session's trades (`_today_volume`, 9dfc26c,
+    # 2026-11-14); without it every Alpaca chain errors there (11-20 15:55 run: 102 of 102). `today` stays in
+    # the signature for the callers; the volume filter is production's, not a copy of it.
     rows = []
     for c in contracts:
         if c["expiry"] != expiry:
             continue
         bar = (snaps.get(c["symbol"]) or {}).get("dailyBar") or {}
-        vol = bar.get("v") if bar.get("t", "")[:10] == today else None
-        rows.append({"type": c["type"], "openInterest": c["oi"], "volume": vol})
-    df = pd.DataFrame(rows, columns=["type", "openInterest", "volume"])
+        rows.append({"type": c["type"], "openInterest": c["oi"], "volume": bar.get("v"),
+                     "lastTradeDate": bar.get("t")})
+    df = pd.DataFrame(rows, columns=["type", "openInterest", "volume", "lastTradeDate"])
     calls = df[df["type"] == "call"].astype({"openInterest": "float", "volume": "float"})
     puts = df[df["type"] == "put"].astype({"openInterest": "float", "volume": "float"})
     return calls, puts
