@@ -139,3 +139,8 @@ def test_check95_offhost_old_missing_or_short_copy_warns(tmp_path, monkeypatch):
     assert any(s == "WARNING" and "no off-host copy" in m for s, m in none)
     short = _check95(tmp_path / "c", monkeypatch, fresh, files=["apex_auto_x.db"], offhost=(0, 2, 3))
     assert any(s == "WARNING" and "not the 3 bytes" in m for s, m in short)
+
+
+def test_check95_reads_the_folder_the_writer_writes():
+    from audit import checks_data as cd
+    assert cd._c95_offhost_dir() == db_backup.offhost_dir() is None   # a test DB resolves no off-host folder
