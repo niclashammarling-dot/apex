@@ -12,10 +12,11 @@ and adds each night it is seen; a night without it records `cleared` and leaves 
 action. An item leaves only by an action (R119: fixed, scoped or dated), recorded with a reference by `dispose`.
 Reader: the weekend bundle opens with the open items (audit/bundle.py act_items), carried bundle to bundle.
 
-Key: check|where, not the routing key check|where|text. A CRITICAL's text carries counts and dates (CHECK 81:
-"6 … rows … 11-17 SPG"), so a text key would open a new item for every night's count, while the action is taken
-per check and place (the 11-21 dispositions were per check: R124 for CHECK 81, R125 for CHECK 71). The latest text
-is kept on the item.
+Key: check|where plus an episode (riktning, Niclas 2026-11-21), not the routing key check|where|text. A text key
+would open a new item for every night's count (CHECK 81: "6 … rows … 11-17 SPG"); check|where alone would merge
+separate runs of the alarm, so a CRITICAL that cleared and came back weeks later for another reason would land
+under a decision already taken. An episode opens when the check goes CRITICAL after a run without it; a disposition
+applies to its episode; the latest text is kept per episode.
 
 Not in the minimal form, dated at the 11-21 close: runtime CRITICALs from backend/alerts._dispatch, the reference
 checks on dispose (commit exists, INDEX title exists), the Monday-open sub-check, the Test tab port.
@@ -55,27 +56,49 @@ def save(led: dict, path: Path | None = None) -> None:
 
 
 def key_of(f) -> str:
+    """The check and place a CRITICAL belongs to (the base of its episodes)."""
     return f"{f[0]}|{f[3]}"
 
 
+def _standing(items: dict, base: str) -> str | None:
+    """The episode of `base` that has not cleared, if any (at most one by construction)."""
+    for k, it in items.items():
+        if it.get("base") == base and it.get("cleared") is None:
+            return k
+    return None
+
+
 def update(findings: list, night: str, path: Path | None = None) -> dict:
-    """Apply one nightly run's findings (latest.json rows: check, name, severity, where, text) for `night` (ET date)."""
+    """Apply one nightly run's findings (latest.json rows: check, name, severity, where, text) for `night` (ET date).
+
+    Episodes (riktning, Niclas 2026-11-21): an item is check|place plus an episode. An episode opens the night the
+    check goes CRITICAL after a run without the alarm (or for the first time) and continues while each run carries
+    it; the latest text is kept per episode. A run without it records `cleared`, and a later return opens a new
+    episode, so a new problem never lands under a decision already taken. A disposition applies to its episode:
+    while that episode stands, nights are added and the decision holds; a dated disposition whose date has passed
+    while the episode still stands reopens it."""
     led = load(path)
     items = led.setdefault("items", {})
-    led.setdefault("disposed", [])
+    led.setdefault("disposed", [])                     # pre-episode ledgers: kept as history, never read back
     tonight = {key_of(f): f for f in findings if len(f) >= 5 and f[2] == "CRITICAL"}
-    for k, f in tonight.items():
-        it = items.get(k)
-        if it is None:
-            items[k] = {"check": f[0], "name": f[1], "where": f[3], "text": f[4],
-                        "first_seen": night, "nights": [night], "cleared": None}
+    for base, f in tonight.items():
+        k = _standing(items, base)
+        if k is None:
+            k = f"{base}|{night}"
+            items[k] = {"base": base, "check": f[0], "name": f[1], "where": f[3], "text": f[4],
+                        "first_seen": night, "nights": [night], "cleared": None, "disposition": None}
         else:
+            it = items[k]
             if night not in it["nights"]:
                 it["nights"].append(night)
                 it["nights"].sort()
-            it["text"], it["cleared"] = f[4], None
+            it["text"] = f[4]
+            d = it.get("disposition")
+            if d and d.get("action") == "dated" and d.get("date") and d["date"] < night:
+                it.setdefault("history", []).append(dict(d, reopened=night))
+                it["disposition"] = None
     for k, it in items.items():
-        if k not in tonight and it.get("cleared") is None and it["nights"] and it["nights"][-1] < night:
+        if it.get("cleared") is None and it.get("base") not in tonight and it["nights"] and it["nights"][-1] < night:
             it["cleared"] = night
     led["updated"] = night
     save(led, path)
@@ -83,15 +106,16 @@ def update(findings: list, night: str, path: Path | None = None) -> dict:
 
 
 def open_items(led: dict | None = None, path: Path | None = None) -> list[dict]:
+    """Episodes with no disposition, oldest first."""
     led = led if led is not None else load(path)
-    return [dict(it, key=k) for k, it in sorted(led.get("items", {}).items(), key=lambda kv: kv[1]["first_seen"])]
+    return [dict(it, key=k) for k, it in sorted(led.get("items", {}).items(), key=lambda kv: kv[1]["first_seen"])
+            if not it.get("disposition")]
 
 
 def dispose(key: str, action: str, ref: str, date: str | None = None, today: str | None = None,
             path: Path | None = None) -> dict:
-    """Close an open item by an action with a reference (R119). Refuses without a ref, an unknown action, a dated
-    action without a date, or a key that is not open. The item moves to `disposed`; if the same key fires again
-    it opens as a new item."""
+    """Record an action with a reference on one open episode (R119). Refuses without a ref, an unknown action, a
+    dated action without a date, or a key that is not an open episode. The episode keeps its nights."""
     if action not in ACTIONS:
         raise ValueError(f"action must be one of {ACTIONS}, not {action!r}")
     if not (ref or "").strip():
@@ -101,11 +125,11 @@ def dispose(key: str, action: str, ref: str, date: str | None = None, today: str
             raise ValueError("a dated action needs --date (the day the action happens)")
         datetime.fromisoformat(date)
     led = load(path)
-    it = led.get("items", {}).pop(key, None)
-    if it is None:
-        raise KeyError(f"no open ledger item {key!r}")
+    it = led.get("items", {}).get(key)
+    if it is None or it.get("disposition"):
+        raise KeyError(f"no open ledger episode {key!r}")
     today = today or datetime.now(NY).date().isoformat()
-    led.setdefault("disposed", []).append(dict(it, key=key, action=action, ref=ref, date=date, disposed_on=today))
+    it["disposition"] = {"action": action, "ref": ref, "date": date, "disposed_on": today}
     save(led, path)
     return led
 

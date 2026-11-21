@@ -23,44 +23,69 @@ def test_a_tuesday_only_critical_is_still_open_on_friday(tmp_path):
     cl.update([WARN], "2026-11-19", p)
     led = cl.update([C71], "2026-11-20", p)
     items = {i["key"]: i for i in cl.open_items(led)}
-    assert set(items) == {"81|backend/gate/l6_review.py:_fail_closed", "71|data/regime_signal_trace.jsonl"}
-    c81 = items["81|backend/gate/l6_review.py:_fail_closed"]
+    assert set(items) == {"81|backend/gate/l6_review.py:_fail_closed|2026-11-17", "71|data/regime_signal_trace.jsonl|2026-11-20"}
+    c81 = items["81|backend/gate/l6_review.py:_fail_closed|2026-11-17"]
     assert c81["nights"] == ["2026-11-17", "2026-11-18"] and c81["cleared"] == "2026-11-19" and c81["text"] == "7 rows"
-    assert items["71|data/regime_signal_trace.jsonl"]["cleared"] is None
+    assert items["71|data/regime_signal_trace.jsonl|2026-11-20"]["cleared"] is None
 
 
-def test_a_critical_that_returns_is_standing_again(tmp_path):
+def test_a_critical_that_returns_after_a_clean_run_is_a_new_episode(tmp_path):
+    """Niclas 2026-11-21: a return must not land under the earlier episode or its decision."""
     p = tmp_path / "ledger.json"
     cl.update([C81], "2026-11-17", p)
     cl.update([], "2026-11-18", p)
     led = cl.update([C81], "2026-11-19", p)
-    it = cl.open_items(led)[0]
-    assert it["cleared"] is None and it["nights"] == ["2026-11-17", "2026-11-19"]
+    eps = {i["key"]: i for i in cl.open_items(led)}
+    assert set(eps) == {"81|backend/gate/l6_review.py:_fail_closed|2026-11-17", "81|backend/gate/l6_review.py:_fail_closed|2026-11-19"}
+    assert eps["81|backend/gate/l6_review.py:_fail_closed|2026-11-17"]["cleared"] == "2026-11-18" and eps["81|backend/gate/l6_review.py:_fail_closed|2026-11-19"]["cleared"] is None
 
 
 def test_dispose_needs_an_action_and_a_reference(tmp_path):
     p = tmp_path / "ledger.json"
     cl.update([C81, C71], "2026-11-18", p)
-    k81 = "81|backend/gate/l6_review.py:_fail_closed"
+    k81 = "81|backend/gate/l6_review.py:_fail_closed|2026-11-18"
     with pytest.raises(ValueError):
         cl.dispose(k81, "fixed", "  ", path=p)
     with pytest.raises(ValueError):
         cl.dispose(k81, "accepted", "R124", path=p)                       # R119: no accepted
     with pytest.raises(ValueError):
-        cl.dispose("71|data/regime_signal_trace.jsonl", "dated", "INDEX title", path=p)   # dated needs a date
+        cl.dispose("71|data/regime_signal_trace.jsonl|2026-11-18", "dated", "INDEX title", path=p)   # dated needs a date
     with pytest.raises(KeyError):
         cl.dispose("99|nowhere", "fixed", "abc1234", path=p)
     led = cl.dispose(k81, "fixed", "0efa6a9", today="2026-11-21", path=p)
-    assert [i["key"] for i in cl.open_items(led)] == ["71|data/regime_signal_trace.jsonl"]
-    assert led["disposed"][0]["ref"] == "0efa6a9" and led["disposed"][0]["disposed_on"] == "2026-11-21"
+    assert [i["key"] for i in cl.open_items(led)] == ["71|data/regime_signal_trace.jsonl|2026-11-18"]
+    d = led["items"][k81]["disposition"]
+    assert d["ref"] == "0efa6a9" and d["disposed_on"] == "2026-11-21"
+    with pytest.raises(KeyError):
+        cl.dispose(k81, "fixed", "again", path=p)                         # an episode is disposed once
 
 
-def test_a_disposed_key_that_fires_again_opens_a_new_item(tmp_path):
+def test_a_decision_holds_while_its_episode_stands(tmp_path):
+    p = tmp_path / "ledger.json"
+    cl.update([C71], "2026-11-20", p)
+    cl.dispose("71|data/regime_signal_trace.jsonl|2026-11-20", "dated", "R125 a", date="2026-12-05", today="2026-11-21", path=p)
+    led = cl.update([C71], "2026-11-23", p)                              # still standing: no new item
+    assert cl.open_items(led) == [] and led["items"]["71|data/regime_signal_trace.jsonl|2026-11-20"]["nights"] == ["2026-11-20", "2026-11-23"]
+
+
+def test_a_disposed_episode_that_clears_and_returns_opens_a_new_one(tmp_path):
     p = tmp_path / "ledger.json"
     cl.update([C81], "2026-11-18", p)
-    cl.dispose("81|backend/gate/l6_review.py:_fail_closed", "fixed", "0efa6a9", today="2026-11-21", path=p)
+    cl.dispose("81|backend/gate/l6_review.py:_fail_closed|2026-11-18", "fixed", "0efa6a9", today="2026-11-21", path=p)
+    cl.update([], "2026-11-23", p)
     led = cl.update([C81], "2026-11-24", p)
-    assert cl.open_items(led)[0]["first_seen"] == "2026-11-24" and len(led["disposed"]) == 1
+    assert [i["key"] for i in cl.open_items(led)] == ["81|backend/gate/l6_review.py:_fail_closed|2026-11-24"]
+
+
+def test_a_dated_decision_reopens_when_its_date_passes_while_standing(tmp_path):
+    p = tmp_path / "ledger.json"
+    cl.update([C71], "2026-11-20", p)
+    cl.dispose("71|data/regime_signal_trace.jsonl|2026-11-20", "dated", "R125 a", date="2026-12-05", today="2026-11-21", path=p)
+    cl.update([C71], "2026-12-05", p)
+    assert cl.open_items(path=p) == []                                    # the action's own day: still dated
+    led = cl.update([C71], "2026-12-07", p)
+    it = led["items"]["71|data/regime_signal_trace.jsonl|2026-11-20"]
+    assert it["disposition"] is None and it["history"][0]["reopened"] == "2026-12-07"
 
 
 def test_night_of_reads_the_run_in_new_york_time():
@@ -106,8 +131,8 @@ def test_publish_writes_the_ledger_from_tonights_state(tmp_path, monkeypatch):
     monkeypatch.setattr(cl, "LEDGER", tmp_path / "ledger.json")
     ps.write_critical_ledger()
     led = cl.load(tmp_path / "ledger.json")
-    assert list(led["items"]) == ["81|backend/gate/l6_review.py:_fail_closed"]
-    assert led["items"]["81|backend/gate/l6_review.py:_fail_closed"]["nights"] == ["2026-11-17"]
+    assert list(led["items"]) == ["81|backend/gate/l6_review.py:_fail_closed|2026-11-17"]
+    assert led["items"]["81|backend/gate/l6_review.py:_fail_closed|2026-11-17"]["nights"] == ["2026-11-17"]
 
 
 def test_seed_replays_the_published_nights_oldest_first(tmp_path, monkeypatch):
@@ -128,16 +153,16 @@ def test_seed_replays_the_published_nights_oldest_first(tmp_path, monkeypatch):
     assert cl.seed("2026-11-16", path=p) == ["2026-11-17", "2026-11-18", "2026-11-20"]
     assert "--reverse" in calls[0] and "--since=2026-11-16" in calls[0]
     items = {i["key"]: i for i in cl.open_items(path=p)}
-    assert items["81|backend/gate/l6_review.py:_fail_closed"]["cleared"] == "2026-11-18"
-    assert items["71|data/regime_signal_trace.jsonl"]["nights"] == ["2026-11-20"]
+    assert items["81|backend/gate/l6_review.py:_fail_closed|2026-11-17"]["cleared"] == "2026-11-18"
+    assert items["71|data/regime_signal_trace.jsonl|2026-11-20"]["nights"] == ["2026-11-20"]
 
 
 def test_cli_dispose_and_show(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cl, "LEDGER", tmp_path / "ledger.json")
     cl.update([C81, C71], "2026-11-18")
-    assert cl.main(["dispose", "81|backend/gate/l6_review.py:_fail_closed", "--action", "fixed", "--ref", "0efa6a9"]) == 0
+    assert cl.main(["dispose", "81|backend/gate/l6_review.py:_fail_closed|2026-11-18", "--action", "fixed", "--ref", "0efa6a9"]) == 0
     out = capsys.readouterr().out
-    assert "disposed 81|" in out and "OPEN  71|data/regime_signal_trace.jsonl" in out and "OPEN  81|" not in out
+    assert "disposed 81|" in out and "OPEN  71|data/regime_signal_trace.jsonl|2026-11-18" in out and "OPEN  81|" not in out
     assert cl.main(["show"]) == 0
 
 
