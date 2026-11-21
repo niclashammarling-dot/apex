@@ -1432,6 +1432,30 @@
       "commit": "0efa6a9",
       "date": "2026-11-21",
       "review": "2026-12-19"
+    },
+    "audit/checks_gate.py::_C100_EVENT_DAYS": {
+      "value": 2,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-11-21",
+      "review": "2027-01-21",
+      "source": "CHECK 100 (audit/CHECKS.md row 100; R026). The same 2-day CRITICAL window as CHECK 81: the audit reads after the close, so 'today or yesterday'. Report-only: no gate, size or exit reads it."
+    },
+    "audit/checks_gate.py::_C100_TALLY_DAYS": {
+      "value": 30,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-11-21",
+      "review": "2027-01-21",
+      "source": "CHECK 100: the closed live trades of the last 30 days are read each night, the same horizon as CHECK 81's tally; about 18 trades on 2026-11-21. Report-only."
+    },
+    "audit/checks_gate.py::_C100_ORDERS": {
+      "value": 500,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-11-21",
+      "review": "2027-01-21",
+      "source": "CHECK 100: recent orders fetched with legs. About 2 brackets per session plus their legs as one row each, so 500 covers the 30-day window with room; a trade whose bracket is not fetched is stated in the INFO line (first run 2026-11-21: 18 of 18 found). Report-only."
     }
   }
 }
