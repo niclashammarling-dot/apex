@@ -62,6 +62,7 @@ class TestBuild:
         monkeypatch.setattr(bundle, "findings_items", lambda: list(self.items))
         monkeypatch.setattr(bundle, "todo_items", lambda: [])
         monkeypatch.setattr(bundle, "parity_items", lambda db=None: [])
+        monkeypatch.setattr(bundle, "demo_halt_items", lambda now, db=None: [])   # CI has no apex.db
         monkeypatch.setattr(bundle, "signal_items", lambda: [])
         monkeypatch.setattr(bundle, "retirement_items", lambda today: [])
         monkeypatch.setattr(bundle, "config_snapshot", lambda: dict(self.snap))
