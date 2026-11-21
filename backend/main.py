@@ -118,6 +118,11 @@ async def lifespan(app: FastAPI):
             backup_once()
         except Exception as e:
             logger.warning(f"DB backup failed (non-fatal; CHECK 95 reads its age): {e!r}")
+        try:
+            from backend.db_backup import offhost_copy
+            offhost_copy()
+        except Exception as e:
+            logger.warning(f"Off-host backup copy failed (non-fatal; CHECK 95 reads its age): {e!r}")
         # force=True skips the hours check (a 08:15 ET start polls pre-open);
         # it must not skip the session check — 2026-09-07 Labor Day row.
         if is_session_today("Initial sector poll"):

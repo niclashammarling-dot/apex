@@ -1237,6 +1237,13 @@ def check95(now: datetime | None = None) -> None:
       WARNING  no manifest (the startup backup has never run); the newest backup older than
                C95_MAX_AGE_DAYS; its integrity check not "ok"; its file missing
       INFO     the newest backup, its size, and how many are kept
+
+    Off-host copy (R114 a, built 2026-11-21): backend/db_backup.offhost_copy puts the newest backup into the
+    folder Google Drive for desktop syncs. This part reads that local folder, not the cloud: a file there does
+    not prove the upload (ruling condition 2); the cloud copy was checked by hand after the first run.
+      WARNING  no off-host copy (folder or apex_latest.json missing); the copy older than C95_MAX_AGE_DAYS;
+               apex_latest.db missing or not the size its meta records
+      INFO     the off-host copy's source, age and size, with the limit stated
     SKIPPED without apex.db (CI).
     """
     name = "database backup age"
@@ -1266,6 +1273,35 @@ def check95(now: datetime | None = None) -> None:
     flag(95, name, "INFO", f"data/backups/auto/{last['file']}",
          f"newest backup {last['file']} ({last['bytes'] / 1e6:.0f} MB, integrity {last.get('integrity')}), "
          f"{len(list(d.glob('apex_auto_*.db')))} kept")
+    _check95_offhost(name, now)
+
+
+def _c95_offhost_dir():
+    from backend.db_backup import offhost_dir
+    return offhost_dir()
+
+
+def _check95_offhost(name: str, now: datetime) -> None:
+    from backend.db_backup import OFFHOST_DB, OFFHOST_META
+    od = _c95_offhost_dir()
+    where = f"{od}/{OFFHOST_META}"
+    limit = "the local sync folder, not Drive: a file here does not prove the upload"
+    if od is None or not (od / OFFHOST_META).exists():
+        flag(95, name, "WARNING", where,
+             f"no off-host copy in {od} (R114 a; backend/db_backup.offhost_copy at the scheduler-owner start; "
+             f"is Drive for desktop syncing the folder?)")
+        return
+    meta = json.loads((od / OFFHOST_META).read_text())
+    age = now - datetime.fromisoformat(meta["copied_at"])
+    if age > timedelta(days=C95_MAX_AGE_DAYS):
+        flag(95, name, "WARNING", where,
+             f"off-host copy is {age.days} days old ({meta['copied_at'][:16]}, from {meta['source']}) — the copy stopped")
+    db_file = od / OFFHOST_DB
+    if not db_file.exists() or db_file.stat().st_size != meta["bytes"]:
+        flag(95, name, "WARNING", f"{od}/{OFFHOST_DB}",
+             f"off-host {OFFHOST_DB} missing or not the {meta['bytes']} bytes its meta records")
+    flag(95, name, "INFO", where,
+         f"off-host copy {meta['source']} copied {meta['copied_at'][:16]} ({meta['bytes'] / 1e6:.0f} MB); this reads {limit}")
 
 
 C95_MAX_AGE_DAYS = 4               # one backup per session-day start; a weekend plus one missed start
