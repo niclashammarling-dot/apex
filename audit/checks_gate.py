@@ -2412,6 +2412,98 @@ def check94(today: date | None = None) -> None:
         flag(94, name, "WARNING", "data/apex.db", f"could not query: {e}")
 
 
+_C100_EVENT_DAYS = 2      # CRITICAL window, as CHECK 81: the audit reads after the close, so "today or yesterday"
+_C100_TALLY_DAYS = 30     # trades read each night
+_C100_ORDERS = 500        # recent orders fetched with their legs (about 2 brackets a session, so 30 days fit)
+
+
+def split_exits(trades: list[dict], orders: list[dict]) -> tuple[list[dict], dict]:
+    """Pure core of CHECK 100. trades: closed live_trades rows (id, ticker, qty, alpaca_order_id, exit_price,
+    exited_at); orders: broker.get_orders(nested=True) rows. A split exit is a bracket whose take-profit leg (the
+    sell limit) filled part of its quantity: 0 < filled_qty < qty. Returns the splits and the read's counts."""
+    by_id = {o.get("id"): o for o in orders}
+    splits, n_found, n_exit_legs = [], 0, 0
+    for t in trades:
+        o = by_id.get(t.get("alpaca_order_id") or "")
+        if o is None:
+            continue
+        n_found += 1
+        for leg in o.get("legs") or []:
+            if leg.get("side") != "sell" or not leg.get("filled_qty"):
+                continue
+            n_exit_legs += 1
+            fq, q = leg.get("filled_qty") or 0.0, leg.get("qty") or 0.0
+            if leg.get("order_type") == "limit" and 0 < fq < q:
+                splits.append({"trade_id": t["id"], "ticker": t["ticker"], "exited_at": t.get("exited_at") or "",
+                               "booked_exit": t.get("exit_price"), "tp_filled": fq, "tp_qty": q,
+                               "tp_price": leg.get("filled_avg_price")})
+    return splits, {"trades": len(trades), "brackets": n_found, "exit_legs": n_exit_legs}
+
+
+def check100(fetch=None, today: date | None = None) -> None:
+    """
+    CHECK 100 — split exit at Alpaca: a take-profit partly filled and the rest sold by the resized stop
+    (R026, ruled 2026-11-09; built 2026-11-21, the 11-21 order's E1; replaces M8 under Q-EXE in audit/QUESTIONS.md).
+
+    Alpaca resizes the stop to the rest when a take-profit fills partly (docs read 2026-11-09). The tracker books
+    the whole qty at one order's fill price with no flag (backend/live_trades_tracker.py, the "Known gap" comment
+    in the external-close branch), so a split books wrong P&L. Measured 2026-11-09: 0 of 77 brackets 07-07..11-05
+    (68 filled exit legs, all full). The VWAP booking build (vault OT-apex-033 spec) is revived if this fires twice.
+
+    Reads the closed live trades of the last _C100_TALLY_DAYS days and their brackets with legs from Alpaca.
+      CRITICAL  a split exit on a trade closed in the trailing _C100_EVENT_DAYS days (event severity, mailed once).
+      INFO      every night: trades read, brackets found, filled exit legs, splits outside the event window, and
+                trades whose bracket was not in the fetched orders (a missing input is stated, never skipped).
+      WARNING   the broker or the database could not be read: did not evaluate.
+    `fetch`: (trades, orders) for tests; None reads apex.db and Alpaca.
+    """
+    from datetime import timedelta
+    name = "Split exit at Alpaca"
+    db = REPO / "data/apex.db"
+    today = today or date.today()
+    since = (today - timedelta(days=_C100_TALLY_DAYS)).isoformat()
+    since_event = (today - timedelta(days=_C100_EVENT_DAYS - 1)).isoformat()
+    try:
+        if fetch is None:
+            if not require_data_file(100, name, db):
+                return
+            from backend.brokers import alpaca as broker
+            conn = sqlite3.connect(db)
+            conn.row_factory = sqlite3.Row
+            try:
+                trades = [dict(r) for r in conn.execute(
+                    "SELECT id, ticker, qty, alpaca_order_id, exit_price, exited_at FROM live_trades "
+                    "WHERE outcome != 'OPEN' AND exited_at >= ? AND alpaca_order_id IS NOT NULL", (since,))]
+            finally:
+                conn.close()
+            orders = broker.get_orders(limit=_C100_ORDERS, nested=True) if trades else []
+        else:
+            trades, orders = fetch
+            trades = [t for t in trades if (t.get("exited_at") or "") >= since]
+    except Exception as e:
+        flag(100, name, "WARNING", "backend/brokers/alpaca.py:get_orders", f"did not evaluate: {e}")
+        return
+    splits, n = split_exits(trades, orders)
+    recent = [s for s in splits if s["exited_at"][:10] >= since_event]
+    older = [s for s in splits if s["exited_at"][:10] < since_event]
+
+    def _desc(s):
+        return (f"{s['exited_at'][:10]} {s['ticker']} trade {s['trade_id']}: take-profit filled {s['tp_filled']:g} of "
+                f"{s['tp_qty']:g} at {s['tp_price']}, booked whole at {s['booked_exit']}")
+    if recent:
+        flag(100, name, "CRITICAL", "backend/live_trades_tracker.py:external close",
+             f"{len(recent)} split exit(s) in the last {_C100_EVENT_DAYS} days, each booked as one exit price: "
+             + "; ".join(_desc(s) for s in recent)
+             + ". Re-book the P&L from both fills by hand; a second firing revives the VWAP booking build (R026).")
+    missing = n["trades"] - n["brackets"]
+    flag(100, name, "INFO", "backend/brokers/alpaca.py:get_orders",
+         f"last {_C100_TALLY_DAYS} days: {n['trades']} closed live trade(s), {n['brackets']} bracket(s) found, "
+         f"{n['exit_legs']} filled exit leg(s), {len(splits)} split(s)"
+         + (f" ({len(older)} before the event window: " + "; ".join(_desc(s) for s in older) + ")" if older else "")
+         + (f"; {missing} trade(s) whose bracket was not in the last {_C100_ORDERS} orders (not evaluated)"
+            if missing else ""))
+
+
 def run() -> None:
     check24()
     check25()
@@ -2441,3 +2533,4 @@ def run() -> None:
     check94()
     check96()
     check97()
+    check100()
