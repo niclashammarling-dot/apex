@@ -408,8 +408,6 @@ backend/backtest/weekend_sweep.py::_date_range	other
 backend/backtest/weekend_sweep.py::_now_iso	other
 backend/backtest/weekend_sweep.py::run_sweep	other
 backend/brokers/alpaca.py::_client	money
-backend/brokers/alpaca.py::cancel_open_orders	money
-backend/brokers/alpaca.py::close_position	money
 backend/brokers/alpaca.py::get_fee_activities	money
 backend/brokers/alpaca.py::get_portfolio_history	money
 backend/brokers/alpaca.py::get_prior_close	money
@@ -430,7 +428,6 @@ backend/db.py::get_drift_baselines	money
 backend/db.py::get_existing_snapshot_dates	money
 backend/db.py::get_existing_ticker_history_dates	money
 backend/db.py::get_live_trades_exited_since	money
-backend/db.py::get_open_live_tickers	money
 backend/db.py::get_open_tickers	money
 backend/db.py::get_rolling_win_rate	money
 backend/db.py::get_sector_posteriors_asof	money
@@ -444,7 +441,6 @@ backend/db.py::latest_signals	money
 backend/db.py::prune_watchlist_auto	money
 backend/db.py::remove_watchlist	money
 backend/db.py::save_ticker_thresholds	money
-backend/db.py::set_live_trade_profit_lock_activated	money
 backend/db.py::set_pcr_dislocation	money
 backend/db.py::update_signal_gate	money
 backend/db.py::upsert_drift_alert	money
@@ -468,7 +464,6 @@ backend/gate/l4_sentiment.py::evaluate	money
 backend/gate/l5_positioning.py::_check_relative_strength	money
 backend/gate/l6_review.py::_get_anthropic	money
 backend/json_io.py::_default	money
-backend/live_trades_tracker.py::_ticker_consecutive_down_days	money
 backend/maintenance.py::_alert_failures	money
 backend/maintenance.py::run_structural_checks	money
 backend/regime/ipo_sentiment.py::IpoSentiment._append_history	money
