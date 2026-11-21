@@ -22,7 +22,6 @@ from loguru import logger
 
 from backend.config import (
     EXIT_CHECK_INTERVAL,
-    DEMO_L0_PORTFOLIO_LOSS_CAP_MAX,
     DEMO_MAX_POSITION_SIZE,
     DEMO_L2_RISK_MAX_POSITIONS_COUNT,
     DEMO_L2_RISK_SECTOR_CAP_MAX,
@@ -60,8 +59,8 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
 
     Every check that runs is recorded in gate_result["rule_states"] (lock_codes.put), and a refusal sets
     gate_result["outcome_reason"] to its rule's identifier, as the live runner does (lock labels phase 2,
-    2026-10-28: "demo = live except trading"): l2_risk_max_positions_count and sector_cap (L2), loss_cap (L0),
-    position_open, notional_too_small and price_missing (L1).
+    2026-10-28: "demo = live except trading"): l2_risk_max_positions_count and sector_cap (L2), position_open,
+    notional_too_small and price_missing (L1). loss_cap moved to L0 at the cycle's start on 2026-11-21 (R067 a).
     """
     states = gate_result.setdefault("rule_states", {})
 
@@ -98,12 +97,9 @@ def execute_trade(gate_result: dict, price: float, dynamic_caps: dict | None = N
         )
         return None
 
-    # Daily loss cap
-    daily_loss     = _daily_realized_loss()
-    l0_portfolio_loss_cap_max = cfg.get("l0_portfolio_loss_cap_max", DEMO_L0_PORTFOLIO_LOSS_CAP_MAX)
-    if _check("loss_cap", daily_loss >= l0_portfolio_loss_cap_max):
-        logger.warning(f"Trade rejected [{ticker}]: daily loss cap hit (${daily_loss:.2f} >= ${l0_portfolio_loss_cap_max})")
-        return None
+    # The daily loss cap is L0's since 2026-11-21 (l0_portfolio.evaluate_demo at the cycle's start, R067 a): a cap hit
+    # halts the cycle before any candidate reaches here. Realised losses change only when an exit job books one, so
+    # the start-of-cycle verdict is the one this check gave per trade.
 
     # Already holding this ticker?
     open_tickers = {t["ticker"] for t in get_open_trades()}

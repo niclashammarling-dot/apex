@@ -9,7 +9,6 @@
   "l2_risk_max_positions_count": 9,
   "l2_risk_overflow_step": 0.05,
   "max_position_size": 0.15,
-  "l0_portfolio_loss_cap_max": 500,
   "max_hold_days": 25,
   "l1_eligibility_vix_max": 30,
   "l1_eligibility_macro_event_days": 1,

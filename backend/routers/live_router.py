@@ -196,9 +196,8 @@ def promote_demo_to_live():
     by demo_thresholds() via _PROMOTE_EXCLUDE:
       - starting_balance: demo=$2k, live=$100k — different denominators;
         leaked into live would corrupt sector exposure checks (notional/2000 = 1500%)
-      - l0_portfolio_loss_cap_max: absolute dollars calibrated to account size (demo's wallet reads it; the
-        live gate has not since 2026-10-24: L0 Portfolio sets 5 % of equity, l0_portfolio.py), kept
-        out of Promote so the live value stays account-scaled if L0's cap is ever removed
+      (l0_portfolio_loss_cap_max is no config key since 2026-11-21, R111 a: L0 sets the cap as a share of
+       equity in both books, l0_portfolio.py)
 
     Any new config key must be deliberately placed in _KEYS (promotable) or
     _PROMOTE_EXCLUDE (account-specific). Default-in-_KEYS means it gets promoted.

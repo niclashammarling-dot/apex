@@ -504,6 +504,46 @@ def weekly_items(now: datetime) -> list[dict]:
     return out
 
 
+# ── demo book halted ──────────────────────────────────────────────────────────
+
+def demo_halt_items(now: datetime, db: Path | None = None) -> list[dict]:
+    """
+    A week in which the demo book stood halted by M4 (R067 a; Niclas 2026-11-21: "Ett stoppat demo slutar ge
+    jämförelsedata … En rad i bunten om demo stått stilla under veckan räcker"). A demo halt mails no one, so this
+    is its reader: demo's gate cycles (job run_gate) of the last 7 days whose reason is an L0 rule's.
+    """
+    from backend.gate.l0_portfolio import REASONS
+    db = db or REPO / "data" / "apex.db"
+    if not db.exists():
+        return [_item("book:demo_halt:db_missing", "book", "WARNING", "data/apex.db",
+                      "apex.db missing — demo halts unread",
+                      scope="restore data/apex.db (data/backups/auto) or run the bundle on the host")]
+    since = (now - timedelta(days=7)).astimezone(timezone.utc).isoformat()
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'gate_cycles'").fetchone():
+            return [_item("book:demo_halt:table_missing", "book", "WARNING", "data/apex.db:gate_cycles",
+                          "gate_cycles table missing — demo halts unread",
+                      scope="restore data/apex.db (data/backups/auto) or run the bundle on the host")]
+        rows = conn.execute(f"SELECT reason, COUNT(*), MIN(started_at), MAX(started_at) FROM gate_cycles "
+                            f"WHERE job = 'run_gate' AND started_at >= ? AND reason IN ({', '.join('?' * len(REASONS))}) "
+                            f"GROUP BY reason", (since, *REASONS)).fetchall()
+        total = conn.execute("SELECT COUNT(*) FROM gate_cycles WHERE job = 'run_gate' AND started_at >= ?",
+                             (since,)).fetchone()[0]
+    finally:
+        conn.close()
+    if not rows:
+        return []
+    halted = sum(r[1] for r in rows)
+    week = _iso_week(now.astimezone(timezone.utc).date())
+    detail = "; ".join(f"{r[0]} {r[1]} ({r[2][:16]} → {r[3][:16]} UTC)" for r in rows)
+    return [_item(f"book:demo_halt:{week}", "book", "WARNING", "data/apex.db:gate_cycles",
+                  f"demo stood halted in {halted} of {total} gate cycles this week: {detail} — no comparison data "
+                  f"while it stands",
+                  scope="read the halt's evidence in the demo gate log (Gate runner: L0 halt …); a drawdown or "
+                        "expectancy halt does not clear on its own: resetting is a decision (l0_portfolio docstring)")]
+
+
 # ── signal register ───────────────────────────────────────────────────────────
 
 # Its own file on master since 2026-10-21 (moved from PRODUCTION_GAP.md § Signal gaps on port-regime).
@@ -715,7 +755,7 @@ def build(write: bool = False, now: datetime | None = None, db: Path | None = No
     snap = config_snapshot()
     items = (act_items() + findings_items() + todo_items() + parity_items(db) + config_items(prev.get("config"), snap, since=prev.get("generated_at"),
                                                                             since_commit=prev.get("host_commit"))
-             + weekly_items(now) + signal_items() + retirement_items(today))
+             + weekly_items(now) + demo_halt_items(now, db) + signal_items() + retirement_items(today))
     excepted = []
     kept = []
     for it in items:
@@ -738,7 +778,8 @@ def build(write: bool = False, now: datetime | None = None, db: Path | None = No
     bundle = {"generated_at": now.isoformat(), "host_commit": commit, "items": kept,
               "excepted": excepted, "config": snap, "throughput": throughput(prev, kept, excepted, today),
               "counts": {**{s: sum(1 for i in kept if i["section"] == s)
-                            for s in ("act", "findings", "todos", "parity", "config", "weekly", "signals", "retirement")},
+                            for s in ("act", "findings", "todos", "parity", "config", "weekly", "book", "signals",
+                                      "retirement")},
                          "no_scope": sum(1 for i in kept if not i["scope"])}}
     if write:
         STATE.mkdir(parents=True, exist_ok=True)
@@ -753,7 +794,8 @@ def render_text(b: dict) -> str:
     names = {"act": "ACT: OPEN CRITICALS (leave only by an action: fixed, scoped or dated)",
              "findings": "AUDIT FINDINGS (non-INFO)", "todos": "TODO MARKERS",
              "parity": "SIGNALS WITH NO READER", "config": "CONFIG CHANGED SINCE LAST BUNDLE",
-             "weekly": "WEEKLY REPORT READ", "signals": "SIGNAL REGISTER (open hypotheses)",
+             "weekly": "WEEKLY REPORT READ", "book": "DEMO BOOK HALTED (no comparison data while it stands)",
+             "signals": "SIGNAL REGISTER (open hypotheses)",
              "retirement": "RETIREMENT (quiet and unarmed checks)"}
     for s, title in names.items():
         rows = [i for i in b["items"] if i["section"] == s]

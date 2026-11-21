@@ -75,7 +75,6 @@ DEMO_STARTING_BALANCE            = 2_000.0
 DEMO_L2_RISK_MAX_POSITIONS_COUNT = 4
 DEMO_L2_RISK_SECTOR_CAP_MAX      = 0.25
 DEMO_MAX_POSITION_SIZE           = 0.15  # max 15% of balance per trade (~$300 on $2k)
-DEMO_L0_PORTFOLIO_LOSS_CAP_MAX   = 100.0
 
 # --- Exit conditions ---
 DEMO_TAKE_PROFIT_PCT = 0.06
@@ -150,13 +149,22 @@ LIVE_MAX_POSITION_SIZE           = float(os.getenv("LIVE_MAX_POSITION_SIZE", "0.
 # 40 in-session trades (Niclas "sätt den på 40"), below the frozen in-session reference's one-sided
 # 95 % lower bound; reference = the 34 in-session trades closed by 2026-10-23 13:58 UTC, return on
 # notional mean 1.85 %, sd 3.95 % (measured 2026-10-24 from db.live_sample_rows).
-# The live loss cap is this share of equity; the demo's (DEMO_L0_PORTFOLIO_LOSS_CAP_MAX) is dollars. Live's
-# stored l0_portfolio_loss_cap_max is the dollar product, written by L0 every cycle (gate_runner_live).
-LIVE_L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX     = 0.06
-LIVE_L0_PORTFOLIO_LOSS_CAP_MAX             = 0.05
-LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT = 40
+# The loss cap is this share of equity in both books (demo since 2026-11-21, R067 a). l0_portfolio_loss_cap_max is
+# no config key: it is L0's dollar product, put on each runner's cfg every cycle for L6 REVIEW's risk_limits.
+L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX     = 0.06
+L0_PORTFOLIO_LOSS_CAP_MAX             = 0.05
+L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT = 40
 LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_REF   = {"mean": 0.0185, "sd": 0.0395, "n": 34,
                                               "frozen_after_exit": "2026-10-23T13:58:48.412222+00:00"}
+# The demo book runs the same three rules (R067 a, 2026-11-14: "Demo finns för att spegla live"; built 2026-11-21).
+# The drawdown share, the loss-cap share and the count are the shared constants above (one source: they transfer).
+# Demo's own window and frozen reference (R127 a, Niclas 2026-11-21): demo trades entered since live's 2026-07-07
+# reset, for the drawdown and the reference alike ("olika fönster för drawdown och förväntan i samma spärr blandar
+# två system"); reference = the 72 such trades closed by 2026-11-20 20:36 UTC, return on amount mean 0.71 %, sd
+# 6.05 % (measured 2026-11-21 from the trades table). Demo has no signal_class: every closed demo trade counts.
+DEMO_L0_PORTFOLIO_M4_SINCE                 = "2026-07-07"
+DEMO_L0_PORTFOLIO_HALT_M4_EXPECTANCY_REF   = {"mean": 0.0071, "sd": 0.0605, "n": 72,
+                                              "frozen_after_exit": "2026-11-20T20:36:00.645500+00:00"}
 LIVE_TAKE_PROFIT_PCT     = float(os.getenv("LIVE_TAKE_PROFIT_PCT", "0.12"))
 LIVE_STOP_LOSS_PCT       = float(os.getenv("LIVE_STOP_LOSS_PCT", "0.04"))
 # A daily-loss-cap trip where broker-reported day P&L and APEX's own

@@ -1456,6 +1456,27 @@ def get_live_equity_curve(unrealised_total: float = 0.0, since: str | None = Non
         conn.close()
 
 
+def demo_m4_rows(since: str) -> tuple[list[dict], float, float]:
+    """
+    The demo book's M4 inputs (l0_portfolio.evaluate_demo): the trades entered since `since`, closed or open, keyed
+    as l0_portfolio reads live rows (exit_price, notional); the realised P&L of trades entered before it (the
+    window's opening equity is the starting balance plus this); and the realised P&L of every closed trade.
+    """
+    conn = get_db()
+    try:
+        rows = [{"timestamp": r["timestamp"], "exited_at": r["exited_at"], "exit_price": r["price_exit"],
+                 "pnl": r["pnl"], "notional": r["amount"]}
+                for r in conn.execute("SELECT timestamp, exited_at, price_exit, pnl, amount FROM trades "
+                                      "WHERE timestamp >= ? ORDER BY timestamp", (since,))]
+        closed = "outcome IN ('WIN','LOSS','EXPIRED')"
+        before = conn.execute(f"SELECT COALESCE(SUM(pnl), 0) FROM trades WHERE {closed} AND timestamp < ?",
+                              (since,)).fetchone()[0]
+        total = conn.execute(f"SELECT COALESCE(SUM(pnl), 0) FROM trades WHERE {closed}").fetchone()[0]
+        return rows, float(before), float(total)
+    finally:
+        conn.close()
+
+
 def get_portfolio_summary() -> dict:
     """Lightweight summary for risk checks during trade execution."""
     from backend.config import DEMO_STARTING_BALANCE

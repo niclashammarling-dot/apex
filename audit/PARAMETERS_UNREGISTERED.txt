@@ -110,7 +110,6 @@ backend/backtest/weekend_sweep.py::MIN_TRADES
 backend/config.py::AVG_LOSS_PCT
 backend/config.py::AVG_WIN_PCT
 backend/config.py::BASE_WIN_RATE
-backend/config.py::DEMO_L0_PORTFOLIO_LOSS_CAP_MAX
 backend/config.py::DEMO_L2_RISK_MAX_POSITIONS_COUNT
 backend/config.py::DEMO_L2_RISK_SECTOR_CAP_MAX
 backend/config.py::DEMO_L3_SCORE_THRESHOLD_MIN
@@ -222,7 +221,6 @@ backend/signals/aggregator.py::_WEIGHTS
 backend/signals/momentum.py::RSI_HARD_CAP
 backend/weekly_report.py::COMMENTARY_MIN_N
 data/demo_config.json:l0_portfolio_drawdown_guard_max
-data/demo_config.json:l0_portfolio_loss_cap_max
 data/demo_config.json:l1_eligibility_cooloff_hours
 data/demo_config.json:l1_eligibility_exit_cooloff_hours
 data/demo_config.json:l1_eligibility_exit_cooloff_win_hours
@@ -248,7 +246,6 @@ data/demo_config.json:starting_balance
 data/demo_config.json:stop_loss_pct
 data/demo_config.json:take_profit_pct
 data/live_config.json:l0_portfolio_drawdown_guard_max
-data/live_config.json:l0_portfolio_loss_cap_max
 data/live_config.json:l1_eligibility_cooloff_hours
 data/live_config.json:l1_eligibility_exit_cooloff_hours
 data/live_config.json:l1_eligibility_exit_cooloff_win_hours

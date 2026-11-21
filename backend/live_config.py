@@ -34,7 +34,6 @@ _KEYS = [
     "l2_risk_max_positions_count",
     "l2_risk_overflow_step",
     "max_position_size",
-    "l0_portfolio_loss_cap_max",
     "max_hold_days",
     "l1_eligibility_vix_max",
     "l1_eligibility_macro_event_days",
@@ -147,9 +146,9 @@ def _write_atomic(cfg: dict, source: str = "unknown") -> None:
 
 # Settings that must never be promoted from demo — account-size specific.
 # starting_balance: demo=$2k, live=$100k — completely different denominator
-# l0_portfolio_loss_cap_max:   absolute dollars calibrated to account size; demo=$100 (read by the demo wallet);
-#                   live is not read by the gate since 2026-10-24 (L0 Portfolio: 5 % of equity)
-_PROMOTE_EXCLUDE = {"starting_balance", "l0_portfolio_loss_cap_max"}
+# (l0_portfolio_loss_cap_max left both config files on 2026-11-21, R111 a: the cap is L0's share of equity in both
+#  books, so no dollar cap is configured to leak.)
+_PROMOTE_EXCLUDE = {"starting_balance"}
 
 
 def demo_thresholds() -> dict:

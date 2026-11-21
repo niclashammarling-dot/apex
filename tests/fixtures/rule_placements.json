@@ -8,6 +8,12 @@
     "since": "",
     "split_from": "",
     "initial": true
+   },
+   {
+    "owner": 0,
+    "source": "M4 rule 1, l0_portfolio.HALT_DRAWDOWN: realised equity off its peak (both books, cycle level)",
+    "since": "2026-11-23",
+    "split_from": ""
    }
   ],
   "loss_cap": [
@@ -17,6 +23,12 @@
     "since": "",
     "split_from": "",
     "initial": true
+   },
+   {
+    "owner": 0,
+    "source": "M4 rule 2, l0_portfolio.HALT_LOSS_CAP: day loss against a share of equity (both books, cycle level)",
+    "since": "2026-11-23",
+    "split_from": ""
    }
   ],
   "halt_m4_expectancy": [
@@ -26,6 +38,12 @@
     "since": "",
     "split_from": "",
     "initial": true
+   },
+   {
+    "owner": 0,
+    "source": "M4 rule 3, l0_portfolio.HALT_EXPECTANCY: the trailing sample's expectancy (both books, cycle level)",
+    "since": "2026-11-23",
+    "split_from": ""
    }
   ],
   "drawdown_guard": [

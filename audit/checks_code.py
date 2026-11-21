@@ -716,8 +716,9 @@ _C74_REVIEWED: dict[str, tuple[str, str, str]] = {
         "2026-10-31 after the config mocks took the phase 3 key names (no date change); re-reviewed 2026-11-01 "
         "after the L0 constant and the candidate query took their derived names (no date change); re-reviewed 2026-11-07 "
         "after the orphan-sweep recency tests (fill and submission times 2026-07-01..11-03 compared only with each "
-        "other: cancel_orphan_brackets reads no clock)", "2027-04-10",
-        "3c0b748e791c03e4"),
+        "other: cancel_orphan_brackets reads no clock); re-reviewed 2026-11-21 after the M4 loss-cap constant became shared "
+        "(L0_PORTFOLIO_LOSS_CAP_MAX, R067 a; no date change)", "2027-04-10",
+        "372e6d857b6b4451"),
     "tests/test_entry_fill.py": (
         "reviewed 2026-10-13: exit-check entries are an hour before now (_open_trade default); the fixed "
         "dates are fill timestamps and CHECK 89 entries read with a fixed now; re-reviewed 2026-10-31 after the "

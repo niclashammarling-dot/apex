@@ -839,7 +839,7 @@
       "source": "Vault raw/notes/2026-10/2026-10-24-apex-atr-leg-ablation-card.md (ATR leg ablation card, vault 368b3b64, written before the code): reproducibility: RNG seed for the live entries' draws. Ablation probe only (2026-10-24): no live gate, size or exit reads it.",
       "date": "2026-10-24"
     },
-    "backend/config.py::LIVE_L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX": {
+    "backend/config.py::L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX": {
       "value": 0.06,
       "kind": "chosen",
       "tier": "money",
@@ -847,7 +847,7 @@
       "date": "2026-10-24",
       "review": "2026-11-21"
     },
-    "backend/config.py::LIVE_L0_PORTFOLIO_LOSS_CAP_MAX": {
+    "backend/config.py::L0_PORTFOLIO_LOSS_CAP_MAX": {
       "value": 0.05,
       "kind": "chosen",
       "tier": "money",
@@ -855,7 +855,7 @@
       "date": "2026-10-24",
       "review": "2026-11-21"
     },
-    "backend/config.py::LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT": {
+    "backend/config.py::L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT": {
       "value": 40,
       "kind": "chosen",
       "tier": "money",
@@ -1495,6 +1495,14 @@
       "tier": "money",
       "date": "2026-11-21",
       "source": "Contracts are listed up to 60 days out so the two nearest expiries (yfinance's t.options[:2], weekly or monthly) are always inside; a structural bound on the request size, not a tuned value. No decision reads it beyond choosing the two nearest expiries."
+    },
+    "backend/backtest/historical.py::HISTORICAL_DEMO_LOSS_CAP_USD": {
+      "value": 100.0,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-11-21",
+      "review": "2027-05-21",
+      "source": "The demo wallet's fixed daily loss cap (config.DEMO_L0_PORTFOLIO_LOSS_CAP_MAX, unregistered) that the archived backtest analyses and engine_sharpe ran with; moved here on 2026-11-21 when the demo book's cap became L0's share of equity (R067 a, R111 a), so those runs reproduce. No production reader."
     }
   }
 }

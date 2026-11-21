@@ -451,8 +451,6 @@ const SETTINGS_FIELDS = [
     hint: "Each position beyond l2_risk_max_positions_count raises the quant threshold by this multiplier." },
   { key: "max_position_size",    label: "Max Position Size",     step: 0.01, min: 0.01, max: 0.5,
     hint: "Maximum fraction of account balance in a single position." },
-  { key: "l0_portfolio_loss_cap_max",       label: "Daily Loss Cap ($)",    step: 10,   min: 10,   max: 10000,
-    hint: "Demo: stops new entries for the rest of the day once losses hit this amount. Live: not read since 2026-10-24 — the Portfolio lock sets the cap at 5 % of current equity (M4)." },
   { key: "starting_balance",     label: "Starting Balance ($)",  step: 100,  min: 100,  max: 10000000,
     hint: "Account starting balance for position sizing and drawdown calculations." },
   { key: "max_hold_days",        label: "Time Stop (days)",      step: 1,    min: 1,    max: 90,

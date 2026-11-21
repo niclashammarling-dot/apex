@@ -56,7 +56,6 @@ from backend.backtest.engine_fast import (
     window_days,
 )
 from backend.config import (
-    DEMO_L0_PORTFOLIO_LOSS_CAP_MAX,
     DEMO_L3_SCORE_THRESHOLD_MIN,
     DEMO_MAX_POSITION_SIZE,
     DEMO_L2_RISK_MAX_POSITIONS_COUNT,
@@ -65,6 +64,7 @@ from backend.config import (
     DEMO_TAKE_PROFIT_PCT,
     TIME_STOP_DAYS,
 )
+from backend.backtest.historical import HISTORICAL_DEMO_LOSS_CAP_USD   # 2026-11-21, R111 a
 from backend.gate.lock_codes import accepts_legacy_keys
 
 # ── Vol targeting helpers ─────────────────────────────────────────────────────
@@ -281,7 +281,7 @@ def run(
                 continue
             if sl_cooldown.get(sig["ticker"], date.min) > today:
                 continue
-            if daily_loss_today >= DEMO_L0_PORTFOLIO_LOSS_CAP_MAX:
+            if daily_loss_today >= HISTORICAL_DEMO_LOSS_CAP_USD:
                 break
             if use_leading_rs and not rs_cache.get((sig["ticker"], today_str), True):
                 continue

@@ -25,7 +25,6 @@ _KEYS = [
     "l2_risk_max_positions_count",
     "l2_risk_overflow_step",
     "max_position_size",
-    "l0_portfolio_loss_cap_max",
     "max_hold_days",
     "l1_eligibility_vix_max",
     "l1_eligibility_macro_event_days",
@@ -50,7 +49,6 @@ _KEYS = [
 def _defaults() -> dict:
     from backend.config import (
         L0_PORTFOLIO_DRAWDOWN_GUARD_MAX,
-        DEMO_L0_PORTFOLIO_LOSS_CAP_MAX,
         L1_ELIGIBILITY_COOLOFF_HOURS,
         L1_ELIGIBILITY_EXIT_COOLOFF_HOURS,
         L1_ELIGIBILITY_EXIT_COOLOFF_WIN_HOURS,
@@ -88,7 +86,6 @@ def _defaults() -> dict:
         "l2_risk_max_positions_count":            DEMO_L2_RISK_MAX_POSITIONS_COUNT,
         "l2_risk_overflow_step":                  L2_RISK_OVERFLOW_STEP,
         "max_position_size":                      DEMO_MAX_POSITION_SIZE,
-        "l0_portfolio_loss_cap_max":              DEMO_L0_PORTFOLIO_LOSS_CAP_MAX,
         "max_hold_days":                          TIME_STOP_DAYS,
         "l1_eligibility_vix_max":                 L1_ELIGIBILITY_VIX_MAX,
         "l1_eligibility_macro_event_days":        L1_ELIGIBILITY_MACRO_EVENT_DAYS,

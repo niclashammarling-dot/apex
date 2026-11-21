@@ -163,13 +163,15 @@ def test_a_stopped_row_has_one_fail_in_its_owners_column():
     assert marks[2] == "partial"                      # earnings passed; etf, overflow, sector cap did not run
 
 
-def test_no_data_shows_n_a_and_a_demo_row_needs_no_m4_or_blocklist():
+def test_no_data_shows_n_a_and_a_demo_row_needs_m4_but_no_blocklist():
+    # M4 runs in both books since 2026-11-21 (R067 a); the blocklist stays live-only.
     states = dict(LIVE_PASSED, **{K(2, "earnings"): NO_DATA})
     assert lock_codes.lock_marks(states, "live")[2] == "n/a"
-    demo = {k: v for k, v in LIVE_PASSED.items()
-            if k not in (K(0, "halt_m4_drawdown"), K(0, "halt_m4_expectancy"), K(1, "blocklist"))}
+    demo = {k: v for k, v in LIVE_PASSED.items() if k != K(1, "blocklist")}
     assert lock_codes.lock_marks(demo, "demo") == ["pass"] * 7
-    assert lock_codes.lock_marks(demo, "live")[0] == "partial"
+    assert lock_codes.lock_marks(demo, "live")[1] == "partial"
+    no_m4 = {k: v for k, v in demo.items() if k not in (K(0, "halt_m4_drawdown"), K(0, "halt_m4_expectancy"))}
+    assert lock_codes.lock_marks(no_m4, "demo")[0] == "partial"
 
 
 def test_an_unknown_row_shows_no_fail():
@@ -256,7 +258,8 @@ def test_lock_owned_config_keys_follow_the_approved_chain():
     for k in ("l1_eligibility_vix_max", "l1_eligibility_macro_event_days", "l1_eligibility_macro_pre_event_penalty", "l1_eligibility_cooloff_hours",
               "l1_eligibility_exit_cooloff_hours", "l1_eligibility_exit_cooloff_win_hours"):
         assert labels[k] == "L1 · Eligibility", k
-    assert labels["l0_portfolio_drawdown_guard_max"] == labels["l0_portfolio_loss_cap_max"] == "L0 · Portfolio"
+    assert labels["l0_portfolio_drawdown_guard_max"] == "L0 · Portfolio"
+    assert "l0_portfolio_loss_cap_max" not in labels      # no config key since 2026-11-21 (R111 a): L0's share, both books
     assert lock_codes.LOCKS[2][1] == "ETF, earnings, concentration, overflow"   # overflow: ruling E, 10-26
     assert "macro" in lock_codes.LOCKS[1][1] and "macro" not in lock_codes.LOCKS[2][1]
 

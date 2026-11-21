@@ -42,7 +42,6 @@ import pandas as pd
 from loguru import logger
 
 from backend.config import (
-    DEMO_L0_PORTFOLIO_LOSS_CAP_MAX,
     EXCLUDED_SECTORS,
     DEMO_L3_SCORE_THRESHOLD_MIN,
     DEMO_MAX_POSITION_SIZE,
@@ -53,6 +52,7 @@ from backend.config import (
     TIME_STOP_DAYS,
     WIN_RATE_MIN_TRADES,
 )
+from backend.backtest.historical import HISTORICAL_DEMO_LOSS_CAP_USD   # 2026-11-21, R111 a
 from backend.signals import trend, relative_strength
 from backend.backtest.engine_fast import (
     precompute,
@@ -178,7 +178,7 @@ def _simulate(
                 continue
             if sl_cooldown.get(sig["ticker"], date.min) > today:
                 continue
-            if daily_loss_today >= DEMO_L0_PORTFOLIO_LOSS_CAP_MAX:
+            if daily_loss_today >= HISTORICAL_DEMO_LOSS_CAP_USD:
                 break
 
             comp  = component_cache.get((sig["ticker"], today_str))

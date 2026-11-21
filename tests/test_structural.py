@@ -32,7 +32,8 @@ def test_lock3_context_parity():
 
 
 def test_promote_exclusions():
-    """starting_balance and l0_portfolio_loss_cap_max must never appear in the promotable set."""
+    """starting_balance must never appear in the promotable set (l0_portfolio_loss_cap_max is no config key since
+    2026-11-21, R111 a)."""
     assert check_promote_exclusions() == []
 
 

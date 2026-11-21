@@ -288,6 +288,7 @@ class TestWeeklyRead:
         monkeypatch.setattr(bundle, "parity_items", lambda db=None: [])
         monkeypatch.setattr(bundle, "signal_items", lambda: [])
         monkeypatch.setattr(bundle, "retirement_items", lambda today: [])
+        monkeypatch.setattr(bundle, "demo_halt_items", lambda now, db=None: [])
         monkeypatch.setattr(bundle, "config_snapshot", lambda: {})
         (env / "data" / "weekly_report_sent.txt").write_text("2026-W43")
         b = bundle.build(now=self.FRI_W43)
@@ -383,3 +384,42 @@ def test_evaluated_nums_reads_ran_and_skipped_from_the_state(tmp_path, monkeypat
     state.write_text("{}")
     with pytest.raises(KeyError):
         bundle._evaluated_nums()                        # no evaluated list: unreadable, never "nothing ran"
+
+
+# ── demo book halted (R067 a; Niclas 2026-11-21: a demo halt mails no one, the bundle names the week) ───────────
+
+def _cycles_db(tmp_path, rows):
+    import sqlite3
+    p = tmp_path / "apex.db"
+    c = sqlite3.connect(p)
+    c.execute("CREATE TABLE gate_cycles (id INTEGER PRIMARY KEY, job TEXT, started_at TEXT, reason TEXT)")
+    c.executemany("INSERT INTO gate_cycles (job, started_at, reason) VALUES (?, ?, ?)", rows)
+    c.commit()
+    c.close()
+    return p
+
+
+def test_a_week_with_demo_halts_gives_one_item_with_its_counts(tmp_path):
+    from datetime import datetime, timezone
+    from audit import bundle
+    now = datetime(2026, 11, 27, 22, 0, tzinfo=timezone.utc)
+    db = _cycles_db(tmp_path, [("run_gate", "2026-11-24T15:00:00+00:00", "halt_m4_drawdown"),
+                               ("run_gate", "2026-11-25T15:00:00+00:00", "halt_m4_drawdown"),
+                               ("run_gate", "2026-11-26T15:00:00+00:00", "evaluated"),
+                               ("run_live_gate", "2026-11-26T15:00:00+00:00", "loss_cap"),     # live: mailed already
+                               ("run_gate", "2026-11-10T15:00:00+00:00", "loss_cap")])         # before the week
+    items = bundle.demo_halt_items(now, db)
+    assert len(items) == 1 and items[0]["section"] == "book" and items[0]["key"] == "book:demo_halt:2026-W48"
+    assert "halted in 2 of 3 gate cycles" in items[0]["text"] and "halt_m4_drawdown 2" in items[0]["text"]
+    assert items[0]["scope"]
+
+
+def test_a_week_without_demo_halts_gives_nothing_and_a_missing_db_is_a_warning(tmp_path):
+    from datetime import datetime, timezone
+    from audit import bundle
+    now = datetime(2026, 11, 27, 22, 0, tzinfo=timezone.utc)
+    db = _cycles_db(tmp_path, [("run_gate", "2026-11-26T15:00:00+00:00", "evaluated"),
+                               ("run_live_gate", "2026-11-26T15:00:00+00:00", "halt_m4_expectancy")])
+    assert bundle.demo_halt_items(now, db) == []
+    missing = bundle.demo_halt_items(now, tmp_path / "none.db")
+    assert [i["severity"] for i in missing] == ["WARNING"]

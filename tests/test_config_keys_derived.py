@@ -120,18 +120,23 @@ def test_every_rule_key_has_its_constant_shared_or_by_book_and_the_defaults_read
 
 
 def test_the_l0_rules_without_a_config_key_name_their_constants_by_rule_and_book():
+    # Since 2026-11-21 both books run M4 (R067 a): the shares and the count transfer, so one shared constant each;
+    # the frozen expectancy reference is each book's own (R127 a).
     from backend import config
     from backend.gate import l0_portfolio
     from backend.gate.lock_codes import constant_name
-    names = {constant_name(0, "halt_m4_drawdown", "max", "live"): 0.06,
-             constant_name(0, "loss_cap", "max", "live"): 0.05,
-             constant_name(0, "halt_m4_expectancy", "count", "live"): 40}
-    assert names == {"LIVE_L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX": 0.06, "LIVE_L0_PORTFOLIO_LOSS_CAP_MAX": 0.05,
-                     "LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT": 40}
+    names = {constant_name(0, "halt_m4_drawdown", "max"): 0.06,
+             constant_name(0, "loss_cap", "max"): 0.05,
+             constant_name(0, "halt_m4_expectancy", "count"): 40}
+    assert names == {"L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX": 0.06, "L0_PORTFOLIO_LOSS_CAP_MAX": 0.05,
+                     "L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT": 40}
     for n, v in names.items():
         assert getattr(config, n) == v and getattr(l0_portfolio, n) == v
-    ref = constant_name(0, "halt_m4_expectancy", "ref", "live")
-    assert getattr(config, ref)["n"] == 34 and getattr(l0_portfolio, ref) is getattr(config, ref)
+        assert not hasattr(config, "LIVE_" + n) and not hasattr(config, "DEMO_" + n), n    # shared, never both
+    for book, n in (("live", 34), ("demo", 72)):
+        ref = constant_name(0, "halt_m4_expectancy", "ref", book)
+        assert getattr(config, ref)["n"] == n and getattr(l0_portfolio, ref) is getattr(config, ref)
+    assert not hasattr(config, constant_name(0, "halt_m4_expectancy", "ref"))
 
 
 def test_no_constant_keeps_a_pre_phase_3_name():

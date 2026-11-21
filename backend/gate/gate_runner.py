@@ -168,6 +168,24 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     if not _data_reachable():
         cycle.reason = "data_unreachable"
         return []
+
+    # L0 Portfolio: M4's three rules in the demo book too (R067 a, 2026-11-14: "Demo finns för att spegla live";
+    # built 2026-11-21), before L1 starts, as gate_runner_live does. The daily cap is a share of equity here as well;
+    # L6 REVIEW's risk_limits read the effective dollar cap through cfg. A demo halt mails no one: the Friday bundle
+    # names a week in which demo stood halted (Niclas 2026-11-21: "Ett stoppat demo slutar ge jämförelsedata").
+    from backend.gate import l0_portfolio
+    l0 = l0_portfolio.evaluate_demo(cfg["starting_balance"])
+    cfg["l0_portfolio_loss_cap_max"] = l0["l0_portfolio_loss_cap_max"]
+    if l0["reason"]:
+        logger.warning(f"Gate runner: L0 halt {l0['reason']} — day loss ${l0['day_loss']:.2f} / cap "
+                       f"${l0['l0_portfolio_loss_cap_max']:.2f}; realised drawdown {l0['drawdown']['drawdown']:.2%}; "
+                       f"expectancy {l0['expectancy']}")
+        cycle.reason = l0["reason"]
+        return []
+    l0_states: dict[str, str] = {}
+    for ident, verdict in l0_portfolio.rule_verdicts(l0).items():
+        lock_codes.put(l0_states, ident, verdict)
+
     stale: list[dict] = []
     candidates = get_l3_score_candidates(threshold=cfg["l3_score_threshold_min"],
                                       sector_thresholds=sector_thresholds,
@@ -197,7 +215,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     ts = cycle.started_at
     unknown: list[dict] = []
     for c in skipped:
-        _write_demo(c, _pre_chain_result(c, _pre_chain_states(c["ticker"], pre_checks)), ts, unknown)
+        _write_demo(c, _pre_chain_result(c, {**l0_states, **_pre_chain_states(c["ticker"], pre_checks)}), ts, unknown)
 
     if skipped:
         skipped_set = {c["ticker"] for c in skipped}
@@ -286,7 +304,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     pre_states: dict[str, dict] = {}
     affordable = []
     for c in candidates:
-        states = _pre_chain_states(c["ticker"], pre_checks)
+        states = {**l0_states, **_pre_chain_states(c["ticker"], pre_checks)}
         refusal = _affordability(states, max_notional, c.get("price"), min_notional=wallet.MIN_ORDER,
                                  whole_shares=False)
         if refusal:

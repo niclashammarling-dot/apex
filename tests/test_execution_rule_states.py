@@ -19,19 +19,19 @@ from backend.gate.lock_codes import FAIL, PASS
 from backend.gate.lock_codes import rule_key as K
 
 ROOT = Path(__file__).resolve().parents[1]
-CFG = {"l2_risk_sector_cap_max": 0.30, "l2_risk_max_positions_count": 4, "l0_portfolio_loss_cap_max": 100.0, "max_position_size": 0.15}
-ORDER = ("max_positions", "sector_cap", "loss_cap", "position_open", "notional_too_small", "price_missing")
+CFG = {"l2_risk_sector_cap_max": 0.30, "l2_risk_max_positions_count": 4, "max_position_size": 0.15}
+# loss_cap left the wallet for L0 at the cycle's start on 2026-11-21 (R067 a; tests/test_l0_portfolio.py).
+ORDER = ("max_positions", "sector_cap", "position_open", "notional_too_small", "price_missing")
 KEY = {i: K(lock_codes.rule_for(i).owner, i) for i in ORDER}
 
 
-def _trade(open_count=0, exposure=0.0, loss=0.0, held=(), cash=2000.0, price=100.0, overflow=False):
+def _trade(open_count=0, exposure=0.0, held=(), cash=2000.0, price=100.0, overflow=False):
     gr = {"ticker": "NVDA", "sector": "Technology", "l6_review": {"position_size_pct": 0.10}, "l3_score": {"score": 0.7},
           "rule_states": {K(3, "threshold"): PASS}}
     portfolio = {"open_position_count": open_count, "cash": cash, "sector_exposure": {"Technology": exposure}}
     with ExitStack() as st:
         st.enter_context(patch.object(wallet, "get_portfolio_summary", return_value=portfolio))
         st.enter_context(patch.object(wallet, "get_demo_config", return_value=CFG))
-        st.enter_context(patch.object(wallet, "_daily_realized_loss", return_value=loss))
         st.enter_context(patch.object(wallet, "get_open_trades", return_value=[{"ticker": t} for t in held]))
         st.enter_context(patch.object(wallet, "insert_trade", return_value=7))
         out = wallet.execute_trade(gr, price, overflow=overflow)
@@ -41,7 +41,6 @@ def _trade(open_count=0, exposure=0.0, loss=0.0, held=(), cash=2000.0, price=100
 @pytest.mark.parametrize("ident, kwargs", [
     ("max_positions", {"open_count": 4}),
     ("sector_cap", {"exposure": 0.29}),
-    ("loss_cap", {"loss": 150.0}),
     ("position_open", {"held": ("NVDA",)}),
     ("notional_too_small", {"cash": 400.0}),       # 10 % of $400 is below the $50 floor
     ("price_missing", {"price": 0.0}),
@@ -56,6 +55,12 @@ def test_each_wallet_refusal_names_its_rule_and_the_checks_before_it_passed(iden
     assert gr["rule_states"][K(3, "threshold")] == PASS                 # the chain's states are kept
 
 
+def test_the_wallet_no_longer_checks_the_daily_loss_cap():
+    with patch.object(wallet, "_daily_realized_loss", return_value=10_000.0) as loss:
+        out, gr = _trade()
+    assert out["id"] == 7 and K(0, "loss_cap") not in gr["rule_states"] and not loss.called
+
+
 def test_an_executed_trade_passed_every_wallet_rule_and_an_overflow_slot_skips_max_positions():
     out, gr = _trade()
     assert out["id"] == 7 and "outcome_reason" not in gr
@@ -68,7 +73,7 @@ def test_every_identifier_the_wallet_emits_has_one_rule_owned_by_a_lock():
     src = (ROOT / "backend" / "wallet.py").read_text()
     emitted = set(re.findall(r'_check\("(\w+)"', src))
     assert {i: lock_codes.rule_for(i).owner for i in emitted} == {
-        "max_positions": 2, "sector_cap": 2, "loss_cap": 0,
+        "max_positions": 2, "sector_cap": 2,
         "position_open": 1, "notional_too_small": 1, "price_missing": 1}
 
 

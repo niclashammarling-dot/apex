@@ -23,7 +23,6 @@ import yfinance as yf
 from loguru import logger
 
 from backend.config import (
-    DEMO_L0_PORTFOLIO_LOSS_CAP_MAX,
     EXCLUDED_SECTORS,
     DEMO_L3_SCORE_THRESHOLD_MIN,
     DEMO_MAX_POSITION_SIZE,
@@ -113,7 +112,7 @@ def run(
     sl_cooldown_days:   int   | None = None,   # None: live config (live_shape.live_cooloff_days)
     tp_cooldown_days:   int   | None = None,
     l2_risk_sector_cap_max: float | None = None,   # None: config DEMO_L2_RISK_SECTOR_CAP_MAX
-    l0_portfolio_loss_cap_max:     float | None = None,   # None: LIVE_L0_PORTFOLIO_LOSS_CAP_MAX × initial_balance
+    l0_portfolio_loss_cap_max:     float | None = None,   # None: L0_PORTFOLIO_LOSS_CAP_MAX × initial_balance
     precomputed:        dict  | None = None,
     intraday_stops:     bool        = True,
     ratchet_from_high:  bool        = False,
@@ -282,8 +281,8 @@ def run(
     # Daily loss cap as live has it: 5 % of the starting balance (live $500 on $10,000,
     # demo $100 on $2,000). Until 2026-10-17 the engines used config's $100 on a
     # $10,000 simulation: 1 %, five times stricter than live.
-    from backend.config import LIVE_L0_PORTFOLIO_LOSS_CAP_MAX   # live's share, one source (L0 takes it of equity)
-    loss_cap   = l0_portfolio_loss_cap_max if l0_portfolio_loss_cap_max is not None else LIVE_L0_PORTFOLIO_LOSS_CAP_MAX * initial_balance
+    from backend.config import L0_PORTFOLIO_LOSS_CAP_MAX   # L0's share (both books), one source
+    loss_cap   = l0_portfolio_loss_cap_max if l0_portfolio_loss_cap_max is not None else L0_PORTFOLIO_LOSS_CAP_MAX * initial_balance
     sector_max = l2_risk_sector_cap_max if l2_risk_sector_cap_max is not None else DEMO_L2_RISK_SECTOR_CAP_MAX
 
     balance      = initial_balance

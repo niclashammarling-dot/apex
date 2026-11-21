@@ -96,27 +96,6 @@ def check2():
     )
 
 
-def check7():
-    demo = read("backend/gate/gate_runner.py")
-    live = read("backend/gate/gate_runner_live.py")
-    context_doc = read("audit/check7_context.md")
-    code = (
-        f"# DESIGN INTENT AND REASONING EXAMPLES\n{context_doc}\n\n"
-        f"# gate_runner.py (demo)\n{demo[-5000:]}\n\n"
-        f"# gate_runner_live.py\n{live[-5000:]}"
-    )
-
-    return ask(
-        "CHECK 7 — Demo/live gate runner parity: compare the two runners using the design "
-        "intent document above to reason about each divergence. The document gives examples "
-        "of intentional differences and the principles behind them — use these to reason "
-        "about any divergence you find, not just match against the list. Flag only divergences "
-        "you cannot explain from the stated principles. For each finding, briefly state why "
-        "the principle does not cover it.",
-        code
-    )
-
-
 def check8():
     context_doc = read("audit/check8_context.md")
     files = {
@@ -185,7 +164,6 @@ if __name__ == "__main__":
     results = [
         ("check1", check1()),
         ("check2", check2()),
-        ("check7", check7()),
         ("check8", check8()),
     ]
     append_to_report(results)

@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backend.config import LIVE_L0_PORTFOLIO_LOSS_CAP_MAX
+from backend.config import L0_PORTFOLIO_LOSS_CAP_MAX
 from backend.db import (
     close_live_trade,
     get_db,
@@ -1407,7 +1407,7 @@ class TestGateRefusal:
                 stack.enter_context(patch(
                     "backend.brokers.alpaca.get_account",
                     return_value={"trading_blocked": False, "account_blocked": False, "day_pnl": -500.0,
-                                  "equity": 100.0 / LIVE_L0_PORTFOLIO_LOSS_CAP_MAX},   # L0: a $100 cap
+                                  "equity": 100.0 / L0_PORTFOLIO_LOSS_CAP_MAX},   # L0: a $100 cap
                 ))
                 stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
                 # APEX-side reconstruction agrees with the broker (within the
@@ -1463,7 +1463,7 @@ class TestDataQualityDivergence:
                 "backend.brokers.alpaca.get_account",
                 return_value={"trading_blocked": False, "account_blocked": False, "day_pnl": day_pnl,
                               # L0 (2026-10-24): the cap is a share of equity; this equity makes it `cap`
-                              "equity": cap / LIVE_L0_PORTFOLIO_LOSS_CAP_MAX},
+                              "equity": cap / L0_PORTFOLIO_LOSS_CAP_MAX},
             ))
             stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
             stack.enter_context(patch("backend.gate.gate_runner_live._compute_apex_day_pnl",

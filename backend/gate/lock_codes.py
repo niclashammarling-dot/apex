@@ -109,12 +109,15 @@ class Rule:
 # before cooloff (the runners' skip label), gate cooloff before exit cooloff (ruling 2026-10-29), and exit cooloff
 # before its win window.
 RULES: tuple[Rule, ...] = (
-    Rule(0, "halt_m4_drawdown", ("halt_m4_drawdown",), books=("live",),
-         source="M4 rule 1, l0_portfolio.HALT_DRAWDOWN: realised equity off its peak (live, cycle level)"),
-    Rule(0, "loss_cap", ("loss_cap",), ("l0_portfolio_loss_cap_max",),
-         "M4 rule 2 in live (l0_portfolio.HALT_LOSS_CAP, cycle level); wallet.execute_trade's fixed-dollar cap in demo"),
-    Rule(0, "halt_m4_expectancy", ("halt_m4_expectancy",), books=("live",),
-         source="M4 rule 3, l0_portfolio.HALT_EXPECTANCY: the trailing sample's expectancy (live, cycle level)"),
+    # since 2026-11-23: M4 entered the demo book (R067 a, built 2026-11-21); live's stops are unchanged since 10-24.
+    Rule(0, "halt_m4_drawdown", ("halt_m4_drawdown",), since="2026-11-23",
+         source="M4 rule 1, l0_portfolio.HALT_DRAWDOWN: realised equity off its peak (both books, cycle level)"),
+    # No config key since 2026-11-21 (R111 a): l0_portfolio_loss_cap_max is L0's dollar product on each runner's cfg
+    # and the backtest engines' parameter name, not a value either config file holds.
+    Rule(0, "loss_cap", ("loss_cap",), since="2026-11-23",
+         source="M4 rule 2, l0_portfolio.HALT_LOSS_CAP: day loss against a share of equity (both books, cycle level)"),
+    Rule(0, "halt_m4_expectancy", ("halt_m4_expectancy",), since="2026-11-23",
+         source="M4 rule 3, l0_portfolio.HALT_EXPECTANCY: the trailing sample's expectancy (both books, cycle level)"),
     Rule(0, "drawdown_guard", config_keys=("l0_portfolio_drawdown_guard_max",), cooloff=True,
          source="chain.py mechanical pre-L5 guard (reason ends '(mechanical pre-L5 guard)')"),
     Rule(1, "blocklist", ("blocklist",), books=("live",),
@@ -174,7 +177,7 @@ RULES: tuple[Rule, ...] = (
     Rule(6, "unavailable", cooloff=True, check=False, source="l6_review L5_UNAVAILABLE_PREFIX"),
     Rule(6, "unavailable_inferred", cooloff=True, history_only=True, check=False,
          source="history: no reasoning before ba12aa2 (2026-09-18)"),
-    Rule(6, "broker_error", ("broker_error",), check=False,
+    Rule(6, "broker_error", ("broker_error",), check=False, books=("live",),     # live-only: found by M9, 2026-11-21
          source="gate_runner_live: the broker refused the approved order"),
     Rule(6, "broker_unknown", ("broker_unknown",), check=False, cooloff=True, books=("live",),
          source="gate_runner_live: the submit raised and the readback by client order id failed too, so whether the order "
@@ -406,7 +409,6 @@ def decorate_rows(rows: list[dict], book: str) -> list[dict]:
 # every archived key stays reachable.
 KEY_KINDS = ("min", "max", "days", "hours", "penalty", "floor", "step", "mode", "count", "ref")
 LEGACY_KEYS: dict[str, str] = {
-    "daily_loss_cap": "l0_portfolio_loss_cap_max",
     "max_drawdown_pct": "l0_portfolio_drawdown_guard_max",
     "gate_cooloff_hours": "l1_eligibility_cooloff_hours",
     "exit_cooloff_hours": "l1_eligibility_exit_cooloff_hours",

@@ -83,7 +83,7 @@ def test_a_pre_rotation_row_shows_the_blocklist_was_not_checked():
     assert by["NVDA"][SKIPS["exit_cooloff"]] == PASS
 
 
-def test_a_demo_row_carries_the_pre_chain_verdicts_and_no_m4():
+def test_a_demo_row_carries_the_pre_chain_verdicts_and_m4():
     from tests.test_gate_runners import _demo_patches, _signal
     with ExitStack() as st:
         [st.enter_context(p) for p in _demo_patches(candidates=[_signal()])]
@@ -91,7 +91,9 @@ def test_a_demo_row_carries_the_pre_chain_verdicts_and_no_m4():
     states = results[0]["rule_states"]
     assert {k: states.get(k) for k in SKIPS.values()} == {
         SKIPS["blocklist"]: None, SKIPS["position_open"]: PASS, SKIPS["cooloff"]: PASS, SKIPS["exit_cooloff"]: PASS}
-    assert M4.isdisjoint(states)                                      # demo runs no M4 (phase 4 parity input)
+    # M4 runs in the demo book since 2026-11-21 (R067 a): every row carries its three verdicts (an empty book:
+    # drawdown and cap pass, expectancy has no sample yet).
+    assert {k: states.get(k) for k in M4} == {k: (NO_DATA if "EXPECTANCY" in k else PASS) for k in M4}
 
 
 def test_demo_refuses_an_unaffordable_cycle_before_the_chain():

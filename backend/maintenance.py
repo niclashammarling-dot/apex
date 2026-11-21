@@ -63,13 +63,12 @@ def check_promote_exclusions() -> list[str]:
     """
     Account-size-specific config keys must not appear in the promotable set.
 
-    starting_balance and l0_portfolio_loss_cap_max are calibrated to account size, not
-    strategy. If either ends up in demo_thresholds(), Promote will overwrite
-    the live values — corrupting the sector exposure denominator and the daily
-    loss cap with demo-scale numbers.
+    starting_balance is calibrated to account size, not strategy. If it ends up in demo_thresholds(), Promote
+    overwrites the live value, corrupting the sector exposure denominator. (l0_portfolio_loss_cap_max left both
+    config files on 2026-11-21, R111 a: the daily cap is L0's share of equity in both books.)
     """
     from backend.live_config import _PROMOTE_EXCLUDE, demo_thresholds
-    required = {"starting_balance", "l0_portfolio_loss_cap_max"}
+    required = {"starting_balance"}
     issues = []
     promotable = set(demo_thresholds().keys())
     leaked = required - _PROMOTE_EXCLUDE
@@ -99,8 +98,11 @@ def check_context_parity() -> list[str]:
 
     signal    = {"ticker": "_CHECK", "sector": "Technology", "signal_score": 0.5}
 
-    demo_cfg  = get_demo_config()
+    from backend.gate.l0_portfolio import l0_portfolio_loss_cap_max
+    # Both runners put L0's dollar cap on cfg before the chain (no config-file key since 2026-11-21, R111 a).
+    demo_cfg  = {**get_demo_config(), "l0_portfolio_loss_cap_max": l0_portfolio_loss_cap_max(2000)}
     live_cfg  = get_live_config()
+    live_cfg  = {**live_cfg, "l0_portfolio_loss_cap_max": l0_portfolio_loss_cap_max(live_cfg["starting_balance"])}
     demo_wallet = {"balance": 2000, "open_positions": 0, "sector_exposure": {}}
     live_wallet = {**demo_wallet, "starting_balance": live_cfg["starting_balance"]}
 

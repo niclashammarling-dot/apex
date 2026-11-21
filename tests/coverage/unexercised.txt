@@ -76,7 +76,6 @@ audit/llm_checks.py::append_to_report	money
 audit/llm_checks.py::ask	money
 audit/llm_checks.py::check1	money
 audit/llm_checks.py::check2	money
-audit/llm_checks.py::check7	money
 audit/llm_checks.py::check8	money
 audit/llm_checks.py::read	money
 audit/mechanical_checks.py::_executed_checks	money

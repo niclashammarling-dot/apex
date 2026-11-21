@@ -209,9 +209,10 @@ def check37():
     appear in the promotable set.
 
     Two structural assertions:
-      1. _PROMOTE_EXCLUDE in backend/live_config.py contains both "starting_balance"
-         and "l0_portfolio_loss_cap_max" (text check — catches accidental removal).
-      2. demo_thresholds() returns neither key at runtime (import check — catches
+      1. _PROMOTE_EXCLUDE in backend/live_config.py contains "starting_balance" (text check — catches
+         accidental removal). l0_portfolio_loss_cap_max was the second key until 2026-11-21, when it left both
+         config files (R111 a: the daily cap is L0's share of equity in both books).
+      2. demo_thresholds() does not return it at runtime (import check — catches
          the filter being bypassed in code even if the constant looks correct).
 
     Prevented by: 2026-05-15. Promote wrote starting_balance=2000 into live_config,
@@ -219,7 +220,7 @@ def check37():
     cap 20% → all live trades unconditionally rejected). l0_portfolio_loss_cap_max=$100 would
     have imposed near-zero daily limit on a $100k account.
     """
-    REQUIRED = {"starting_balance", "l0_portfolio_loss_cap_max"}
+    REQUIRED = {"starting_balance"}   # l0_portfolio_loss_cap_max left both configs 2026-11-21 (R111 a)
     path = REPO / "backend/live_config.py"
     if not path.exists():
         flag(37, "Promote exclusion integrity", "CRITICAL",

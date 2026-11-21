@@ -8,12 +8,20 @@ go-criterion line; apex audit/QUESTIONS.md G7/M4). The three rules are portfolio
 answer is the same for every ticker, so they stop the cycle instead of filtering candidates.
 
   1. Drawdown: realised equity (starting balance + closed P&L of the canonical live sample) has
-     fallen LIVE_L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX or more from its peak  → "halt_m4_drawdown".
-  2. Daily loss cap as a share of current equity (LIVE_L0_PORTFOLIO_LOSS_CAP_MAX × broker equity); replaces
+     fallen L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX or more from its peak  → "halt_m4_drawdown".
+  2. Daily loss cap as a share of current equity (L0_PORTFOLIO_LOSS_CAP_MAX × broker equity); replaces
      the fixed-dollar cap  → "loss_cap" (the reason the dashboard and CHECKs already read).
-  3. Expectancy: once LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT in-session trades have closed after the
+  3. Expectancy: once L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT in-session trades have closed after the
      reference was frozen, their mean return on notional below the reference's one-sided 95 % lower bound
      → "halt_m4_expectancy".
+
+Both books (R067 a, 2026-11-14; demo since 2026-11-21): the shares and the count are live's; demo reads its own
+window and frozen reference (DEMO_L0_PORTFOLIO_M4_SINCE, DEMO_L0_PORTFOLIO_HALT_M4_EXPECTANCY_REF; R127 a). Intended
+differences, from what each book can measure: live's equity and day P&L are the broker's (marked to market, net of
+gains); demo's equity is its realised equity (positions at cost) and its day loss today's realised losses
+(wallet._daily_realized_loss, the measure demo's cap read before). Live's expectancy counts in-session trades only;
+demo has no signal_class, so every closed demo trade counts. A live halt mails; a demo halt does not, and the Friday
+bundle names a week in which demo stood halted.
 
 A halt holds until the condition clears (rules 1 and 3 do not clear on their own: realised equity
 and closed trades only change by trading) — resetting is a human decision, by design.
@@ -21,11 +29,13 @@ and closed trades only change by trading) — resetting is a human decision, by 
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 from backend.config import (
-    LIVE_L0_PORTFOLIO_LOSS_CAP_MAX,
-    LIVE_L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX,
-    LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT,
+    DEMO_L0_PORTFOLIO_HALT_M4_EXPECTANCY_REF,
+    L0_PORTFOLIO_LOSS_CAP_MAX,
+    L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX,
+    L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT,
     LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_REF,
 )
 
@@ -33,6 +43,17 @@ HALT_DRAWDOWN = "halt_m4_drawdown"
 HALT_LOSS_CAP = "loss_cap"
 HALT_EXPECTANCY = "halt_m4_expectancy"
 REASONS = (HALT_DRAWDOWN, HALT_LOSS_CAP, HALT_EXPECTANCY)
+
+
+@dataclass(frozen=True)
+class Book:
+    name: str
+    expectancy_ref: dict          # the frozen reference rule 3 compares against
+    in_session_only: bool         # rule 3 counts only signal_class == "in_session" rows
+
+
+LIVE = Book("live", LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_REF, True)
+DEMO = Book("demo", DEMO_L0_PORTFOLIO_HALT_M4_EXPECTANCY_REF, False)
 
 
 def _closed(rows: list[dict]) -> list[dict]:
@@ -51,47 +72,59 @@ def realised_drawdown(rows: list[dict], starting_balance: float) -> dict:
 
 
 def l0_portfolio_loss_cap_max(equity: float) -> float:
-    return float(equity) * LIVE_L0_PORTFOLIO_LOSS_CAP_MAX
+    return float(equity) * L0_PORTFOLIO_LOSS_CAP_MAX
 
 
-def expectancy(rows: list[dict]) -> dict:
-    """In-session trades closed after the frozen reference, their mean return on notional, and the bound."""
-    ref = LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_REF
-    after = [r for r in _closed(rows) if r.get("signal_class") == "in_session"
+def expectancy(rows: list[dict], book: Book = LIVE) -> dict:
+    """Trades closed after the book's frozen reference (live: in-session only), their mean return on notional,
+    and the bound."""
+    ref = book.expectancy_ref
+    after = [r for r in _closed(rows) if (not book.in_session_only or r.get("signal_class") == "in_session")
              and r["exited_at"] > ref["frozen_after_exit"] and r.get("notional")]
     x = [float(r["pnl"] or 0.0) / float(r["notional"]) for r in after]
     bound = ref["mean"] - 1.645 * ref["sd"] / math.sqrt(ref["n"])
     mean = sum(x) / len(x) if x else None
-    n_min = LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT
+    n_min = L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT
     return {"n": len(x), "needed": n_min, "mean": mean, "lower_bound": bound,
             "breached": len(x) >= n_min and mean is not None and mean < bound}
 
 
-def evaluate(acct: dict, rows: list[dict], starting_balance: float) -> dict:
+def evaluate(acct: dict, rows: list[dict], starting_balance: float, book: Book = LIVE) -> dict:
     """The L0 verdict for one cycle: reason (None = pass), the effective dollar cap, and the evidence."""
     dd = realised_drawdown(rows, starting_balance)
     cap = l0_portfolio_loss_cap_max(acct["equity"])
     day_loss = abs(min(float(acct["day_pnl"]), 0.0))
-    exp = expectancy(rows)
+    exp = expectancy(rows, book)
     reason = None
-    if dd["drawdown"] >= LIVE_L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX:
+    if dd["drawdown"] >= L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX:
         reason = HALT_DRAWDOWN
     elif day_loss >= cap:
         reason = HALT_LOSS_CAP
     elif exp["breached"]:
         reason = HALT_EXPECTANCY
     return {"reason": reason, "l0_portfolio_loss_cap_max": round(cap, 2), "day_loss": round(day_loss, 2),
-            "drawdown": dd, "expectancy": exp}
+            "drawdown": dd, "expectancy": exp, "book": book.name}
+
+
+def evaluate_demo(starting_balance: float) -> dict:
+    """The demo book's verdict: realised equity as equity, today's realised losses as the day loss, and the window
+    from DEMO_L0_PORTFOLIO_M4_SINCE for the drawdown (starting from the equity the window opened at) and rule 3."""
+    from backend.config import DEMO_L0_PORTFOLIO_M4_SINCE
+    from backend.db import demo_m4_rows
+    from backend.wallet import _daily_realized_loss
+    rows, pnl_before, pnl_all = demo_m4_rows(DEMO_L0_PORTFOLIO_M4_SINCE)
+    acct = {"equity": float(starting_balance) + pnl_all, "day_pnl": -_daily_realized_loss()}
+    return evaluate(acct, rows, float(starting_balance) + pnl_before, DEMO)
 
 
 def rule_verdicts(v: dict) -> dict[str, str]:
     """Each M4 rule's verdict for the cycle, by its identifier (lock_codes.put maps it to L0's rule): every rule
-    runs every cycle; expectancy is no_data until its sample reaches LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT
+    runs every cycle; expectancy is no_data until its sample reaches L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT
     (lock labels phase 2)."""
     from backend.gate.lock_codes import FAIL, NO_DATA, PASS
     exp = v["expectancy"]
     return {
-        HALT_DRAWDOWN:   FAIL if v["drawdown"]["drawdown"] >= LIVE_L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX else PASS,
+        HALT_DRAWDOWN:   FAIL if v["drawdown"]["drawdown"] >= L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX else PASS,
         HALT_LOSS_CAP:   FAIL if v["day_loss"] >= v["l0_portfolio_loss_cap_max"] else PASS,
         HALT_EXPECTANCY: FAIL if exp["breached"] else NO_DATA if exp["n"] < exp["needed"] else PASS,
     }
