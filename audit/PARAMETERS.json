@@ -1429,7 +1429,7 @@
       "tier": "money",
       "source": "R124 a (2026-11-21, vault Vault/data/ruling-positions.tsv): at 500 a reply that reasons in prose before its JSON could be cut before the JSON (live 11-02..11-20: 8 of 34 L6 calls failed closed on unparseable replies, the raw replies logged in logs/apex_2026-11-12.log and _11-17.log). 2048 chosen as headroom, not fitted; billing is per token used. Output tokens and stop_reason are logged on every unusable reply so the level can be measured.",
       "engine": "none (API request cap, no backtest engine)",
-      "commit": "pending (this change)",
+      "commit": "0efa6a9",
       "date": "2026-11-21",
       "review": "2026-12-19"
     }
