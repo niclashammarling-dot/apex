@@ -422,7 +422,6 @@ backend/data/fetcher_yahoo.py::_spy_data	money
 backend/data/fetcher_yahoo.py::fetch_all_sectors	money
 backend/data/l5_positioning_pcr_collector.py::_fetch_pcr	money
 backend/data/l5_positioning_pcr_collector.py::_fetch_vix	money
-backend/data/l5_positioning_pcr_collector.py::collect_pcr_snapshot	money
 backend/db.py::acknowledge_drift_alert	money
 backend/db.py::get_all_trades	money
 backend/db.py::get_closed_trades_for_drift	money
@@ -433,7 +432,6 @@ backend/db.py::get_existing_ticker_history_dates	money
 backend/db.py::get_live_trades_exited_since	money
 backend/db.py::get_open_live_tickers	money
 backend/db.py::get_open_tickers	money
-backend/db.py::get_pcr_history	money
 backend/db.py::get_rolling_win_rate	money
 backend/db.py::get_sector_posteriors_asof	money
 backend/db.py::get_wallet_context	money
@@ -441,7 +439,6 @@ backend/db.py::get_watchlist	money
 backend/db.py::get_yesterday_sector_avg_scores	money
 backend/db.py::get_yesterday_ticker_scores	money
 backend/db.py::has_drift_baselines	money
-backend/db.py::insert_pcr_observation	money
 backend/db.py::insert_ticker_history	money
 backend/db.py::latest_signals	money
 backend/db.py::prune_watchlist_auto	money

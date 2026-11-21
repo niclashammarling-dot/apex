@@ -180,29 +180,24 @@ def evaluate(ticker: str, sector: str, pcr_mode: str = "pooled_scalar") -> LockR
     # itself still leaks (Python has no way to kill a running thread), but it
     # no longer takes the whole gate cycle down with it.
     inner_pool  = ThreadPoolExecutor(max_workers=3)
-    fut_options = inner_pool.submit(_fetch_options_chains, ticker)
+    fut_options = inner_pool.submit(_fetch_options, ticker)
     fut_rs      = inner_pool.submit(_check_relative_strength, ticker, sector)
     fut_va      = inner_pool.submit(_check_volume_accumulation, ticker)
 
-    options_fetch_err: str | None = None
+    oi_chains: list[tuple] = []
+    vol_chains: list[tuple] = []
+    opt_meta: dict = {}
+    oi_err: str | None = None
+    vol_err: str | None = None
     try:
-        options_chains = fut_options.result(timeout=_YF_CALL_TIMEOUT_S)
+        oi_chains, vol_chains, opt_meta = fut_options.result(timeout=_OPTIONS_TIMEOUT_S)
+        oi_err, vol_err = opt_meta.get("oi_error"), opt_meta.get("volume_error")
     except FutureTimeoutError:
-        logger.error(f"L5 POSITIONING [{ticker}] options fetch: timed out after {_YF_CALL_TIMEOUT_S}s — abandoning")
-        options_chains    = []
-        options_fetch_err = "timed out"
+        logger.error(f"L5 POSITIONING [{ticker}] options fetch: timed out after {_OPTIONS_TIMEOUT_S}s — abandoning")
+        oi_err = vol_err = "timed out"
     except Exception as e:
         logger.warning(f"L5 POSITIONING [{ticker}] options fetch: {e}")
-        options_chains = []
-        msg = str(e)
-        if isinstance(e, MissingChainError):
-            options_fetch_err = msg[:80]
-        elif "curl" in msg.lower() or "tls" in msg.lower():
-            options_fetch_err = "curl TLS error"
-        elif "429" in msg or "rate" in msg.lower():
-            options_fetch_err = "Yahoo 429 rate limit"
-        else:
-            options_fetch_err = f"fetch error: {msg[:60]}"
+        oi_err = vol_err = _fetch_error_text(e)
 
     try:
         rs_result = fut_rs.result(timeout=_YF_CALL_TIMEOUT_S)
@@ -226,10 +221,10 @@ def evaluate(ticker: str, sector: str, pcr_mode: str = "pooled_scalar") -> LockR
 
     checks = {
         "relative_strength":   rs_result,
-        "put_call_ratio":      _check_put_call_ratio(options_chains, options_fetch_err,
-                                                     ticker=ticker, mode=pcr_mode),
-        "unusual_calls":       _check_unusual_call_volume(options_chains, options_fetch_err,
-                                                          session=datetime.now(_NY).date()),
+        "put_call_ratio":      {**_check_put_call_ratio(oi_chains, oi_err, ticker=ticker, mode=pcr_mode),
+                                **_source_fields(opt_meta, "oi")},
+        "unusual_calls":       {**_check_unusual_call_volume(vol_chains, vol_err, session=datetime.now(_NY).date()),
+                                **_source_fields(opt_meta, "volume")},
         "volume_accumulation": va_result,
     }
 
@@ -295,6 +290,126 @@ def evaluate(ticker: str, sector: str, pcr_mode: str = "pooled_scalar") -> LockR
 
 class MissingChainError(Exception):
     """A listed expiry's chain did not arrive on any attempt: the rest is half the input (2026-10-31)."""
+
+
+# The source PCR's live decision reads open interest from. R126 (c), ruled 2026-11-21 (vault ruling-positions): the
+# decision stays on yfinance for 20 sessions while Alpaca's open interest is recorded beside it (each L5 row's
+# `alpaca_shadow`, and the nightly collector's own table); the switch to "alpaca" waits for the pre-registered
+# comparison, and the PCR baseline's reader moves with it. Volume (unusual_calls) is Alpaca's from 2026-11-23.
+PCR_OI_SOURCE = "yfinance"
+
+# Alpaca first (contracts, then the chain snapshot) and, when a field falls back, yfinance's fetch with its own
+# retries: the whole fetch keeps the yfinance call's 15 s ceiling plus room for the two Alpaca requests.
+_OPTIONS_TIMEOUT_S = _YF_CALL_TIMEOUT_S + 10
+
+
+def _fetch_error_text(e: Exception) -> str:
+    msg = str(e)
+    if isinstance(e, MissingChainError):
+        return msg[:80]
+    if "curl" in msg.lower() or "tls" in msg.lower():
+        return "curl TLS error"
+    if "429" in msg or "rate" in msg.lower():
+        return "Yahoo 429 rate limit"
+    return f"fetch error: {msg[:60]}"
+
+
+def _source_fields(meta: dict, field: str) -> dict:
+    """What a check's row records about its input (2026-11-21): the source, the OI date for the OI check, Alpaca's
+    open interest beside a yfinance decision (R126: `alpaca_shadow`), and the Alpaca error when the field read
+    yfinance, so the fallback rate is readable from the rows."""
+    out = {"source": meta.get(f"{field}_source")} if meta.get(f"{field}_source") else {}
+    if field == "oi" and meta.get("oi_date"):
+        out["oi_date"] = meta["oi_date"]
+    if field == "oi" and meta.get("alpaca_shadow"):
+        out["alpaca_shadow"] = meta["alpaca_shadow"]
+    if meta.get(f"{field}_source") == "yfinance" and meta.get("alpaca_error"):
+        out["alpaca_error"] = meta["alpaca_error"]
+    return out
+
+
+def _alpaca_shadow(oi_chains: list[tuple], oi_date: str | None) -> dict:
+    """Alpaca's put/call open interest over the same two nearest expiries, recorded beside a yfinance decision."""
+    c = p = 0
+    for calls, puts, *_ in oi_chains:
+        c += int(calls["openInterest"].fillna(0).sum())
+        p += int(puts["openInterest"].fillna(0).sum())
+    return {"pc_ratio": round(p / c, 4) if c else None, "call_oi": c, "put_oi": p, "oi_date": oi_date,
+            "expiries": [e for *_, e in oi_chains]}
+
+
+def _fetch_options(ticker: str, today: date | None = None) -> tuple[list[tuple], list[tuple], dict]:
+    """
+    The two options inputs, each from its own source (2026-11-21, the 11-21 order's item 1; vault INDEX "APEX
+    options source", Niclas 2026-11-04: Alpaca primary, yfinance fallback per field).
+
+    Returns (oi_chains, volume_chains, meta). put_call_ratio reads open interest from oi_chains and unusual_calls
+    reads volume from volume_chains, both as [(calls, puts, expiry), ...] for the two nearest expiries.
+      open interest  while PCR_OI_SOURCE is "yfinance" (R126, the 20-session comparison): yfinance's chains, as
+                     before, a yfinance failure is a data error as before, and Alpaca's contracts are recorded
+                     beside the decision (meta alpaca_shadow). With "alpaca": Alpaca's contracts endpoint, yfinance
+                     when that call fails or lists no contract.
+      volume         Alpaca's chain snapshot (dailyBar, its date as lastTradeDate); yfinance when the snapshot
+                     fails or open interest already fell back (the expiries then come from yfinance).
+    meta: oi_source, volume_source ("alpaca" | "yfinance"), oi_date (Alpaca's open_interest_date, one session
+    behind by measurement), alpaca_error, and oi_error / volume_error when a field has no source at all
+    (a data error: L5 `unavailable`, as before).
+    """
+    from backend.data import options_alpaca as oa
+    today = today or datetime.now(_NY).date()
+    meta: dict = {}
+    rows, expiries, snaps = None, [], None
+    try:
+        rows = oa.contracts(ticker, today)
+        expiries = oa.nearest_expiries(rows)
+        if not expiries:
+            meta["alpaca_error"] = "no contract within the horizon"
+    except Exception as e:
+        meta["alpaca_error"] = f"contracts: {str(e)[:80]}"
+    if expiries:
+        try:
+            snaps = oa.snapshots(ticker, expiries)
+        except Exception as e:
+            meta["alpaca_error"] = f"snapshot: {str(e)[:80]}"
+
+    yf_cache: dict = {}
+
+    def _yf() -> list[tuple]:
+        if "chains" not in yf_cache:
+            try:
+                yf_cache["chains"] = _fetch_options_chains(ticker)
+            except Exception as e:
+                logger.warning(f"L5 POSITIONING [{ticker}] yfinance fallback fetch: {e}")
+                yf_cache["chains"], yf_cache["error"] = [], _fetch_error_text(e)
+        return yf_cache["chains"]
+
+    alpaca_oi = [(*oa.frames(rows, snaps, exp), exp) for exp in expiries] if expiries else None
+    if alpaca_oi is not None and PCR_OI_SOURCE == "yfinance":
+        meta["alpaca_shadow"] = _alpaca_shadow(alpaca_oi, oa.oi_date(rows, expiries))
+        oi_chains = _yf()
+        meta["oi_source"] = "yfinance"
+        if yf_cache.get("error"):
+            meta["oi_error"] = yf_cache["error"]
+    elif alpaca_oi is not None:
+        oi_chains = alpaca_oi
+        meta.update(oi_source="alpaca", oi_date=oa.oi_date(rows, expiries))
+    else:
+        oi_chains = _yf()
+        meta["oi_source"] = "yfinance"
+        if yf_cache.get("error"):
+            meta["oi_error"] = yf_cache["error"]
+    if alpaca_oi is not None and snaps is not None:
+        vol_chains = alpaca_oi
+        meta["volume_source"] = "alpaca"
+    else:
+        vol_chains = _yf()
+        meta["volume_source"] = "yfinance"
+        if yf_cache.get("error"):
+            meta["volume_error"] = yf_cache["error"]
+    if meta.get("alpaca_error"):
+        logger.warning(f"L5 POSITIONING [{ticker}] Alpaca options: {meta['alpaca_error']} — "
+                       f"OI from {meta['oi_source']}, volume from {meta['volume_source']}")
+    return oi_chains, vol_chains, meta
 
 
 def _fetch_options_chains(ticker: str) -> list[tuple]:

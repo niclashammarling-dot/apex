@@ -113,8 +113,8 @@ def run(root: Path, out: Path, mutate: bool = False) -> None:
         "score": by_ticker[ticker]["grok"][0], "conviction": by_ticker[ticker]["grok"][1],
         "sentiment": "bullish" if by_ticker[ticker]["grok"][0] > 0 else "bearish",
         "key_themes": ["replay"], "summary": f"replay summary {ticker}"}
-    l5._fetch_options_chains = lambda t: (_ for _ in ()).throw(RuntimeError("fetch error: replay")) \
-        if by_ticker[t]["opt_err"] else [("2026-12-18", None, None)]
+    l5._fetch_options = lambda t: (_ for _ in ()).throw(RuntimeError("fetch error: replay")) \
+        if by_ticker[t]["opt_err"] else ([("2026-12-18", None, None)], [("2026-12-18", None, None)], {})
     l5._check_relative_strength = lambda t, s: {
         "pass": by_ticker[t]["rs"][0], "error": False, "etf_return": by_ticker[t]["rs"][1],
         "reason": f"rs replay {t}"}

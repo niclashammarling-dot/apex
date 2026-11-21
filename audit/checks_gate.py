@@ -2504,6 +2504,92 @@ def check100(fetch=None, today: date | None = None) -> None:
             if missing else ""))
 
 
+_C101_EVENT_DAYS = 2      # CRITICAL window (sessions today and yesterday)
+_C101_TALLY_DAYS = 30     # INFO: the worst session share in this window
+_C101_MIN_ROWS   = 5      # a session with fewer L5 rows is not judged
+_C101_CRIT_SHARE = 0.5    # a sub-check erroring on at least half of a session's rows
+_C101_SUBCHECKS  = ("relative_strength", "put_call_ratio", "unusual_calls", "volume_accumulation")
+
+
+def l5_error_shares(rows: list[tuple]) -> dict:
+    """Pure core of CHECK 101. rows: (runner, utc timestamp, l5_positioning_checks JSON). Returns
+    {(runner, session, sub_check): (errors, n)} with the session as the New York date."""
+    import json
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    ny = ZoneInfo("America/New_York")
+    out: dict = {}
+    for runner, ts, raw in rows:
+        try:
+            checks = json.loads(raw) if raw else None
+        except ValueError:
+            checks = None
+        if not isinstance(checks, dict):
+            continue
+        session = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(ny).date().isoformat()
+        for name in _C101_SUBCHECKS:
+            c = checks.get(name)
+            if not isinstance(c, dict):
+                continue
+            e, n = out.get((runner, session, name), (0, 0))
+            out[(runner, session, name)] = (e + (1 if c.get("error") else 0), n + 1)
+    return out
+
+
+def check101(rows=None, today: date | None = None) -> None:
+    """
+    CHECK 101 — L5 POSITIONING sub-check error share per runner and session (2026-11-21, built with the options
+    source switch it guards; vault INDEX "APEX options source", CHECK added 2026-11-20 by learning step 2).
+
+    Founding case: since 9dfc26c (2026-11-14) production's unusual_calls needs lastTradeDate per contract; an
+    Alpaca chain without it errored on 102 of 102 tickers in the 11-20 probe. A sub-check that errors on every row
+    turns the options group into `unavailable` silently, one row at a time. Base 10-20..11-20: live 2 errors in 414
+    L5 rows (worst session 5 %), demo 22 in 494 (worst 14 %).
+      CRITICAL  a sub-check errored on at least _C101_CRIT_SHARE of a session's L5 rows (at least _C101_MIN_ROWS
+                rows) in the trailing _C101_EVENT_DAYS days, per runner (event severity: keyed runner, sub-check,
+                session, so each such session is mailed once).
+      INFO      the worst session share per runner over _C101_TALLY_DAYS days.
+    `rows`: (runner, timestamp, l5_positioning_checks) for tests; None reads both gate tables.
+    """
+    from datetime import timedelta
+    name = "L5 POSITIONING sub-check error share"
+    db = REPO / "data/apex.db"
+    today = today or date.today()
+    since = (today - timedelta(days=_C101_TALLY_DAYS)).isoformat()
+    since_event = (today - timedelta(days=_C101_EVENT_DAYS - 1)).isoformat()
+    if rows is None:
+        if not require_data_file(101, name, db):
+            return
+        try:
+            conn = sqlite3.connect(db)
+            rows = []
+            for runner, t in (("live", "live_gate_history"), ("demo", "demo_gate_history")):
+                rows += [(runner, ts, raw) for ts, raw in conn.execute(
+                    f"SELECT timestamp, l5_positioning_checks FROM {t} "
+                    f"WHERE timestamp >= ? AND l5_positioning_checks IS NOT NULL", (since,))]
+            conn.close()
+        except Exception as e:
+            flag(101, name, "WARNING", "data/apex.db:live_gate_history", f"could not query: {e}")
+            return
+    shares = l5_error_shares(rows)
+    bad = sorted((k, v) for k, v in shares.items()
+                 if k[1] >= since_event and v[1] >= _C101_MIN_ROWS and v[0] / v[1] >= _C101_CRIT_SHARE)
+    for (runner, session, sub), (e, n) in bad:
+        flag(101, name, "CRITICAL", f"backend/gate/l5_positioning.py:{sub}",
+             f"{runner} {session}: {sub} errored on {e} of {n} L5 rows ({e / n:.0%}); the options or price group "
+             f"is deciding `unavailable` on a data error. Read the rows' reasons and the source fields "
+             f"(source, alpaca_error) before the next session.")
+    worst = {}
+    for (runner, session, sub), (e, n) in shares.items():
+        if n >= _C101_MIN_ROWS and (runner not in worst or e / n > worst[runner][0]):
+            worst[runner] = (e / n, session, sub, e, n)
+    if shares:
+        flag(101, name, "INFO", "data/apex.db:l5_positioning_checks",
+             f"worst session share in {_C101_TALLY_DAYS} days (sessions with at least {_C101_MIN_ROWS} rows): "
+             + ("; ".join(f"{r} {w[1]} {w[2]} {w[3]}/{w[4]} ({w[0]:.0%})" for r, w in sorted(worst.items()))
+                or "no session with enough rows"))
+
+
 def run() -> None:
     check24()
     check25()
@@ -2534,3 +2620,4 @@ def run() -> None:
     check96()
     check97()
     check100()
+    check101()

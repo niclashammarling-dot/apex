@@ -84,10 +84,10 @@ def _l5(rs=RS_OK, va=VA_OK, chains=None, fetch_raises=None) -> LockResult:
         st.enter_context(patch.object(l5m, "_check_relative_strength", return_value=rs))
         st.enter_context(patch.object(l5m, "_check_volume_accumulation", return_value=va))
         if fetch_raises is not None:
-            st.enter_context(patch.object(l5m, "_fetch_options_chains", side_effect=fetch_raises))
+            st.enter_context(patch.object(l5m, "_fetch_options", side_effect=fetch_raises))
         else:
-            st.enter_context(patch.object(l5m, "_fetch_options_chains",
-                                          return_value=_chains() if chains is None else chains))
+            c = _chains() if chains is None else chains          # one source for both fields (2026-11-21)
+            st.enter_context(patch.object(l5m, "_fetch_options", return_value=(c, c, {})))
         return l5m.evaluate("AAPL", SECTOR)
 
 

@@ -1456,6 +1456,45 @@
       "date": "2026-11-21",
       "review": "2027-01-21",
       "source": "CHECK 100: recent orders fetched with legs. About 2 brackets per session plus their legs as one row each, so 500 covers the 30-day window with room; a trade whose bracket is not fetched is stated in the INFO line (first run 2026-11-21: 18 of 18 found). Report-only."
+    },
+    "audit/checks_gate.py::_C101_EVENT_DAYS": {
+      "value": 2,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-11-21",
+      "review": "2027-01-21",
+      "source": "CHECK 101 (audit/CHECKS.md row 101; vault INDEX 'APEX options source', CHECK scope 2026-11-20). Report-only: no gate, size or exit reads it. The same 2-session CRITICAL window as CHECKs 81 and 100."
+    },
+    "audit/checks_gate.py::_C101_TALLY_DAYS": {
+      "value": 30,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-11-21",
+      "review": "2027-01-21",
+      "source": "CHECK 101 (audit/CHECKS.md row 101; vault INDEX 'APEX options source', CHECK scope 2026-11-20). Report-only: no gate, size or exit reads it. The INFO line's horizon, as CHECK 81's tally."
+    },
+    "audit/checks_gate.py::_C101_MIN_ROWS": {
+      "value": 5,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-11-21",
+      "review": "2027-01-21",
+      "source": "CHECK 101 (audit/CHECKS.md row 101; vault INDEX 'APEX options source', CHECK scope 2026-11-20). Report-only: no gate, size or exit reads it. Minimum 5 rows per session, from the scope: about 5 L5 rows per book per session (measured 11-16..11-20), so a normal session is judged and a thin one is not."
+    },
+    "audit/checks_gate.py::_C101_CRIT_SHARE": {
+      "value": 0.5,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-11-21",
+      "review": "2027-01-21",
+      "source": "CHECK 101 (audit/CHECKS.md row 101; vault INDEX 'APEX options source', CHECK scope 2026-11-20). Report-only: no gate, size or exit reads it. At least half of a session's rows, from the scope: the live worst session 10-20..11-20 was 5 %, demo's 14 % (first run 2026-11-21 reproduced both), and the founding failure was 102 of 102."
+    },
+    "backend/data/options_alpaca.py::_HORIZON_DAYS": {
+      "value": 60,
+      "kind": "structural",
+      "tier": "money",
+      "date": "2026-11-21",
+      "source": "Contracts are listed up to 60 days out so the two nearest expiries (yfinance's t.options[:2], weekly or monthly) are always inside; a structural bound on the request size, not a tuned value. No decision reads it beyond choosing the two nearest expiries."
     }
   }
 }

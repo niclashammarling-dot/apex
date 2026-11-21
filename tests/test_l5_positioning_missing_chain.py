@@ -58,7 +58,10 @@ def _no_sleep():
 
 
 def _evaluate(fake):
-    with patch.object(l4m.yf, "Ticker", fake), \
+    # Alpaca is the primary source since 2026-11-21; these tests read the yfinance path, so Alpaca is down here and
+    # both fields fall back to yfinance (backend/gate/l5_positioning._fetch_options).
+    with patch("backend.data.options_alpaca.contracts", side_effect=ConnectionError("alpaca down")), \
+         patch.object(l4m.yf, "Ticker", fake), \
          patch.object(l4m, "_check_relative_strength", return_value=RS_OK), \
          patch.object(l4m, "_check_volume_accumulation", return_value=VA_OK):
         return l4m.evaluate("EOG", "Energy")

@@ -317,6 +317,24 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_pcr_ticker_date ON lock4_pcr_history(ticker, date DESC);
 
+            -- Alpaca's put/call open interest, collected beside lock4_pcr_history's yfinance rows for the R126
+            -- comparison (2026-11-21; vault ruling-positions R126). At the switch the PCR baseline's reader moves
+            -- here and lock4_pcr_history becomes an archive. oi_date is Alpaca's open_interest_date: the
+            -- comparison pairs readings by it, not by the run's date.
+            CREATE TABLE IF NOT EXISTS pcr_history_alpaca (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker         TEXT    NOT NULL,
+                date           TEXT    NOT NULL,
+                oi_date        TEXT,
+                pcr            REAL    NOT NULL,
+                expiry_1       TEXT,
+                expiry_2       TEXT,
+                call_oi        INTEGER,
+                put_oi         INTEGER,
+                is_dislocation INTEGER NOT NULL DEFAULT 0,
+                UNIQUE (ticker, date)
+            );
+
             CREATE TABLE IF NOT EXISTS alert_latches (
                 key    TEXT PRIMARY KEY,
                 set_at TEXT NOT NULL
@@ -1569,6 +1587,20 @@ def insert_pcr_observation(
             (ticker, date, round(pcr, 4), expiry_1, expiry_2, call_oi, put_oi,
              1 if is_dislocation else 0),
         )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def insert_pcr_alpaca_observation(ticker: str, date: str, oi_date: str | None, pcr: float, expiry_1: str | None,
+                                  expiry_2: str | None, call_oi: int, put_oi: int, is_dislocation: bool = False) -> None:
+    """Alpaca's daily P/C observation (R126, 2026-11-21): its own table, idempotent per (ticker, date)."""
+    conn = get_db()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO pcr_history_alpaca (ticker, date, oi_date, pcr, expiry_1, expiry_2, call_oi, "
+            "put_oi, is_dislocation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (ticker, date, oi_date, round(pcr, 4), expiry_1, expiry_2, call_oi, put_oi, 1 if is_dislocation else 0))
         conn.commit()
     finally:
         conn.close()

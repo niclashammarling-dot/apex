@@ -28,7 +28,7 @@ from pathlib import Path
 import yfinance as yf
 from loguru import logger
 
-from backend.db import insert_pcr_observation
+from backend.db import insert_pcr_alpaca_observation, insert_pcr_observation
 from backend.ticker_config import get_sectors
 
 # Completion marker read by CHECK 78 (audit/checks_data.py). The check counts a
@@ -92,6 +92,26 @@ def _fetch_pcr(ticker: str) -> dict | None:
         return None
 
 
+def _fetch_pcr_alpaca(ticker: str, today: date) -> dict | None:
+    """Alpaca's near-term put/call open interest over the two nearest expiries, with its open_interest_date (R126,
+    2026-11-21: collected beside yfinance's for the 20-session comparison; its own table). None on any failure."""
+    from backend.data import options_alpaca as oa
+    try:
+        rows = oa.contracts(ticker, today)
+        exps = oa.nearest_expiries(rows)
+        if not exps:
+            return None
+        c = sum(r["oi"] or 0 for r in rows if r["expiry"] in exps and r["type"] == "call")
+        p = sum(r["oi"] or 0 for r in rows if r["expiry"] in exps and r["type"] == "put")
+        if c + p == 0:
+            return None
+        return {"pcr": round(p / c, 4) if c else 99.0, "call_oi": c, "put_oi": p, "expiry_1": exps[0],
+                "expiry_2": exps[1] if len(exps) > 1 else None, "oi_date": oa.oi_date(rows, exps)}
+    except Exception as e:
+        logger.warning(f"PCR collector [{ticker}]: Alpaca fetch failed — {e}")
+        return None
+
+
 def collect_pcr_snapshot(today: date | None = None) -> dict:
     """
     Fetch and store P/C ratios for all active APEX tickers.
@@ -124,8 +144,17 @@ def collect_pcr_snapshot(today: date | None = None) -> dict:
         )
 
     collected = skipped = errors = 0
+    alpaca_collected = alpaca_errors = 0
 
     for ticker in tickers:
+        alp = _fetch_pcr_alpaca(ticker, today)          # R126: beside the yfinance row, whatever that returns
+        if alp is None:
+            alpaca_errors += 1
+        else:
+            insert_pcr_alpaca_observation(ticker=ticker, date=date_str, oi_date=alp["oi_date"], pcr=alp["pcr"],
+                                          expiry_1=alp["expiry_1"], expiry_2=alp["expiry_2"],
+                                          call_oi=alp["call_oi"], put_oi=alp["put_oi"], is_dislocation=is_dislocation)
+            alpaca_collected += 1
         result = _fetch_pcr(ticker)
         if result is None:
             errors += 1
@@ -144,8 +173,11 @@ def collect_pcr_snapshot(today: date | None = None) -> dict:
 
     logger.info(
         f"PCR snapshot {date_str}: collected={collected} skipped={skipped} "
-        f"errors={errors} dislocation={is_dislocation}"
+        f"errors={errors} dislocation={is_dislocation}; alpaca collected={alpaca_collected} errors={alpaca_errors}"
     )
+    if alpaca_collected < 0.9 * len(tickers):
+        logger.warning(f"PCR collector: Alpaca rows {alpaca_collected} of {len(tickers)} tickers on {date_str} — "
+                       f"the R126 comparison loses those sessions")
 
     # Written only when the run actually produced rows: a completed run that
     # collected nothing is a gap, and must stay visible to CHECK 78.
@@ -156,6 +188,8 @@ def collect_pcr_snapshot(today: date | None = None) -> dict:
                 "completed_at": datetime.now(timezone.utc).isoformat(),
                 "collected":    collected,
                 "errors":       errors,
+                "alpaca_collected": alpaca_collected,
+                "alpaca_errors":    alpaca_errors,
             }))
         except Exception as e:                      # never fail the collection on the marker
             logger.warning(f"PCR collector: could not write {PCR_DONE_PATH.name}: {e}")
@@ -164,6 +198,8 @@ def collect_pcr_snapshot(today: date | None = None) -> dict:
         "collected":       collected,
         "skipped":         skipped,
         "errors":          errors,
+        "alpaca_collected": alpaca_collected,
+        "alpaca_errors":    alpaca_errors,
         "is_dislocation":  is_dislocation,
         "vix":             vix,
         "date":            date_str,

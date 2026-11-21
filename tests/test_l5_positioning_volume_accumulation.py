@@ -15,7 +15,7 @@ import pytest
 def _no_options_fetch():
     """These tests are about the check loop, not the fetch. Found 2026-10-31 by the Finding 5 Yahoo guard: three of
     them fetched real option chains for NVDA, AAPL and GS on every run (the checks were mocked, the fetch was not)."""
-    with patch("backend.gate.l5_positioning._fetch_options_chains", return_value=[]):
+    with patch("backend.gate.l5_positioning._fetch_options", return_value=([], [], {})):   # Alpaca + yfinance (2026-11-21)
         yield
 
 
