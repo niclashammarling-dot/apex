@@ -111,8 +111,8 @@ class TestBuild:
         assert (t["closed"], t["new"], t["carried"]) == (1, 1, 1)
         assert (t["oldest_key"], t["oldest_days"]) == ("finding:39:WARNING:a", 7)
         line = bundle.render_text(json.loads((env / "bundle.json").read_text())).splitlines()[3]
-        assert line == ("THROUGHPUT since 2031-03-07: closed 1, new 1, carried 1; oldest 7 d "
-                        "(finding:39:WARNING:a)")
+        assert line == ("THROUGHPUT since 2031-03-07 (action items): closed 1, new 1, carried 1; oldest 7 d "
+                        "(finding:39:WARNING:a); config changes 0 (counted apart)")   # 3b, 2026-11-21
 
     def test_check88_is_evaluated_on_the_bundle_being_built(self, env):
         # The 10-30 shape: latest.json's CHECK 88 row described the 10-23 bundle ("4 without a scope") while

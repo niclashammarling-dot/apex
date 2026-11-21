@@ -90,7 +90,6 @@ audit/publish_state.py::_alert	money
 audit/publish_state.py::_git	money
 audit/publish_state.py::_liveness_due	money
 audit/publish_state.py::check_ci_liveness	money
-audit/publish_state.py::main	money
 audit/publish_state.py::publish_bundle	money
 audit/publish_state.py::push_state	money
 audit/publish_state.py::run_checks	money

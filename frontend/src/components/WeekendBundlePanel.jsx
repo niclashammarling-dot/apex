@@ -7,7 +7,7 @@ import React, { useEffect, useState } from "react";
 // Built in the week's last publish and mailed; read here at weekend maintenance.
 // Nothing is removed automatically (Niclas 2026-10-10). Shows its build time and
 // an explicit offline state, never an empty card.
-const SECTIONS = [["findings", "Findings"], ["todos", "TODO"], ["parity", "No reader"], ["config", "Config changed"],
+const SECTIONS = [["act", "Act: open CRITICALs"], ["findings", "Findings"], ["todos", "TODO"], ["parity", "No reader"], ["config", "Config changed"],
                   ["weekly", "Weekly read"]];
 const SEV = { CRITICAL: "t-sev-high", WARNING: "t-sev-medium" };
 const sthlm = ts => new Date(ts).toLocaleString("sv-SE", { timeZone: "Europe/Stockholm", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -16,7 +16,7 @@ const ageDays = d => Math.max(0, Math.round((Date.now() - new Date(d + "T12:00:0
 export default function WeekendBundlePanel() {
   const [data, setData]   = useState(null);
   const [error, setError] = useState(null);
-  const [open, setOpen]   = useState("findings");
+  const [open, setOpen]   = useState("act");
   useEffect(() => {
     const load = () => fetch("/api/ops/bundle")
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })

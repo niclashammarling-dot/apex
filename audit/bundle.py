@@ -134,6 +134,29 @@ def _item(key: str, section: str, severity: str, where: str, text: str, **extra)
     return {"key": key, "section": section, "severity": severity, "where": where, "text": text, **extra}
 
 
+# ── act: open CRITICALs from the ledger ───────────────────────────────────────
+
+def act_items(ledger_path: Path | None = None) -> list[dict]:
+    """The open CRITICAL ledger items, first in the bundle (2026-11-21, audit/critical_ledger.py; R119). Until then
+    the bundle read only Friday's run, so a CRITICAL that cleared mid-week (CHECK 81, 11-17/18) reached no bundle.
+    An item stays here, bundle to bundle, until it is disposed with an action (fixed, scoped or dated)."""
+    from audit import bundle_scopes as sc
+    from audit import critical_ledger as cl
+    out = []
+    for it in cl.open_items(path=ledger_path):
+        state = "standing" if it.get("cleared") is None else f"cleared {it['cleared']}, still open"
+        n = len(it.get("nights", []))
+        text = (f"CHECK {it['check']} {it.get('name', '')}: open since {it['first_seen']}, seen {n} night(s), {state}. "
+                f"Latest: {it.get('text', '')}")
+        try:
+            scope = sc.BY_CHECK.get(int(it["check"]))
+        except (TypeError, ValueError):
+            scope = None
+        out.append(_item(f"act:{it['key']}", "act", "CRITICAL", it.get("where", ""), text,
+                         written=it["first_seen"], scope=scope))
+    return out
+
+
 # ── findings ──────────────────────────────────────────────────────────────────
 
 def findings_items() -> list[dict]:
@@ -654,15 +677,20 @@ def throughput(prev: dict, kept: list[dict], excepted: list[dict], today: str) -
     and the Saturday session's read). No previous bundle is stated as such, never as zero closed."""
     if not prev.get("items") and not prev.get("generated_at"):
         return {"previous": None}
-    before = {i["key"] for i in prev.get("items", [])}
-    now_keys = {i["key"] for i in kept}
+    # Action items only (3b, R101 e, 2026-11-17): config items leave when their window passes, not by an action, and
+    # a phase-3 rename wrote each as two (old key gone, new key new): the 11-13 bundle held 116 items, 82 of them
+    # config, and said "new 93" for a week with 11 action items. Config changes get their own count.
+    acted = [i for i in kept if i.get("section") != "config"]
+    before = {i["key"] for i in prev.get("items", []) if i.get("section") != "config"}
+    now_keys = {i["key"] for i in acted}
     held = {e["key"] for e in excepted}
-    oldest = min(kept, key=lambda i: i.get("first_seen") or today, default=None)
+    oldest = min(acted, key=lambda i: i.get("first_seen") or today, default=None)
     age = ((datetime.fromisoformat(today) - datetime.fromisoformat(oldest["first_seen"])).days
            if oldest and oldest.get("first_seen") else None)
     return {"previous": prev.get("generated_at"),
             "closed": len(before - now_keys - held), "excepted": len(before & held),
             "new": len(now_keys - before), "carried": len(before & now_keys),
+            "config": sum(1 for i in kept if i.get("section") == "config"),
             "oldest_key": oldest["key"] if oldest else None, "oldest_days": age}
 
 
@@ -672,8 +700,10 @@ def _throughput_line(t: dict | None) -> str:
     if t.get("previous") is None:
         return "THROUGHPUT: no previous bundle to compare against"
     oldest = f"; oldest {t['oldest_days']} d ({t['oldest_key']})" if t.get("oldest_key") else ""
-    return (f"THROUGHPUT since {t['previous'][:10]}: closed {t['closed']}, new {t['new']}, carried {t['carried']}"
-            + (f", moved to exceptions {t['excepted']}" if t.get("excepted") else "") + oldest)
+    config = f"; config changes {t['config']} (counted apart)" if t.get("config") is not None else ""
+    return (f"THROUGHPUT since {t['previous'][:10]} (action items): closed {t['closed']}, new {t['new']}, "
+            f"carried {t['carried']}" + (f", moved to exceptions {t['excepted']}" if t.get("excepted") else "")
+            + oldest + config)
 
 
 def build(write: bool = False, now: datetime | None = None, db: Path | None = None) -> dict:
@@ -683,13 +713,13 @@ def build(write: bool = False, now: datetime | None = None, db: Path | None = No
     first_seen = {i["key"]: i["first_seen"] for i in prev.get("items", []) if "first_seen" in i}
 
     snap = config_snapshot()
-    items = (findings_items() + todo_items() + parity_items(db) + config_items(prev.get("config"), snap, since=prev.get("generated_at"),
+    items = (act_items() + findings_items() + todo_items() + parity_items(db) + config_items(prev.get("config"), snap, since=prev.get("generated_at"),
                                                                             since_commit=prev.get("host_commit"))
              + weekly_items(now) + signal_items() + retirement_items(today))
     excepted = []
     kept = []
     for it in items:
-        exc = EXCEPTIONS.get(it["key"])
+        exc = None if it["section"] == "act" else EXCEPTIONS.get(it["key"])   # R119: an open CRITICAL is not excepted
         if exc and exc[1] >= today:
             excepted.append({"key": it["key"], "reason": exc[0], "expires": exc[1]})
             continue
@@ -708,7 +738,7 @@ def build(write: bool = False, now: datetime | None = None, db: Path | None = No
     bundle = {"generated_at": now.isoformat(), "host_commit": commit, "items": kept,
               "excepted": excepted, "config": snap, "throughput": throughput(prev, kept, excepted, today),
               "counts": {**{s: sum(1 for i in kept if i["section"] == s)
-                            for s in ("findings", "todos", "parity", "config", "weekly", "signals", "retirement")},
+                            for s in ("act", "findings", "todos", "parity", "config", "weekly", "signals", "retirement")},
                          "no_scope": sum(1 for i in kept if not i["scope"])}}
     if write:
         STATE.mkdir(parents=True, exist_ok=True)
@@ -720,7 +750,8 @@ def render_text(b: dict) -> str:
     lines = [f"APEX weekend bundle — built {b['generated_at'][:16]} UTC @ {b.get('host_commit')}",
              "Decide each item at weekend maintenance: fix, wire a reader, or keep with a reason and a date.",
              "Nothing here is removed automatically.", _throughput_line(b.get("throughput")), ""]
-    names = {"findings": "AUDIT FINDINGS (non-INFO)", "todos": "TODO MARKERS",
+    names = {"act": "ACT: OPEN CRITICALS (leave only by an action: fixed, scoped or dated)",
+             "findings": "AUDIT FINDINGS (non-INFO)", "todos": "TODO MARKERS",
              "parity": "SIGNALS WITH NO READER", "config": "CONFIG CHANGED SINCE LAST BUNDLE",
              "weekly": "WEEKLY REPORT READ", "signals": "SIGNAL REGISTER (open hypotheses)",
              "retirement": "RETIREMENT (quiet and unarmed checks)"}

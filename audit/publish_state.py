@@ -301,6 +301,21 @@ def publish_bundle(now: datetime | None = None) -> None:
         print(f"(weekend bundle dispatch failed: {e})", file=sys.stderr)
 
 
+def write_critical_ledger(night: str | None = None) -> None:
+    """Every CRITICAL of tonight's run into the ledger the weekend bundle opens with (2026-11-21, audit/critical_ledger.py):
+    before publish_bundle, so a Friday bundle carries every CRITICAL of the week, cleared or standing. A failure is
+    printed and never masks the publish; the next night's run applies its own findings."""
+    import json
+    try:
+        from audit import critical_ledger
+        payload = json.loads(STATE_FILE.read_text())
+        night = night or critical_ledger._night_of(payload) or datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+        led = critical_ledger.update(payload.get("findings", []), night)
+        print(f"CRITICAL ledger: {len(led['items'])} open after {night}")
+    except Exception as e:
+        print(f"(CRITICAL ledger failed: {e!r})", file=sys.stderr)
+
+
 def write_fill_reconcile() -> None:
     """Before the checks, so CHECK 89 reads tonight's comparison (2026-10-31). A failure leaves the old file,
     which CHECK 89 reports as stale; it never masks the publish."""
@@ -320,6 +335,7 @@ def main() -> int:
     commit = push_state()
     print(f"Published {STATE_FILE.relative_to(REPO)} → origin/{BRANCH} @ {commit[:8]}")
     route_criticals()
+    write_critical_ledger()
     try:
         publish_bundle()
     except Exception as e:  # the bundle must never mask the publish result
