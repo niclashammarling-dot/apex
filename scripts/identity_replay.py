@@ -138,9 +138,9 @@ def run(root: Path, out: Path, mutate: bool = False) -> None:
     def _claude(payload, model, *a, **k):
         c = cur["c"]["claude"]
         if c is None:
-            return "not json at all", {"input_tokens": 1, "output_tokens": 1}
+            return "not json at all", {"input_tokens": 1, "output_tokens": 1}, "end_turn"
         return json.dumps({"decision": "BUY" if c[0] else "HOLD", "confidence": c[1], "position_size_pct": 0.08,
-                           "reasoning": f"replay {cur['c']['ticker']}"}), {"input_tokens": 1, "output_tokens": 1}
+                           "reasoning": f"replay {cur['c']['ticker']}"}), {"input_tokens": 1, "output_tokens": 1}, "end_turn"
 
     l6._call_anthropic = _claude
 

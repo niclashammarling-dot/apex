@@ -1422,6 +1422,16 @@
       "tier": "money",
       "source": "Read off a May 2026 sample of 65 universe tickers (median 0.88, P75 1.35), which described the universe, not the L5 rows (QUESTIONS M11, measured 2026-11-12: live L5 ticker-days median 1.58). S24's L0 card (2026-11-14, apex 7b47e9c) read unanswered: an IC of 0.03 at h1 is excluded, longer horizons and the RS-fail split under-powered. The L3 price-group read that could measure it was not run (R069 c, 2026-11-14); kept as chosen, the review date is the reader.",
       "review": "2027-01-14"
+    },
+    "backend/gate/l6_review.py::L6_REVIEW_MAX_TOKENS": {
+      "value": 2048,
+      "kind": "chosen",
+      "tier": "money",
+      "source": "R124 a (2026-11-21, vault Vault/data/ruling-positions.tsv): at 500 a reply that reasons in prose before its JSON could be cut before the JSON (live 11-02..11-20: 8 of 34 L6 calls failed closed on unparseable replies, the raw replies logged in logs/apex_2026-11-12.log and _11-17.log). 2048 chosen as headroom, not fitted; billing is per token used. Output tokens and stop_reason are logged on every unusable reply so the level can be measured.",
+      "engine": "none (API request cap, no backtest engine)",
+      "commit": "pending (this change)",
+      "date": "2026-11-21",
+      "review": "2026-12-19"
     }
   }
 }

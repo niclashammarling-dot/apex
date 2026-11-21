@@ -113,10 +113,17 @@ def evaluate(
         return _fail_closed("no_api_key")
 
     try:
-        raw, _usage = _call_anthropic(payload, _SONNET_MODEL)
-        return _parse_to_result(raw, effective_min, ticker, _SONNET_MODEL)
+        raw, usage, *rest = _call_anthropic(payload, _SONNET_MODEL)
     except Exception as e:
         logger.error(f"L6 REVIEW [{ticker}]: Sonnet failed ({e}) — failing closed")
+        return _fail_closed(_classify_api_error(e))
+    try:
+        return _parse_to_result(raw, effective_min, ticker, _SONNET_MODEL)
+    except Exception as e:
+        stop = rest[0] if rest else None
+        out  = usage.get("output_tokens") if isinstance(usage, dict) else getattr(usage, "output_tokens", None)
+        logger.error(f"L6 REVIEW [{ticker}]: reply not usable ({e}; stop_reason={stop}, output_tokens={out}) "
+                     f"— failing closed")
         return _fail_closed(_classify_api_error(e))
 
 
@@ -207,29 +214,62 @@ def _build_context_payload(
 
 # ── Provider calls ────────────────────────────────────────────────────────────
 
-def _call_anthropic(payload: dict, model: str) -> tuple[str, object]:
+# Output cap. Chosen 2026-11-21 (R124 a): at 500 a reply that reasons in prose before its JSON could be cut before the
+# JSON arrives. Billing is per token used, so the cap costs nothing unless a reply needs it; output tokens and the stop
+# reason are logged on every unparseable reply so the level can be measured.
+L6_REVIEW_MAX_TOKENS = 2048
+
+
+def _call_anthropic(payload: dict, model: str) -> tuple[str, object, str | None]:
+    """(reply text, usage, stop_reason)."""
     client   = _get_anthropic()
     response = client.messages.create(
         model      = model,
-        max_tokens = 500,
+        max_tokens = L6_REVIEW_MAX_TOKENS,
         system     = SYSTEM_PROMPT,
         messages   = [{"role": "user", "content": json.dumps(payload, indent=2, default=str)}],
     )
-    return response.content[0].text.strip(), response.usage
+    return response.content[0].text.strip(), response.usage, getattr(response, "stop_reason", None)
 
 
 # ── Parse & result ────────────────────────────────────────────────────────────
 
+_REPLY_KEYS      = ("decision", "confidence", "position_size_pct", "reasoning")
+_REPLY_DECISIONS = {"BUY", "HOLD", "SELL"}
+
+
+def _extract_decision(raw: str) -> dict:
+    """
+    The last JSON object in the reply that carries the four keys with a valid decision (R124 a, 2026-11-21).
+
+    The prompt asks for JSON only, but claude-sonnet-4-6 sometimes reasons in prose first ("I need to work through
+    each responsibility systematically …"); until 2026-11-21 the reply was decoded only at character 0, so such a
+    reply failed closed (live 11-02..11-20: 8 of 34 calls; VTR 11-04 and DLR 11-12 lost without a decision). A
+    reply may also hold a draft object in its reasoning before the final one, so the last valid object is taken.
+    Raises json.JSONDecodeError when no object qualifies, which fails the lock closed with that cause (CHECK 81).
+    """
+    dec, found = json.JSONDecoder(), None
+    for i, ch in enumerate(raw):
+        if ch != "{":
+            continue
+        try:
+            obj, _ = dec.raw_decode(raw, i)
+        except json.JSONDecodeError:
+            continue
+        if (isinstance(obj, dict) and all(k in obj for k in _REPLY_KEYS)
+                and str(obj.get("decision", "")).upper() in _REPLY_DECISIONS):
+            found = obj
+    if found is None:
+        raise json.JSONDecodeError("no JSON object with decision, confidence, position_size_pct and reasoning", raw, 0)
+    return found
+
+
 def _parse_to_result(raw: str, effective_min: float, ticker: str, model: str) -> LockResult:
-    if raw.startswith("```"):
-        raw = raw.strip("`")
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
     try:
-        parsed, _ = json.JSONDecoder().raw_decode(raw)
+        parsed = _extract_decision(raw)
     except json.JSONDecodeError:
-        logger.warning(f"L6 REVIEW [{ticker}] ({model}): JSON parse failed — treating as HOLD\nRaw: {raw[:200]}")
+        logger.warning(f"L6 REVIEW [{ticker}] ({model}): no decision object in the reply — failing closed\n"
+                       f"Head: {raw[:200]}\nTail: {raw[-200:]}")
         raise
 
     decision      = parsed.get("decision", "HOLD").upper()

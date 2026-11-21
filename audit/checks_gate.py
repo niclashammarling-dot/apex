@@ -1169,9 +1169,15 @@ def _l5_recovered_after(db, unavailable_prefix: str, since: str) -> str | None:
         return None   # never let the remediation probe fail the check
 
 
-def check81() -> None:
+def check81(today: date | None = None) -> None:
     """
     CHECK 81 — L6 REVIEW fail-closed (API unavailable) is an event, not a HOLD.
+
+    Lost candidates only (R124 a, 2026-11-21): a prefixed row counts as a lost candidate only when L6 REVIEW was
+    its stop (stop_code L6 unavailable; on a row without stop_code, its lock code). Pre-rotation
+    candidates run L3–L6 past a failed L1 rule (lock labels phase 4a M5), so a fail-closed L6 call can sit on a row
+    an earlier rule already stopped: on 2026-11-17 six SPG rows stopped by L1's exit cooloff on a win were counted
+    here as lost. Those are reported apart, as INFO: an Anthropic call spent, no candidate lost.
 
     l6_review._fail_closed returns HOLD with reason
     `anthropic_unavailable: <cause>` (cause ∈ credit_exhausted, auth,
@@ -1198,27 +1204,47 @@ def check81() -> None:
     SKIPPED without apex.db.
     """
     from datetime import timedelta
+    from backend.gate.lock_codes import stop_code
     from backend.gate.types import L5_UNAVAILABLE_PREFIX
     name = "L6 REVIEW fail-closed (API unavailable)"
     db   = REPO / "data/apex.db"
     if not require_data_file(81, name, db):
         return
-    today = date.today()
+    today = today or date.today()
     since_event = (today - timedelta(days=_C81_EVENT_DAYS - 1)).isoformat()
     since_tally = (today - timedelta(days=_C81_TALLY_DAYS)).isoformat()
-    q = ("SELECT date(timestamp), ticker, decision_reason FROM {t} "
+    q = ("SELECT date(timestamp), ticker, decision_reason, stop_code, gate_decision FROM {t} "
          "WHERE timestamp >= ? AND decision_reason LIKE ? ORDER BY timestamp")
     try:
         conn = sqlite3.connect(db)
-        rows = {t: conn.execute(q.format(t=t), (since_tally, L5_UNAVAILABLE_PREFIX + "%")).fetchall()
-                for t in ("live_gate_history", "demo_gate_history")}
+        stored = {t: conn.execute(q.format(t=t), (since_tally, L5_UNAVAILABLE_PREFIX + "%")).fetchall()
+                  for t in ("live_gate_history", "demo_gate_history")}
         conn.close()
     except Exception as e:
         flag(81, name, "WARNING", "data/apex.db:live_gate_history", f"could not query: {e}")
         return
 
+    l6_stops = {stop_code(6, "unavailable"), stop_code(6, "unavailable_inferred")}
+
+    def _l6_was_the_stop(sc, gd) -> bool:
+        if sc:
+            return sc in l6_stops
+        return bool(gd) and gd.startswith("FILTERED_L6")   # no stop_code: read the lock code (migrated 2026-10-31)
+
     def _cause(r: str) -> str:
         return r.split(":", 1)[1].strip() if ":" in r else "unspecified"
+
+    rows    = {t: [r[:3] for r in rs if _l6_was_the_stop(r[3], r[4])] for t, rs in stored.items()}
+    earlier = {t: [r for r in rs if not _l6_was_the_stop(r[3], r[4]) and r[0] >= since_event]
+               for t, rs in stored.items()}
+    n_earlier = sum(len(v) for v in earlier.values())
+    if n_earlier:
+        flag(81, name, "INFO", "backend/gate/gate_runner_live.py:pre-rotation",
+             f"{n_earlier} fail-closed L6 REVIEW call(s) in the last {_C81_EVENT_DAYS} days on rows an earlier rule "
+             f"had already stopped (no candidate lost; an Anthropic call spent; pre-rotation runs L3–L6 past L1, "
+             f"phase 4a M5): " + "; ".join(
+                 f"{t.split('_')[0]}: " + ", ".join(f"{d[5:]} {tk} {sc}" for d, tk, _, sc, _ in v)
+                 for t, v in earlier.items() if v) + ".")
 
     event = {t: [r for r in rs if r[0] >= since_event] for t, rs in rows.items()}
     n_event = sum(len(v) for v in event.values())
