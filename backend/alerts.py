@@ -84,6 +84,19 @@ def alert_config_corrupted(config_name: str, error: str) -> None:
     _dispatch(title, body)
 
 
+def alert_live_config_unavailable(cause: str) -> None:
+    """R090 a (2026-11-21): a missing or unreadable data/live_config.json halts live entries; nothing is written."""
+    title = "[APEX] CRITICAL — live config unavailable, live entries halted"
+    body  = (
+        f"{cause}.\n"
+        "Live entries are halted until data/live_config.json is restored (from data/backups or by hand). "
+        "Open positions keep their broker legs and stored per-trade levels; the time stop is off while the file is "
+        "missing. The file was not written over.\n"
+        "Each gate cycle records the cause on its gate_cycles row."
+    )
+    _dispatch(title, body)
+
+
 def alert_regime_exits(closed: list[dict], mode: str = "DEMO") -> None:
     """Fire once per regime-exit batch with a summary of all positions closed."""
     if not closed:

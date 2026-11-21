@@ -104,6 +104,7 @@ def test_every_rule_key_has_its_constant_shared_or_by_book_and_the_defaults_read
     root = Path(__file__).resolve().parents[1]
     src = {book: (root / f"backend/{book}_config.py").read_text() for book in ("demo", "live")}
     pairs = {book: dict(re.findall(r'^\s+"(\w+)":\s+(\w+),$', text, re.M)) for book, text in src.items()}
+    from backend.live_config import _KEYS as live_keys
     for r in RULES:
         for k in r.config_keys:
             kind = k.rsplit("_", 1)[1]
@@ -113,11 +114,9 @@ def test_every_rule_key_has_its_constant_shared_or_by_book_and_the_defaults_read
             assert hasattr(config, shared) != per_book, k
             assert not any(hasattr(config, n) for n in own.values()) or per_book, k
             assert pairs["demo"][k] == (own["demo"] if per_book else shared), k
-            if k == "l0_portfolio_loss_cap_max":    # live's is a share of equity; its stored key the dollar product
-                assert '"l0_portfolio_loss_cap_max":' in src["live"]
-                assert "round(LIVE_L0_PORTFOLIO_LOSS_CAP_MAX * LIVE_STARTING_BALANCE, 2)" in src["live"]
-            else:
-                assert pairs["live"][k] == (own["live"] if per_book else shared), k
+            # Live has no defaults since 2026-11-21 (M12, R090 a): data/live_config.json is the only source, so
+            # every rule key must be one the live reader takes from the file.
+            assert k in live_keys, k
 
 
 def test_the_l0_rules_without_a_config_key_name_their_constants_by_rule_and_book():

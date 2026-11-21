@@ -156,7 +156,7 @@ def live_gate_history():
 
     rows = get_live_gate_history(since=market_open)
     thresholds = get_ticker_thresholds()
-    flat = get_live_config().get("l3_score_threshold_min", 0.5)
+    flat = get_live_config()["l3_score_threshold_min"]
     for row in rows:
         row["l3_score_threshold_min"] = thresholds.get(row["sector"], flat)
         if row.get("l5_positioning_checks"):

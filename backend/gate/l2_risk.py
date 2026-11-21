@@ -110,7 +110,7 @@ def check_etf(ticker: str, signal_score: float, l5_data: dict | None, cfg: dict,
     declining sector increases sector-level drawdown risk even when the ticker outperforms its ETF. Tune:
     l2_risk_etf_floor (default -1.0%) sets the noise floor; a rate of 0.20 would have penalised the LRCX
     SOXX=-1.3% entry (score 0.855→0.633 < 0.65)."""
-    l2_risk_etf_penalty = cfg.get("l2_risk_etf_penalty", 0.0)
+    l2_risk_etf_penalty = cfg["l2_risk_etf_penalty"]
     if not l2_risk_etf_penalty > 0:
         return PASS, signal_score, None
     l2_risk_etf_floor = cfg.get("l2_risk_etf_floor", -1.0)

@@ -304,7 +304,7 @@ function adaptWallet(wallet, equityPoints) {
   if (!wallet) return null;
   return {
     balance:    wallet.balance ?? 0,
-    starting:   wallet.starting_balance ?? 2000,
+    starting:   wallet.starting_balance ?? null,   // the demo config's value, or unknown (M12)
     cash:       wallet.cash ?? 0,
     invested:   wallet.invested ?? 0,
     realized:   wallet.realized_pnl ?? 0,
@@ -325,7 +325,7 @@ function adaptWallet(wallet, equityPoints) {
 // shown beside the all-input one (Finding 1, 2026-10-10). Computed here from raw
 // rows until 2026-10-10, with its own copy of the reset date and filters.
 function adaptLiveWallet(account, livePositions, settings, equityPoints, liveStats) {
-  const starting = settings?.live?.starting_balance ?? 25000;
+  const starting = settings?.live?.starting_balance ?? null;   // one value per fact (M12): the file's, or unknown
   if (!account) {
     return { balance: 0, starting, cash: 0, invested: 0, realized: 0, unrealized: 0, winRate: 0, trades: 0, avgWin: 0, avgLoss: 0, drawdown: 0, sharpe: 0 };
   }
@@ -359,7 +359,7 @@ function adaptPositions(openPositions) {
     entry:  p.avg_entry_price ?? p.price ?? 0,
     mkt:    p.current_price ?? p.avg_entry_price ?? p.price ?? 0,
     pnl:    p.unrealized_pnl ?? 0,
-    pct:    (p.unrealized_pct ?? 0) * 100,
+    pct:    p.unrealized_pct == null ? null : p.unrealized_pct * 100,   // unknown, not +0.00 % (M12)
     peak:   p.peak_price ?? p.current_price ?? p.avg_entry_price ?? p.price ?? 0,
     // null (not 0) when no internal OPEN row exists to compute this from —
     // e.g. a broker-side position with no matching live_trades row (untracked

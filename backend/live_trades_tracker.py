@@ -389,6 +389,19 @@ def _check_untracked_positions(alpaca_positions: set[str], open_trades: list[dic
     clear_alert_latches_except("untracked:", {f"untracked:{t}" for t in untracked})
 
 
+def _exit_config() -> dict:
+    """live_config.json for the exit pass, or {} when the file is missing or unreadable (R090 a, 2026-11-21): exits
+    keep running on the broker legs and stored per-trade levels; the time stop and the profit-lock ratchet, whose
+    parameters live only in the file, are off and said so. No default stands in for the file."""
+    from backend.live_config import LiveConfigUnavailable, get_live_config
+    try:
+        return get_live_config()
+    except LiveConfigUnavailable as e:
+        logger.error(f"Live exit check: {e} — time stop and profit-lock ratchet off this cycle; "
+                     f"broker legs and stored levels keep protecting")
+        return {}
+
+
 def check_live_exits() -> list[dict]:
     """
     For each open live trade:
@@ -406,9 +419,8 @@ def check_live_exits() -> list[dict]:
     open_trades = get_open_live_trades()
 
     from backend.brokers import alpaca as broker
-    from backend.live_config import get_live_config
-    cfg           = get_live_config()
-    max_hold_days = cfg["max_hold_days"]
+    cfg           = _exit_config()
+    max_hold_days = cfg.get("max_hold_days")          # None only when the file is unavailable: time stop off
 
     # Snapshot of tickers currently held in Alpaca — used for the reconciliation
     # fallback below AND the untracked-position check (the mirror direction:
@@ -482,7 +494,7 @@ def check_live_exits() -> list[dict]:
             exited_at   = filled_leg["filled_at"] or datetime.now(timezone.utc).isoformat()
 
         # ── Time-stop ───────────────────────────────────────────────────────
-        elif _trading_days_since(trade["timestamp"]) >= max_hold_days:
+        elif max_hold_days is not None and _trading_days_since(trade["timestamp"]) >= max_hold_days:
             logger.info(f"Live time-stop [{ticker}]: {max_hold_days} trading days elapsed — closing")
             try:
                 result = broker.close_position(ticker)

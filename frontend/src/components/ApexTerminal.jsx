@@ -11,6 +11,7 @@ import EntryFillsPanel from "./EntryFillsPanel.jsx";
 import WeekendBundlePanel from "./WeekendBundlePanel.jsx";
 import GateCapacityPanel from "./GateCapacityPanel.jsx";
 import ConfigChangesPanel from "./ConfigChangesPanel.jsx";
+import LiveConfigPanel from "./LiveConfigPanel.jsx";
 import RegimeBayes   from "./RegimeBayes.jsx";
 import Watchlist     from "./Watchlist.jsx";
 import DemoTradeLog  from "./DemoTradeLog.jsx";
@@ -123,7 +124,7 @@ function Wallet({ D, mode }) {
         <div className="t-num-lg">{fmt$(w.balance)}</div>
         <div style={{ marginTop: 4, fontSize: 12 }}>
           <span className={total >= 0 ? "t-pos" : "t-neg"}>{total >= 0 ? "+" : "−"}{fmt$(Math.abs(total)).replace("$","")}</span>
-          <span className="t-meta" style={{ marginLeft: 8 }}>{fmtPct((w.balance - w.starting)/w.starting)}</span>
+          <span className="t-meta" style={{ marginLeft: 8 }}>{w.starting ? fmtPct((w.balance - w.starting)/w.starting) : "—"}</span>
         </div>
         <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 12 }}>
           <KV k="CASH"       v={fmt$(w.cash ?? 0)} />
@@ -292,12 +293,14 @@ function LockChain({ D, mode }) {
 
 function Positions({ D, mode }) {
   const positions = mode === "live" ? (D.livePositions || []) : (D.positions || []);
-  const maxPos = mode === "live" ? (D.settings?.live?.l2_risk_max_positions_count ?? 6) : (D.settings?.demo?.l2_risk_max_positions_count ?? 6);
+  // One value per fact (M12, 2026-11-21): the config's own values, or "—"; no numeric fallback.
+  const maxPos = D.settings?.[mode]?.l2_risk_max_positions_count ?? null;
+  const capBase = D.settings?.[mode]?.l2_risk_sector_cap_max;
   return (
     <div className="t-card">
       <div className="t-card-head">
-        <div className="t-card-title">OPEN POSITIONS · {positions.length}/{maxPos}</div>
-        <div className="t-meta">25% SECTOR CAP</div>
+        <div className="t-card-title">OPEN POSITIONS · {positions.length}/{maxPos ?? "—"}</div>
+        <div className="t-meta">{capBase != null ? `${Math.round(capBase * 100)}% SECTOR CAP BASE` : "SECTOR CAP —"}</div>
       </div>
       <div className="t-card-body" style={{ padding: 0 }}>
         {positions.length === 0 ? (
@@ -307,7 +310,7 @@ function Positions({ D, mode }) {
         ) : (
           <table className="t-tbl t-tbl-pad">
             <thead>
-              <tr><th>SYM</th><th>QTY</th><th>ENTRY</th><th>MKT</th><th>STOP</th><th>P&L</th><th>%</th><th>HOLD</th></tr>
+              <tr><th>SYM</th><th>QTY</th><th>ENTRY</th><th>MKT</th><th>STOP</th><th>P&L</th><th title="From the fill (the broker's average entry). The profit lock measures from the signal price, so the two differ by the slippage.">% FILL</th><th>HOLD</th></tr>
             </thead>
             <tbody>
               {positions.map(p => (
@@ -322,7 +325,7 @@ function Positions({ D, mode }) {
                       : <span className="t-meta">{p.sl ? `SL ${p.sl.toFixed(2)}` : "—"}</span>}
                   </td>
                   <td className={(p.pnl ?? 0) >= 0 ? "t-pos" : "t-neg"}>{(p.pnl ?? 0) >= 0 ? "+" : ""}{(p.pnl ?? 0).toFixed(2)}</td>
-                  <td className={(p.pct ?? 0) >= 0 ? "t-pos" : "t-neg"}>{(p.pct ?? 0) >= 0 ? "+" : ""}{(p.pct ?? 0).toFixed(2)}%</td>
+                  <td className={p.pct == null ? "t-meta" : p.pct >= 0 ? "t-pos" : "t-neg"}>{p.pct == null ? "—" : `${p.pct >= 0 ? "+" : ""}${p.pct.toFixed(2)}%`}</td>
                   <td>{p.held != null ? `${p.held}d` : "—"}</td>
                 </tr>
               ))}
@@ -726,6 +729,15 @@ function TestView({ D }) {
           </div>
           <div className="t-card-body">
             <LiveRejectionsPanel />
+          </div>
+        </div>
+        <div className="t-card">
+          <div className="t-card-head">
+            <div className="t-card-title">LIVE CONFIG</div>
+            <div className="t-meta">THE ONLY SOURCE OF LIVE LEVELS · MISSING OR UNREADABLE HALTS ENTRIES (R090)</div>
+          </div>
+          <div className="t-card-body">
+            <LiveConfigPanel />
           </div>
         </div>
         <div className="t-card">

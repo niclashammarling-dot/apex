@@ -44,6 +44,7 @@ def _demo_cfg(**overrides):
         "l2_risk_max_positions_count":                4,
         "l2_risk_sector_cap_max":          0.25,
         "max_position_size":            0.15,
+        "l2_risk_etf_penalty":            0.0,    # read without a fallback since 2026-11-21 (M12)
         "l0_portfolio_loss_cap_max":               500.0,
         "starting_balance":             10000.0,
         "l0_portfolio_drawdown_guard_max":             0.20,

@@ -500,7 +500,6 @@ backend/routers/signals_router.py::calibrate_ticker_thresholds	money
 backend/routers/signals_router.py::get_audit_reports	money
 backend/routers/signals_router.py::get_demo_trades	money
 backend/routers/signals_router.py::get_drift_alerts	money
-backend/routers/signals_router.py::get_settings	money
 backend/routers/signals_router.py::get_signal_freshness	money
 backend/routers/signals_router.py::get_signal_freshness.<locals>.day	money
 backend/routers/signals_router.py::get_ticker_thresholds	money

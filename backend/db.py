@@ -1413,7 +1413,7 @@ def get_live_equity_curve(unrealised_total: float = 0.0, since: str | None = Non
 
     from backend.live_config import get_live_config
     cfg                  = get_live_config()
-    starting_balance     = cfg.get("starting_balance", 100_000.0)
+    starting_balance     = cfg["starting_balance"]       # one value per fact (M12): the file's, no 100000 fallback
     conn = get_db()
     try:
         # exit_confidence != 'unverified' excludes rows whose exit was never

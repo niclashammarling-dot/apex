@@ -397,10 +397,14 @@ def remove_ticker_from_sector(sector: str, ticker: str):
 def get_settings():
     """Return current demo and live threshold configs."""
     from backend.demo_config import get_demo_config
-    from backend.live_config import get_live_config
+    from backend.live_config import LiveConfigUnavailable, get_live_config
+    try:
+        live = get_live_config()
+    except LiveConfigUnavailable as e:          # R090 a: shown as unavailable, never as defaults
+        live = {"unavailable": str(e)}
     return {
         "demo": get_demo_config(),
-        "live": get_live_config(),
+        "live": live,
     }
 
 
@@ -1134,6 +1138,20 @@ def get_weekend_bundle():
             "generated_at": b["generated_at"], "host_commit": b.get("host_commit"),
             "counts": b.get("counts", {}), "items": b.get("items", []),
             "excepted": b.get("excepted", [])}
+
+
+@router.get("/ops/live-config")
+def get_live_config_state():
+    """Whether data/live_config.json is available (M12, R090 a, 2026-11-21): when it is missing or unreadable, live
+    entries halt with the cause on each gate_cycles row; the Test tab's LIVE CONFIG card shows it in red."""
+    from datetime import datetime, timezone
+
+    from backend.live_config import _CONFIG_PATH, LiveConfigUnavailable, get_live_config
+    out = {"as_of": datetime.now(timezone.utc).isoformat(), "path": f"data/{_CONFIG_PATH.name}"}
+    try:
+        return {**out, "available": True, "cause": None, "keys": len(get_live_config())}
+    except LiveConfigUnavailable as e:
+        return {**out, "available": False, "cause": str(e), "keys": 0}
 
 
 @router.get("/ops/config-changes")

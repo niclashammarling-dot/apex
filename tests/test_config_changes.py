@@ -31,11 +31,20 @@ def _rows():
     return db.get_config_changes(limit=500)
 
 
+def _seed_live(lc):
+    """A complete live file written through the writer (2026-11-21, M12/R090 a: there are no live defaults to
+    materialize any more; ensure_config_exists only reports a missing file)."""
+    cfg = {k: 0.5 for k in lc._KEYS}
+    cfg.update(l3_score_threshold_min=0.65, l5_positioning_leading_mode="pooled_scalar",
+               live_account_since="2026-07-07")
+    lc._write_atomic(cfg, source="test_seed")
+
+
 def test_one_changed_key_gives_one_row_with_old_and_new(book):
     lc, path = book
-    lc.ensure_config_exists()
+    _seed_live(lc)
     n0 = len(_rows())
-    assert n0 > 0 and {r["source"] for r in _rows()} == {"ensure_default"}
+    assert n0 > 0 and {r["source"] for r in _rows()} == {"test_seed"}
     cur = lc.get_live_config()["l3_score_threshold_min"]
     lc.set_live_config({"l3_score_threshold_min": cur + 0.01})
     new = _rows()[: len(_rows()) - n0]
@@ -45,24 +54,25 @@ def test_one_changed_key_gives_one_row_with_old_and_new(book):
 
 def test_a_write_with_the_same_values_records_nothing(book):
     lc, _ = book
-    lc.ensure_config_exists()
+    _seed_live(lc)
     n0 = len(_rows())
     lc.set_live_config(dict(lc.get_live_config()))
     assert len(_rows()) == n0
 
 
-def test_a_corrupt_file_records_a_corrupt_reset(book, monkeypatch):
+def test_a_corrupt_file_is_never_written_over_and_records_nothing(book, monkeypatch):
+    """R090 a (2026-11-21): the corrupt-reset write is gone; the file stays as evidence for the operator."""
     lc, path = book
     path.write_text("{ not json")
-    monkeypatch.setattr("backend.alerts.alert_config_corrupted", lambda *a, **k: None)
-    lc.get_live_config()
-    rows = _rows()
-    assert rows and {r["source"] for r in rows} == {"corrupt_reset"} and all(r["old"] is None for r in rows)
+    monkeypatch.setattr("backend.alerts.alert_live_config_unavailable", lambda *a, **k: None)
+    with pytest.raises(lc.LiveConfigUnavailable):
+        lc.get_live_config()
+    assert path.read_text() == "{ not json" and _rows() == []
 
 
 def test_promote_records_its_source_and_demo_records_too(book, tmp_path, monkeypatch):
     lc, _ = book
-    lc.ensure_config_exists()
+    _seed_live(lc)
     cur = lc.get_live_config()["l3_score_threshold_min"]
     lc.set_live_config({"l3_score_threshold_min": cur + 0.02}, source="promote")
     assert _rows()[0]["source"] == "promote"
@@ -77,7 +87,7 @@ def test_promote_records_its_source_and_demo_records_too(book, tmp_path, monkeyp
 
 def test_the_endpoint_returns_the_latest_rows(book):
     lc, _ = book
-    lc.ensure_config_exists()
+    _seed_live(lc)
     from backend.routers.signals_router import get_config_change_log
     out = get_config_change_log(limit=3)
     assert len(out["rows"]) == 3 and out["as_of"]
@@ -148,7 +158,7 @@ def test_promote_copies_demo_thresholds_into_live_and_records_promote(book, tmp_
     lc, _ = book
     monkeypatch.setattr(dc, "_CONFIG_PATH", tmp_path / "demo_config.json")
     monkeypatch.setattr(live_router, "LIVE_ENABLED", True)
-    lc.ensure_config_exists()
+    _seed_live(lc)
     dc.ensure_config_exists()
     live_before = lc.get_live_config()
     demo_thr = dc.get_demo_config()["l3_score_threshold_min"]

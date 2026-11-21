@@ -103,10 +103,11 @@ def test_chain_passes_cfg_mode_to_l5_positioning():
 
 
 def test_demo_and_live_defaults_are_demo_first():
+    """Live has no defaults since 2026-11-21 (M12, R090 a: the file is the only source); demo keeps its own."""
     from backend.demo_config import _defaults as demo
-    from backend.live_config import _defaults as live
+    import backend.live_config as live
     assert demo()["l5_positioning_leading_mode"] == "per_ticker_p25"
-    assert live()["l5_positioning_leading_mode"] == "pooled_scalar"
+    assert not hasattr(live, "_defaults")
     from backend.live_config import _PROMOTE_EXCLUDE
     assert "l5_positioning_leading_mode" not in _PROMOTE_EXCLUDE   # promote carries it, deliberately
 

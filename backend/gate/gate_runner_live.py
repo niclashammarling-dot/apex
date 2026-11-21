@@ -255,6 +255,15 @@ def _run(cycle: GateCycle) -> list[dict]:
         cycle.reason = "disabled"
         return []
 
+    # R090 a (built 2026-11-21): no live entry on levels nobody chose. A missing or unreadable live_config.json
+    # halts this cycle before anything reads it, with the cause on the gate_cycles row; exits run elsewhere.
+    from backend.live_config import LiveConfigUnavailable, get_live_config as _live_cfg
+    try:
+        _live_cfg()
+    except LiveConfigUnavailable as e:
+        cycle.reason = f"live_config_unavailable: {e}"
+        return []
+
     from backend.brokers import alpaca as broker
 
     # Dual P&L logging (2026-08-11 HON third snapshot-omission) — broker's
@@ -529,7 +538,7 @@ def _run(cycle: GateCycle) -> list[dict]:
     regime_bayes_result = _get_regime_bayes().last_result()
 
     sector_exposure_live: dict[str, float] = dict(_sector_exposure)
-    dynamic_caps_live    = compute_dynamic_caps(cfg.get("l2_risk_sector_cap_max", 0.30),
+    dynamic_caps_live    = compute_dynamic_caps(cfg["l2_risk_sector_cap_max"],
                                                 regime_result=regime_bayes_result)
     # L6 REVIEW judges the cap execution enforces, not the flat base (2026-10-17).
     wallet_ctx["dynamic_caps"] = dynamic_caps_live
@@ -668,7 +677,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                 _raw  = result["l6_review"]["position_size_pct"]
                 result["l6_review"]["position_size_pct"] = min(
                     round(_raw * _scale, 4),
-                    cfg.get("max_position_size", 0.10),
+                    cfg["max_position_size"],
                 )
                 logger.info(
                     f"Live gate [{ticker}]: Bayesian size scale={_scale:.3f} "
@@ -705,7 +714,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                     else:
                         sector    = signal.get("sector", "")
                         cap_check = _sector_cap_check(sector, notional, sector_exposure_live, dynamic_caps_live,
-                                                      cfg.get("l2_risk_sector_cap_max", 0.30), _starting_balance)
+                                                      cfg["l2_risk_sector_cap_max"], _starting_balance)
                         result["cap_check"] = cap_check
                         _put(result, "sector_cap", cap_check["over_cap"])
                         sec_cap, projected = cap_check["cap"], cap_check["projected"]
@@ -745,7 +754,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                 else:
                     sector    = signal.get("sector", "")
                     cap_check = _sector_cap_check(sector, notional, sector_exposure_live, dynamic_caps_live,
-                                                  cfg.get("l2_risk_sector_cap_max", 0.30), _starting_balance)
+                                                  cfg["l2_risk_sector_cap_max"], _starting_balance)
                     result["cap_check"] = cap_check
                     _put(result, "sector_cap", cap_check["over_cap"])
                     sec_cap, projected = cap_check["cap"], cap_check["projected"]
