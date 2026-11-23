@@ -31,3 +31,10 @@ def test_a_late_q4_report_is_not_a_gap_but_a_missed_quarter_is():
 def test_no_args_prints_usage_and_exits_2(capsys):
     assert probe.main([]) == 2
     assert "Usage" in capsys.readouterr().out
+
+
+def test_universe_is_the_engines_get_sectors_not_config_sectors():
+    from backend.ticker_config import get_sectors
+    want = {t for cfg in get_sectors().values() for t in cfg["tickers"]}
+    assert set(probe.universe()) == want
+    assert {"ADI", "ODFL", "WAB"} <= want  # three of the ten the config.SECTORS run missed

@@ -4,12 +4,12 @@ earnings_history_probe.py — does a historical earnings-date source cover the u
 
 Why: the battery cell for the earnings rules (PRODUCTION_GAP rows 8 and 9) was blocked on "a historical
 earnings-date source" (vault INDEX earnings entry, R081 a). Read-only: fetches yfinance get_earnings_dates with an
-explicit limit for each ticker in config.SECTORS and summarises coverage. Needs lxml, which the apex venv does not
+explicit limit for each ticker in ticker_config.get_sectors() and summarises coverage. Needs lxml, which the apex venv does not
 have on purpose (installing it changes engine results before the cache key hashes the earnings sets), so run it from
 a separate venv with yfinance 0.2.66 + lxml. Record: vault
 raw/notes/2026-11/2026-11-23-apex-earnings-history-source-exists-and-the-engine-reads-only-from-2021.md
 
-Usage: earnings_history_probe.py OUT.json [TICKER ...]   (no tickers: the 93 of config.SECTORS)
+Usage: earnings_history_probe.py OUT.json [TICKER ...]   (no tickers: every ticker of ticker_config.get_sectors())
 """
 from __future__ import annotations
 
@@ -35,9 +35,11 @@ def summarise(dates: list[str], today: str, since: str = SINCE) -> dict:
 
 
 def universe() -> list[str]:
+    """The engine's universe: ticker_config.get_sectors(), as precompute() reads it (excluded sectors included).
+    Not config.SECTORS: the first run (2026-11-23) read that and missed 10 active tickers."""
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from backend import config
-    return sorted({t for v in config.SECTORS.values() for t in (v if isinstance(v, list) else v.get("tickers", []))})
+    from backend.ticker_config import get_sectors
+    return sorted({t for cfg in get_sectors().values() for t in cfg["tickers"]})
 
 
 def main(argv: list[str]) -> int:
