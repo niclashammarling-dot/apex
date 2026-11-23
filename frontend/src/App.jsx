@@ -314,7 +314,6 @@ function adaptWallet(wallet, equityPoints) {
     avgWin:     0,
     avgLoss:    0,
     drawdown:   _maxDD(equityPoints),
-    sharpe:     0,
   };
 }
 
@@ -327,7 +326,7 @@ function adaptWallet(wallet, equityPoints) {
 function adaptLiveWallet(account, livePositions, settings, equityPoints, liveStats) {
   const starting = settings?.live?.starting_balance ?? null;   // one value per fact (M12): the file's, or unknown
   if (!account) {
-    return { balance: 0, starting, cash: 0, invested: 0, realized: 0, unrealized: 0, winRate: 0, trades: 0, avgWin: 0, avgLoss: 0, drawdown: 0, sharpe: 0 };
+    return { balance: 0, starting, cash: 0, invested: 0, realized: 0, unrealized: 0, winRate: 0, trades: 0, avgWin: 0, avgLoss: 0, drawdown: 0 };
   }
   const unrealized = (livePositions || []).reduce((s, p) => s + (p.unrealized_pnl ?? 0), 0);
   const o  = liveStats?.overall || {};
@@ -347,7 +346,6 @@ function adaptLiveWallet(account, livePositions, settings, equityPoints, liveSta
     statsSince: liveStats?.since ?? null,
     fees:       liveStats?.fees ?? null,  // { total, days, since, as_of, missing }; not netted into realized
     drawdown:   _maxDD(equityPoints),
-    sharpe:     0,
   };
 }
 

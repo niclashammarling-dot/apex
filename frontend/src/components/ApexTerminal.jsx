@@ -47,7 +47,6 @@ function EquityHero({ D, mode }) {
   const fillPath = path + ` L${w} ${h} L0 ${h} Z`;
   const peakIdx = eq.reduce((m, p, i) => p.value > eq[m].value ? i : m, 0);
   const peak = eq[peakIdx].value;
-  const wallet = mode === "live" ? D.liveWallet : D.wallet;
 
   // Duration: calendar days from first closed trade to today
   const closedPts = eq.filter(p => p.ts && /^\d{4}-\d{2}-\d{2}/.test(p.ts));
@@ -66,7 +65,6 @@ function EquityHero({ D, mode }) {
         <div className="t-row" style={{ gap: 18 }}>
           {calDays != null && <span className="t-meta">{calDays}D</span>}
           {mtdPct != null && <span className="t-meta">MTD · {fmtPct(mtdPct)}</span>}
-          {wallet.sharpe > 0 && <span className="t-meta">SHARPE · {wallet.sharpe.toFixed(2)}</span>}
         </div>
       </div>
       <div className="t-card-body" style={{ paddingTop: 14 }}>
@@ -118,7 +116,7 @@ function Wallet({ D, mode }) {
     <div className="t-card">
       <div className="t-card-head">
         <div className="t-card-title">WALLET</div>
-        <div className="t-meta">{mode === "live" ? "ALPACA · PAPER" : "SIM · $2,000"}</div>
+        <div className="t-meta">{mode === "live" ? "ALPACA · PAPER" : `SIM · ${w.starting != null ? fmt$(w.starting, 0) : "—"}`}</div>
       </div>
       <div className="t-card-body">
         <div className="t-num-lg">{fmt$(w.balance)}</div>
@@ -129,7 +127,9 @@ function Wallet({ D, mode }) {
         <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 12 }}>
           <KV k="CASH"       v={fmt$(w.cash ?? 0)} />
           <KV k="INVESTED"   v={fmt$(w.invested ?? 0)} />
-          <KV k="REALIZED"   v={<span className={(w.realized ?? 0) >= 0 ? "t-pos" : "t-neg"}>{fmt$(w.realized ?? 0)}</span>} />
+          <div title={mode === "live" ? undefined : "The simulator charges no fees; live shows its broker fees as FEES, not netted into REALIZED"}>
+            <KV k={mode === "live" ? "REALIZED" : "REALIZED · PRE-FEE"} v={<span className={(w.realized ?? 0) >= 0 ? "t-pos" : "t-neg"}>{fmt$(w.realized ?? 0)}</span>} />
+          </div>
           <KV k="UNREALIZED" v={<span className={(w.unrealized ?? 0) >= 0 ? "t-pos" : "t-neg"}>{fmt$(w.unrealized ?? 0)}</span>} />
           <KV k="WIN RATE"   v={((w.winRate ?? 0) * 100).toFixed(0) + "%"} />
           <KV k="TRADES"     v={w.trades ?? 0} />
@@ -141,7 +141,6 @@ function Wallet({ D, mode }) {
             </div>
           )}
           {w.drawdown > 0 && <KV k="DRAWDOWN" v={<span className="t-neg">{fmtPct(-w.drawdown)}</span>} />}
-          {w.sharpe > 0 && <KV k="SHARPE" v={w.sharpe.toFixed(2)} />}
         </div>
       </div>
     </div>
