@@ -36,3 +36,31 @@ def test_real_table_names_the_earnings_rows_as_off_both():
     off = {r["row"] for r in open_rows(True) if r["kind"] == "off-both"}
     assert {"8", "9"} <= off
     assert "off in both engines and in live (live defect): 8, 9" in describe(True)
+
+
+def test_open_set_equals_the_question_maps_unanswered_gap_rows():
+    """Two readers of one register (2026-11-23): GAP-16, 22b and 25 were open in the pyramid and missing here."""
+    from audit import question_map as q
+    from backend.backtest.gap_bounds import ANSWERED, GAP_FILE
+    assert ANSWERED == q.GAP_ANSWERED
+    states = q.gap_states(GAP_FILE.read_text(encoding="utf-8"))
+    unanswered = {k.removeprefix("GAP-") for k, v in states.items() if v not in q.GAP_ANSWERED}
+    assert {r["row"] for r in open_rows(regime_layer=True)} == unanswered
+    assert {"16", "22b", "25"} <= unanswered                         # the founding rows, positive control
+
+
+def test_setting_rows_are_listed_under_their_own_word(tmp_path):
+    p = tmp_path / "g.md"
+    p.write_text("| # | C | W | S | N |\n|---|---|---|---|---|\n| 1 | a | x | **yes** | |\n"
+                 "| 16 | b | x | **optional** `flag` | |\n| 22b | c | x | **different default** — y | |\n"
+                 "| 25 | d | x | **engine-only** option | |\n| 26 | e | x | n/a | |\n")
+    assert [(r["row"], r["kind"]) for r in open_rows(True, p)] == [("16", "optional"), ("22b", "different"),
+                                                                  ("25", "engine-only")]
+
+
+def test_real_description_names_the_setting_rows():
+    from backend.backtest.gap_bounds import describe
+    d = describe(True)
+    assert "engine and live can differ by setting: " in d
+    for row in ("16 (optional)", "22b (different)", "25 (engine-only)"):
+        assert row in d, d

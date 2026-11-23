@@ -59,3 +59,17 @@ def test_uncontrolled_count_is_pinned_both_ways():
     assert n >= UNCONTROLLED_BASELINE, (
         f"{n} checks without a control — lower UNCONTROLLED_BASELINE to {n} "
         f"in tests/test_check_registry_controls.py so the improvement locks in")
+
+
+def _retired_in_active(rows) -> list[str]:
+    """Active-table rows with a cell starting "Retired": a retirement written in prose but not moved."""
+    return [r[1] for r in rows if any(c.strip().startswith("Retired") for c in r[2:])]
+
+
+def test_no_retired_row_stays_in_the_active_table():
+    """2026-11-23: CHECK 7 read "Retired 2026-11-21 into M9" in the active table, so the question map counted it
+    open ("not run") for two days. A retired check moves to § Retired Checks; the readers read the structure."""
+    assert not _retired_in_active(_rows()), _retired_in_active(_rows())
+    founding = registry_cells("| 7 | Demo/live gate runner parity | 2026-03-25 | Retired 2026-11-21 into M9 | f "
+                              "| 2026-11-21 | | t |")
+    assert _retired_in_active([founding]) == ["7"]

@@ -21,7 +21,8 @@ the questions themselves, and each go group's threshold status, which changes on
   the status column's first word: `open`, `adopted`, `discarded`.
 - `GAP-<n>`: a numbered production-gap row (same file, § Live gate path). State from the parity
   column's first word: `yes` or `closed` (answered), `partial`, `no`, `off-both`, `engine-only`,
-  `different`, `n/a`.
+  `different`, `optional`, `n/a`. `backend/backtest/gap_bounds.py` lists every unanswered row on a result under
+  the same rule, held equal by `tests/test_gap_bounds.py` (2026-11-23).
 - `CHECK-<n>`: a row in `audit/CHECKS.md`. State from the nightly run: clean, or a finding at its
   severity. `CHECK-*` means every CHECK not named on another row.
 - `Q-<name>`, `G<n>`: another question in this map.
