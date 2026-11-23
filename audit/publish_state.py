@@ -311,7 +311,9 @@ def write_critical_ledger(night: str | None = None) -> None:
         payload = json.loads(STATE_FILE.read_text())
         night = night or critical_ledger._night_of(payload) or datetime.now(ZoneInfo("America/New_York")).date().isoformat()
         led = critical_ledger.update(payload.get("findings", []), night)
-        print(f"CRITICAL ledger: {len(led['items'])} open after {night}")
+        # "open" is the episodes with no disposition (critical_ledger.open_items), not every episode the week keeps:
+        # on 2026-11-23 this line read "2 open" over two episodes disposed 11-21 (81 fixed, 71 dated 12-05).
+        print(f"CRITICAL ledger: {len(critical_ledger.open_items(led))} open, {len(led['items'])} in the ledger after {night}")
     except Exception as e:
         print(f"(CRITICAL ledger failed: {e!r})", file=sys.stderr)
 

@@ -178,3 +178,18 @@ def test_publish_main_writes_the_ledger_after_routing_and_before_the_bundle(monk
     monkeypatch.setattr(ps, "STATE_FILE", ps.REPO / "audit/state/latest.json")
     assert ps.main() == 0
     assert order.index("route_criticals") < order.index("write_critical_ledger") < order.index("publish_bundle")
+
+
+def test_publish_line_counts_only_undisposed_episodes_as_open(tmp_path, monkeypatch, capsys):
+    """2026-11-23: the line read "2 open" over two episodes disposed on 11-21. Open means no disposition."""
+    from audit import publish_state as ps
+    monkeypatch.setattr(cl, "LEDGER", tmp_path / "ledger.json")
+    cl.update([C81, C71], "2026-11-18")
+    assert cl.main(["dispose", "81|backend/gate/l6_review.py:_fail_closed|2026-11-18", "--action", "fixed", "--ref", "0efa6a9"]) == 0
+    capsys.readouterr()
+    state = tmp_path / "latest.json"
+    state.write_text(json.dumps({"generated_at": "2026-11-19T03:00:00+00:00", "findings": []}))
+    monkeypatch.setattr(ps, "STATE_FILE", state)
+    ps.write_critical_ledger()
+    out = capsys.readouterr().out
+    assert "CRITICAL ledger: 1 open, 2 in the ledger after 2026-11-18" in out, out
