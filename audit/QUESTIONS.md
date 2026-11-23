@@ -32,6 +32,9 @@ the questions themselves, and each go group's threshold status, which changes on
   `raw/notes/2026-11/2026-11-12-apex-vol-accum-threshold-measured-against-gate-data.md` and the entry's source).
 - `M<n>`: a row in § Missing rows below: the question needs a row that no register holds yet. Each
   one is a break in the chain, shown as such, until the row exists and the reference is replaced.
+  CHECK-7 left Q-PAR 2026-11-23: retired 2026-11-21 into M9's CI test `tests/test_book_parity.py` (R067 a), which
+  now guards demo/live runner parity; the map has no reference kind for a test (with the parked state, a question for
+  the next map change).
   Removed on re-read 2026-11-23 (their own rule): M6 (the regime port, merged 2026-10-24 `0964e7e`) and M8
   (split-exit booking, CHECK-100 since 2026-11-21, already in Q-EXE's list).
 
@@ -68,7 +71,7 @@ the questions themselves, and each go group's threshold status, which changes on
 |---|---|---|---|
 | Q-VER | Can each verdict below be trusted: rule written before the run, controls passed, enough power? | G1, G2, G3 | CHECK-76, CHECK-98, S9, S10, M1, M7, M10, M14 |
 | Q-EXE | Do exits and sizing deliver the expected value per trade that group 1 rests on? | G1, G2, G7 | S15, S23, GAP-4, GAP-24, GAP-24b, GAP-25, GAP-31, CHECK-31, CHECK-39, CHECK-46, CHECK-47, CHECK-92, CHECK-93, CHECK-100, PARAM-money, M12 |
-| Q-PAR | Can a backtest verdict be trusted for live? | G2, G3, G4 | GAP-1, GAP-2, GAP-3, GAP-5, GAP-6, GAP-7, GAP-10, GAP-11, GAP-12, GAP-13, GAP-14, GAP-15, GAP-16, GAP-17, GAP-18, GAP-19, GAP-20, GAP-21, GAP-22, GAP-22b, GAP-23, GAP-26, GAP-27, GAP-30, GAP-32, GAP-33, GAP-34, CHECK-7, CHECK-12, CHECK-25, CHECK-26, CHECK-54, CHECK-76 |
+| Q-PAR | Can a backtest verdict be trusted for live? | G2, G3, G4 | GAP-1, GAP-2, GAP-3, GAP-5, GAP-6, GAP-7, GAP-10, GAP-11, GAP-12, GAP-13, GAP-14, GAP-15, GAP-16, GAP-17, GAP-18, GAP-19, GAP-20, GAP-21, GAP-22, GAP-22b, GAP-23, GAP-26, GAP-27, GAP-30, GAP-32, GAP-33, GAP-34, CHECK-12, CHECK-25, CHECK-26, CHECK-54, CHECK-76 |
 | Q-SIG | Which inputs carry a measured direction edge? | G1 | S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12, S13, S14, S17, S18, S19, S20, S21, S22, S23, S24, S25, PARAM:backend/gate/l5_positioning.py::VOL_ACCUM_THRESHOLD, M13, M15 |
 | Q-DAT | Are the inputs there and true, live and in the tested period? | Q-SIG, Q-PAR | GAP-8, GAP-9, GAP-28, GAP-29, CHECK-10, CHECK-14, CHECK-15, CHECK-17, CHECK-22, CHECK-35, CHECK-55, CHECK-56, CHECK-75, CHECK-77, CHECK-78, CHECK-86, CHECK-87, CHECK-91, PARAM:backend/gate/l5_positioning.py::VOL_ACCUM_THRESHOLD, M5 |
 | Q-OPS | Does the machinery run as built, every session? | G5 | CHECK-*, PARAM-ops, M12 |
