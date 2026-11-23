@@ -3,7 +3,11 @@ SHARPE removed: both adapters set it to 0, so it never showed, and computed for 
 error over a few months is near 2, 2026-10-16). The demo header reads the configured starting balance instead of a
 second copy of it (one value per fact, M12). Demo REALIZED is marked pre-fee: the simulator charges none, and live's
 broker fees were $1.87 over 75 trades since 07-07 (/api/live/stats, 2026-11-23), too small for an estimate.
-Source-level, like tests/test_live_config_one_value.py: the frontend has no JS test runner."""
+Source-level, like tests/test_live_config_one_value.py: the frontend has no JS test runner.
+
+Parked with these decisions: the demo/live parity test for this panel (vault INDEX "APEX drift monitor rebuilt as
+demo/live/real parity"). It wakes at the next change to the Wallet or EquityHero components or the book adapters
+(App.jsx adaptWallet/adaptLiveWallet): whoever changes them builds it first, with the allowlist the row names."""
 import re
 from pathlib import Path
 
