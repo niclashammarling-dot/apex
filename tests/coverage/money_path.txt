@@ -11,6 +11,7 @@ other scripts/verify_gate_column_rename.py   # read-only measurement of a migrat
 other scripts/reader_writer_inventory.py     # read-only inventory
 other scripts/noise_floor_runs.py          # research measurement: writes only its OUTDIR and the engine cache (2026-11-08)
 other scripts/noise_floor_roster_test.py   # research measurement: patches the optimizer in-process, writes only its OUTDIR and the engine cache (2026-11-10)
+other scripts/gap29_snapshot_parity.py     # read-only measurement: data/apex.db opened mode=ro, writes only its --out and the engine cache (2026-11-23)
 other backend/weekly_report.py       # report module
 
 # Named for the record; unmatched files are money anyway.

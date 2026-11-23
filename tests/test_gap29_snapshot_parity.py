@@ -53,3 +53,56 @@ def test_spearman_ties_and_short_input():
     assert abs(g.spearman({"A": 1, "B": 2, "C": 3}, {"A": 3, "B": 2, "C": 1}) + 1.0) < 1e-9
     assert g.spearman({"A": 1, "B": 1}, {"A": 1, "B": 2}) is None
     assert abs(g.spearman({"A": 1, "B": 1, "C": 2}, {"A": 1, "B": 2, "C": 3}) - 0.866) < 0.001
+
+
+def test_eod_cutoff_is_1615_new_york_across_the_dst_change():
+    from datetime import date
+    assert g.eod_cutoff_utc(date(2026, 9, 2)) == "2026-09-02T20:15:00+00:00"    # EDT
+    assert g.eod_cutoff_utc(date(2026, 11, 20)) == "2026-11-20T21:15:00+00:00"  # EST
+
+
+def test_live_trace_keeps_the_last_row_per_date_and_sector(tmp_path):
+    import json
+    f = tmp_path / "trace.jsonl"
+    rows = [{"date": "2026-09-01", "sector": "Energy", "aggregate_score": 0.6821},
+            {"date": "2026-09-01", "sector": "Energy", "aggregate_score": 0.7787},
+            {"date": "2026-09-01", "sector": "Defense", "aggregate_score": 0.2}]
+    f.write_text("\n".join(json.dumps(r) for r in rows) + "\n\n")
+    t = g.live_trace(f)
+    assert t["2026-09-01"]["Energy"]["aggregate_score"] == 0.7787
+    assert set(t["2026-09-01"]) == {"Energy", "Defense"}
+
+
+def test_live_daily_history_averages_per_utc_day_inside_the_bounds(tmp_path, monkeypatch):
+    import sqlite3
+    from datetime import date
+    db = tmp_path / "apex.db"
+    c = sqlite3.connect(db)
+    c.execute("CREATE TABLE sector_snapshots (id INTEGER PRIMARY KEY, timestamp TEXT, sector TEXT, avg_score REAL,"
+              " top_ticker TEXT, top_score REAL, ticker_count INTEGER)")
+    c.executemany("INSERT INTO sector_snapshots (timestamp, sector, avg_score) VALUES (?,?,?)", [
+        ("2026-09-01T14:00:00+00:00", "Energy", 0.4), ("2026-09-01T18:00:00+00:00", "Energy", 0.6),
+        ("2026-09-02T14:00:00+00:00", "Energy", 0.5), ("2026-09-02T21:00:00+00:00", "Energy", 0.9),  # after cutoff
+        ("2026-08-01T14:00:00+00:00", "Energy", 0.1)])                                             # before lo
+    c.commit(); c.close()
+    monkeypatch.setattr(g, "DB", db)
+    rows = g.live_daily_history(date(2026, 8, 15), "2026-09-02T20:15:00+00:00")
+    assert [(r["day"], r["avg_score"]) for r in rows] == [("2026-09-01", 0.5), ("2026-09-02", 0.5)]
+    assert rows[0]["last_ts"] == "2026-09-01T18:00:00+00:00"
+
+
+def test_main_writes_the_read_and_a_failed_control_means_no_read(tmp_path, monkeypatch):
+    import json
+    good = [day(S, S, {"A": 1.0}, {"A": 1.0}) for _ in range(3)]
+    ok = {"c1_engine_reproduces_timeline": {"checked": 3, "failed": []},
+          "c2_live_input_equals_logged": {"checked": 3, "failed": [], "n_failed": 0}}
+    monkeypatch.setattr(g, "walk", lambda a, b: (good, ok))
+    out = tmp_path / "r.json"
+    assert g.main(["--start", "2026-09-02", "--end", "2026-09-04", "--out", str(out)]) == 0
+    r = json.loads(out.read_text())
+    assert r["controls_pass"] and r["summary"]["regime"]["allocation_set_identical"] == "3/3"
+    bad = {**ok, "c2_live_input_equals_logged": {"checked": 3, "failed": [{"date": "2026-09-01"}], "n_failed": 1}}
+    monkeypatch.setattr(g, "walk", lambda a, b: (good, bad))
+    assert g.main(["--start", "2026-09-01", "--end", "2026-09-04", "--out", str(out)]) == 3
+    r = json.loads(out.read_text())
+    assert r["controls_pass"] is False and r["summary"] is None
