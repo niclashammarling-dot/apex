@@ -11,7 +11,7 @@ Row states (QUESTIONS.md § Derivation):
   S        signal register first status word; adopted/discarded answered
   GAP      PRODUCTION_GAP parity column first word; yes/closed/n/a answered
   CHECK    audit/state/latest.json: evaluated with no WARNING/CRITICAL finding answered
-  PARAM    PARAMETERS.json kind; chosen answered until its review date passes
+  PARAM    PARAMETERS.json kind; chosen answered until its review date passes (PARAM-<tier> or PARAM:<name>)
   M        never answered
 An unreadable register raises RegisterUnread: a pyramid of zeros is never shown for a broken reader.
 """
@@ -223,6 +223,10 @@ def derive(m: dict, rows: dict[str, str], checks_all: list[str], params: dict[st
         if ref.startswith("PARAM-"):
             tier = ref.split("-", 1)[1]
             return [(f"PARAM:{n}", k) for n, (t, k) in params.items() if t == tier]
+        if ref.startswith("PARAM:") and ref[6:] in params:
+            # One named PARAMETERS.json entry (2026-11-23): an M row whose missing row is one parameter (M11) is
+            # replaced by that entry, not by its whole tier, which would pull every money parameter into the question.
+            return [(ref, params[ref[6:]][1])]
         if ref in rows:
             return [(ref, rows[ref])]
         if ref in m["missing"]:

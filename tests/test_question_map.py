@@ -54,6 +54,18 @@ def test_chosen_parameter_past_review_is_open():
     assert o["state"] == "partial" and o["counts"]["PARAM:chosen, review passed"] == 1
 
 
+def test_one_named_parameter_resolves_alone_and_an_unknown_name_is_unresolved():
+    params = qm.param_states({"a.py::X": {"kind": "chosen", "tier": "money", "review": "2027-01-14"},
+                              "a.py::Y": {"kind": "chosen", "tier": "money", "review": "2026-10-01"}}, date(2026, 11, 23))
+    m = qm.parse_map(MAP.replace("S1, S2, GAP-1", "S1, PARAM:a.py::X"))
+    o = qm.derive(m, {"S1": "adopted", "CHECK-1": "clean", "CHECK-2": "clean"}, ["CHECK-1", "CHECK-2"], params)
+    assert [r["ref"] for r in o["questions"]["Q-A"]["rows"]] == ["S1", "PARAM:a.py::X"]   # not Y: no tier pulled in
+    assert o["questions"]["Q-A"]["state"] == "answered" and o["unresolved"] == []
+    m = qm.parse_map(MAP.replace("S1, S2, GAP-1", "S1, PARAM:a.py::Z"))
+    o = qm.derive(m, {"S1": "adopted", "CHECK-1": "clean", "CHECK-2": "clean"}, ["CHECK-1", "CHECK-2"], params)
+    assert o["unresolved"] == ["PARAM:a.py::Z"]
+
+
 def test_check_star_expands_to_checks_named_nowhere_else():
     m = qm.parse_map(MAP.replace("S1, S2, GAP-1", "S1, CHECK-2"))
     o = qm.derive(m, {"S1": "open", "CHECK-1": "clean", "CHECK-2": "warning"}, ["CHECK-1", "CHECK-2"], {})
