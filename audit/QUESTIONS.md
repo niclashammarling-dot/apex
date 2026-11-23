@@ -43,6 +43,9 @@ the questions themselves, and each go group's threshold status, which changes on
 - The pyramid shows per question the count of rows per state; a break is an open question.
 - A test asserts that every reference resolves, every go group reaches at least one row, and every
   S-row and GAP row appears in this map.
+- Open (Niclas 2026-11-23, at R131): a parked S-row (status `open — **parked by …**`, a wake condition named)
+  still counts as open here, so every review re-reads it and parking saves nothing. Whether "parked" becomes its
+  own state is decided the next time this map changes, not before.
 
 ## Top
 
