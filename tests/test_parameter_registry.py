@@ -108,3 +108,17 @@ def test_unknown_key_fires(tmp_path):
     vals = P.applied(_repo(tmp_path))
     reg = {"backend/m.py::GONE": {"value": 1, "kind": "structural", "tier": "ops", "source": "x"}}
     assert any("not an applied parameter" in p for p in P.problems(reg, vals))
+
+
+def test_review_is_a_pointer_never_a_date(tmp_path):
+    """R132 (2026-11-23): money chosen values point to their dated INDEX line; ops values carry no review."""
+    vals = P.applied(_repo(tmp_path))
+    ok = {"backend/m.py::THRESH": {"value": 0.70, "kind": "chosen", "tier": "money", "source": "x",
+                                   "review": 'INDEX "APEX money parameter reviews (R132)"'}}
+    assert not [p for p in P.problems(ok, vals) if "review" in p]
+    dated = {"backend/m.py::THRESH": {**ok["backend/m.py::THRESH"], "review": "2026-11-21"}}   # the M4 shape
+    assert any("review carries a date" in p for p in P.problems(dated, vals))
+    missing = {"backend/m.py::THRESH": {k: v for k, v in ok["backend/m.py::THRESH"].items() if k != "review"}}
+    assert any("needs review = 'INDEX" in p for p in P.problems(missing, vals))
+    ops = {"backend/m.py::THRESH": {**ok["backend/m.py::THRESH"], "tier": "ops"}}
+    assert any("carries no review" in p for p in P.problems(ops, vals))

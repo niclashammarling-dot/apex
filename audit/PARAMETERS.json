@@ -9,7 +9,7 @@
       "engine": "none (replay of the production posterior series, no backtest engine)",
       "commit": "9a0a6af",
       "date": "2026-09-17",
-      "review": "2026-10-31"
+      "review": "INDEX \"APEX money parameter reviews (R132)\""
     },
     "backend/weekly_report.py::REFERENCE_WEEKS": {
       "value": 8,
@@ -18,8 +18,7 @@
       "source": "Weekly report prior-week reference window, hand-set in the 2026-10-15 session: about 50 demo entries pooled at the week ending 10-02's 6 entered, short enough to stay near the current config. Report-only: no gate, size or exit reads it.",
       "engine": "none (DB recount, no backtest engine)",
       "commit": "fcf96e8",
-      "date": "2026-10-15",
-      "review": "2026-10-29"
+      "date": "2026-10-15"
     },
     "backend/scheduler.py::EOD_RETRY_MINUTES": {
       "value": 10,
@@ -28,31 +27,27 @@
       "source": "Retry spacing for a failed EOD regime catch-up, hand-set 2026-10-16 (Niclas: retries before the open instead of trading on the previous posterior). With the launch at 08:20 ET and the 09:25 ET limit, 10 min gives the startup run plus up to 6 retries; the input fetch takes about 1.5 min, so retries do not overlap.",
       "engine": "none (scheduling, no backtest engine)",
       "commit": "7e810d0",
-      "date": "2026-10-16",
-      "review": "2026-10-30"
+      "date": "2026-10-16"
     },
     "audit/checks_gate.py::_C90_PRIOR_DAYS": {
       "value": 28,
       "kind": "chosen",
       "tier": "ops",
       "source": "Niclas 10-17: follow up the L5 prompt edit, W43 against the prior four weeks (4 x 7 calendar days). Report-only: no gate, size or exit reads it.",
-      "date": "2026-10-17",
-      "review": "2026-10-24"
+      "date": "2026-10-17"
     },
     "audit/checks_gate.py::_C91_WARN_DAYS": {
       "value": 60,
       "kind": "chosen",
       "tier": "ops",
       "source": "Claude 2026-10-17, CHECK 91: the same 60-day horizon as l1_eligibility._check_calendar_expiry, so the bundle sees what the log warning saw; about two Friday bundles of lead time.",
-      "date": "2026-10-17",
-      "review": "2026-10-31"
+      "date": "2026-10-17"
     },
     "audit/checks_gate.py::C93_GAP_WINDOW_MIN": {
       "value": 5,
       "kind": "chosen",
       "tier": "ops",
       "date": "2026-10-20",
-      "review": "2026-11-20",
       "source": "CHECK 93 (audit/CHECKS.md row 93; ruling Niclas 2026-10-20, classes amended 2026-10-21). A stop leg filled within 5 min of the 09:30 ET open is a gap only if that day's open was at or below the stop (alpaca.get_daily_open), as R7 (EXIT_PARITY.md) classed them; the 10-20 time-only version counted 18 gaps against R7's 7. Review at the first monthly read."
     },
     "audit/checks_gate.py::C93_MIN_N": {
@@ -60,7 +55,6 @@
       "kind": "chosen",
       "tier": "ops",
       "date": "2026-10-20",
-      "review": "2026-11-20",
       "source": "CHECK 93 (audit/CHECKS.md row 93; ruling Niclas 2026-10-20). A class needs 5 fills before its median is judged against the model; R7's gap class had 7. Reported, not judged, below it."
     },
     "audit/checks_gate.py::C93_MODEL": {
@@ -84,7 +78,6 @@
       "kind": "chosen",
       "tier": "ops",
       "date": "2026-10-20",
-      "review": "2026-11-20",
       "source": "CHECK 93 (audit/CHECKS.md row 93; ruling Niclas 2026-10-20). WARNING distance between the live median and the model: about the R7 intraday range half-width (-0.37..+1.13 %, so 0.25 pts) and the gap median itself (0.5 pts). Review at the first monthly read against the live spread."
     },
     "backend/backtest/engine_fast.py::REGIME_IPO_NEUTRAL_SHARE": {
@@ -99,8 +92,7 @@
       "kind": "chosen",
       "tier": "ops",
       "source": "Ruled 2026-10-16 (engine port pre-work, design B): warm-up >= 30 sessions at decay 0.90, cold-start residual 0.9^30 ~ 4 %. A refusal floor: the timeline raises below it rather than run cold. Backtest-only.",
-      "date": "2026-10-17",
-      "review": "2026-10-31"
+      "date": "2026-10-17"
     },
     "backend/backtest/profit_metrics.py::TRADING_DAYS": {
       "value": 252,
@@ -116,7 +108,7 @@
       "source": "Measured 2026-10-17 on 44 filled sell-stop legs of the Alpaca paper account (2026-07-07..10-16): fill vs the engine's modelled price (stop, or the open on a gap through it). Intraday n 37 median -0.02 % mean +0.05 %; gap at the open n 7 median -0.50 % mean -0.13 %. Median, adverse side. Niclas 10-17: 'stop slip, modellera den från mätningen'; fees ignored.",
       "engine": "engine_fast + engine (exit_rules.check_intraday_stop)",
       "date": "2026-10-17",
-      "review": "2026-10-31",
+      "review": "INDEX \"APEX money parameter reviews (R132)\"",
       "commit": "58916ea",
       "sample": "44 filled Alpaca paper sell-stop legs 2026-07-07..2026-10-16 (37 intraday, 7 gap at the open)"
     },
@@ -127,7 +119,7 @@
       "source": "Measured 2026-10-17 on 44 filled sell-stop legs of the Alpaca paper account (2026-07-07..10-16): fill vs the engine's modelled price (stop, or the open on a gap through it). Intraday n 37 median -0.02 % mean +0.05 %; gap at the open n 7 median -0.50 % mean -0.13 %. Median, adverse side. Niclas 10-17: 'stop slip, modellera den från mätningen'; fees ignored.",
       "engine": "engine_fast + engine (exit_rules.check_intraday_stop)",
       "date": "2026-10-17",
-      "review": "2026-10-31",
+      "review": "INDEX \"APEX money parameter reviews (R132)\"",
       "commit": "58916ea",
       "sample": "44 filled Alpaca paper sell-stop legs 2026-07-07..2026-10-16 (37 intraday, 7 gap at the open)"
     },
@@ -522,11 +514,10 @@
     },
     "backend/backtest/s14_vix_l0_2026_10_21.py::WARMUP": {
       "value": 60,
-      "kind": "chosen",
+      "kind": "structural",
       "tier": "ops",
       "date": "2026-10-21",
-      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 2b: the average is seeded on the first close of a 60-session warm-up before the window; after 60 sessions at decay 0.3 the seed's weight is nil. S14 L0 probe only (2026-10-21): no live gate, size or exit reads it.",
-      "review": "2026-11-04"
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 2b: the average is seeded on the first close of a 60-session warm-up before the window; after 60 sessions at decay 0.3 the seed's weight is nil. S14 L0 probe only (2026-10-21): no live gate, size or exit reads it. Frozen with its archived run (R132, 2026-11-23): the card has run, so a review can change nothing already read."
     },
     "backend/backtest/s14_vix_l0_2026_10_21.py::HORIZONS": {
       "value": [
@@ -541,11 +532,10 @@
     },
     "backend/backtest/s14_vix_l0_2026_10_21.py::DD_CUT": {
       "value": -5.0,
-      "kind": "chosen",
+      "kind": "structural",
       "tier": "ops",
       "date": "2026-10-21",
-      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 3: a window counts as a drawdown when the basket's worst close against the entry close is below -5 %; reported, not judged. S14 L0 probe only (2026-10-21): no live gate, size or exit reads it.",
-      "review": "2026-11-04"
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card item 3: a window counts as a drawdown when the basket's worst close against the entry close is below -5 %; reported, not judged. S14 L0 probe only (2026-10-21): no live gate, size or exit reads it. Frozen with its archived run (R132, 2026-11-23): the card has run, so a review can change nothing already read."
     },
     "backend/backtest/s14_vix_l0_2026_10_21.py::LIT_SIZE": {
       "value": [
@@ -581,11 +571,10 @@
     },
     "backend/backtest/s14_vix_l0_2026_10_21.py::COUNT_TOL": {
       "value": 2,
-      "kind": "chosen",
+      "kind": "structural",
       "tier": "ops",
       "date": "2026-10-21",
-      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card validity gate: counts must reproduce within +-2; the warm-up seed and the session calendar can move a day. S14 L0 probe only (2026-10-21): no live gate, size or exit reads it.",
-      "review": "2026-11-04"
+      "source": "Vault raw/notes/2026-10/2026-10-21-apex-s14-heightened-vix-l0-preregistration.md (S14 L0, vault 0301a8f8, written before the code). Card validity gate: counts must reproduce within +-2; the warm-up seed and the session calendar can move a day. S14 L0 probe only (2026-10-21): no live gate, size or exit reads it. Frozen with its archived run (R132, 2026-11-23): the card has run, so a review can change nothing already read."
     },
     "backend/backtest/exits_t8_2026_10.py::SEED": {
       "value": 20261022,
@@ -636,19 +625,17 @@
     },
     "backend/backtest/exits_t8_2026_10.py::COST_GATE_BP": {
       "value": 10,
-      "kind": "chosen",
+      "kind": "structural",
       "tier": "ops",
-      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): amendment E: 10 bp per round trip is the chosen cost gate of rule (d) (two half-spreads plus slippage in liquid US large caps, conservative). Chosen, not measured: review at the class-rule review 2026-11-04. Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
-      "date": "2026-10-21",
-      "review": "2026-11-04"
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): amendment E: 10 bp per round trip is the chosen cost gate of rule (d) (two half-spreads plus slippage in liquid US large caps, conservative). Chosen, not measured: review at the class-rule review 2026-11-04. Exits card probe only (2026-10-21): no live gate, size or exit reads it. Frozen with its archived run (R132, 2026-11-23): the card has run, so a review can change nothing already read.",
+      "date": "2026-10-21"
     },
     "backend/backtest/exits_t8_2026_10.py::RETENTION_BAR": {
       "value": 0.5,
-      "kind": "chosen",
+      "kind": "structural",
       "tier": "ops",
-      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): amendment J (ruling Niclas 2026-10-21): an arm's OOS advantage must keep >= half its IS advantage, with p <= 0.05, to class as 'holds' (rule f). The 0.5 is chosen, not derived; T4's TIME5 retention is 0.19. Exits card probe only (2026-10-21): no live gate, size or exit reads it.",
-      "date": "2026-10-21",
-      "review": "2026-11-04"
+      "source": "Vault raw/notes/2026-10/2026-10-20-apex-exits-card.md (T8, amendments A-J, vault 3e560e5e, written before any code): amendment J (ruling Niclas 2026-10-21): an arm's OOS advantage must keep >= half its IS advantage, with p <= 0.05, to class as 'holds' (rule f). The 0.5 is chosen, not derived; T4's TIME5 retention is 0.19. Exits card probe only (2026-10-21): no live gate, size or exit reads it. Frozen with its archived run (R132, 2026-11-23): the card has run, so a review can change nothing already read.",
+      "date": "2026-10-21"
     },
     "backend/backtest/exits_t8_2026_10.py::POSITIVE_SHIFT": {
       "value": 0.0002,
@@ -845,7 +832,7 @@
       "tier": "money",
       "source": "M4 stop rule, ruled by Niclas 2026-10-24 (vault INDEX go-criterion line; apex audit/QUESTIONS.md G7/M4); run in live's L0 Portfolio from 2026-10-24 (Niclas: \"m4: då sätter vi de tre reglerna i L0 som hindrar L1 att ens starta. Kör på live redan nu\"). Drawdown on realised equity from its peak: \"6 %\" (\"i överkant men det är värdefullt att veta\"), \"m4: realiserat\". The engine at live sizing reaches 11.6-14.9 % (F15), live 2.69 % since 07-07 (measured 2026-10-24).",
       "date": "2026-10-24",
-      "review": "2026-11-21"
+      "review": "INDEX \"APEX money parameter reviews (R132)\""
     },
     "backend/config.py::L0_PORTFOLIO_LOSS_CAP_MAX": {
       "value": 0.05,
@@ -853,7 +840,7 @@
       "tier": "money",
       "source": "M4 stop rule, ruled by Niclas 2026-10-24 (vault INDEX go-criterion line; apex audit/QUESTIONS.md G7/M4); run in live's L0 Portfolio from 2026-10-24 (Niclas: \"m4: då sätter vi de tre reglerna i L0 som hindrar L1 att ens starta. Kör på live redan nu\"). Daily loss cap as a share of current equity (\"5% av aktuellt kapital kan skala upp och ner, vilket är bättre\"); the level 4 % or 6 % is open until the 2026-11-21 review, 5 % is the interim, equal to the $500 fixed cap it replaces at the $10,000 starting balance. Since 2026-11-01 also the engines' default (× initial balance), replacing live_shape.DAILY_LOSS_CAP_PCT (same 0.05; its provenance: Niclas 2026-10-17: the engines' daily loss cap as live has it, 5 % of the starting balance (live $500 / $10,000, demo $100 / $2,000). Replaces config's $100 on a $10,000 simulation (1 %). Equity-based (5 % of current capital, Niclas's preference) is next Saturday's question.)",
       "date": "2026-10-24",
-      "review": "2026-11-21"
+      "review": "INDEX \"APEX money parameter reviews (R132)\""
     },
     "backend/config.py::L0_PORTFOLIO_HALT_M4_EXPECTANCY_COUNT": {
       "value": 40,
@@ -861,7 +848,7 @@
       "tier": "money",
       "source": "M4 stop rule, ruled by Niclas 2026-10-24 (vault INDEX go-criterion line; apex audit/QUESTIONS.md G7/M4); run in live's L0 Portfolio from 2026-10-24 (Niclas: \"m4: då sätter vi de tre reglerna i L0 som hindrar L1 att ens starta. Kör på live redan nu\"). In-session trades after the frozen reference before the expectancy rule can fire (\"sätt den på 40\"): the n that detects a shortfall the size of the whole in-session mean (1.85 %) at sd 3.95 %, one-sided 5 %, 90 % power.",
       "date": "2026-10-24",
-      "review": "2026-11-21"
+      "review": "INDEX \"APEX money parameter reviews (R132)\""
     },
     "backend/backtest/s21_reversal_2026_10.py::HORIZONS": {
       "value": [
@@ -1057,14 +1044,14 @@
       "kind": "chosen",
       "tier": "money",
       "source": "Live minimum order: the literal `notional < 10` in gate_runner_live since eda5851 (2026-03-26), never measured. Named 2026-10-29 (lock labels phase 2) when L1's affordability check also runs before the chain on the largest possible notional, together with one whole share.",
-      "review": "2026-11-14"
+      "review": "INDEX \"APEX money parameter reviews (R132)\""
     },
     "backend/wallet.py::MIN_ORDER": {
       "value": 50.0,
       "kind": "chosen",
       "tier": "money",
       "source": "Demo minimum order: the literal `amount < 50` in wallet.execute_trade since 0660e4a (2026-03-25), never measured. Named 2026-10-29 (lock labels phase 2) when L1's affordability check also runs before the chain on the largest possible notional.",
-      "review": "2026-11-14"
+      "review": "INDEX \"APEX money parameter reviews (R132)\""
     },
     "backend/gate/history_classify.py::L1_ELIGIBILITY_COOLOFF_HOURS": {
       "value": {
@@ -1265,7 +1252,6 @@
       "kind": "chosen",
       "tier": "ops",
       "source": "Retire conditions Part B (2026-10-31, Niclas \"gör B\"; scope vault raw/notes/2026-10/2026-10-14-apex-coded-retire-conditions-scope.md Part B): Niclas's 90-day point from 10-14, a review cadence for the quiet-and-unarmed backlog, not evidence. Lists only; nothing is retired on it.",
-      "review": "2026-11-14",
       "date": "2026-10-31"
     },
     "audit/checks_data.py::C89_GAP_USD": {
@@ -1273,7 +1259,6 @@
       "kind": "chosen",
       "tier": "ops",
       "source": "CHECK 89 fill reconcile (2026-10-31): the bundle TODO's '$1' tolerance on the book-vs-broker gap; fees are reported beside, not netted, since no row's P&L holds them. TER/MSFT (2026-10-31) was $4.84.",
-      "review": "2026-11-14",
       "date": "2026-10-31"
     },
     "audit/checks_data.py::C89_RECONCILE_MAX_AGE_DAYS": {
@@ -1288,7 +1273,6 @@
       "kind": "chosen",
       "tier": "ops",
       "source": "Finding 4 startup backup (2026-10-31): two weeks of daily copies at ~110 MB each (1.5 GB of 858 GB free, measured 2026-10-31); a disk-cost choice, not evidence.",
-      "review": "2026-11-14",
       "date": "2026-10-31"
     },
     "audit/checks_data.py::C95_MAX_AGE_DAYS": {
@@ -1296,7 +1280,6 @@
       "kind": "chosen",
       "tier": "ops",
       "source": "CHECK 95 (2026-10-31): one backup per session-day start; a weekend plus one missed start, as C89_RECONCILE_MAX_AGE_DAYS.",
-      "review": "2026-11-14",
       "date": "2026-10-31"
     },
     "audit/checks_data.py::C89_SLIP_WARN": {
@@ -1304,7 +1287,6 @@
       "kind": "chosen",
       "tier": "ops",
       "source": "TP/SL re-anchor ruling (a) 2026-10-31 (Niclas: \"A\"): the 1 % line the INDEX scope and CHECK 89's INFO already counted by; since 10-13, 11 entries, largest 0.48 %, none over 1 % (measured).",
-      "review": "2026-11-14",
       "date": "2026-10-31"
     },
     "audit/checks_data.py::C89_SLIP_WINDOW_DAYS": {
@@ -1312,7 +1294,6 @@
       "kind": "chosen",
       "tier": "ops",
       "source": "TP/SL re-anchor ruling (a) 2026-10-31: the wide-fill warning is an event (one weekly bundle), not a standing level.",
-      "review": "2026-11-14",
       "date": "2026-10-31"
     },
     "audit/checks_gate.py::_C96_FIRST": {
@@ -1323,8 +1304,7 @@
       "kind": "chosen",
       "tier": "ops",
       "source": "Claude 2026-11-07, CHECK 96: the lower bound is market_window.sh's guard start (08:15 ET); the upper bound allows three 5-min repeats of the trigger (a repeat dropped by IgnoreNew or a slow WSL start) before the pre-open hour counts as lost. Vault raw/notes/2026-11/2026-11-02-apex-saturday-scopes-11-07.md § 5.",
-      "date": "2026-11-07",
-      "review": "2026-11-21"
+      "date": "2026-11-07"
     },
     "backend/protection_health.py::_LEVEL_TOL": {
       "value": 0.005,
@@ -1337,78 +1317,70 @@
       "kind": "chosen",
       "tier": "ops",
       "source": "Claude 2026-11-07, CHECK 97: three missed 5-minute exit cycles (15 min) before an open demo trade counts as unwatched; one or two can be a slow fetch. Vault raw/notes/2026-10/2026-10-31-apex-saturday-scopes.md § 1.",
-      "date": "2026-11-07",
-      "review": "2026-11-21"
+      "date": "2026-11-07"
     },
     "backend/live_trades_tracker.py::CLOSE_FILL_READBACK_S": {
       "value": 3.0,
       "kind": "chosen",
       "tier": "ops",
-      "source": "Audit finding 5, R064 a (Niclas 2026-11-14): how long a time-stop or regime close reads its own market order back by id before it books the quote with exit_confidence QUOTE_EXIT (CHECK 89 counts those rows). A judgment: a market order in a liquid name usually fills within a second, a fast market can take longer; no measurement of Alpaca paper fill latency exists. Review against CHECK 89's QUOTE_EXIT count.",
-      "review": "2026-11-28"
+      "source": "Audit finding 5, R064 a (Niclas 2026-11-14): how long a time-stop or regime close reads its own market order back by id before it books the quote with exit_confidence QUOTE_EXIT (CHECK 89 counts those rows). A judgment: a market order in a liquid name usually fills within a second, a fast market can take longer; no measurement of Alpaca paper fill latency exists. Review against CHECK 89's QUOTE_EXIT count."
     },
     "backend/live_trades_tracker.py::CLOSE_FILL_POLL_S": {
       "value": 0.5,
       "kind": "chosen",
       "tier": "ops",
-      "source": "Poll interval inside CLOSE_FILL_READBACK_S (audit finding 5, R064 a, 2026-11-14): six reads in the 3 s window, one get_order_by_id each; a choice, not a measurement.",
-      "review": "2026-11-28"
+      "source": "Poll interval inside CLOSE_FILL_READBACK_S (audit finding 5, R064 a, 2026-11-14): six reads in the 3 s window, one get_order_by_id each; a choice, not a measurement."
     },
     "audit/checks_data.py::C99_WINDOW_DAYS": {
       "value": 10,
       "kind": "chosen",
       "tier": "ops",
-      "source": "CHECK 99 (2026-11-14, Saturday order item 2): the no_data share is read over the last ten days (two weeks of sessions); a choice.",
-      "review": "2026-12-05"
+      "source": "CHECK 99 (2026-11-14, Saturday order item 2): the no_data share is read over the last ten days (two weeks of sessions); a choice."
     },
     "audit/checks_data.py::C99_MIN_ROWS": {
       "value": 50,
       "kind": "chosen",
       "tier": "ops",
-      "source": "CHECK 99 (2026-11-14, Saturday order item 2): about two sessions of rows where the earnings rule ran (553 live rows in 20 sessions 10-19..11-13, read 2026-11-14 = 28 a day); a choice.",
-      "review": "2026-12-05"
+      "source": "CHECK 99 (2026-11-14, Saturday order item 2): about two sessions of rows where the earnings rule ran (553 live rows in 20 sessions 10-19..11-13, read 2026-11-14 = 28 a day); a choice."
     },
     "audit/checks_data.py::C99_MAX_NO_DATA": {
       "value": 0.5,
       "kind": "chosen",
       "tier": "ops",
-      "source": "CHECK 99 (2026-11-14, Saturday order item 2): a dead date source reads 1.0 (553/553 live rows 10-19..11-13); a working one leaves a few names without a calendar date; the line sits between, a choice.",
-      "review": "2026-12-05"
+      "source": "CHECK 99 (2026-11-14, Saturday order item 2): a dead date source reads 1.0 (553/553 live rows 10-19..11-13); a working one leaves a few names without a calendar date; the line sits between, a choice."
     },
     "audit/checks_data.py::C99_READ_REPORTS": {
       "value": 20,
       "kind": "chosen",
       "tier": "ops",
-      "source": "CHECK 99 (2026-11-14, Saturday order item 2): the shadow read's condition, Niclas 2026-11-14: 'minst 20 distinkta ticker-rapporter, med kandidatdagarna rapporterade bredvid' (count events, not candidate-days).",
-      "review": "2026-12-05"
+      "source": "CHECK 99 (2026-11-14, Saturday order item 2): the shadow read's condition, Niclas 2026-11-14: 'minst 20 distinkta ticker-rapporter, med kandidatdagarna rapporterade bredvid' (count events, not candidate-days)."
     },
     "backend/config.py::L2_RISK_EARNINGS_DAYS": {
       "value": 2,
       "kind": "chosen",
       "tier": "money",
       "source": "R065 a (Niclas 2026-11-14): demo, live and the default carry one value, 2, live's since 8935d97 (2026-05-22). 8935d97 reasoned from a post-report window the rule never blocks (it blocks 0..N days before the report). check_earnings's fallback reads this constant. Never fired in recorded history (the date source returned None for every ticker until 2026-11-14; L2_RISK_EARNINGS no_data on 553/553 live rows 10-19..11-13); shadow mode from 2026-11-14.",
-      "review": "2026-12-05"
+      "review": "INDEX \"APEX money parameter reviews (R132)\""
     },
     "backend/config.py::L2_RISK_EARNINGS_NEAR_DAYS": {
       "value": 14,
       "kind": "chosen",
       "tier": "money",
       "source": "Set with the three-tier gate in 6d9f497 (2026-06-09), no measurement recorded; demo and live carry the same 14. Never fired in recorded history (the date source returned None for every ticker until 2026-11-14; L2_RISK_EARNINGS no_data on 553/553 live rows 10-19..11-13); shadow mode from 2026-11-14.",
-      "review": "2026-12-05"
+      "review": "INDEX \"APEX money parameter reviews (R132)\""
     },
     "backend/config.py::L2_RISK_EARNINGS_NEAR_PENALTY": {
       "value": 0.15,
       "kind": "chosen",
       "tier": "money",
       "source": "Set with the three-tier gate in 6d9f497 (2026-06-09), no measurement recorded; demo and live carry the same 0.15. Never fired in recorded history (the date source returned None for every ticker until 2026-11-14; L2_RISK_EARNINGS no_data on 553/553 live rows 10-19..11-13); shadow mode from 2026-11-14.",
-      "review": "2026-12-05"
+      "review": "INDEX \"APEX money parameter reviews (R132)\""
     },
     "backend/gate/gate_runner.py::DATA_PROBE_TIMEOUT_S": {
       "value": 3.0,
       "kind": "chosen",
       "tier": "ops",
-      "source": "Saturday order item 7 (2026-11-14): the demo cycle's data pre-flight waits this long for one TCP connection to the data host before recording data_unreachable; a judgment (the 10-22 failures were DNS errors, immediate), no latency measurement.",
-      "review": "2026-11-28"
+      "source": "Saturday order item 7 (2026-11-14): the demo cycle's data pre-flight waits this long for one TCP connection to the data host before recording data_unreachable; a judgment (the 10-22 failures were DNS errors, immediate), no latency measurement."
     },
     "backend/weekly_report.py::B3_N_MIN": {
       "value": 30,
@@ -1421,7 +1393,7 @@
       "kind": "chosen",
       "tier": "money",
       "source": "Read off a May 2026 sample of 65 universe tickers (median 0.88, P75 1.35), which described the universe, not the L5 rows (QUESTIONS M11, measured 2026-11-12: live L5 ticker-days median 1.58). S24's L0 card (2026-11-14, apex 7b47e9c) read unanswered: an IC of 0.03 at h1 is excluded, longer horizons and the RS-fail split under-powered. The L3 price-group read that could measure it was not run (R069 c, 2026-11-14); kept as chosen, the review date is the reader.",
-      "review": "2027-01-14"
+      "review": "INDEX \"APEX money parameter reviews (R132)\""
     },
     "backend/gate/l6_review.py::L6_REVIEW_MAX_TOKENS": {
       "value": 2048,
@@ -1431,14 +1403,13 @@
       "engine": "none (API request cap, no backtest engine)",
       "commit": "0efa6a9",
       "date": "2026-11-21",
-      "review": "2026-12-19"
+      "review": "INDEX \"APEX money parameter reviews (R132)\""
     },
     "audit/checks_gate.py::_C100_EVENT_DAYS": {
       "value": 2,
       "kind": "chosen",
       "tier": "ops",
       "date": "2026-11-21",
-      "review": "2027-01-21",
       "source": "CHECK 100 (audit/CHECKS.md row 100; R026). The same 2-day CRITICAL window as CHECK 81: the audit reads after the close, so 'today or yesterday'. Report-only: no gate, size or exit reads it."
     },
     "audit/checks_gate.py::_C100_TALLY_DAYS": {
@@ -1446,7 +1417,6 @@
       "kind": "chosen",
       "tier": "ops",
       "date": "2026-11-21",
-      "review": "2027-01-21",
       "source": "CHECK 100: the closed live trades of the last 30 days are read each night, the same horizon as CHECK 81's tally; about 18 trades on 2026-11-21. Report-only."
     },
     "audit/checks_gate.py::_C100_ORDERS": {
@@ -1454,7 +1424,6 @@
       "kind": "chosen",
       "tier": "ops",
       "date": "2026-11-21",
-      "review": "2027-01-21",
       "source": "CHECK 100: recent orders fetched with legs. About 2 brackets per session plus their legs as one row each, so 500 covers the 30-day window with room; a trade whose bracket is not fetched is stated in the INFO line (first run 2026-11-21: 18 of 18 found). Report-only."
     },
     "audit/checks_gate.py::_C101_EVENT_DAYS": {
@@ -1462,7 +1431,6 @@
       "kind": "chosen",
       "tier": "ops",
       "date": "2026-11-21",
-      "review": "2027-01-21",
       "source": "CHECK 101 (audit/CHECKS.md row 101; vault INDEX 'APEX options source', CHECK scope 2026-11-20). Report-only: no gate, size or exit reads it. The same 2-session CRITICAL window as CHECKs 81 and 100."
     },
     "audit/checks_gate.py::_C101_TALLY_DAYS": {
@@ -1470,7 +1438,6 @@
       "kind": "chosen",
       "tier": "ops",
       "date": "2026-11-21",
-      "review": "2027-01-21",
       "source": "CHECK 101 (audit/CHECKS.md row 101; vault INDEX 'APEX options source', CHECK scope 2026-11-20). Report-only: no gate, size or exit reads it. The INFO line's horizon, as CHECK 81's tally."
     },
     "audit/checks_gate.py::_C101_MIN_ROWS": {
@@ -1478,7 +1445,6 @@
       "kind": "chosen",
       "tier": "ops",
       "date": "2026-11-21",
-      "review": "2027-01-21",
       "source": "CHECK 101 (audit/CHECKS.md row 101; vault INDEX 'APEX options source', CHECK scope 2026-11-20). Report-only: no gate, size or exit reads it. Minimum 5 rows per session, from the scope: about 5 L5 rows per book per session (measured 11-16..11-20), so a normal session is judged and a thin one is not."
     },
     "audit/checks_gate.py::_C101_CRIT_SHARE": {
@@ -1486,7 +1452,6 @@
       "kind": "chosen",
       "tier": "ops",
       "date": "2026-11-21",
-      "review": "2027-01-21",
       "source": "CHECK 101 (audit/CHECKS.md row 101; vault INDEX 'APEX options source', CHECK scope 2026-11-20). Report-only: no gate, size or exit reads it. At least half of a session's rows, from the scope: the live worst session 10-20..11-20 was 5 %, demo's 14 % (first run 2026-11-21 reproduced both), and the founding failure was 102 of 102."
     },
     "backend/data/options_alpaca.py::_HORIZON_DAYS": {
@@ -1501,7 +1466,6 @@
       "kind": "chosen",
       "tier": "ops",
       "date": "2026-11-21",
-      "review": "2027-05-21",
       "source": "The demo wallet's fixed daily loss cap (config.DEMO_L0_PORTFOLIO_LOSS_CAP_MAX, unregistered) that the archived backtest analyses and engine_sharpe ran with; moved here on 2026-11-21 when the demo book's cap became L0's share of equity (R067 a, R111 a), so those runs reproduce. No production reader."
     }
   }

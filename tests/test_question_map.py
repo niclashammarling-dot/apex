@@ -46,17 +46,20 @@ def test_rollup_answered_partial_open_and_missing():
     assert o["Q-A"]["state"] == "open" and o["Q-A"]["counts"] == {"S:open": 2, "GAP:no": 1}
 
 
-def test_chosen_parameter_past_review_is_open():
-    params = qm.param_states({"a::X": {"kind": "chosen", "tier": "ops", "review": "2026-10-01"},
-                              "a::Y": {"kind": "measured", "tier": "ops"}}, date(2026, 10, 21))
+def test_parameter_state_is_its_kind_and_no_review_date_is_read():
+    """R132 (2026-11-23): the review lives on INDEX; the map reads the kind only."""
+    params = qm.param_states({"a::X": {"kind": "chosen", "tier": "ops"},
+                              "a::Y": {"kind": "measured", "tier": "ops"},
+                              "a::Z": {"kind": "chosen", "tier": "money", "review": 'INDEX "e"'}}, date(2026, 10, 21))
+    assert params == {"a::X": ("ops", "chosen"), "a::Y": ("ops", "measured"), "a::Z": ("money", "chosen")}
     rows = {"S1": "open", "S2": "open", "GAP-1": "no", "CHECK-1": "clean", "CHECK-2": "clean"}
     o = _derive(rows, params)["questions"]["Q-B"]
-    assert o["state"] == "partial" and o["counts"]["PARAM:chosen, review passed"] == 1
+    assert o["state"] == "answered" and o["counts"] == {"CHECK:clean": 2, "PARAM:chosen": 1, "PARAM:measured": 1}
 
 
 def test_one_named_parameter_resolves_alone_and_an_unknown_name_is_unresolved():
-    params = qm.param_states({"a.py::X": {"kind": "chosen", "tier": "money", "review": "2027-01-14"},
-                              "a.py::Y": {"kind": "chosen", "tier": "money", "review": "2026-10-01"}}, date(2026, 11, 23))
+    params = qm.param_states({"a.py::X": {"kind": "chosen", "tier": "money", "review": 'INDEX "e"'},
+                              "a.py::Y": {"kind": "chosen", "tier": "money", "review": 'INDEX "e"'}}, date(2026, 11, 23))
     m = qm.parse_map(MAP.replace("S1, S2, GAP-1", "S1, PARAM:a.py::X"))
     o = qm.derive(m, {"S1": "adopted", "CHECK-1": "clean", "CHECK-2": "clean"}, ["CHECK-1", "CHECK-2"], params)
     assert [r["ref"] for r in o["questions"]["Q-A"]["rows"]] == ["S1", "PARAM:a.py::X"]   # not Y: no tier pulled in

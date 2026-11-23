@@ -11,7 +11,7 @@ Row states (QUESTIONS.md § Derivation):
   S        signal register first status word; adopted/discarded answered
   GAP      PRODUCTION_GAP parity column first word; yes/closed/n/a answered
   CHECK    audit/state/latest.json: evaluated with no WARNING/CRITICAL finding answered
-  PARAM    PARAMETERS.json kind; chosen answered until its review date passes (PARAM-<tier> or PARAM:<name>)
+  PARAM    PARAMETERS.json kind, answered (PARAM-<tier> or PARAM:<name>); reviews live on INDEX (R132)
   M        never answered
 An unreadable register raises RegisterUnread: a pyramid of zeros is never shown for a broken reader.
 """
@@ -137,14 +137,10 @@ def check_states(state: dict, ids: list[int]) -> dict[str, str]:
 
 
 def param_states(params: dict, today: date) -> dict[str, tuple[str, str]]:
-    """{name: (tier, state)}; state is the kind, or 'chosen, review passed'."""
-    out = {}
-    for name, p in params.items():
-        kind = p.get("kind", "")
-        if kind == "chosen" and p.get("review") and p["review"] < today.isoformat():
-            kind = "chosen, review passed"
-        out[name] = (p.get("tier", ""), kind)
-    return out
+    """{name: (tier, state)}; state is the kind. No review date is read here (R132, 2026-11-23): a money value's
+    review is a dated INDEX line, which the opener, CAPACITY and the age reader read; PARAMETERS.json holds only a
+    pointer, so the date exists in one place. `today` is kept for callers."""
+    return {name: (p.get("tier", ""), p.get("kind", "")) for name, p in params.items()}
 
 
 def kind_of(ref: str) -> str:
@@ -159,7 +155,7 @@ def answered(ref: str, state: str) -> bool:
     if ref.startswith("CHECK-"):
         return state == "clean"
     if ref.startswith("PARAM:"):
-        return state != "chosen, review passed"
+        return True        # answered by its kind; a money value's review is a dated INDEX line (R132)
     return False
 
 

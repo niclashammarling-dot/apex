@@ -17,8 +17,12 @@ not inherit the old. tests/test_parameter_registry.py holds the schema, the valu
 the ratchet on unregistered parameters.
 
 Kinds: measured (sweep/backtest/replay: engine, commit, date, sample), derived (from
-another registered key), structural (given from outside: source), chosen (a judgment:
-allowed only as listed debt with a review date).
+another registered key), structural (given from outside: source), chosen (a judgment).
+
+Review (R132, Niclas 2026-11-23: "samma klass som R120 … datum bara finns på ett ställe"): a money-tier chosen
+value's review is a dated INDEX line, and its `review` field holds a pointer to it ("INDEX \"…\""), never a
+date. An ops-tier value is a record and carries no review. Found the same day: 27 of 47 chosen entries were past
+a review date nothing read, and the M4 entries' date had drifted from INDEX's M4 review (11-21 against 11-25).
 Tiers (ruled 2026-10-14): money = compared against or multiplying something in the
 entry, size or exit chain, and any audit threshold whose action changes configuration;
 ops = timing or freshness only.
@@ -43,7 +47,7 @@ KINDS = {
     "measured":   ("source", "engine", "commit", "date", "sample"),
     "derived":    ("source", "from"),
     "structural": ("source",),
-    "chosen":     ("source", "review"),
+    "chosen":     ("source",),
 }
 TIERS = ("money", "ops")
 _NAME = re.compile(r"_?[A-Z][A-Z0-9_]+")
@@ -132,7 +136,23 @@ def problems(registry: dict[str, dict], values: dict[str, object]) -> list[str]:
                 out.append(f"{key}: derived from {e.get('from')!r}, which has no registry entry")
         if e.get("tier") not in TIERS:
             out.append(f"{key}: tier {e.get('tier')!r} not one of {list(TIERS)}")
+        out += review_problems(key, e)
     return out
+
+
+_ISO = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def review_problems(key: str, e: dict) -> list[str]:
+    """R132: a review is a pointer to INDEX, required for money-tier chosen values, absent elsewhere in ops."""
+    review = e.get("review")
+    if review is not None and _ISO.search(str(review)):
+        return [f"{key}: review carries a date ({review!r}); the date lives on INDEX and review points to it (R132)"]
+    if e.get("kind") == "chosen" and e.get("tier") == "money" and not str(review or "").startswith("INDEX"):
+        return [f"{key}: a chosen money value needs review = 'INDEX \"<entry>\"', a pointer to its dated INDEX line (R132)"]
+    if e.get("tier") == "ops" and review is not None:
+        return [f"{key}: an ops value is a record and carries no review (R132)"]
+    return []
 
 
 def unregistered(registry: dict[str, dict], values: dict[str, object]) -> list[str]:

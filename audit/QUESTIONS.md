@@ -26,8 +26,9 @@ the questions themselves, and each go group's threshold status, which changes on
 - `CHECK-<n>`: a row in `audit/CHECKS.md`. State from the nightly run: clean, or a finding at its
   severity. `CHECK-*` means every CHECK not named on another row.
 - `Q-<name>`, `G<n>`: another question in this map.
-- `PARAM-money`, `PARAM-ops`: every entry of `audit/PARAMETERS.json` in that tier. measured, structural
-  and derived are answered; chosen is answered until its review date passes.
+- `PARAM-money`, `PARAM-ops`: every entry of `audit/PARAMETERS.json` in that tier, answered by its kind. Since
+  R132 (2026-11-23) no review date is read here: a money value's review is a dated vault INDEX line ("APEX money
+  parameter reviews (R132)") that its `review` field points to; an ops value is a record with no review.
 - `PARAM:<name>`: one named entry of `audit/PARAMETERS.json`, same states (2026-11-23, for a missing row that
   was one parameter: M11, replaced by VOL_ACCUM_THRESHOLD's entry; its measurements are in vault
   `raw/notes/2026-11/2026-11-12-apex-vol-accum-threshold-measured-against-gate-data.md` and the entry's source).
