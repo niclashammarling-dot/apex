@@ -18,6 +18,10 @@
 #   still running    → a visible warning, not a block (reading CI before the next push stays the rule)
 #   unreadable / none → a visible warning "CI state unknown", not a block (an offline push is not a red tree)
 # APEX_CI_API overrides the API base; a local directory there is read as <dir>/<sha>.json (the tests' fixtures).
+# Both warnings are recorded too (2026-11-24, R123 a, Niclas 2026-11-21: "Loggningen gör att nästa fall som 328/329
+# syns"): until then they reached stderr only, so a push stacked on a running tip, the 328 -> 329 case, left no line
+# in the history. Lines "CI guard: warned, …" beside "blocked" and "acknowledged"; the reader is the INDEX row
+# "APEX pre-push CI guard" (mechanism review of the log).
 repo=$(git rev-parse --show-toplevel) || exit 1
 hist="${APEX_PRE_PUSH_HISTORY:-$repo/logs/pre-push-history.log}"
 record() {  # $1 = rc, $2 = seconds, $3 = summary
@@ -67,9 +71,11 @@ else:
                 exit 1
             fi ;;
         queued|in_progress|requested|waiting|pending)
-            echo "pre-push: CI run $2 on ${rsha:0:7} ($_rref) is still running — read it before the next push" >&2 ;;
+            echo "pre-push: CI run $2 on ${rsha:0:7} ($_rref) is still running — read it before the next push" >&2
+            record 0 0 "CI guard: warned, run $2 on ${rsha:0:7} still running" ;;
         *)
-            echo "pre-push: CI state unknown for ${rsha:0:7} ($_rref) — no run found or the API is unreachable" >&2 ;;
+            echo "pre-push: CI state unknown for ${rsha:0:7} ($_rref) — no run found or the API is unreachable" >&2
+            record 0 0 "CI guard: warned, CI state unknown for ${rsha:0:7}" ;;
     esac
 done
 

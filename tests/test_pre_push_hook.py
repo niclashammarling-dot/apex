@@ -94,6 +94,18 @@ def test_an_unknown_ci_state_warns_and_does_not_block(tmp_path):
     assert r.returncode == 0 and "CI state unknown" in r.stderr
 
 
+def test_both_warnings_are_recorded_and_a_green_tip_records_none(tmp_path):
+    """R123 a (2026-11-24 build): the two warnings reached stderr only, so a push stacked on a running tip (CI 328 ->
+    329, 2026-11-14) left no history line. Positive control: a green tip writes no guard line."""
+    _, hist = _guard(tmp_path, RUNNING)
+    assert f"CI guard: warned, run 297 on {RUNNING[:7]} still running" in hist
+    (tmp_path / "u").mkdir(), (tmp_path / "g").mkdir()
+    _, hist = _guard(tmp_path / "u", "e" * 40)
+    assert f"CI guard: warned, CI state unknown for {'e' * 7}" in hist
+    _, hist = _guard(tmp_path / "g", GREEN)
+    assert "CI guard" not in hist and " | rc=0 | " in hist          # the ratchet's own line still lands
+
+
 def test_a_new_branch_has_no_remote_tip_to_read(tmp_path):
     r, _ = _guard(tmp_path, "0" * 40)
     assert r.returncode == 0 and "CI" not in r.stderr
