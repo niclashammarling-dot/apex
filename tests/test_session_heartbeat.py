@@ -122,7 +122,10 @@ def remote(tmp_path):
 
 
 def _push(remote, session_date):
+    # The push runs the repo's pre-push hook; its history goes to tmp, never logs/ (2026-11-24: each suite run had
+    # written 4 lines into the production logs/pre-push-history.log, the R123 mechanism review's input).
     env = {**os.environ, "APEX_HEARTBEAT_REMOTE": str(remote), "APEX_HEARTBEAT_DATE": session_date,
+           "APEX_PRE_PUSH_HISTORY": str(Path(remote).parent / "pre-push-history.log"),
            "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@t"}
     return subprocess.run([sys.executable, str(REPO / "scripts" / "push_heartbeat.py")],
@@ -155,6 +158,7 @@ def _launch(tmp_path, remote, owner, timeout="20", with_remote=True):
            # "launcher lock held" whenever the real backend ran, and took the real lock otherwise,
            # so a scheduled launch during the suite would have exited on the test's lock.
            "APEX_LAUNCH_LOCK": str(tmp_path / "launcher.lock"),
+           "APEX_PRE_PUSH_HISTORY": str(tmp_path / "pre-push-history.log"),   # the push runs the repo's hook
            "MARKET_WINDOW_TEST_SECONDS": "1", "FAKE_DELAY": "1", "FAKE_OWNER": owner,
            "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@t"}

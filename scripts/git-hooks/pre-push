@@ -43,8 +43,14 @@ ci_runs() {  # $1 = sha
         *)  curl -s --max-time 6 "$api?head_sha=$1&per_page=20" 2>/dev/null ;;
     esac
 }
+# Data branches carry orphan commits with one JSON file and no workflow, so no CI run exists for their tips; the
+# guard skips them (2026-11-24: once warnings were recorded, every 14:25 heartbeat push would have logged a false
+# "CI state unknown"). Names: scripts/push_heartbeat.py BRANCH, audit/publish_state.py BRANCH and WATCH_BRANCH; a
+# test holds this list equal to them.
+DATA_BRANCHES="heartbeat heartbeat-watch audit-state"
 while read -r _lref _lsha _rref rsha; do
     [ -z "$rsha" ] || [ "$rsha" = "0000000000000000000000000000000000000000" ] && continue   # a new branch
+    case " $DATA_BRANCHES " in *" ${_rref#refs/heads/} "*) continue ;; esac
     state=$(ci_runs "$rsha" | "$py" -c '
 import json, sys
 try:

@@ -106,6 +106,32 @@ def test_both_warnings_are_recorded_and_a_green_tip_records_none(tmp_path):
     assert "CI guard" not in hist and " | rc=0 | " in hist          # the ratchet's own line still lands
 
 
+def test_data_branches_are_not_read_and_the_list_matches_their_writers(tmp_path):
+    """2026-11-24: heartbeat and audit-state tips are orphan JSON commits with no CI run, so once warnings were
+    recorded every 14:25 heartbeat push would have logged "CI state unknown". Control: master on the same unknown
+    tip still warns."""
+    import re
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    hist = tmp_path / "hist.log"
+    env = dict(os.environ, APEX_PRE_PUSH_HISTORY=str(hist), APEX_CI_API=str(runs))
+    env.pop("APEX_CI_RED_OK", None)
+    tip = "f" * 40
+    refs = [f"refs/heads/{b} {'d' * 40} refs/heads/{b} {tip}" for b in ("heartbeat", "heartbeat-watch", "audit-state")]
+    r = subprocess.run([str(HOOK)], cwd=HOOK.parent, capture_output=True, text=True, timeout=120, env=env,
+                       input="\n".join(refs) + "\n")
+    assert r.returncode == 0 and "CI" not in r.stderr and "CI guard" not in hist.read_text()
+    r = subprocess.run([str(HOOK)], cwd=HOOK.parent, capture_output=True, text=True, timeout=120, env=env,
+                       input=f"refs/heads/master {'d' * 40} refs/heads/master {tip}\n")
+    assert "CI state unknown" in r.stderr and f"CI guard: warned, CI state unknown for {tip[:7]}" in hist.read_text()
+    listed = set(re.search(r'^DATA_BRANCHES="([^"]*)"', HOOK.read_text(), re.M).group(1).split())
+    repo = HOOK.parent.parent.parent
+    writers = {m for f, pat in (("scripts/push_heartbeat.py", r'^BRANCH\s*=\s*"([^"]+)"'),
+                                ("audit/publish_state.py", r'^(?:WATCH_)?BRANCH\s*=\s*"([^"]+)"'))
+               for m in re.findall(pat, (repo / f).read_text(), re.M)}
+    assert listed == writers == {"heartbeat", "heartbeat-watch", "audit-state"}
+
+
 def test_a_new_branch_has_no_remote_tip_to_read(tmp_path):
     r, _ = _guard(tmp_path, "0" * 40)
     assert r.returncode == 0 and "CI" not in r.stderr
