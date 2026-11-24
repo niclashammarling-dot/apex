@@ -21,9 +21,63 @@ import pytest
 # host suite sees CI's value; a test that needs it true patches the module binding.
 os.environ["LIVE_ENABLED"] = "false"
 
+# Interpreter guard (R143 a, 2026-11-24). A run under an interpreter that lacks a runtime package from requirements.txt
+# is refused before collection, with one message. Found 10-23 and three times on 11-22..24: under /usr/bin/python3
+# (no pandas-market-calendars) the calendar code fell back to weekdays behind `except Exception`, and the 11-24 run
+# failed 111 tests in 23 files that read as holiday, session-count or window bugs. The test is the package set, not
+# the interpreter's path: venv/ (production's) and CI's runner python are complete; .venv lacks pytest-mock only.
+# Dev tools are named in the refusal when missing but never refused: their absence changes no result silently, and
+# refusing them is what reverted the 10-23 attempt. Not covered: a package that matters but is not in
+# requirements.txt (CI installs only that file, so CI would miss it too), versions, and extras' dependencies.
+# APEX_REQUIREMENTS_FILE replaces the file only for the guard's own induced-firing test.
+_DEV_TOOLS = frozenset({"pytest", "pytest-mock", "ruff"})
+
+
+def _canon(name: str) -> str:
+    import re
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def missing_requirements(path: Path, installed=None) -> tuple[list[str], list[str]]:
+    """(runtime, dev) requirement names in `path` with no installed distribution under this interpreter."""
+    import re
+    from importlib import metadata
+
+    def _installed(name: str) -> bool:
+        try:
+            metadata.distribution(name)
+            return True
+        except metadata.PackageNotFoundError:
+            return False
+    installed = installed or _installed
+    runtime, dev = [], []
+    for raw in path.read_text().splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line or line.startswith("-"):           # comments, blank lines, pip options (-r, -e, --index-url)
+            continue
+        name = re.match(r"[A-Za-z0-9][A-Za-z0-9._-]*", line).group(0)
+        if not installed(name):
+            (dev if _canon(name) in _DEV_TOOLS else runtime).append(name)
+    return runtime, dev
+
+
+def _refuse_incomplete_interpreter() -> None:
+    import sys
+    req = Path(os.environ.get("APEX_REQUIREMENTS_FILE") or Path(__file__).resolve().parent.parent / "requirements.txt")
+    runtime, dev = missing_requirements(req)
+    if runtime:
+        also = f" Dev tools also missing (not refused): {', '.join(dev)}." if dev else ""
+        pytest.exit(f"APEX tests refused before collection (R143): {sys.executable} lacks runtime package(s) from "
+                    f"{req.name}: {', '.join(runtime)}. Without them code falls back silently (the calendar counts "
+                    f"weekdays), so the run would fail for a reason no test shows. Run with an interpreter that has "
+                    f"requirements.txt installed: venv/bin/python -m pytest (production's), or pip install -r "
+                    f"requirements.txt.{also}", returncode=3)
+
 
 def pytest_configure(config):
     """Redirect DB to a temp file before any test modules are imported."""
+    # First, before any backend import or temp dir (R143 a): a wrong interpreter ends the run here, with one message.
+    _refuse_incomplete_interpreter()
     # Opt-in call recorder for the function ratchet (2026-11-07, tests/coverage): only with APEX_CALLMON_OUT set,
     # registered here, in the one pytest_configure (see below), before collection imports any code.
     if os.environ.get("APEX_CALLMON_OUT"):
