@@ -237,7 +237,6 @@ backend/backtest/intraday_stop_experiment.py::_row	other
 backend/backtest/intraday_stop_experiment.py::main	other
 backend/backtest/intraday_stop_experiment.py::make_patched	other
 backend/backtest/intraday_stop_experiment.py::make_patched.<locals>.patched	other
-backend/backtest/ladder_2026_10.py::_engine	other
 backend/backtest/ladder_2026_10.py::_t4_job	other
 backend/backtest/ladder_2026_10.py::_t5_job	other
 backend/backtest/ladder_2026_10.py::_t6_job	other

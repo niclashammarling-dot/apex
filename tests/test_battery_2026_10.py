@@ -99,6 +99,46 @@ def test_rnd_unit_copies_its_reference_counts(runner):
     assert rec["seed"] == 1 and {"alpha_tbill", "spy_em_calmar", "calmar", "expectancy"} <= set(rec)
 
 
+def test_every_unit_carries_the_gap_line_and_its_key_ignores_the_gap_file(runner, tmp_path, monkeypatch):
+    """Niclas 2026-11-23: the Runner attaches gap_bounds.describe() to every unit it runs, as metadata outside
+    what is hashed, so a PRODUCTION_GAP.md change never invalidates a stored unit. Positive control: the line on
+    the result does follow the file."""
+    import backend.backtest.gap_bounds as gb
+    u = bt.unit("IS", bt.R2)
+    key, path = u.key(), runner.store.path(u)
+    real = runner.run(u)
+    assert real["gap_bounds"] == gb.describe(u.regime_layer) and real["gap_bounds"].startswith(f"{len(real['gaps'])} PRODUCTION_GAP")
+    rnd = runner.run(bt.rnd_units(u)[0])
+    assert rnd["gap_bounds"] == real["gap_bounds"]                    # RND units carry it too
+    table = tmp_path / "PRODUCTION_GAP.md"
+    table.write_text("| # | Component | Where | Status |\n|---|---|---|---|\n| 99 | Synthetic | x | **no** |\n")
+    monkeypatch.setattr(gb, "GAP_FILE", table)
+    moved = runner.run(u)
+    assert moved["gap_bounds"] == "1 PRODUCTION_GAP rows not modelled: 99", "control: the line reads the file"
+    assert u.key() == key and runner.store.path(u) == path and bt.unit("IS", bt.R2).key() == key
+    assert moved["trade_log"] == real["trade_log"] and moved["unit"] == real["unit"]
+
+
+def test_ladder_l3_arm_is_the_runners_engine_and_carries_the_gap_line(runner, monkeypatch):
+    """2026-11-24: ladder._engine (T5/T6 and the cards exits_l3_m4, exits_atr, exits_capped_stop, S14 R1) copied the
+    engine call and its results had no bound line. It now runs Runner.engine: same trades as Runner.run, plus the
+    line; an `over` reaches the engine."""
+    import backend.backtest.ladder_2026_10 as ld
+    monkeypatch.setattr(ld, "_R", runner)
+    l3 = ld._engine("IS", bt.R2, 0, {})
+    ref = runner.run(bt.unit("IS", bt.R2, 0))
+    assert l3["trade_log"] == ref["trade_log"] and l3["days"] == ref["trading_days"]
+    assert l3["gap_bounds"] == ref["gap_bounds"]
+    seen, real_engine = [], runner.engine
+    monkeypatch.setattr(runner, "engine", lambda u, over=None, extra=None: (seen.append((over, extra)),
+                                                                             real_engine(u, over, extra))[1])
+    ld._engine("IS", bt.R2, 0, {"l2_risk_max_positions_count": 1}, random_entries=None)
+    assert seen == [({"l2_risk_max_positions_count": 1}, None)]
+    _, kw = real_engine(bt.unit("IS", bt.R2), {"l2_risk_max_positions_count": 1})
+    assert kw["l2_risk_max_positions_count"] == 1 != {**runner.incumbent(), **bt.unit("IS", bt.R2).kwargs}.get(
+        "l2_risk_max_positions_count")
+
+
 def test_row2_neutral_scores_l2_with_neutral_weights(runner, monkeypatch):
     seen = set()
     real = ef._get_candidates_from_cache

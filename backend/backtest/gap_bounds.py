@@ -29,8 +29,9 @@ GAP_FILE = Path(__file__).with_name("PRODUCTION_GAP.md")
 _ROW = re.compile(r"^\|\s*(\d+[a-z]?)\s*\|([^|]*)\|[^|]*\|([^|]*)\|")
 
 
-def gap_rows(path: Path = GAP_FILE) -> list[dict]:
+def gap_rows(path: Path | None = None) -> list[dict]:
     rows = []
+    path = path or GAP_FILE          # read at call time, so a test can point the module at its own table
     for line in path.read_text(encoding="utf-8").splitlines():
         m = _ROW.match(line)
         if m:
@@ -48,7 +49,7 @@ def first_word(status: str) -> str:
     return m.group(1).lower() if m else ""
 
 
-def open_rows(regime_layer: bool, path: Path = GAP_FILE) -> list[dict]:
+def open_rows(regime_layer: bool, path: Path | None = None) -> list[dict]:
     out = []
     for r in gap_rows(path):
         s = r["status"]
@@ -65,8 +66,8 @@ def open_rows(regime_layer: bool, path: Path = GAP_FILE) -> list[dict]:
     return out
 
 
-def describe(regime_layer: bool) -> str:
-    rows = open_rows(regime_layer)
+def describe(regime_layer: bool, path: Path | None = None) -> str:
+    rows = open_rows(regime_layer, path)
     gap = [r["row"] for r in rows if r["kind"] == "open"]
     dead = [r["row"] for r in rows if r["kind"] == "off-both"]
     other = [f"{r['row']} ({r['kind']})" for r in rows if r["kind"] not in ("open", "off-both")]

@@ -431,19 +431,13 @@ def card_baselines(P: dict, rf: pd.Series) -> dict:
 # ── T5 / T6 (L3 engine) ────────────────────────────────────────────────────────
 
 def _engine(w: str, base: dict, start: int, over: dict, random_entries: dict | None = None) -> dict:
-    from backend.backtest.engine_fast import run
+    """One L3 run through `battery.Runner.engine` (2026-11-24: was a copy of the call, so no L3 arm carried
+    the PRODUCTION_GAP bound line); `gap_bounds` travels with the result for the card's archive."""
     u = b.unit(w, base, start)
-    pre = _R._window(w)
-    days = pre["trading_days"][start:]
-    pre_u = dict(pre)
-    if u.regime_layer:
-        pre_u["regime_timeline"] = _R._timeline(w, u.regime)
-    kw = {**_R.incumbent(), **u.kwargs, **over}
-    extra = {"random_entries": random_entries} if random_entries else {}
-    with b.regime_constants(dict(u.regime)):
-        res = run(days[0].isoformat(), days[-1].isoformat(), initial_balance=10_000.0,
-                  precomputed=pre_u, **kw, **extra)
-    return {"trade_log": res["trade_log"], "equity_curve": res["equity_curve"], "days": [d.isoformat() for d in days]}
+    res, _ = _R.engine(u, over, {"random_entries": random_entries} if random_entries else None)
+    days = _R._window(w)["trading_days"][start:]
+    return {"trade_log": res["trade_log"], "equity_curve": res["equity_curve"], "days": [d.isoformat() for d in days],
+            "gap_bounds": res["gap_bounds"]}
 
 
 def l3_metrics(w: str, res: dict) -> dict:

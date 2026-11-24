@@ -1071,17 +1071,38 @@ class Runner:
             self.inc = incumbent_from_live()
         return self.inc
 
-    def run(self, u: Unit) -> dict:
-        from backend.backtest import profit_metrics as pm
+    def engine(self, u: Unit, over: dict | None = None, extra: dict | None = None) -> tuple[dict, dict]:
+        """The one engine call for a unit, returning (result, kwargs). The result carries `gap_bounds`
+        (gap_bounds.describe) and `gaps` (open_rows) for the run's effective regime flag.
+
+        Added 2026-11-24 (Niclas 2026-11-23: "battery.Runner är rätt plats, eftersom alla L3-armar passerar
+        den"). `run` already stored `gaps` on its units, but the L3 arms (ladder T5/T6, and through
+        `ladder._engine` the cards exits_l3_m4, exits_atr, exits_capped_stop, S14 R1) copied this call and
+        used the Runner only for the window, the timeline and the incumbent, so their results carried no bound
+        line. Condition (same ruling): the bounds are metadata read at run time, never part of `Unit.key()`
+        or a cache key, so a PRODUCTION_GAP.md change invalidates no stored unit. Vault
+        raw/notes/2026-11/2026-11-23-apex-q-par-read-three-gap-rows-outside-gap-bounds.md."""
         from backend.backtest.engine_fast import run
-        from backend.backtest.gap_bounds import open_rows
+        from backend.backtest.gap_bounds import describe, open_rows
         pre = self._window(u.window)
-        mk = self.market[u.window]
         days = pre["trading_days"][u.start:]
         pre_u = dict(pre)                      # own dict: the timeline below is per regime patch
         if u.regime_layer:
             pre_u["regime_timeline"] = self._timeline(u.window, u.regime)
-        kw = {**self.incumbent(), **u.kwargs}
+        kw = {**self.incumbent(), **u.kwargs, **(over or {})}
+        with regime_constants(dict(u.regime)):
+            res = run(days[0].isoformat(), days[-1].isoformat(), initial_balance=10_000.0,
+                      precomputed=pre_u, **kw, **(extra or {}))
+        layer = bool(kw.get("regime_layer", False))
+        res["gap_bounds"] = describe(layer)
+        res["gaps"] = open_rows(regime_layer=layer)
+        return res, kw
+
+    def run(self, u: Unit) -> dict:
+        from backend.backtest import profit_metrics as pm
+        pre = self._window(u.window)
+        mk = self.market[u.window]
+        days = pre["trading_days"][u.start:]
         extra, missing = {}, None
         if u.vix9d_kelly:
             extra["kelly_factor"], missing = vix9d_kelly_factor(mk["vix9d"], [d.isoformat() for d in days])
@@ -1092,9 +1113,7 @@ class Runner:
             ref = self.store.get(u.rnd_ref)
             extra["random_entries"] = {"seed": u.seed, "per_day": ref["entries_per_day"],
                                        "open_cap": ref["open_after_entries"]}
-        with regime_constants(dict(u.regime)):
-            res = run(days[0].isoformat(), days[-1].isoformat(), initial_balance=10_000.0,
-                      precomputed=pre_u, **kw, **extra)
+        res, kw = self.engine(u, extra=extra)
         r = pm.daily_returns(res["equity_curve"])
         closed = [t for t in res["trade_log"] if t.get("pnl") is not None]
         if u.rnd_ref is not None:
@@ -1104,13 +1123,14 @@ class Runner:
             return {"unit": u.key(), "seed": u.seed, "commit": self.commit, "trades": len(closed),
                     "expectancy": pm.expectancy(closed), "total_return": float((1 + r).prod() - 1),
                     "max_drawdown": pm.max_drawdown(r), "calmar": pm.calmar(r),
-                    "alpha_tbill": pm.alpha_beta(r, m, mk["rf"])["alpha_annual"], "spy_em_calmar": pm.calmar(em)}
+                    "alpha_tbill": pm.alpha_beta(r, m, mk["rf"])["alpha_annual"], "spy_em_calmar": pm.calmar(em),
+                    "gap_bounds": res["gap_bounds"]}
         summ = pm.summary(res, mk["spy"], 0.0)
         summ["vs_spy_tbill"] = pm.summary(res, mk["spy"], mk["rf"])["vs_spy"]
         rec = {"unit": u.key(), "window": u.window, "start": u.start, "first_day": days[0].isoformat(),
                "kwargs": kw, "regime_patch": dict(u.regime), "vix9d_kelly": u.vix9d_kelly,
                "vix9d_missing_days": missing, "commit": self.commit,
-               "gaps": open_rows(regime_layer=u.regime_layer),
+               "gaps": res["gaps"], "gap_bounds": res["gap_bounds"],
                "summary": summ, "years": years_of(r), "folds": folds_of(r, u.window),
                "engine": {k: res[k] for k in ("profit_factor", "cagr", "max_drawdown", "total_trades", "win_rate")},
                "entries_per_day": _entries_per_day(res["trade_log"]),
@@ -1118,7 +1138,7 @@ class Runner:
                "trading_days": [d.isoformat() for d in days],
                "equity_curve": res["equity_curve"], "trade_log": res["trade_log"]}
         if u.regime_layer:
-            tl = pre_u["regime_timeline"]["days"]
+            tl = self._timeline(u.window, u.regime)["days"]
             rec["regime_days"] = {d: {"bucket": v["bucket"], "allocated": sum(1 for a in v["allocation"].values() if a > 0)}
                                   for d, v in tl.items()}
         if u.start == 0 and u.rnd_ref is None:
