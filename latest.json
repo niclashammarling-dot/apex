@@ -1,6 +1,6 @@
 {
- "generated_at": "2026-11-25T21:34:54+00:00",
- "host_commit": "79f59cf",
+ "generated_at": "2026-11-27T21:34:37+00:00",
+ "host_commit": "4cf6b18",
  "findings": [
   [
    9,
@@ -10,6 +10,13 @@
    "config commit without per-value note: 2bb3841 M4 in the demo book, the daily cap a share of equity"
   ],
   [
+   13,
+   "Undisclosed config change",
+   "WARNING",
+   "data/live_config.json:\u2014",
+   "max_hold_days: 25 \u2192 30 (in 4cf6b182: \"Live config: max_hold_days 25 -> 30 (Niclas, Setti\")"
+  ],
+  [
    40,
    "Config coverage audit",
    "WARNING",
@@ -17,11 +24,18 @@
    "_defaults() function not found in live_config.py \u2014 skipping None-default check"
   ],
   [
+   38,
+   "Live entry absence-of-activity",
+   "WARNING",
+   "data/apex.db:live_gate_history",
+   "5 active trading days with no TRADE_EXECUTED (last entry 2026-11-17); avg 38 assessments/day; dominant filters: FILTERED_L1_ELIGIBILITY_REGIME 100%"
+  ],
+  [
    80,
    "L5 POSITIONING PCR channel under per-ticker P25 (demo)",
    "INFO",
    "data/apex.db:demo_gate_history",
-   "Session coverage since build (cycles written / expected at 20m): 11-18 20/20, 11-19 20/20, 11-20 20/20, 11-23 20/20, 11-24 20/20; trailing-3 mean 100%. baseline (0.85, demo since 2026-05-21): 234/1049 PCR passes = 22.3%. per_ticker_p25: 55/939 = 5.9% [4.5%, 7.5%]. Composition of passes \u2014 blocked-under-0.85 names: 22% of passes vs 44% of evaluations (baseline 0% by construction); open-under-0.85 names: 42% of passes vs 29% of evaluations (baseline 85% of passes)."
+   "Session coverage since build (cycles written / expected at 20m): 11-19 20/20, 11-20 20/20, 11-23 20/20, 11-24 20/20, 11-25 20/20; trailing-3 mean 100%. baseline (0.85, demo since 2026-05-21): 234/1049 PCR passes = 22.3%. per_ticker_p25: 55/939 = 5.9% [4.5%, 7.5%]. Composition of passes \u2014 blocked-under-0.85 names: 22% of passes vs 44% of evaluations (baseline 0% by construction); open-under-0.85 names: 42% of passes vs 30% of evaluations (baseline 87% of passes)."
   ],
   [
    81,
@@ -35,21 +49,21 @@
    "Two schedulers on one book (off-phase gate cycles)",
    "INFO",
    "data/apex.db:live_gate_history",
-   "examined over the last 3 days: live 54 pair(s), 54 from gate_cycles, 0 between stamped row starts, 0 off-phase; demo 57 pair(s), 57 from gate_cycles, 0 between stamped row starts, 0 off-phase"
+   "examined over the last 3 days: live 27 pair(s), 27 from gate_cycles, 0 between stamped row starts, 0 off-phase; demo 29 pair(s), 29 from gate_cycles, 0 between stamped row starts, 0 off-phase"
   ],
   [
    87,
    "signal age at gate time",
    "INFO",
    "data/apex.db:gate_cycles",
-   "2026-11-25: live: 100 rows checked; demo: 98 rows checked; cycles 39, 39 with stale refusals (156 ticker-cycles)"
+   "2026-11-27: live: 90 rows checked; demo: 97 rows checked; cycles 21, 21 with stale refusals (137 ticker-cycles)"
   ],
   [
    87,
    "signal age at gate time",
    "INFO",
    "backend/gate/freshness.py:ENFORCE_BAR_DATE",
-   "2026-11-25 bar_date observed, not enforced (dropped 2026-10-18; entries on a non-session bar warn): live: 0 of 100 in-session rows on a non-session bar; demo: 0 of 98 in-session rows on a non-session bar"
+   "2026-11-27 bar_date observed, not enforced (dropped 2026-10-18; entries on a non-session bar warn): live: 0 of 90 in-session rows on a non-session bar; demo: 0 of 97 in-session rows on a non-session bar"
   ],
   [
    88,
@@ -84,7 +98,7 @@
    "Split exit at Alpaca",
    "INFO",
    "backend/brokers/alpaca.py:get_orders",
-   "last 30 days: 14 closed live trade(s), 14 bracket(s) found, 14 filled exit leg(s), 0 split(s)"
+   "last 30 days: 13 closed live trade(s), 13 bracket(s) found, 13 filled exit leg(s), 0 split(s)"
   ],
   [
    101,
@@ -98,14 +112,14 @@
    "Posterior history provenance and gap count",
    "INFO",
    "data/apex.db:sector_posterior_history",
-   "13 of 125 NYSE sessions since 2026-05-29 have no posterior row (10%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-07-29, 2026-07-31, 2026-08-03, 2026-08-05, 2026-08-20, 2026-08-21, 2026-08-26, 2026-08-27. Standing level, not an event \u2014 the July\u2013August holes are unadjudicable (no written_at, logs rotated)."
+   "13 of 126 NYSE sessions since 2026-05-29 have no posterior row (10%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-07-29, 2026-07-31, 2026-08-03, 2026-08-05, 2026-08-20, 2026-08-21, 2026-08-26, 2026-08-27. Standing level, not an event \u2014 the July\u2013August holes are unadjudicable (no written_at, logs rotated)."
   ],
   [
    78,
    "PCR history gap count",
    "INFO",
    "data/apex.db:lock4_pcr_history",
-   "45 of 131 NYSE sessions since 2026-05-21 have no PCR rows (34%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-09-01, 2026-09-02, 2026-09-03, 2026-09-10, 2026-09-14, 2026-09-16, 2026-09-17, 2026-09-21. Standing level \u2014 the per-ticker P25 calibration reads a 66%-present sample."
+   "45 of 132 NYSE sessions since 2026-05-21 have no PCR rows (34%, above the 10% line); none in the trailing 3. Most recent gaps: 2026-09-01, 2026-09-02, 2026-09-03, 2026-09-10, 2026-09-14, 2026-09-16, 2026-09-17, 2026-09-21. Standing level \u2014 the per-ticker P25 calibration reads a 66%-present sample."
   ],
   [
    89,
@@ -125,22 +139,22 @@
    95,
    "database backup age",
    "INFO",
-   "data/backups/auto/apex_auto_2026-11-25.db",
-   "newest backup apex_auto_2026-11-25.db (130 MB, integrity ok), 14 kept"
+   "data/backups/auto/apex_auto_2026-11-27.db",
+   "newest backup apex_auto_2026-11-27.db (131 MB, integrity ok), 14 kept"
   ],
   [
    95,
    "database backup age",
    "INFO",
    "/mnt/c/Users/Nix/apex-offhost/apex_latest.json",
-   "off-host copy apex_auto_2026-11-25.db copied 2026-11-25T13:15 (130 MB); this reads the local sync folder, not Drive: a file here does not prove the upload"
+   "off-host copy apex_auto_2026-11-27.db copied 2026-11-27T13:15 (131 MB); this reads the local sync folder, not Drive: a file here does not prove the upload"
   ],
   [
    99,
    "earnings rule has its date",
    "INFO",
    "data/apex.db:live_gate_history",
-   "30 rows since 2026-11-16: no_data 0%, days_to_earnings filled 0%; shadow read since 2026-11-16: 0 of 20 distinct ticker-reports, 0 candidate-days"
+   "25 rows since 2026-11-17: no_data 0%, days_to_earnings filled 0%; shadow read since 2026-11-16: 0 of 20 distinct ticker-reports, 0 candidate-days"
   ],
   [
    36,
@@ -154,35 +168,35 @@
    "Healthcare composite dilution monitor",
    "INFO",
    "data/apex.db:sector_snapshots",
-   "Healthcare avg_score=0.4001 (at 2026-11-25T20:46:52.966493+00:00) below 0.55, and 0.3933 without ISRG/TMO: the breach does not come from the additions (they move it +0.0068); removing them would not clear it"
+   "Healthcare avg_score=0.3472 (at 2026-11-27T17:47:00.125230+00:00) below 0.55, and 0.3536 without ISRG/TMO: the breach does not come from the additions (they move it -0.0064); removing them would not clear it"
   ],
   [
    67,
    "Industrials composite dilution monitor",
    "INFO",
    "data/apex.db:sector_snapshots",
-   "Industrials avg_score=0.3664 (at 2026-11-25T20:46:52.966493+00:00) below 0.48, and 0.4094 without ETN/PWR/TT: the breach does not come from the additions (they move it -0.0430); removing them would not clear it"
+   "Industrials avg_score=0.3604 (at 2026-11-27T17:47:00.125230+00:00) below 0.48, and 0.4064 without ETN/PWR/TT: the breach does not come from the additions (they move it -0.0460); removing them would not clear it"
   ],
   [
    68,
    "Defense composite dilution monitor",
    "INFO",
    "data/apex.db:sector_snapshots",
-   "Defense avg_score=0.4148 (at 2026-11-25T20:46:52.966493+00:00) below 0.6, and 0.4371 without AXON/HWM: the breach does not come from the additions (they move it -0.0223); removing them would not clear it"
+   "Defense avg_score=0.4113 (at 2026-11-27T17:47:00.125230+00:00) below 0.6, and 0.4251 without AXON/HWM: the breach does not come from the additions (they move it -0.0138); removing them would not clear it"
   ],
   [
    69,
    "Technology composite dilution monitor",
    "INFO",
    "data/apex.db:sector_snapshots",
-   "Technology avg_score=0.2961 (at 2026-11-25T20:46:52.966493+00:00) below 0.51, and 0.3035 without ANET: the breach does not come from the additions (they move it -0.0074); removing them would not clear it"
+   "Technology avg_score=0.3086 (at 2026-11-27T17:47:00.125230+00:00) below 0.51, and 0.3045 without ANET: the breach does not come from the additions (they move it +0.0041); removing them would not clear it"
   ],
   [
    71,
    "entry-floor ceiling sweep",
    "INFO",
    "data/regime_signal_trace.jsonl",
-   "2026-11-24: 4/11 eligible sectors cannot clear the 0.37 entry floor at any posterior (composite must be \u2265 0.3895 = floor/0.95); enterable: Communication, ConsumerDisc, Defense, Healthcare, Homebuilders, RealEstate, Transportation. Enterable by date (last 30): 5,7,7,5,8,8,8,8,8,8,8,8,7,8,8,8,7,6,8,8,9,9,8,7,6,5,2,3,6,7. Dark: Energy agg=0.2768 ceil_adj=0.2630 dark 15/30d; Industrials agg=0.3452 ceil_adj=0.3279 dark 22/30d; Semiconductors agg=0.1975 ceil_adj=0.1876 dark 30/30d persistent; Technology agg=0.2819 ceil_adj=0.2678 dark 20/30d."
+   "2026-11-25: 4/11 eligible sectors cannot clear the 0.37 entry floor at any posterior (composite must be \u2265 0.3895 = floor/0.95); enterable: Communication, ConsumerDisc, Defense, Healthcare, Homebuilders, RealEstate, Transportation. Enterable by date (last 30): 7,7,5,8,8,8,8,8,8,8,8,7,8,8,8,7,6,8,8,9,9,8,7,6,5,2,3,6,7,7. Dark: Energy agg=0.2859 ceil_adj=0.2716 dark 16/30d; Industrials agg=0.3664 ceil_adj=0.3481 dark 22/30d; Semiconductors agg=0.1974 ceil_adj=0.1875 dark 30/30d persistent; Technology agg=0.2961 ceil_adj=0.2813 dark 21/30d."
   ],
   [
    45,
@@ -274,13 +288,6 @@
    "WARNING",
    "tests/test_audit_check93.py",
    "hardcoded absolute date(s) alongside a call into decaying wall-clock function(s) get_daily_open \u2014 verify this still exercises the intended branch, not one it drifted into"
-  ],
-  [
-   32,
-   "Git sync divergence",
-   "WARNING",
-   ".git/",
-   "1 uncommitted file(s) in working tree \u2014 changes will be lost or skipped on next nightly run"
   ]
  ],
  "skipped": [
@@ -383,6 +390,6 @@
  "alert_channel": {
   "ok": true,
   "detail": "SMTP login ok as niclas.hammarling@gmail.com via smtp.gmail.com",
-  "checked_at": "2026-11-25T21:34:55+00:00"
+  "checked_at": "2026-11-27T21:34:39+00:00"
  }
 }
