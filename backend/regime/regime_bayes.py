@@ -852,7 +852,7 @@ class RegimeBayes:
         Return the current ETF momentum streak as a signed integer.
         Positive: N consecutive up days. Negative: N consecutive down days. Zero: mixed.
         """
-        etf = self.sector_etf_map.get(sector, "")
+        etf = self.sector_etf_map[sector]      # every constructor builds the map from sectors_cfg's "etf" (2026-11-28)
         if not etf:
             return 0
         try:
@@ -925,7 +925,7 @@ class RegimeBayes:
         for a sector's ETF over RS_WINDOW_DAYS.
         Used to measure leader weakening as RS divergence input.
         """
-        etf = self.sector_etf_map.get(sector, "")
+        etf = self.sector_etf_map[sector]      # every constructor builds the map from sectors_cfg's "etf" (2026-11-28)
         if not etf:
             return {"start_score": 0.0, "end_score": 0.0, "decline_days": 0}
         try:

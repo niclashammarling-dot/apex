@@ -121,7 +121,7 @@ def get_rotation_forecast() -> dict:
     if not leader:
         return {"available": False}
 
-    current_regime = regime.get("regime", "neutral")
+    current_regime = regime["regime"]            # compute_sector_regime sets it on its one available path
 
     # Try the regime-conditioned matrix first; fall back to unconditional if sparse
     conditioned_matrix, regime_sample_size = get_conditioned_transition_matrix(current_regime)
@@ -197,7 +197,7 @@ def get_rotation_forecast() -> dict:
     return {
         "available":            True,
         "leader":               leader,
-        "leader_streak_days":   regime.get("leader_streak", 0),
+        "leader_streak_days":   regime["leader_streak"],
         "leader_breadth":       sector_breadth.get(leader),   # breadth of current leader — broad vs. one-ticker strength
         "predecessors":         predecessors,         # chronological list, oldest first
         "confirmed_transition": confirmed_transition,
@@ -239,7 +239,7 @@ def compute_ticker_rotation_scores() -> dict[str, float]:
     if not ticker_signals:
         return {}
 
-    current_regime = regime_data.get("regime", "neutral")
+    current_regime = regime_data["regime"]       # compute_sector_regime sets it on its one available path
 
     result: dict[str, float] = {}
     for ticker, sig in ticker_signals.items():

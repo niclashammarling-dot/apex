@@ -826,7 +826,7 @@ def get_l3_score_candidates(threshold: float | None = None,
             refuse(c, NO_SESSION)
         return []
     session_date, open_utc = session
-    universe = {t for cfg in get_sectors().values() for t in cfg.get("tickers", [])}
+    universe = {t for cfg in get_sectors().values() for t in cfg["tickers"]}
 
     fresh = []
     for c in candidates:

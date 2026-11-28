@@ -814,12 +814,20 @@ class TestMechanicalDrawdownGuard:
 
         assert result.approved is True
 
-    def test_no_risk_limits_in_context_skips_guard(self):
-        # Contexts without risk_limits must not crash and must reach L5
-        context = {}
+    @pytest.mark.parametrize("drop", ["risk_limits", "wallet_balance", "starting_balance", "max_drawdown_pct"])
+    def test_a_context_missing_a_guard_input_raises_at_the_guard(self, drop):
+        """Required inputs (2026-11-28, vault raw/notes/2026-11/2026-11-28-apex-required-input-defaults-money-path-scope.md):
+        build_base_context sets them for both books, so absence is a defect. From the guard's birth (d9a9cc1, 07-02)
+        until then, this test asserted the opposite: "missing risk_limits skips guard safely", and the defaults (start
+        0, wallet = start, max 1.0) could only pass it. That was the build's own choice; no ruling is on record."""
+        context = self._context(balance=1066.37, starting=2000.0, max_dd=0.20)      # a breach if the guard ran
+        if drop in ("risk_limits", "wallet_balance"):
+            del context[drop]
+        else:
+            del context["risk_limits"][drop]
         patches = self._all_lock_patches()
         with ExitStack() as stack:
-            [stack.enter_context(p) for p in patches]
-            result = self._run_chain(context)
-
-        assert result.approved is True
+            mocks = [stack.enter_context(p) for p in patches]
+            with pytest.raises(KeyError, match=drop):
+                self._run_chain(context)
+        mocks[-1].assert_not_called()                                                # L6 never reached

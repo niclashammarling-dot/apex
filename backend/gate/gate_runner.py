@@ -339,7 +339,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
             evaluated.append((signal, result))
     cycle.reason = evaluated_reason(len(candidates), len(evaluated))
 
-    evaluated.sort(key=lambda x: (0 if x[0].get("pre_rotation") else 1, x[0].get("signal_score", 0)), reverse=True)
+    evaluated.sort(key=lambda x: (0 if x[0].get("pre_rotation") else 1, x[0]["signal_score"]), reverse=True)
     l2_risk_max_positions_count        = cfg["l2_risk_max_positions_count"]
     overflow_increment   = cfg["l2_risk_overflow_step"]
     open_count           = len(open_tickers)  # snapshot; incremented on each executed trade

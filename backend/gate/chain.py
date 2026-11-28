@@ -200,20 +200,23 @@ def evaluate_chain(
     # ── Mechanical risk guards (before L6 REVIEW) ────────────────────────────
     # These enforce hard limits that L6 REVIEW is instructed to check but can misstate
     # in its JSON decision field (reasoning ≠ decision is a real failure mode).
-    _rl = context.get("risk_limits", {})
-    if _rl:
-        _start_bal   = _rl.get("starting_balance", 0)
-        _wallet_bal  = context.get("wallet_balance", _start_bal)
-        _max_dd      = _rl.get("max_drawdown_pct", 1.0)
-        _drawdown    = (_start_bal - _wallet_bal) / _start_bal if _start_bal > 0 else 0.0
-        states[lock_codes.rule_key(0, "drawdown_guard")] = FAIL if _drawdown > _max_dd else PASS
-        if _drawdown > _max_dd:
-            _dd_result = LockResult.fail(
-                lock_id=0,
-                reason=f"drawdown {_drawdown:.1%} > max {_max_dd:.1%} (mechanical pre-L5 guard)",
-            )
-            lock_results[0] = _dd_result
-            return _chain_fail(ticker, sector, lock_results, _dd_result, states=states)
+    # Required inputs (2026-11-28, vault raw/notes/2026-11/2026-11-28-apex-required-input-defaults-money-path-scope.md):
+    # build_base_context sets risk_limits and wallet_balance for both books, so a missing one is a defect and raises
+    # here. Until then a context without risk_limits skipped this guard, and the defaults (start 0, wallet = start,
+    # max 1.0) could only ever pass it.
+    _rl = context["risk_limits"]
+    _start_bal   = _rl["starting_balance"]
+    _wallet_bal  = context["wallet_balance"]
+    _max_dd      = _rl["max_drawdown_pct"]
+    _drawdown    = (_start_bal - _wallet_bal) / _start_bal if _start_bal > 0 else 0.0
+    states[lock_codes.rule_key(0, "drawdown_guard")] = FAIL if _drawdown > _max_dd else PASS
+    if _drawdown > _max_dd:
+        _dd_result = LockResult.fail(
+            lock_id=0,
+            reason=f"drawdown {_drawdown:.1%} > max {_max_dd:.1%} (mechanical pre-L5 guard)",
+        )
+        lock_results[0] = _dd_result
+        return _chain_fail(ticker, sector, lock_results, _dd_result, states=states)
 
     # Deferred L6 REVIEW — the runners stop here so the serial executor runs L6 REVIEW
     # only for candidates that actually have a slot, avoiding wasted Claude API calls.
