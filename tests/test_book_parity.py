@@ -30,6 +30,9 @@ DIFFERENCES: dict[str, tuple[str, str]] = {
                           "(backend/config.py); demo has no broker"),
     "broker_error": ("live", "an Alpaca order refusal; demo's wallet fills in the database and has no broker"),
     "broker_unknown": ("live", "submit and readback both failed at Alpaca (CHECK 89); demo has no broker"),
+    "broker_holds": ("live", "E1 2026-11-28: an open order for the ticker at Alpaca before the submit; demo has no broker"),
+    "broker_read_failed": ("live", "E1 2026-11-28: the pre-submit open-order read raised (fail closed); demo has no "
+                                   "broker"),
     "max_positions": ("demo", "demo's wallet refuses at execution past l2_risk_max_positions_count (optional: skipped "
                               "on an overflow slot); live counts slots in the serial phase and records overflow. "
                               "Listed 'to read' in the M9 scope (2026-11-14); recorded here as found 2026-11-21"),

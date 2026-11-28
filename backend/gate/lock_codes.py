@@ -147,6 +147,14 @@ RULES: tuple[Rule, ...] = (
          source="the order cannot buy: before the chain on the largest possible notional, and at execution "
                 "(live < $10 or no whole share, demo < $50)", since="2026-11-02"),
     Rule(1, "price_missing", ("price_missing",), source="before the chain and at execution: no price"),
+    # since: E1 built 2026-11-28 (Saturday order, R102 d; riktning 2026-11-27: only the open-order read, fail closed);
+    # the first session it can stop is Monday 2026-11-30. Last in L1: it runs at the submit, after every other check.
+    Rule(1, "broker_holds", ("broker_holds",), cooloff=True, books=("live",), optional=True, since="2026-11-30",
+         source="gate_runner_live._submit_entry: an open order for the ticker at Alpaca before the entry is submitted "
+                "(an accepted but unfilled order the serial phase's positions cannot see); refused and cooled"),
+    Rule(1, "broker_read_failed", ("broker_read_failed",), check=False, books=("live",), since="2026-11-30",
+         source="gate_runner_live._submit_entry: the open-order read raised, so the entry is refused (fail closed) "
+                "and tried at the next cycle, not cooled"),
     Rule(2, "earnings", ("earnings",), ("l2_risk_earnings_days",),
          "l2_risk.check_earnings, called inside l1_eligibility (its fail_type)"),
     Rule(2, "earnings_near", ("earnings_near_penalty",), ("l2_risk_earnings_near_days", "l2_risk_earnings_near_penalty"),

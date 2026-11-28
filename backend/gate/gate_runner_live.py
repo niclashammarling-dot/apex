@@ -27,6 +27,7 @@ from backend.db import (
     get_recently_failed_live_tickers,
     get_unreconciled_live_trades,
     insert_live_gate_result,
+    clear_alert_latch,
     insert_live_trade,
     set_alert_latch,
 )
@@ -726,7 +727,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                             result["outcome"] = STOPPED
                             result["outcome_reason"] = "sector_cap"
                         else:
-                            order_id, failure = _submit_entry(broker, ticker, notional, signal["price"], cfg, ts)
+                            order_id, failure = _submit_entry(broker, ticker, notional, signal["price"], cfg, ts, result)
                             if order_id:
                                 result["outcome"]       = "TRADE_EXECUTED"
                                 result["overflow_slot"] = True
@@ -766,7 +767,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                         result["outcome"] = STOPPED
                         result["outcome_reason"] = "sector_cap"
                     else:
-                        order_id, failure = _submit_entry(broker, ticker, notional, signal["price"], cfg, ts)
+                        order_id, failure = _submit_entry(broker, ticker, notional, signal["price"], cfg, ts, result)
                         if order_id:
                             result["outcome"] = "TRADE_EXECUTED"
                             cash_left = max(0.0, cash_left - notional)
@@ -789,11 +790,38 @@ def _run(cycle: GateCycle) -> list[dict]:
     return results
 
 
-def _submit_entry(broker, ticker: str, notional: float, price: float, cfg: dict, cycle_ts: str) -> tuple[str | None, str | None]:
+def _submit_entry(broker, ticker: str, notional: float, price: float, cfg: dict, cycle_ts: str,
+                  result: dict) -> tuple[str | None, str | None]:
     """(order_id, failure) for one bracket entry (2026-11-14, Saturday order item 7c). The order carries a deterministic
     client_order_id, so this decision is one order at Alpaca. On a submit exception the order is read back by that id:
     found -> submitted (Alpaca accepted it and the response was lost); not found -> "broker_error: ..." as before;
-    the readback fails too -> "broker_unknown: ...", whether the order stands is unknown."""
+    the readback fails too -> "broker_unknown: ...", whether the order stands is unknown.
+
+    Before the submit (E1, 2026-11-28; vault raw/notes/2026-11/2026-11-27-apex-e1-pre-submit-broker-read-scope.md) the
+    ticker's open orders are read at Alpaca: any open order refuses the entry as "broker_holds: ..." (an accepted but
+    unfilled order, which the serial phase's get_positions() cannot see), and a read that raises refuses it as
+    "broker_read_failed: ..." (fail closed; Niclas 2026-11-27: "Ett inträde kan vänta en cykel utan kostnad, medan en
+    dubbel order inte går att ta tillbaka"). Both submit sites call this function, so neither has a check of its own;
+    exits never pass through it. A found order mails once per ticker (DB latch broker_holds:<ticker>), and the
+    ticker's next clean read releases the latch so a recurrence mails again."""
+    latch = f"broker_holds:{ticker}"
+    try:
+        open_orders = broker.get_open_orders(ticker)
+    except Exception as e:
+        logger.error(f"Live trade [{ticker}]: the open-order read failed ({e}) — entry refused, tried next cycle "
+                     f"(broker_read_failed)")
+        _put(result, "broker_read_failed", True)
+        return None, f"broker_read_failed: {e}"[:300]
+    _put(result, "broker_holds", bool(open_orders))
+    if open_orders:
+        shown = "; ".join(f"{o.get('id')} {o.get('side')} {o.get('type')} {o.get('status')}" for o in open_orders[:3])
+        logger.warning(f"Live trade [{ticker}]: {len(open_orders)} open order(s) at Alpaca — entry refused "
+                       f"(broker_holds): {shown}")
+        if set_alert_latch(latch):
+            from backend import alerts
+            alerts.alert_broker_holds(ticker, open_orders)
+        return None, f"broker_holds: {len(open_orders)} open order(s): {shown}"[:300]
+    clear_alert_latch(latch)
     stamp = cycle_ts[:19].replace("-", "").replace(":", "")
     cid = broker.client_order_id("live", ticker, stamp, "buy")
     try:
@@ -817,9 +845,17 @@ def _submit_entry(broker, ticker: str, notional: float, price: float, cfg: dict,
 def _submit_failed(result: dict, failure: str, ticker: str, notional: float, cash_left: float, open_count: int,
                    open_tickers: set) -> tuple[float, int]:
     """Record a failed entry. broker_unknown fails closed: the rest of the cycle is sized as if the order stood, the
-    ticker is not tried again this cycle, and the rule cools it (lock_codes, cooloff) until reconciled."""
+    ticker is not tried again this cycle, and the rule cools it (lock_codes, cooloff) until reconciled.
+    broker_holds (E1): an open order stands at Alpaca, so the slot counts as taken and the ticker is not tried again this
+    cycle; cash is unchanged, since the cycle's cash is the broker's own figure and a pending buy is refused anyway.
+    broker_read_failed: nothing is known, nothing is counted, and the entry is tried at the next cycle (not cooled)."""
     result["outcome"] = STOPPED
     result["outcome_reason"] = failure
+    if failure.startswith("broker_holds"):                     # the verdict is recorded at the read (_submit_entry)
+        open_tickers.add(ticker)
+        return cash_left, open_count + 1
+    if failure.startswith("broker_read_failed"):
+        return cash_left, open_count
     if failure.startswith("broker_unknown"):
         _put(result, "broker_unknown", True)
         open_tickers.add(ticker)

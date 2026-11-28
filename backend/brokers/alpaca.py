@@ -259,6 +259,23 @@ def client_order_id(book: str, ticker: str, cycle: str, side: str, kind: str | N
     return "-".join(x for x in ("apex", book, ticker, cycle, side, kind) if x)[:128]
 
 
+def get_open_orders(ticker: str) -> list[dict]:
+    """The ticker's open orders at Alpaca, any side (E1, Saturday 2026-11-28; vault scope
+    raw/notes/2026-11/2026-11-27-apex-e1-pre-submit-broker-read-scope.md). Read before an entry is submitted: an
+    accepted but unfilled buy has no position yet, so the serial phase's get_positions() cannot see it, and a resubmit
+    after the 4-hour broker_unknown cooling carries a new client order id that Alpaca's uniqueness does not stop.
+    Raises on any failure: the caller fails closed (Niclas 2026-11-27)."""
+    try:
+        req = GetOrdersRequest(status=QueryOrderStatus.OPEN, symbols=[ticker], limit=50)
+        orders = _client().get_orders(filter=req)
+    except Exception as e:
+        logger.error(f"Alpaca get_open_orders({ticker}) failed: {e}")
+        raise
+    return [{"id": str(o.id), "ticker": o.symbol, "side": _enum_value(o.side), "type": _enum_value(o.order_type),
+             "status": _enum_value(o.status), "client_order_id": getattr(o, "client_order_id", None)}
+            for o in orders]
+
+
 def get_order_by_client_id(client_id: str) -> dict | None:
     """The order submitted under client_id, or None when Alpaca has none (404). Any other failure raises: the
     caller cannot tell 'not placed' from 'unknown' then, and records broker_unknown (order item 7c)."""

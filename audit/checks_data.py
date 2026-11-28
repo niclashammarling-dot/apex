@@ -1192,6 +1192,7 @@ def check89(now: datetime | None = None) -> None:
         flag(89, name, "INFO", "data/apex.db:live_trades",
              f"{len(quoted)} close(s) booked at the quote since {since} ({QUOTE_EXIT}, audit finding 5)")
     _check89_broker_unknown(db, since, now)
+    _check89_broker_reads(db, since, now)
     _check89_reconcile(now)
 
 
@@ -1219,6 +1220,40 @@ def _check89_broker_unknown(db, since: str, now: datetime) -> None:
     if rows:                                          # 0 is the expected reading; the ops card shows it
         flag(89, name, "INFO", "data/apex.db:live_gate_history",
              f"{len(rows)} broker_unknown entr{'y' if len(rows) == 1 else 'ies'} since {since}")
+
+
+def _check89_broker_reads(db, since: str, now: datetime) -> None:
+    """The pre-submit open-order read (E1, 2026-11-28), its two refusals counted apart (Niclas 2026-11-27):
+    broker_holds (Alpaca held an open order for the ticker, which the DB does not track) is a WARNING for this week's
+    (reconcile each), INFO the total; broker_read_failed (the read raised; the entry waited a cycle) is INFO only, with
+    its own counts, so a network error never reads as a double order. Both should read 0."""
+    name = "live entry recorded at the fill"
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        rows = conn.execute("SELECT ticker, timestamp, outcome_reason FROM live_gate_history "
+                            "WHERE (outcome_reason LIKE 'broker_holds%' OR outcome_reason LIKE 'broker_read_failed%') "
+                            "AND timestamp >= ? ORDER BY timestamp", (since,)).fetchall()
+        conn.close()
+    except Exception as e:
+        flag(89, name, "WARNING", "data/apex.db:live_gate_history", f"could not query the broker-read refusals: {e}")
+        return
+    week = (now - timedelta(days=C89_SLIP_WINDOW_DAYS)).isoformat()
+    holds = [r for r in rows if r[2].startswith("broker_holds")]
+    failed = [r for r in rows if r[2].startswith("broker_read_failed")]
+    recent = [r for r in holds if r[1] >= week]
+    if recent:
+        flag(89, name, "WARNING", "data/apex.db:live_gate_history",
+             f"{len(recent)} entr{'y' if len(recent) == 1 else 'ies'} refused this week with broker_holds (Alpaca held "
+             f"an open order the DB does not track): " + "; ".join(f"{r[0]} {r[1][:16]} {r[2][:120]}" for r in recent[:5])
+             + " — reconcile each order against live_trades")
+    if holds:
+        flag(89, name, "INFO", "data/apex.db:live_gate_history",
+             f"{len(holds)} broker_holds refusal{'' if len(holds) == 1 else 's'} since {since}")
+    if failed:
+        failed_week = sum(1 for r in failed if r[1] >= week)
+        flag(89, name, "INFO", "data/apex.db:live_gate_history",
+             f"{len(failed)} broker_read_failed refusal{'' if len(failed) == 1 else 's'} since {since} "
+             f"({failed_week} this week; the open-order read raised and the entry waited a cycle, not a double order)")
 
 
 C89_RECONCILE_MAX_AGE_DAYS = 4     # written each publish (Mon–Fri); a weekend plus one missed night

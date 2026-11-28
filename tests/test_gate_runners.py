@@ -358,7 +358,7 @@ def _account(equity=10000.0, buying_power=10000.0, day_pnl=0.0,
 def _live_patches(candidates, open_tickers=None, failed_tickers=None,
                   chain_result=None, account=None, positions=None,
                   order_id="ord-123", cfg_overrides=None, live_enabled=True,
-                  unreconciled=None, apex_day_pnl=None, forecast=None):
+                  unreconciled=None, apex_day_pnl=None, forecast=None, open_orders=None):
     """
     Build the patch list for live gate runner tests. `forecast` replaces the rotation
     forecast (default: none watching, so no pre-rotation candidates).
@@ -387,6 +387,9 @@ def _live_patches(candidates, open_tickers=None, failed_tickers=None,
       20 get_rotation_forecast
       21 _get_regime_bayes
       22 get_recently_exited_live_tickers
+      -3 alpaca.get_open_orders (E1, 2026-11-28: the pre-submit read; none by default)
+      -2 alerts.alert_broker_holds
+      -1 alpaca.get_order_by_client_id (the readback; always last)
     """
     cfg       = _live_cfg(**(cfg_overrides or {}))
     acct      = account  or _account()
@@ -442,6 +445,9 @@ def _live_patches(candidates, open_tickers=None, failed_tickers=None,
               return_value=MagicMock(last_result=MagicMock(return_value=None))),        # 19
         patch("backend.gate.gate_runner_live.get_recently_exited_live_tickers",
               return_value=(set(), set())),                                                       # 20
+        # E1 (2026-11-28): the open-order read before the submit; no open order by default. Its mail beside it.
+        patch("backend.brokers.alpaca.get_open_orders", return_value=open_orders or []),          # -3
+        patch("backend.alerts.alert_broker_holds"),                                               # -2
         # Order item 7c (2026-11-14): a submit exception reads the order back by client id; none found by default.
         patch("backend.brokers.alpaca.get_order_by_client_id", return_value=None),                # last
     ]

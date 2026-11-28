@@ -1028,8 +1028,9 @@ def get_entry_fills(limit: int = 15):
 
 
 def _order_integrity(since: str) -> dict:
-    """Book against broker since the reset (2026-11-14): entries left broker_unknown (order item 7c, should be 0) and
-    closes booked at the quote (QUOTE_EXIT, audit finding 5). Readbacks that found an order are logged, not stored
+    """Book against broker since the reset (2026-11-14): entries left broker_unknown (order item 7c, should be 0),
+    closes booked at the quote (QUOTE_EXIT, audit finding 5), and entries refused by the pre-submit open-order read
+    (E1, 2026-11-28: broker_holds and broker_read_failed, both should be 0). Readbacks that found an order are logged, not stored
     (outcome_reason on an executed row would read as a refusal in the capacity panel)."""
     from backend.db import QUOTE_EXIT
     with closing(get_db()) as conn:
@@ -1037,7 +1038,12 @@ def _order_integrity(since: str) -> dict:
                                "AND timestamp >= ?", (since,)).fetchone()[0]
         quote = conn.execute("SELECT COUNT(*) FROM live_trades WHERE exit_confidence LIKE ? AND timestamp >= ?",
                              (QUOTE_EXIT + "%", since)).fetchone()[0]
-    return {"broker_unknown": unknown, "quote_exits": quote, "readback_found": "logged (WARNING 'readback found')"}
+        # E1 (2026-11-28): the pre-submit open-order read's two refusals, counted apart as CHECK 89 counts them.
+        holds, read_failed = (conn.execute("SELECT COUNT(*) FROM live_gate_history WHERE outcome_reason LIKE ? "
+                                           "AND timestamp >= ?", (f"{r}%", since)).fetchone()[0]
+                              for r in ("broker_holds", "broker_read_failed"))
+    return {"broker_unknown": unknown, "quote_exits": quote, "readback_found": "logged (WARNING 'readback found')",
+            "broker_holds": holds, "broker_read_failed": read_failed}
 
 
 @router.get("/ops/freshness")

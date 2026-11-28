@@ -279,6 +279,22 @@
     "split_from": "",
     "initial": true
    }
+  ],
+  "broker_holds": [
+   {
+    "owner": 1,
+    "source": "gate_runner_live._submit_entry: an open order for the ticker at Alpaca before the entry is submitted (an accepted but unfilled order the serial phase's positions cannot see); refused and cooled",
+    "since": "2026-11-30",
+    "split_from": ""
+   }
+  ],
+  "broker_read_failed": [
+   {
+    "owner": 1,
+    "source": "gate_runner_live._submit_entry: the open-order read raised, so the entry is refused (fail closed) and tried at the next cycle, not cooled",
+    "since": "2026-11-30",
+    "split_from": ""
+   }
   ]
  }
 }

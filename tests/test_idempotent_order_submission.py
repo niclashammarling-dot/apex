@@ -126,4 +126,5 @@ def test_the_bracket_request_carries_the_client_order_id(monkeypatch):
 def test_the_entry_fills_endpoint_carries_the_order_block():
     from backend.routers.signals_router import get_entry_fills
     out = get_entry_fills(limit=1)
-    assert set(out["orders"]) == {"broker_unknown", "quote_exits", "readback_found"}
+    assert set(out["orders"]) == {"broker_unknown", "quote_exits", "readback_found", "broker_holds",
+                                  "broker_read_failed"}                    # E1, 2026-11-28

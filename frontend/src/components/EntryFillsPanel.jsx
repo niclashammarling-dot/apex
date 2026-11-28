@@ -44,6 +44,10 @@ export default function EntryFillsPanel() {
         <div className="t-meta" style={{ marginBottom: 10 }}>
           ORDERS · BROKER UNKNOWN <strong style={{ color: data.orders.broker_unknown ? "var(--t-red)" : "var(--t-text-1)" }}>{data.orders.broker_unknown}</strong>
           {" · "}CLOSES ON QUOTE <strong style={{ color: data.orders.quote_exits ? "var(--t-amber)" : "var(--t-text-1)" }}>{data.orders.quote_exits}</strong>
+          {data.orders.broker_holds != null ? <>
+            {" · "}OPEN ORDER AT BROKER <strong style={{ color: data.orders.broker_holds ? "var(--t-red)" : "var(--t-text-1)" }}>{data.orders.broker_holds}</strong>
+            {" · "}ORDER READ FAILED <strong style={{ color: data.orders.broker_read_failed ? "var(--t-amber)" : "var(--t-text-1)" }}>{data.orders.broker_read_failed}</strong>
+          </> : null}
         </div>
       ) : null}
       <table className="t-tbl">

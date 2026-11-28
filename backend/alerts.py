@@ -191,6 +191,26 @@ def alert_position_untracked(ticker: str) -> None:
     _dispatch(title, body)
 
 
+def alert_broker_holds(ticker: str, orders: list[dict]) -> None:
+    """
+    An entry was refused because Alpaca already holds an open order for the ticker (E1, 2026-11-28): an order the DB
+    does not track, which can fill into a position nobody tracks before the evening CHECK 89 WARNING. Sent once per
+    ticker (DB latch broker_holds:<ticker>, released at the ticker's next clean read; Niclas 2026-11-27: "det blir
+    ett mejl och inte ett per cycel"). Same family as alert_position_untracked.
+    """
+    mode  = _mode_label()
+    title = f"[APEX {mode}] Open order at the broker — {ticker}"
+    lines = [f"  {o.get('id')} {o.get('side')} {o.get('type')} {o.get('status')} "
+             f"(client_order_id {o.get('client_order_id')})" for o in orders[:5]]
+    body  = (
+        f"The gate refused a {ticker} entry: Alpaca holds {len(orders)} open order(s) for it.\n"
+        + "\n".join(lines) + "\n"
+        "Reconcile each order against live_trades before the next live cycle; an unfilled buy can fill into an "
+        "untracked position."
+    )
+    _dispatch(title, body)
+
+
 def alert_data_quality_divergence(broker_day_pnl: float, apex_day_pnl: float | None,
                                    missing_from_broker: list[str],
                                    fill_evidence: dict[str, str] | None = None) -> None:
