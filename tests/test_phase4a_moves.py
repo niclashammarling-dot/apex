@@ -84,3 +84,29 @@ def test_m2_earnings_lock_wraps_check_earnings():
     with patch.object(l2_risk, "check_earnings", return_value=(None, {"earnings_shadow": {"days_to_earnings": 3}}, PASS)):
         r, state = l2_risk.earnings_lock("AAPL", {}, None)
     assert r.passed and r.data == {"earnings_shadow": {"days_to_earnings": 3}} and state == PASS
+
+
+# ── M4 (i): L1's rules before the chain live in their lock module ──────────────────────────────────────────────
+
+def test_m4i_pre_chain_rules_are_defined_in_l1_eligibility_and_called_by_both_runners():
+    import ast
+    from pathlib import Path
+    from backend.gate import gate_runner_live, l1_eligibility
+    root = Path(__file__).resolve().parents[1] / "backend/gate"
+    defined = {n.name for n in ast.parse((root / "gate_runner.py").read_text()).body if isinstance(n, ast.FunctionDef)}
+    assert not {"_affordability", "_pre_chain_states"} & defined           # no copy left in the runner
+    assert gate_runner._affordability is l1_eligibility.affordability
+    assert gate_runner._pre_chain_states is l1_eligibility.pre_chain_states
+    assert gate_runner_live._affordability is l1_eligibility.affordability
+    assert gate_runner_live._pre_chain_states is l1_eligibility.pre_chain_states
+
+
+def test_m4i_verdicts_unchanged():
+    from backend.gate import l1_eligibility
+    states = l1_eligibility.pre_chain_states("AAA", {"position_open": {"AAA"}, "cooloff": set()})
+    assert states == {lock_codes.rule_key(1, "position_open"): FAIL, lock_codes.rule_key(1, "cooloff"): PASS}
+    s: dict = {}
+    assert l1_eligibility.affordability(s, 50.0, 100.0, min_notional=10.0, whole_shares=True) == "notional_too_small"
+    assert s == {lock_codes.rule_key(1, "price_missing"): PASS, lock_codes.rule_key(1, "notional_too_small"): FAIL}
+    assert l1_eligibility.affordability({}, 50.0, None, min_notional=10.0, whole_shares=True) == "price_missing"
+    assert l1_eligibility.affordability({}, 500.0, 100.0, min_notional=10.0, whole_shares=True) is None

@@ -62,6 +62,13 @@
     "since": "",
     "split_from": "",
     "initial": true
+   },
+   {
+    "owner": 1,
+    "source": "gate_runner_live: the live blocklist, before the chain; the verdict from l1_eligibility.pre_chain_states since phase 4a M4 (i), 2026-11-28",
+    "since": "",
+    "split_from": "",
+    "no_stop_change": "phase 4a M4 (i) (2026-11-28): the rule's function moved from gate_runner into l1_eligibility; both runners call it at the same point, before the chain"
    }
   ],
   "position_open": [
@@ -71,6 +78,13 @@
     "since": "",
     "split_from": "",
     "initial": true
+   },
+   {
+    "owner": 1,
+    "source": "both runners before the chain, and the execution re-check (gate_runner_live, wallet); the verdict from l1_eligibility.pre_chain_states since phase 4a M4 (i), 2026-11-28",
+    "since": "",
+    "split_from": "",
+    "no_stop_change": "phase 4a M4 (i) (2026-11-28): the rule's function moved from gate_runner into l1_eligibility; both runners call it at the same point, before the chain"
    }
   ],
   "cooloff": [
@@ -80,6 +94,13 @@
     "since": "",
     "split_from": "",
     "initial": true
+   },
+   {
+    "owner": 1,
+    "source": "both runners, before the chain: a recent L4/L6 stop (the gate cooloff; before 2026-10-31 SKIPPED_COOLOFF also held the exit cooloff); the verdict from l1_eligibility.pre_chain_states since phase 4a M4 (i), 2026-11-28",
+    "since": "",
+    "split_from": "",
+    "no_stop_change": "phase 4a M4 (i) (2026-11-28): the rule's function moved from gate_runner into l1_eligibility; both runners call it at the same point, before the chain"
    }
   ],
   "exit_cooloff": [
@@ -89,6 +110,13 @@
     "since": "",
     "split_from": "",
     "initial": true
+   },
+   {
+    "owner": 1,
+    "source": "both runners, before the chain: the ticker's own recent exit other than a TP/TSL win (db.get_recently_exited_*tickers; until phase 3 it also held the win window, as history rows do); the verdict from l1_eligibility.pre_chain_states since phase 4a M4 (i), 2026-11-28",
+    "since": "",
+    "split_from": "",
+    "no_stop_change": "phase 4a M4 (i) (2026-11-28): the rule's function moved from gate_runner into l1_eligibility; both runners call it at the same point, before the chain"
    }
   ],
   "exit_cooloff_win": [
@@ -98,6 +126,13 @@
     "since": "2026-11-09",
     "split_from": "exit_cooloff",
     "initial": true
+   },
+   {
+    "owner": 1,
+    "source": "both runners, before the chain: the ticker's own recent TP/TSL win (its own rule from phase 3, Niclas 2026-10-31: \"egen regel låter mer konsekvent\"; history before it is under exit_cooloff); the verdict from l1_eligibility.pre_chain_states since phase 4a M4 (i), 2026-11-28",
+    "since": "2026-11-09",
+    "split_from": "exit_cooloff",
+    "no_stop_change": "phase 4a M4 (i) (2026-11-28): the rule's function moved from gate_runner into l1_eligibility; both runners call it at the same point, before the chain"
    }
   ],
   "regime": [
@@ -143,6 +178,13 @@
     "since": "2026-11-02",
     "split_from": "",
     "initial": true
+   },
+   {
+    "owner": 1,
+    "source": "the order cannot buy: before the chain on the largest possible notional, and at execution (live < $10 or no whole share, demo < $50); the verdict from l1_eligibility.affordability since phase 4a M4 (i), 2026-11-28",
+    "since": "2026-11-02",
+    "split_from": "",
+    "no_stop_change": "phase 4a M4 (i) (2026-11-28): the rule's function moved from gate_runner into l1_eligibility; both runners call it at the same point, before the chain"
    }
   ],
   "price_missing": [
@@ -152,6 +194,13 @@
     "since": "",
     "split_from": "",
     "initial": true
+   },
+   {
+    "owner": 1,
+    "source": "before the chain and at execution: no price; the verdict from l1_eligibility.affordability since phase 4a M4 (i), 2026-11-28",
+    "since": "",
+    "split_from": "",
+    "no_stop_change": "phase 4a M4 (i) (2026-11-28): the rule's function moved from gate_runner into l1_eligibility; both runners call it at the same point, before the chain"
    }
   ],
   "earnings": [

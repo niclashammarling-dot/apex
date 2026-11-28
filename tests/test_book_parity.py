@@ -21,7 +21,8 @@ from backend.gate import lock_codes
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULES = {"gate_runner": "backend/gate/gate_runner.py", "gate_runner_live": "backend/gate/gate_runner_live.py",
-           "wallet": "backend/wallet.py", "l0_portfolio": "backend/gate/l0_portfolio.py"}
+           "wallet": "backend/wallet.py", "l0_portfolio": "backend/gate/l0_portfolio.py",
+           "l1_eligibility": "backend/gate/l1_eligibility.py"}   # L1's pre-chain rules since phase 4a M4 (i)
 ENTRIES = {"demo": ("gate_runner", "run"), "live": ("gate_runner_live", "run")}
 
 # identifier -> (the book that writes it, why the other does not; dated, with its ruling)
@@ -65,9 +66,16 @@ def _index():
 
 
 def _resolve(mod, name, defs, consts, imports):
-    if (mod, name) in defs or (mod, name) in consts:
-        return (mod, name)
-    return imports.get((mod, name))
+    """Follows a chain of imports inside the set (phase 4a M4 (i): live imports _affordability from gate_runner,
+    which imports it from l1_eligibility)."""
+    seen = set()
+    while (mod, name) not in defs and (mod, name) not in consts:
+        nxt = imports.get((mod, name))
+        if nxt is None or nxt in seen:
+            return None
+        seen.add(nxt)
+        mod, name = nxt
+    return (mod, name)
 
 
 def written(book: str) -> set[str]:

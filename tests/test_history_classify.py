@@ -247,8 +247,9 @@ def test_every_outcome_reason_live_emits_has_one_rule_owned_by_a_lock():
     pairs = re.findall(r'result\["outcome"\]\s*=\s*"(TRADE_\w+)"\s*\n\s*'
                        r'(?:#[^\n]*\n\s*)*result\["outcome_reason"\]\s*=\s*f?"(\w+)', src)
     # From 2026-10-29 every execution-phase check also records its verdict (rule_states): through _put in the live
-    # runner, and through the shared affordability check (gate_runner._affordability), so all three are read.
-    shared = (GATE / "gate_runner.py").read_text()
+    # runner, and through the shared affordability check (l1_eligibility.affordability since phase 4a M4 (i);
+    # gate_runner._affordability before), so all are read.
+    shared = (GATE / "gate_runner.py").read_text() + (GATE / "l1_eligibility.py").read_text()
     checked = (set(re.findall(r'_put\(result, "(\w+)"', src))
                | set(re.findall(r'lock_codes\.put\(states, "(\w+)"', shared)) - {"overflow"})
     owners = {reason: lock_codes.rule_for(reason).owner for reason in {r for _, r in pairs} | checked}

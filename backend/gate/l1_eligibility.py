@@ -34,6 +34,7 @@ from loguru import logger
 
 from backend.config import EXCLUDED_SECTORS
 from backend.gate.lock_codes import FAIL, NO_DATA, PASS
+from backend.gate import lock_codes
 from backend.gate.types import LockResult
 # One calendar for L1 ELIGIBILITY and both backtest engines (2026-10-17, Niclas: "live måste ha
 # en enda kalender att gå efter"): backend/macro_calendar.py, official FOMC / BLS dates.
@@ -234,6 +235,34 @@ def _evaluate(ticker: str, sector: str, cfg: dict, states: dict[str, str]) -> Lo
             "vix":              vix,
         },
     )
+
+
+# ── L1's rules before the chain (phase 4a M4 (i), 2026-11-28) ─────────────────────────────────────────────────
+# Moved from gate_runner, where both runners called them: the runners read their own book (open positions, the
+# cooloff windows, the blocklist, the largest notional) and call these at the same point, before the chain.
+
+def pre_chain_states(ticker: str, checks: dict[str, set[str]]) -> dict[str, str]:
+    """L1's checks before the chain, each with its verdict for this ticker: the live blocklist, an open position,
+    gate cooloff, exit cooloff (Niclas 2026-10-29: separate markers). Only the checks the candidate met are passed
+    in (demo has no blocklist). Since 2026-11-28 pre-rotation candidates meet every check, the live blocklist
+    included, and a candidate that fails one stops before the chain in both runners."""
+    states: dict[str, str] = {}
+    for ident, tickers in checks.items():
+        lock_codes.put(states, ident, lock_codes.FAIL if ticker in tickers else lock_codes.PASS)
+    return states
+
+
+def affordability(states: dict[str, str], notional: float, price: float | None, *,
+                   min_notional: float, whole_shares: bool) -> str | None:
+    """L1's checks that an order can be bought, recorded in states: a price, a notional of at least
+    `min_notional`, and with `whole_shares` (live's bracket orders) at least one share. Returns the refusing rule's
+    identifier, or None. Used before the chain on the largest possible notional, and by live at execution."""
+    lock_codes.put(states, "price_missing", lock_codes.FAIL if not price else lock_codes.PASS)
+    if not price:
+        return "price_missing"
+    too_small = notional < min_notional or (whole_shares and int(notional / price) < 1)
+    lock_codes.put(states, "notional_too_small", lock_codes.FAIL if too_small else lock_codes.PASS)
+    return "notional_too_small" if too_small else None
 
 
 # ── Regime helpers ────────────────────────────────────────────────────────────

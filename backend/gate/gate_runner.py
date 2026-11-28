@@ -28,6 +28,10 @@ from backend.db import (
 from backend.gate.chain import ChainResult, build_base_context, evaluate_chain, verdict_states
 from backend.gate.cycle import GateCycle, evaluated_reason, record_stale
 from backend.gate import lock_codes
+# L1's rules before the chain live in their lock module since phase 4a M4 (i) (2026-11-28); both runners keep
+# these names (gate_runner_live imports them from here).
+from backend.gate.l1_eligibility import affordability as _affordability  # noqa: F401
+from backend.gate.l1_eligibility import pre_chain_states as _pre_chain_states  # noqa: F401
 
 # Max parallel workers — bounded to avoid hammering rate limits
 _MAX_WORKERS = 5
@@ -75,19 +79,6 @@ def _pre_chain_result(c: dict, states: dict[str, str], refusal: str | None = Non
     return {"ticker": c["ticker"], "sector": c.get("sector", ""), "signal_id": c.get("id"),
             "timestamp": datetime.now(timezone.utc).isoformat(), "outcome": STOPPED, "rule_states": states,
             "outcome_reason": refusal, "l5_positioning_checks": None, "claude_reasoning": None}
-
-
-def _affordability(states: dict[str, str], notional: float, price: float | None, *,
-                   min_notional: float, whole_shares: bool) -> str | None:
-    """L1's checks that an order can be bought, recorded in states: a price, a notional of at least
-    `min_notional`, and with `whole_shares` (live's bracket orders) at least one share. Returns the refusing rule's
-    identifier, or None. Used before the chain on the largest possible notional, and by live at execution."""
-    lock_codes.put(states, "price_missing", lock_codes.FAIL if not price else lock_codes.PASS)
-    if not price:
-        return "price_missing"
-    too_small = notional < min_notional or (whole_shares and int(notional / price) < 1)
-    lock_codes.put(states, "notional_too_small", lock_codes.FAIL if too_small else lock_codes.PASS)
-    return "notional_too_small" if too_small else None
 
 
 def _alert_unknown(book: str, rows: list[dict]) -> None:
@@ -488,17 +479,6 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
         result["_l5_lock_results"] = chain.lock_results
         result["_l5_context"]      = context
     return result
-
-
-def _pre_chain_states(ticker: str, checks: dict[str, set[str]]) -> dict[str, str]:
-    """L1's checks before the chain, each with its verdict for this ticker: the live blocklist, an open position,
-    gate cooloff, exit cooloff (Niclas 2026-10-29: separate markers). Only the checks the candidate met are passed
-    in (demo has no blocklist). Since 2026-11-28 pre-rotation candidates meet every check, the live blocklist
-    included, and a candidate that fails one stops before the chain in both runners."""
-    states: dict[str, str] = {}
-    for ident, tickers in checks.items():
-        lock_codes.put(states, ident, lock_codes.FAIL if ticker in tickers else lock_codes.PASS)
-    return states
 
 
 def _overflow_state(result: dict, refused: bool) -> None:

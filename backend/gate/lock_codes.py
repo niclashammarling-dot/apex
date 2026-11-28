@@ -121,19 +121,19 @@ RULES: tuple[Rule, ...] = (
     Rule(0, "drawdown_guard", config_keys=("l0_portfolio_drawdown_guard_max",), cooloff=True,
          source="chain.py mechanical pre-L5 guard (reason ends '(mechanical pre-L5 guard)')"),
     Rule(1, "blocklist", ("blocklist",), books=("live",),
-         source="gate_runner_live: the live blocklist, before the chain"),
+         source="gate_runner_live: the live blocklist, before the chain; the verdict from l1_eligibility.pre_chain_states since phase 4a M4 (i), 2026-11-28"),
     Rule(1, "position_open", ("position_open",),
-         source="both runners before the chain, and the execution re-check (gate_runner_live, wallet)"),
+         source="both runners before the chain, and the execution re-check (gate_runner_live, wallet); the verdict from l1_eligibility.pre_chain_states since phase 4a M4 (i), 2026-11-28"),
     Rule(1, "cooloff", ("cooloff",), ("l1_eligibility_cooloff_hours",),
          "both runners, before the chain: a recent L4/L6 stop (the gate cooloff; before 2026-10-31 SKIPPED_COOLOFF "
-         "also held the exit cooloff)"),
+         "also held the exit cooloff); the verdict from l1_eligibility.pre_chain_states since phase 4a M4 (i), 2026-11-28"),
     Rule(1, "exit_cooloff", ("exit_cooloff",), ("l1_eligibility_exit_cooloff_hours",),
          "both runners, before the chain: the ticker's own recent exit other than a TP/TSL win "
-         "(db.get_recently_exited_*tickers; until phase 3 it also held the win window, as history rows do)"),
+         "(db.get_recently_exited_*tickers; until phase 3 it also held the win window, as history rows do); the verdict from l1_eligibility.pre_chain_states since phase 4a M4 (i), 2026-11-28"),
     # since: phase 3 merged 11-07 (d357cfd); first rows 2026-11-09 in both books.
     Rule(1, "exit_cooloff_win", ("exit_cooloff_win",), ("l1_eligibility_exit_cooloff_win_hours",),
          "both runners, before the chain: the ticker's own recent TP/TSL win (its own rule from phase 3, Niclas "
-         "2026-10-31: \"egen regel låter mer konsekvent\"; history before it is under exit_cooloff)",
+         "2026-10-31: \"egen regel låter mer konsekvent\"; history before it is under exit_cooloff); the verdict from l1_eligibility.pre_chain_states since phase 4a M4 (i), 2026-11-28",
          since="2026-11-09", split_from="exit_cooloff"),
     Rule(1, "regime", ("regime", "excluded_sector", "regime_unavailable", "below_leaderboard_cutoff", "regime_floor"),
          source="l1_eligibility fail_type: the regime module's verdict on the sector"),
@@ -145,8 +145,8 @@ RULES: tuple[Rule, ...] = (
     # (LLY 10-12..10-16), then 19 on 11-02 and 486 in two weeks (W45 read, R070).
     Rule(1, "notional_too_small", ("notional_too_small",),
          source="the order cannot buy: before the chain on the largest possible notional, and at execution "
-                "(live < $10 or no whole share, demo < $50)", since="2026-11-02"),
-    Rule(1, "price_missing", ("price_missing",), source="before the chain and at execution: no price"),
+                "(live < $10 or no whole share, demo < $50); the verdict from l1_eligibility.affordability since phase 4a M4 (i), 2026-11-28", since="2026-11-02"),
+    Rule(1, "price_missing", ("price_missing",), source="before the chain and at execution: no price; the verdict from l1_eligibility.affordability since phase 4a M4 (i), 2026-11-28"),
     # since: E1 built 2026-11-28 (Saturday order, R102 d; riktning 2026-11-27: only the open-order read, fail closed);
     # the first session it can stop is Monday 2026-11-30. Last in L1: it runs at the submit, after every other check.
     Rule(1, "broker_holds", ("broker_holds",), cooloff=True, books=("live",), optional=True, since="2026-11-30",
