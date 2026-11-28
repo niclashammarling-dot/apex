@@ -106,7 +106,6 @@ backend/alerts.py::alert_daily_loss_cap	money
 backend/alerts.py::alert_data_quality_divergence	money
 backend/alerts.py::alert_gate_blocked	money
 backend/alerts.py::alert_position_unreconciled	money
-backend/alerts.py::alert_position_untracked	money
 backend/alerts.py::alert_regime_exits	money
 backend/alerts.py::alert_startup_catchup_failed	money
 backend/alerts.py::alert_ticker_data_gap	money
@@ -404,9 +403,6 @@ backend/backtest/weekend_sweep.py::_date_range	other
 backend/backtest/weekend_sweep.py::_now_iso	other
 backend/backtest/weekend_sweep.py::run_sweep	other
 backend/brokers/alpaca.py::_client	money
-backend/brokers/alpaca.py::get_fee_activities	money
-backend/brokers/alpaca.py::get_portfolio_history	money
-backend/brokers/alpaca.py::get_prior_close	money
 backend/data/fetcher_rss.py::fetch_headlines	money
 backend/data/fetcher_sentiment.py::_analyst_label	money
 backend/data/fetcher_sentiment.py::fetch_market_signals	money
@@ -423,7 +419,6 @@ backend/db.py::get_drift_alerts	money
 backend/db.py::get_drift_baselines	money
 backend/db.py::get_existing_snapshot_dates	money
 backend/db.py::get_existing_ticker_history_dates	money
-backend/db.py::get_live_trades_exited_since	money
 backend/db.py::get_open_tickers	money
 backend/db.py::get_rolling_win_rate	money
 backend/db.py::get_sector_posteriors_asof	money
