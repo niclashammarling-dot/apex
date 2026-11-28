@@ -10,6 +10,7 @@ import pytest
 from audit import _audit_core as core
 from audit import checks_gate as cg
 from backend import db
+from tests.book_cfg import live_cfg
 
 
 def _rows(trade_id):
@@ -45,7 +46,7 @@ def _ratchet(trade_id, replace=None, append=None):
         {"id": "leg-live", "order_type": "stop", "status": "held", "stop_price": 94.0}]}
     broker.replace_stop_leg.side_effect = replace or (lambda *a: "leg-new")
     trade = {"ticker": "BBB", "id": trade_id, "alpaca_order_id": "parent", "entry_price": 100.0, "qty": 10}
-    cfg = {"profit_lock_trigger_pct": 0.04, "profit_lock_trail_pct": 0.01}
+    cfg = live_cfg(profit_lock_trigger_pct=0.04, profit_lock_trail_pct=0.01)
     with patch("backend.live_trades_tracker.set_live_trade_profit_lock_activated") as act:
         if append:
             with patch("backend.live_trades_tracker.append_stop_ratchet", side_effect=append):

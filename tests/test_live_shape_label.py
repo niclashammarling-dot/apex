@@ -4,9 +4,11 @@ import json
 import pytest
 
 import backend.backtest.live_shape as ls
+from tests.book_cfg import live_cfg
+from tests.book_cfg import demo_cfg
 
-LIVE = {"take_profit_pct": 0.06, "stop_loss_pct": 0.06, "profit_lock_trigger_pct": 0.04,
-        "profit_lock_trail_pct": 0.01, "l2_risk_max_positions_count": 8, "l3_score_threshold_min": 0.65}
+LIVE = live_cfg({"take_profit_pct": 0.06, "stop_loss_pct": 0.06, "profit_lock_trigger_pct": 0.04,
+        "profit_lock_trail_pct": 0.01, "l2_risk_max_positions_count": 8, "l3_score_threshold_min": 0.65})
 
 
 @pytest.fixture(autouse=True)
@@ -34,14 +36,14 @@ def test_label_clears_when_run_at_the_live_shape():
 def test_label_returns_as_stale_when_live_config_changes_under_the_result(monkeypatch):
     h = ls.live_shape_hash()
     import backend.live_config as lc
-    monkeypatch.setattr(lc, "get_live_config", lambda: {**LIVE, "stop_loss_pct": 0.05})
+    monkeypatch.setattr(lc, "get_live_config", lambda: live_cfg(LIVE, stop_loss_pct=0.05))
     assert ls.shape_label({"live_shape_hash": h}, "sweep").startswith("STALE")
 
 
 def test_hash_ignores_fields_outside_the_shape(monkeypatch):
     h = ls.live_shape_hash()
     import backend.live_config as lc
-    monkeypatch.setattr(lc, "get_live_config", lambda: {**LIVE, "l3_score_threshold_min": 0.70})
+    monkeypatch.setattr(lc, "get_live_config", lambda: live_cfg(LIVE, l3_score_threshold_min=0.70))
     assert ls.live_shape_hash() == h
 
 
@@ -81,8 +83,8 @@ def test_sweep_mail_leads_with_label_and_prints_every_varied_axis(monkeypatch):
     sent = []
     monkeypatch.setattr(alerts, "_cfg", lambda: {"slack_url": None, "email_to": "x", "smtp_user": "u", "smtp_pass": "p"})
     monkeypatch.setattr(alerts, "_send_email", lambda cfg, subj, body: sent.append(body))
-    monkeypatch.setattr(dc, "get_demo_config", lambda: {"l3_score_threshold_min": 0.6, "take_profit_pct": 0.06,
-                                                        "stop_loss_pct": 0.07, "max_hold_days": 30})
+    monkeypatch.setattr(dc, "get_demo_config", lambda: demo_cfg({"l3_score_threshold_min": 0.6, "take_profit_pct": 0.06,
+                                                        "stop_loss_pct": 0.07, "max_hold_days": 30}))
     top = [{"l3_score_threshold_min": 0.75, "take_profit_pct": 0.06, "stop_loss_pct": 0.04, "time_stop_days": 20,
             "l1_eligibility_vix_max": v, "use_leading_rs": True, "l2_risk_max_positions_count": 6, "sharpe": 1.8,
             "total_return_pct": 0.035, "win_rate": 0.43, "total_trades": 53, "spy_return_pct": 0.044}
@@ -201,8 +203,8 @@ def test_sweep_mail_shows_one_outcome_once(monkeypatch):
     sent = []
     monkeypatch.setattr(alerts, "_cfg", lambda: {"slack_url": None, "email_to": "x", "smtp_user": "u", "smtp_pass": "p"})
     monkeypatch.setattr(alerts, "_send_email", lambda cfg, subj, body: sent.append(body))
-    monkeypatch.setattr(dc, "get_demo_config", lambda: {"l3_score_threshold_min": 0.6, "take_profit_pct": 0.06,
-                                                        "stop_loss_pct": 0.07, "max_hold_days": 30})
+    monkeypatch.setattr(dc, "get_demo_config", lambda: demo_cfg({"l3_score_threshold_min": 0.6, "take_profit_pct": 0.06,
+                                                        "stop_loss_pct": 0.07, "max_hold_days": 30}))
     ws._notify_sweep(_ranked([("a", None), ("a", 30), ("a", 35)]), "2026-07-04", "2026-10-02",
                      {"valid_combos": 3240, "distinct_outcomes": 413, "inert_axes": ["l1_eligibility_vix_max"]})
     body = sent[0]

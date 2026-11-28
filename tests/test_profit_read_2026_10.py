@@ -6,12 +6,13 @@ import pandas as pd
 
 from backend.backtest import profit_read_2026_10 as pr
 from tests.test_engine_flag_off_parity import END, RUN_KW, START, synthetic_precomputed
+from tests.book_cfg import live_cfg
 
-LIVE = {"l3_score_threshold_min": 0.65, "take_profit_pct": 0.06, "stop_loss_pct": 0.06,
+LIVE = live_cfg({"l3_score_threshold_min": 0.65, "take_profit_pct": 0.06, "stop_loss_pct": 0.06,
         "profit_lock_trigger_pct": 0.04, "profit_lock_trail_pct": 0.01, "l2_risk_max_positions_count": 9,
         "max_hold_days": 25, "l1_eligibility_vix_max": 30, "l2_risk_sector_cap_max": 0.3,
         "l1_eligibility_exit_cooloff_hours": 24, "l1_eligibility_exit_cooloff_win_hours": 168, "l1_eligibility_macro_pre_event_penalty": 0.05,
-        "l2_risk_etf_penalty": 0.15, "l2_risk_etf_floor": -1}
+        "l2_risk_etf_penalty": 0.15, "l2_risk_etf_floor": -1})
 
 
 def test_incumbent_is_read_from_live_config():

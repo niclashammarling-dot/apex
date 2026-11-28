@@ -24,7 +24,7 @@ from backend.db import (
     insert_live_trade,
     mark_live_trade_unreconciled,
 )
-from tests.cfg_complete import complete
+from tests.book_cfg import live_cfg
 
 init_db()
 
@@ -111,7 +111,7 @@ class TestStaleSnapshotBooking:
         with ExitStack() as stack:
             stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
             stack.enter_context(patch("backend.live_config.get_live_config",
-                                      return_value=complete({"max_hold_days": 25})))
+                                      return_value=live_cfg({"max_hold_days": 25})))
             stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
             stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
                                       side_effect=order_after_other_process_booked))
@@ -207,7 +207,7 @@ def _pass_where_other_process_books_during_exit_lookup(tid):
     with ExitStack() as stack:
         stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
         stack.enter_context(patch("backend.live_config.get_live_config",
-                                  return_value=complete({"max_hold_days": 25})))
+                                  return_value=live_cfg({"max_hold_days": 25})))
         stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
         stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
                                   return_value={"status": "filled", "filled_qty": 4, "legs": []}))

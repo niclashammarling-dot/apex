@@ -4,6 +4,7 @@ from datetime import date
 from backend.backtest import engine, engine_fast
 from backend.macro_calendar import macro_status
 from tests.test_engine_flag_off_parity import END, RUN_KW, START, synthetic_precomputed
+from tests.book_cfg import live_cfg
 
 
 def _days(pre, status, window=1):
@@ -53,8 +54,7 @@ def test_the_cpi_nfp_window_is_live_config_by_reference(monkeypatch):
     assert entries(l1_eligibility_macro_event_days=1) & wide                # positive control: window 1 trades them
     assert not entries(l1_eligibility_macro_event_days=2) & wide
     import backend.live_config as live_config
-    real = live_config.get_live_config
-    monkeypatch.setattr(live_config, "get_live_config", lambda: {**real(), "l1_eligibility_macro_event_days": 2})
+    monkeypatch.setattr(live_config, "get_live_config", lambda: live_cfg(l1_eligibility_macro_event_days=2))
     assert entries() == entries(l1_eligibility_macro_event_days=2)          # None follows live config
     # engine.py downloads its data and runs nowhere offline; its wrapper takes the window as a required
     # argument, so a call that does not pass it fails, and run() resolves None the same way.

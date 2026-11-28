@@ -4,6 +4,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 from backend import weekly_report
+from tests.book_cfg import demo_cfg
 
 
 def _book():
@@ -18,8 +19,8 @@ def _funnel():
 def test_the_model_reads_the_pre_rename_names():
     client = MagicMock()
     client.chat.completions.create.return_value.choices = [MagicMock(message=MagicMock(content=" ok "))]
-    cfg = {"l3_score_threshold_min": 0.6, "take_profit_pct": 0.06, "l2_risk_max_positions_count": 10,
-           "l1_eligibility_vix_max": 30}
+    cfg = demo_cfg({"l3_score_threshold_min": 0.6, "take_profit_pct": 0.06, "l2_risk_max_positions_count": 10,
+                    "l1_eligibility_vix_max": 30})
     sweep = [{"row": {"l3_score_threshold_min": 0.62, "l1_eligibility_vix_max": None}}]
     with patch("backend.config.OPENAI_API_KEY", "k"), patch("openai.OpenAI", return_value=client), \
          patch("backend.demo_config.get_demo_config", return_value=cfg):

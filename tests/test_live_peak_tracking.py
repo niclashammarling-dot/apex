@@ -12,6 +12,7 @@ import pytest
 
 import backend.live_trades_tracker as ltt
 from backend.db import get_db, init_db, insert_live_trade, update_live_trade_peak_price
+from tests.book_cfg import live_cfg
 
 init_db()
 
@@ -48,7 +49,7 @@ def _cycle(current):
              "filled_at": (datetime.now(timezone.utc) - timedelta(minutes=59)).isoformat(), "legs": [{"side": "sell", "order_type": "stop", "status": "new"}]}
     with ExitStack() as stack:
         stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
-        stack.enter_context(patch("backend.live_config.get_live_config", return_value={"max_hold_days": 99}))
+        stack.enter_context(patch("backend.live_config.get_live_config", return_value=live_cfg(max_hold_days=99)))
         stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[{"ticker": "PEAK"}]))
         stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id", return_value=order))
         stack.enter_context(patch("backend.live_trades_tracker._current_price", return_value=current))

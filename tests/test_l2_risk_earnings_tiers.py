@@ -17,7 +17,7 @@ import pytest
 import backend.gate.l1_eligibility as m
 import backend.gate.l2_risk as l2m
 from backend.gate.l1_eligibility import evaluate
-from tests.cfg_complete import complete
+from tests.book_cfg import live_cfg
 
 
 @pytest.fixture(autouse=True)
@@ -45,7 +45,7 @@ def _make_regime(sector: str = "Technology"):
 
 
 def _cfg(blackout: int = 3, near_days: int = 14, near_penalty: float = 0.15) -> dict:
-    return complete({   # the rest: the removed .get() fallbacks (R150 b, tests/cfg_complete.py)
+    return live_cfg({   # the rest: the tracked file (tests/book_cfg.py)
         "l1_eligibility_vix_max":                 99.0,   # VIX never blocks
         "l1_eligibility_macro_event_days":     0,       # macro events never block
         "l2_risk_earnings_days":  blackout,

@@ -25,11 +25,11 @@ from backend.gate.history_classify import classify
 from backend.gate.lock_codes import FAIL, NO_DATA, PASS
 from backend.gate.lock_codes import rule_key as K
 from backend.gate.types import LockResult
-from tests.cfg_complete import complete
+from tests.book_cfg import live_cfg
 
 SECTOR = "Technology"
 THRESHOLDS = {SECTOR: 0.65}
-CFG = complete({   # the rest: the removed .get() fallbacks (R150 b, tests/cfg_complete.py)
+CFG = live_cfg({   # the rest: the tracked file (tests/book_cfg.py)
     "l1_eligibility_vix_max": 30.0, "l1_eligibility_macro_event_days": 1, "l1_eligibility_macro_pre_event_penalty": 0.05,
     "l2_risk_earnings_days": 3, "l2_risk_earnings_near_days": 14, "l2_risk_earnings_near_penalty": 0.15,
     "l2_risk_etf_penalty": 0.20, "l2_risk_etf_floor": -1.0,

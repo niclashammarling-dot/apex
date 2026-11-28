@@ -7,9 +7,10 @@ from unittest.mock import patch
 from backend.gate import chain, gate_runner, l2_risk, lock_codes
 from backend.gate.lock_codes import FAIL, PASS
 from backend.gate.types import LockResult
+from tests.book_cfg import live_cfg
 
-CFG = {"l3_score_threshold_min": 0.5, "l4_sentiment_grok_min": 0.0, "l5_positioning_leading_mode": "pooled_scalar",
-       "l2_risk_etf_penalty": 0.0}
+CFG = live_cfg({"l3_score_threshold_min": 0.5, "l4_sentiment_grok_min": 0.0, "l5_positioning_leading_mode": "pooled_scalar",
+       "l2_risk_etf_penalty": 0.0})
 
 
 def _pass(lock_id, data=None):

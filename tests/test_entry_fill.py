@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from backend.db import get_db, init_db, insert_live_trade, record_entry_fill
-from tests.cfg_complete import complete
+from tests.book_cfg import live_cfg
 
 init_db()
 
@@ -91,7 +91,7 @@ def test_record_entry_fill_recomputes_a_closed_row():
 def _run_exit_check(order, current=None):
     with ExitStack() as stack:
         stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
-        stack.enter_context(patch("backend.live_config.get_live_config", return_value=complete({"max_hold_days": 99})))
+        stack.enter_context(patch("backend.live_config.get_live_config", return_value=live_cfg({"max_hold_days": 99})))
         stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[{"ticker": "FILL"}]))
         stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id", return_value=order))
         stack.enter_context(patch("backend.live_trades_tracker._current_price", return_value=current))
@@ -131,7 +131,7 @@ def test_profit_lock_trigger_measures_from_the_signal_price():
              "entry_price": 103.0, "signal_price": 100.0, "qty": 4.0}
     broker = MagicMock()
     broker.get_order_by_id.return_value = {"legs": []}
-    cfg = {"profit_lock_trigger_pct": 0.04, "profit_lock_trail_pct": 0.01}
+    cfg = live_cfg(profit_lock_trigger_pct=0.04, profit_lock_trail_pct=0.01)
     _maybe_ratchet_bracket_sl(trade, 104.5, cfg, broker)
     broker.get_order_by_id.assert_called_once()
 

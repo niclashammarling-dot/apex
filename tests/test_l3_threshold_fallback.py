@@ -11,7 +11,7 @@ import pytest
 
 from backend.gate import chain
 from backend.gate.l3_score import _sector_threshold, evaluate
-from tests.cfg_complete import complete
+from tests.book_cfg import live_cfg
 
 CALIBRATED = {"Technology": 0.62}
 
@@ -39,7 +39,7 @@ def test_the_chain_decides_l3_on_the_books_threshold_for_an_uncalibrated_sector(
                         lambda t, c, d: (LockResult.pass_(lock_id=2, score=1.0, reason="stub", data={}), "pass"))
     monkeypatch.setattr(chain, "l4_sentiment_evaluate",
                         lambda t, sentiment_min=None: LockResult.fail(lock_id=4, reason="stub stop", data={}))
-    result = chain.evaluate_chain("ZZZ", "NewSector", book_threshold + 0.02, {}, complete({"l3_score_threshold_min": book_threshold}),
+    result = chain.evaluate_chain("ZZZ", "NewSector", book_threshold + 0.02, {}, live_cfg({"l3_score_threshold_min": book_threshold}),
                                   sector_thresholds=CALIBRATED)
     assert result.lock_results[3].passed
     assert result.lock_results[3].data["threshold"] == book_threshold

@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from backend import wallet
-from tests.cfg_complete import complete
+from tests.book_cfg import demo_cfg
 
 ENTRY = 100.0
 
@@ -71,9 +71,9 @@ def test_check_exits_closes_a_trade_whose_stop_was_touched_while_prices_were_mis
     monkeypatch.setattr(wallet, "close_trade", lambda **k: closed.update(k))
     monkeypatch.setattr(wallet, "update_trade_peak_price", lambda *a: None)
     monkeypatch.setattr(wallet, "set_trade_exits_checked", lambda *a: pytest.fail("stamped after a close"))
-    monkeypatch.setattr(wallet, "get_demo_config", lambda: {"take_profit_pct": 0.06, "stop_loss_pct": 0.06,
+    monkeypatch.setattr(wallet, "get_demo_config", lambda: demo_cfg({"take_profit_pct": 0.06, "stop_loss_pct": 0.06,
                                                             "profit_lock_trigger_pct": None, "profit_lock_trail_pct": None,
-                                                            "max_hold_days": 25})
+                                                            "max_hold_days": 25}))
     out = wallet.check_exits()
     assert [o["exit_reason"] for o in out] == ["SL"]
     assert closed["price_exit"] == pytest.approx(94.0) and closed["exited_at"] == "2026-10-22T18:05:00+00:00"
@@ -83,7 +83,7 @@ def test_a_missing_price_leaves_the_stamp_to_age(monkeypatch):
     monkeypatch.setattr(wallet, "get_open_trades", lambda: [_trade(5)])
     monkeypatch.setattr(wallet, "_batch_prices", lambda t: {})
     monkeypatch.setattr(wallet, "set_trade_exits_checked", lambda *a: pytest.fail("stamped without a price"))
-    monkeypatch.setattr(wallet, "get_demo_config", lambda: complete({"take_profit_pct": 0.06, "stop_loss_pct": 0.06,
+    monkeypatch.setattr(wallet, "get_demo_config", lambda: demo_cfg({"take_profit_pct": 0.06, "stop_loss_pct": 0.06,
                                                                      "max_hold_days": 25}))
     assert wallet.check_exits() == []
 

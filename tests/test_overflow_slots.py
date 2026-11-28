@@ -10,6 +10,7 @@ from unittest.mock import patch
 from backend.backtest import engine, engine_fast
 from backend.backtest.live_shape import live_overflow_increment, overflow_admits
 from tests.test_engine_flag_off_parity import END, RUN_KW, START, synthetic_precomputed
+from tests.book_cfg import live_cfg
 
 
 def test_roof_rule():
@@ -21,7 +22,7 @@ def test_roof_rule():
 
 
 def test_increment_comes_from_live_config():
-    with patch("backend.live_config.get_live_config", return_value={"l2_risk_overflow_step": 0.05}):
+    with patch("backend.live_config.get_live_config", return_value=live_cfg(l2_risk_overflow_step=0.05)):
         assert live_overflow_increment() == 0.05
     for mod in (engine, engine_fast):
         assert inspect.signature(mod.run).parameters["l2_risk_overflow_step"].default is None

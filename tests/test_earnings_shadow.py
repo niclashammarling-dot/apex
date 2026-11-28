@@ -17,9 +17,10 @@ import pytest
 import backend.config as config_module
 import backend.gate.l2_risk as l2
 from backend.gate.lock_codes import NO_DATA, PASS
+from tests.book_cfg import live_cfg
 
 TODAY = date(2026, 11, 16)
-CFG = {"l2_risk_earnings_days": 2, "l2_risk_earnings_near_days": 14, "l2_risk_earnings_near_penalty": 0.15}
+CFG = live_cfg({"l2_risk_earnings_days": 2, "l2_risk_earnings_near_days": 14, "l2_risk_earnings_near_penalty": 0.15})
 
 
 def test_dict_calendar_gives_the_date():

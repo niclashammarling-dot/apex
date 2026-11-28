@@ -21,7 +21,7 @@ from backend.db import (
     init_db,
     insert_live_trade,
 )
-from tests.cfg_complete import complete
+from tests.book_cfg import live_cfg
 
 init_db()
 
@@ -56,7 +56,7 @@ def _run_time_stop(ticker, positions, activities):
     """positions: get_positions side_effect (first call = cycle snapshot, second = re-read)."""
     with ExitStack() as stack:
         stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
-        stack.enter_context(patch("backend.live_config.get_live_config", return_value=complete({"max_hold_days": 0})))
+        stack.enter_context(patch("backend.live_config.get_live_config", return_value=live_cfg({"max_hold_days": 0})))
         stack.enter_context(patch("backend.brokers.alpaca.get_positions", side_effect=positions))
         stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
                                   return_value={"status": "filled", "filled_qty": 4, "legs": []}))

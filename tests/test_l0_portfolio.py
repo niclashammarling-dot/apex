@@ -10,6 +10,7 @@ from backend.config import (
     LIVE_L0_PORTFOLIO_HALT_M4_EXPECTANCY_REF,
 )
 from backend.gate import l0_portfolio as l0
+from tests.book_cfg import live_cfg
 
 ACCT = {"equity": 10_000.0, "day_pnl": 0.0}
 AFTER = "2026-11-01T15:00:00+00:00"
@@ -79,7 +80,7 @@ def test_live_runner_stops_before_l1_on_an_l0_halt():
         s.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
         s.enter_context(patch("backend.gate.gate_runner_live._compute_apex_day_pnl", return_value=(0.0, [], {})))
         s.enter_context(patch("backend.live_config.get_live_config",
-                              return_value={"l0_portfolio_loss_cap_max": 500.0, "starting_balance": 10_000.0}))
+                              return_value=live_cfg({"l0_portfolio_loss_cap_max": 500.0, "starting_balance": 10_000.0})))
         s.enter_context(patch("backend.db.get_ticker_thresholds", return_value={}))
         s.enter_context(patch("backend.db.live_sample_rows", return_value=[_t(-(L0_PORTFOLIO_HALT_M4_DRAWDOWN_MAX * 10_000))]))
         s.enter_context(patch("backend.gate.gate_runner_live.set_alert_latch", return_value=True))

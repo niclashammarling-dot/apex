@@ -6,7 +6,7 @@ downstream only as a sector-cap weight; the post-L5 multiplier is score-relative
 so it needs the right definitions. The binding no-Bayesian-sizing sentence is pinned
 verbatim: a prompt edit can move L5's sizing."""
 from backend.gate.l6_review import SYSTEM_PROMPT
-from tests.cfg_complete import complete
+from tests.book_cfg import live_cfg
 
 BINDING = ("Do NOT factor regime_bayes_allocation, regime_bayes_posterior, regime_bayes_adjusted_score, "
            "regime_bayes_qualified, regime_bayes_rank, or any Bayesian allocation field into your size")
@@ -43,7 +43,7 @@ def _ctx(dynamic_caps):
     from backend.gate.chain import build_base_context
     wallet = {"balance": 10_000.0, "open_positions": 2, "sector_exposure": {"Technology": 0.2},
               "dynamic_caps": dynamic_caps}
-    cfg = complete({"l2_risk_max_positions_count": 9, "l2_risk_sector_cap_max": 0.30, "max_position_size": 0.15,
+    cfg = live_cfg({"l2_risk_max_positions_count": 9, "l2_risk_sector_cap_max": 0.30, "max_position_size": 0.15,
                     "l0_portfolio_loss_cap_max": 500})
     return build_base_context({"ticker": "AAPL", "sector": "Technology"}, wallet, cfg,
                               starting_balance=10_000.0, gate_history_fn=lambda t, limit: [])

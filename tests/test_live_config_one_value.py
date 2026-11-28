@@ -14,6 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from backend import live_config as lc
+from tests.book_cfg import live_cfg
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -75,8 +76,8 @@ def test_exits_keep_running_with_the_time_stop_off():
     from backend import live_trades_tracker as tr
     with patch("backend.live_config.get_live_config", side_effect=lc.LiveConfigUnavailable("x missing")):
         assert tr._exit_config() == {}                                  # time stop and ratchet off
-    with patch("backend.live_config.get_live_config", return_value={"max_hold_days": 25}):
-        assert tr._exit_config() == {"max_hold_days": 25}
+    with patch("backend.live_config.get_live_config", return_value=live_cfg(max_hold_days=25)):
+        assert tr._exit_config() == live_cfg(max_hold_days=25)
 
 
 def test_settings_show_live_as_unavailable_not_defaults():

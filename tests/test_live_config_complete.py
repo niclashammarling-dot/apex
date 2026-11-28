@@ -138,12 +138,3 @@ def test_no_money_path_module_reads_a_config_key_through_get():
     assert _config_gets('    max_hold_days = cfg.get("max_hold_days")\n') != []          # planted control
     assert _config_gets('    x = get_live_config().get("live_account_since") or "0000"\n') != []
     assert _config_gets('    p = l1.data.get("earnings_near_penalty", 0.0)\n') == []    # a data dict, not a config
-
-
-def test_the_test_helper_places_every_runtime_key():
-    """tests/cfg_complete.py gives each removed fallback's value; a key must be either there or in NO_FALLBACK."""
-    from backend import demo_config
-    from tests.cfg_complete import NO_FALLBACK, REMOVED_FALLBACKS
-    keys = set(lc._KEYS) | set(demo_config._KEYS)
-    assert keys == set(REMOVED_FALLBACKS) | NO_FALLBACK and not set(REMOVED_FALLBACKS) & NO_FALLBACK
-
