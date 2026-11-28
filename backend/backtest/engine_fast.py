@@ -22,6 +22,8 @@ import pandas as pd
 import yfinance as yf
 from loguru import logger
 
+from backend.backtest.earnings_source import EarningsSet, coverage as earnings_coverage, load as load_earnings
+
 from backend.config import (
     EXCLUDED_SECTORS,
     DEMO_L3_SCORE_THRESHOLD_MIN,
@@ -262,11 +264,20 @@ def run(
     rnd_open_cap: dict[str, int] = (random_entries or {}).get("open_cap", {})
     size_rng = _random.Random(size_draw["seed"]) if size_draw else None
 
-    # Pre-fetch earnings if needed
-    earnings_dates: dict[str, set[date]] = {}
+    # Earnings dates (2026-11-28, earnings_source.py): an explicit row limit, and a hole is unknown, never
+    # "no report": the filter passes a ticker-day in a hole and counts it (hole_days, returned in the result).
+    earnings: EarningsSet | None = None
+    stock_tickers: list[str] = []
+    hole_days: set[tuple[str, date]] = set()
     if earnings_filter_days is not None:
-        stock_tickers = [t for cfg in SECTORS.values() for t in cfg["tickers"]]
-        earnings_dates = _fetch_earnings_dates(stock_tickers, start, end)
+        stock_tickers = list(ticker_sector)       # the run's universe (precompute() builds it from get_sectors())
+        earnings = load_earnings(stock_tickers)
+
+    def _earnings_blocks(tk: str, day: date) -> bool:
+        if earnings.in_hole(tk, day):
+            hole_days.add((tk, day))
+            return False
+        return earnings.near(tk, day, earnings_filter_days)
 
     if l1_eligibility_macro_event_days is None:
         from backend.backtest.live_shape import live_macro_event_blackout_days
@@ -348,9 +359,8 @@ def run(
                     "score": round(sig["signal_score"], 4),
                     "threshold": max(l1, SECTOR_THRESHOLD_FLOORS.get(sig["sector"], 0.0)),
                     "macro_day": _md, "vix": _vx, "etf_ret": etf_ret_live.get((_etf, today_str)),
-                    "earnings_near": (any(today <= ed <= today + timedelta(days=earnings_filter_days)
-                                          for ed in earnings_dates.get(sig["ticker"], set()))
-                                      if earnings_filter_days is not None else None),
+                    "earnings_near": (None if earnings is None or earnings.in_hole(sig["ticker"], today)
+                                      else earnings.near(sig["ticker"], today, earnings_filter_days)),
                     "held": sig["ticker"] in _held,
                     "cooloff": sl_cooldown.get(sig["ticker"], date.min) > today,
                 })
@@ -393,9 +403,7 @@ def run(
                 tk = sig["ticker"]
                 if tk in open_tickers or sl_cooldown.get(tk, date.min) > today:
                     continue
-                if earnings_filter_days is not None and any(
-                        today <= ed <= today + timedelta(days=earnings_filter_days)
-                        for ed in earnings_dates.get(tk, set())):
+                if earnings is not None and _earnings_blocks(tk, today):
                     continue
                 if use_leading_rs and not rs_cache.get((tk, today_str), True):
                     continue
@@ -425,10 +433,8 @@ def run(
             if daily_loss_today >= loss_cap:
                 break
 
-            if earnings_filter_days is not None:
-                ticker_earnings = earnings_dates.get(sig["ticker"], set())
-                if any(today <= ed <= today + timedelta(days=earnings_filter_days) for ed in ticker_earnings):
-                    continue
+            if earnings is not None and _earnings_blocks(sig["ticker"], today):
+                continue
 
             if use_leading_rs and not rs_cache.get((sig["ticker"], today_str), True):
                 continue
@@ -539,6 +545,8 @@ def run(
         closed_trades, equity_curve, raw_data, trading_days,
     )
     result["etf_penalty_blocked"] = etf_penalty_blocked
+    if earnings is not None:
+        result["earnings_coverage"] = earnings_coverage(earnings, stock_tickers, start, end, hole_days)
     return result
 
 
@@ -1279,30 +1287,6 @@ def _download_all(tickers: list[str], start: date, end: date) -> pd.DataFrame:
         except Exception as e:
             logger.warning(f"Backtest cache write failed: {e}")
     return df
-
-
-def _fetch_earnings_dates(tickers: list[str], start: date, end: date) -> dict[str, set[date]]:
-    result: dict[str, set[date]] = {}
-    for ticker in tickers:
-        try:
-            tkr = yf.Ticker(ticker)
-            ed  = tkr.earnings_dates
-            if ed is None or ed.empty:
-                result[ticker] = set()
-                continue
-            dates: set[date] = set()
-            for dt in ed.index:
-                try:
-                    d = dt.date() if hasattr(dt, "date") else dt
-                    if start <= d <= end + timedelta(days=30):
-                        dates.add(d)
-                except Exception:
-                    pass
-            result[ticker] = dates
-        except Exception as e:
-            logger.debug(f"Earnings fetch failed for {ticker}: {e}")
-            result[ticker] = set()
-    return result
 
 
 def _trading_days(start: date, end: date, raw_data: pd.DataFrame) -> list[date]:

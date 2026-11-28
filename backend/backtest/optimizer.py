@@ -277,8 +277,12 @@ NOISE_FLOOR = {
     "kept_sigma": 1.4,
     "discarded": [0, 15, 1, 46, 2, 13],   # per run, all FLOOR_WIN_RATE, all stop_loss_pct 0.03-0.04
     "roster": {"n_tickers": 103, "hash": "6fa09571"},   # scripts/noise_floor_runs.py roster(); not in the key
-    "objective_hash": "fc2b203e",   # set by _objective_hash() at measurement time; re-keyed 2026-11-21, see below
+    "objective_hash": "100bdeeb",   # set by _objective_hash() at measurement time; re-keyed 2026-11-21 and 2026-11-28, see below
 }
+# Re-keyed 2026-11-28 without a new measurement (was fc2b203e): engine_fast.py's earnings path moved to
+# earnings_source.py (an explicit row limit, holes marked; PRODUCTION_GAP row 8). Every changed line sits under
+# `earnings_filter_days is not None`, which the optimizer never sets (no 'earnings' in this file); with it unset the
+# run is the parent's: tests/test_engine_flag_off_parity.py's golden passed on the same tree (suite 2026-11-28).
 # Re-keyed 2026-11-21 without a new measurement (was 9961f0f0): engine_fast.py's bytes changed by names only (M4
 # constants made shared for both books, R067 a: LIVE_L0_PORTFOLIO_LOSS_CAP_MAX -> L0_PORTFOLIO_LOSS_CAP_MAX, value 0.05
 # unchanged; an unused DEMO_L0_PORTFOLIO_LOSS_CAP_MAX import dropped). Checked: the module's AST with the new name

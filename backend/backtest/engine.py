@@ -49,6 +49,7 @@ from backend.config import (
     TIME_STOP_DAYS,
     WIN_RATE_MIN_TRADES,
 )
+from backend.backtest.earnings_source import EarningsSet, coverage as earnings_coverage, load as load_earnings
 from backend.backtest.exit_rules import Bar, ParityStats, build_ohlc_cache, check_intraday_bracket, lift_peak_to_high
 from backend.backtest.live_shape import (etf_penalty_fails, etf_return_as_live, live_overflow_increment,
                                           overflow_admits, reentry_cooloff_days)
@@ -224,12 +225,15 @@ def run(
     # cannot drift on how a bar is read (EXIT_PARITY.md R6).
     ohlc_cache = build_ohlc_cache(raw_data, all_tickers) if intraday_stops else None
 
-    # Pre-fetch earnings dates if filter is enabled
-    earnings_dates: dict[str, set[date]] = {}
+    # Earnings dates (2026-11-28, earnings_source.py, as engine_fast): an explicit row limit; a hole is unknown,
+    # never "no report": the filter passes a ticker-day in a hole and counts it (returned in the result).
+    earnings: EarningsSet | None = None
+    stock_tickers: list[str] = []
+    hole_days: set[tuple[str, date]] = set()
     if earnings_filter_days is not None:
         stock_tickers = [t for cfg in SECTORS.values() for t in cfg["tickers"]]
-        earnings_dates = _fetch_earnings_dates(stock_tickers, start, end)
-        logger.info(f"Backtest: loaded earnings dates for {len(earnings_dates)} tickers")
+        earnings = load_earnings(stock_tickers)
+        logger.info(f"Backtest: loaded earnings dates for {len(earnings.dates)} tickers ({len(earnings.failed)} empty)")
 
     if l1_eligibility_macro_event_days is None:
         from backend.backtest.live_shape import live_macro_event_blackout_days
@@ -335,10 +339,11 @@ def run(
             if daily_loss_today >= loss_cap:
                 break
 
-            # Earnings date filter — skip if earnings within N days
-            if earnings_filter_days is not None:
-                ticker_earnings = earnings_dates.get(sig["ticker"], set())
-                if any(today <= ed <= today + timedelta(days=earnings_filter_days) for ed in ticker_earnings):
+            # Earnings date filter — skip if earnings within N days; a hole is passed and counted
+            if earnings is not None:
+                if earnings.in_hole(sig["ticker"], today):
+                    hole_days.add((sig["ticker"], today))
+                elif earnings.near(sig["ticker"], today, earnings_filter_days):
                     continue
 
             # Leading RS proxy: ticker must outperform its sector ETF over last 5 days
@@ -434,11 +439,14 @@ def run(
             days_held=_trading_days_count(trade["entry_date"], end_date),
         ))
 
-    return _compute_metrics(
+    result = _compute_metrics(
         start_date, end_date, initial_balance, balance,
         closed_trades, equity_curve, raw_data, trading_days,
         etf_penalty_blocked=etf_penalty_blocked,
     )
+    if earnings is not None:
+        result["earnings_coverage"] = earnings_coverage(earnings, stock_tickers, start, end, hole_days)
+    return result
 
 
 # ── Signal computation (mirrors live pipeline) ────────────────────────────────
@@ -718,34 +726,6 @@ def _download_all(tickers: list[str], start: date, end: date) -> pd.DataFrame:
         except Exception as e:
             logger.warning(f"Backtest cache write failed (continuing without cache): {e}")
     return df
-
-
-def _fetch_earnings_dates(tickers: list[str], start: date, end: date) -> dict[str, set[date]]:
-    """
-    Pre-fetch earnings dates for all tickers in the backtest range.
-    Uses yfinance earnings_dates; falls back to empty set per ticker on error.
-    """
-    result: dict[str, set[date]] = {}
-    for ticker in tickers:
-        try:
-            tkr = yf.Ticker(ticker)
-            ed  = tkr.earnings_dates
-            if ed is None or ed.empty:
-                result[ticker] = set()
-                continue
-            dates: set[date] = set()
-            for dt in ed.index:
-                try:
-                    d = dt.date() if hasattr(dt, "date") else dt
-                    if start <= d <= end + timedelta(days=30):
-                        dates.add(d)
-                except Exception:
-                    pass
-            result[ticker] = dates
-        except Exception as e:
-            logger.debug(f"Earnings fetch failed for {ticker}: {e}")
-            result[ticker] = set()
-    return result
 
 
 def _trading_days(start: date, end: date, raw_data: pd.DataFrame) -> list[date]:

@@ -169,7 +169,6 @@ backend/backtest/edge_probe_2026_10_20.py::metrics	other
 backend/backtest/edge_probe_2026_10_20.py::summarize	other
 backend/backtest/edge_probe_2026_10_20.py::summarize.<locals>.bat	other
 backend/backtest/engine.py::_download_all	other
-backend/backtest/engine.py::_fetch_earnings_dates	other
 backend/backtest/engine.py::_leading_rs_pass	other
 backend/backtest/engine.py::_mark_to_market	other
 backend/backtest/engine.py::_score_all_tickers	other
@@ -179,7 +178,6 @@ backend/backtest/engine.py::_spy_data_on	other
 backend/backtest/engine.py::_vix_on	other
 backend/backtest/engine.py::run	other
 backend/backtest/engine_fast.py::_download_all	other
-backend/backtest/engine_fast.py::_fetch_earnings_dates	other
 backend/backtest/engine_fast.py::_load_signal_cache	other
 backend/backtest/engine_fast.py::_save_signal_cache	other
 backend/backtest/engine_fast.py::precompute	other

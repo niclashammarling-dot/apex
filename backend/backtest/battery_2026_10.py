@@ -113,6 +113,12 @@ class Unit:
                  self.vix9d_kelly]
         if self.book_ref is not None:          # appended only when set: existing keys are unchanged
             parts += [self.book_ref.key(), self.book_c, self.book_window]
+        if self.kwargs.get("earnings_filter_days") is not None:
+            # The fetched earnings set (Niclas 2026-11-23, condition 1): a filled source changes every result with no
+            # code line changed, so a stored unit must miss when the set does. Appended only when set: keys hold.
+            from backend.backtest.earnings_source import load
+            from backend.ticker_config import get_sectors
+            parts.append(load([t for c in get_sectors().values() for t in c["tickers"]]).digest())
         raw = json.dumps(parts, default=str)
         return hashlib.sha1(raw.encode()).hexdigest()[:12]
 

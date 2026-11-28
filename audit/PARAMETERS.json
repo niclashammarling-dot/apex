@@ -1467,6 +1467,23 @@
       "tier": "ops",
       "date": "2026-11-21",
       "source": "The demo wallet's fixed daily loss cap (config.DEMO_L0_PORTFOLIO_LOSS_CAP_MAX, unregistered) that the archived backtest analyses and engine_sharpe ran with; moved here on 2026-11-21 when the demo book's cap became L0's share of equity (R067 a, R111 a), so those runs reproduce. No production reader."
+    },
+    "backend/backtest/earnings_source.py::EARNINGS_LIMIT": {
+      "value": 60,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-11-28",
+      "source": "Rows per ticker asked of yfinance get_earnings_dates. The 11-23 probe (scripts/earnings_history_probe.py, apex fa51cc3) at limit=60 covered the 83 active tickers since 2015 with a median of 48 reports; 60 quarterly rows reach about 2011, before every battery window start (OOS 2015-01-02). The default (25 rows) stopped at 2021-01. Backtest engines only; no production reader (live reads its own calendar, l2_risk)."
+    },
+    "backend/backtest/earnings_source.py::GAP_DAYS": {
+      "value": 150,
+      "kind": "measured",
+      "tier": "ops",
+      "date": "2026-11-23",
+      "source": "A gap between two returned reports longer than this is a hole (unknown, never 'no report'). The probe's rule: a first cut at 120 days flagged COST's and PEP's routine Q4 reports, which land 120-135 days after Q3; a missed quarter is about 180. Backtest engines and the earnings cell only.",
+      "engine": "none (yfinance report dates; scripts/earnings_history_probe.py)",
+      "commit": "fa51cc3",
+      "sample": "103 tickers of ticker_config.get_sectors(), limit=60, run 2026-11-23 (vault raw/notes/2026-11/data/2026-11-23-apex-earnings-history-probe.json)"
     }
   }
 }
