@@ -6,7 +6,8 @@ statistic, one primary test, power, controls, validity, outcomes) is vault
 raw/notes/2026-11/2026-11-23-apex-earnings-cell-preregistration-draft.md, sealed 2026-11-23 after Niclas's read,
 before this script was written. L0 decides first; L2 (the blackout's own candidates, items 12-15) runs after L0 reads.
 
-Readings of the sealed text, stated before the run (nothing in the card is changed):
+Readings of the sealed text, stated before the run. The first and the last were ruled by Niclas on 2026-11-28 and
+written into the card as Amendment 1 (vault 95a372d1) before the run; the others follow the card's words:
 - item 7's left tail is read on the raw close-to-close return: item 7 says "returns below -6 % (the stop distance)",
   and the stop acts on the raw price; item 5's day-demeaned "series" is the regression's input. The demeaned share is
   reported beside it, not judged.
@@ -46,7 +47,8 @@ import pandas as pd
 
 from backend.backtest.earnings_source import EARNINGS_LIMIT, EarningsSet
 
-CARD = "vault raw/notes/2026-11/2026-11-23-apex-earnings-cell-preregistration-draft.md (sealed 2026-11-23)"
+CARD = ("vault raw/notes/2026-11/2026-11-23-apex-earnings-cell-preregistration-draft.md (sealed 2026-11-23; "
+        "Amendment 1 2026-11-28, vault 95a372d1, before the run)")
 HORIZONS = [1, 5, 10, 25]
 PRIMARY_H = 1                          # Niclas 2026-11-23: L0 tests the reaction day
 TAIL = -0.06                           # the live stop distance (live_config sl 6 %), item 7
