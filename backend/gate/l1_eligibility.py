@@ -161,10 +161,8 @@ def _evaluate(ticker: str, sector: str, cfg: dict, states: dict[str, str]) -> Lo
     states["regime"] = PASS
 
     # ── B. Macro filter ───────────────────────────────────────────────────────
-    _vt = cfg.get("l1_eligibility_vix_max")
-    l1_eligibility_vix_max     = 25.0 if _vt is None else _vt
-    _ep2 = cfg.get("l1_eligibility_macro_pre_event_penalty")
-    l1_eligibility_macro_pre_event_penalty = 0.05 if _ep2 is None else _ep2
+    l1_eligibility_vix_max     = cfg["l1_eligibility_vix_max"]                 # the book's file, no default (R150 b)
+    l1_eligibility_macro_pre_event_penalty = cfg["l1_eligibility_macro_pre_event_penalty"]
     today             = date.today()
 
     vix = _get_vix()
@@ -182,8 +180,7 @@ def _evaluate(ticker: str, sector: str, cfg: dict, states: dict[str, str]) -> Lo
 
     states["vix"] = PASS if vix is not None else NO_DATA
 
-    _eb = cfg.get("l1_eligibility_macro_event_days")
-    cpi_nfp_blackout = 1 if _eb is None else _eb
+    cpi_nfp_blackout = cfg["l1_eligibility_macro_event_days"]
     macro_status, event_desc = _macro_status(today, _FOMC_PRE_EVENT_DAYS, cpi_nfp_blackout)
     if macro_status == "hard_block":
         return LockResult.fail(

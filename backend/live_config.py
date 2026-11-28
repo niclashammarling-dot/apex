@@ -10,7 +10,11 @@ mail goes out once per cause, open positions keep their broker legs and stored l
 the file (the operator restores it). Until 2026-11-21 a missing file traded silently on config.py defaults and a
 corrupt one was written over with them; 11 of 27 keys differ from the file (starting balance 100000 vs 10000, stop
 0.04 vs 0.06, TP 0.12 vs 0.06; vault raw/notes/2026-11/2026-11-16-apex-live-facts-with-more-than-one-value.md).
-A key the file lacks is a KeyError at the reader that asks for it, never a default.
+A file that lacks a runtime key, or holds null for one, is unavailable in the same way (R150 b, ruled 2026-11-28; vault
+raw/notes/2026-11/2026-11-28-apex-get-config-readers-money-path-scope.md): until then get_live_config() returned the
+keys present, and the .get() readers on the money path fell to a second value without a word (L3/L4/L6 to the DEMO_
+constants, L1's VIX maximum to 25.0 against the file's 30, the exit pass's time stop and ratchet off). Every reader
+subscripts, so no default stands anywhere for a key the file must give.
 
 Usage:
     from backend.live_config import get_live_config, set_live_config
@@ -90,9 +94,14 @@ def _upgraded(stored: dict) -> dict:
     return upgrade_keys(stored)
 
 
+def missing_keys(stored: dict) -> list[str]:
+    """The runtime keys a stored config gives no value for (absent or null), in _KEYS order."""
+    return [k for k in _KEYS if stored.get(k) is None]
+
+
 def get_live_config() -> dict:
-    """The live config: the file's values for the runtime keys (one source per fact; module docstring).
-    Raises LiveConfigUnavailable when the file is missing or unreadable."""
+    """The live config: the file's values for every runtime key (one source per fact; module docstring).
+    Raises LiveConfigUnavailable when the file is missing, unreadable, or gives no value for a runtime key."""
     if not _CONFIG_PATH.exists():
         raise _unavailable(f"{_CONFIG_PATH.name} missing")
     try:
@@ -100,7 +109,10 @@ def get_live_config() -> dict:
             stored = _upgraded(json.load(f))
     except Exception as e:
         raise _unavailable(f"{_CONFIG_PATH.name} unreadable: {str(e)[:80]}")
-    return {k: stored[k] for k in _KEYS if k in stored}
+    missing = missing_keys(stored)
+    if missing:
+        raise _unavailable(f"{_CONFIG_PATH.name} has no value for {', '.join(missing)}")
+    return {k: stored[k] for k in _KEYS}
 
 
 def set_live_config(updates: dict, source: str = "settings") -> dict:
@@ -116,9 +128,12 @@ def set_live_config(updates: dict, source: str = "settings") -> dict:
 
 
 def ensure_config_exists() -> None:
-    """At startup: a missing live config is reported (log, CRITICAL mail), never created from defaults (R090 a)."""
-    if not _CONFIG_PATH.exists():
-        _unavailable(f"{_CONFIG_PATH.name} missing")      # the same cause as the gate's: one mail
+    """At startup: a missing, unreadable or incomplete live config is reported (log, CRITICAL mail once per cause),
+    never created or completed from defaults (R090 a, R150 b)."""
+    try:
+        get_live_config()                                 # the same cause as the gate's: one mail
+    except LiveConfigUnavailable:
+        pass
 
 
 def _write_atomic(cfg: dict, source: str = "unknown") -> None:

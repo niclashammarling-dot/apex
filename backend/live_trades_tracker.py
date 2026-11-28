@@ -170,7 +170,7 @@ def _maybe_ratchet_bracket_sl(trade: dict, peak: float, cfg: dict, broker) -> No
     peak * (1 - profit_lock_trail_pct) on every cycle.
 
     Gates (cheapest first — network call deferred until gate 3 passes):
-    1. Config guard: skip if trigger_pct or lock_trail missing from config.
+    1. Config guard: skip when the file is unavailable (cfg is {}, _exit_config says so) or a value is 0.
     2. Territory: skip if peak gain < trigger_pct.
     3. Leg fetch: find the open STOP leg on the bracket; warn and skip if absent.
     4. Direction: skip if the computed new_sl would not move the stop upward.
@@ -179,9 +179,12 @@ def _maybe_ratchet_bracket_sl(trade: dict, peak: float, cfg: dict, broker) -> No
        first confirmed success (used for audit/display only, not as a gate).
     Every confirmed move appends a row to stop_ratchet_log (append-only, ruling 2026-10-21).
     """
-    # Gate 1 — config guard
-    trigger_pct = cfg.get("profit_lock_trigger_pct")
-    lock_trail  = cfg.get("profit_lock_trail_pct")
+    # Gate 1 — config guard. {} only when the file is unavailable (R090 a); a file that lacks either key is unavailable
+    # too (R150 b, 2026-11-28), so a present cfg always holds both and a missing one is a KeyError, never "off".
+    if not cfg:
+        return
+    trigger_pct = cfg["profit_lock_trigger_pct"]
+    lock_trail  = cfg["profit_lock_trail_pct"]
     if not trigger_pct or not lock_trail:
         return
 
@@ -390,7 +393,8 @@ def _check_untracked_positions(alpaca_positions: set[str], open_trades: list[dic
 
 
 def _exit_config() -> dict:
-    """live_config.json for the exit pass, or {} when the file is missing or unreadable (R090 a, 2026-11-21): exits
+    """live_config.json for the exit pass, or {} when the file is missing, unreadable (R090 a, 2026-11-21) or gives no
+    value for a runtime key (R150 b, 2026-11-28): exits
     keep running on the broker legs and stored per-trade levels; the time stop and the profit-lock ratchet, whose
     parameters live only in the file, are off and said so. No default stands in for the file."""
     from backend.live_config import LiveConfigUnavailable, get_live_config
@@ -420,7 +424,7 @@ def check_live_exits() -> list[dict]:
 
     from backend.brokers import alpaca as broker
     cfg           = _exit_config()
-    max_hold_days = cfg.get("max_hold_days")          # None only when the file is unavailable: time stop off
+    max_hold_days = cfg["max_hold_days"] if cfg else None   # None only when the file is unavailable (R090 a, R150 b)
 
     # Snapshot of tickers currently held in Alpaca — used for the reconciliation
     # fallback below AND the untracked-position check (the mirror direction:

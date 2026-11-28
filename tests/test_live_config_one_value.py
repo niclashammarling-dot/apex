@@ -45,11 +45,12 @@ def test_a_corrupt_file_is_left_as_it_is(cfg_path):
 
 
 def test_the_file_is_the_only_source(cfg_path):
-    cfg_path.write_text(json.dumps({"stop_loss_pct": 0.06, "starting_balance": 10000, "not_a_key": 1}))
-    cfg = lc.get_live_config()
-    assert cfg == {"stop_loss_pct": 0.06, "starting_balance": 10000}
-    with pytest.raises(KeyError):
-        cfg["take_profit_pct"]                                         # a key the file lacks has no default
+    full = json.loads((ROOT / "data" / "live_config.json").read_text())
+    cfg_path.write_text(json.dumps({**full, "not_a_key": 1}))
+    assert lc.get_live_config() == {k: full[k] for k in lc._KEYS}
+    # A key the file lacks has no default. Until 2026-11-28 this test wrote a two-key file and asserted it came back
+    # as two keys, which pinned the gap R150 b closed: a file that lacks a runtime key is now unavailable
+    # (tests/test_live_config_complete.py).
 
 
 def test_startup_does_not_create_the_file_and_settings_cannot_write_one(cfg_path):
@@ -111,9 +112,14 @@ def test_the_ops_endpoint_reports_available_and_unavailable(cfg_path):
     with patch("backend.alerts.alert_live_config_unavailable"):
         down = sr.get_live_config_state()
     assert down["available"] is False and "missing" in down["cause"] and down["path"] == "data/live_config.json"
-    cfg_path.write_text(json.dumps({"stop_loss_pct": 0.06}))
+    full = json.loads((ROOT / "data" / "live_config.json").read_text())
+    cfg_path.write_text(json.dumps({k: v for k, v in full.items() if k != "max_hold_days"}))
+    with patch("backend.alerts.alert_live_config_unavailable"):
+        gap = sr.get_live_config_state()                               # incomplete is unavailable (R150 b)
+    assert gap["available"] is False and gap["cause"].endswith("has no value for max_hold_days")
+    cfg_path.write_text(json.dumps(full))
     up = sr.get_live_config_state()
-    assert up["available"] is True and up["cause"] is None and up["keys"] == 1
+    assert up["available"] is True and up["cause"] is None and up["keys"] == len(lc._KEYS)
 
 
 def test_the_test_tab_mounts_the_live_config_card():

@@ -169,21 +169,21 @@ def evaluate_chain(
 
     # ── L3 SCORE ──────────────────────────────────────────────────────────────
     l3 = l3_score_evaluate(ticker, sector, signal_score, on_watchlist=on_watchlist,
-                           sector_thresholds=sector_thresholds, fallback=cfg.get("l3_score_threshold_min"))
+                           sector_thresholds=sector_thresholds, fallback=cfg["l3_score_threshold_min"])
     lock_results[3] = l3
     states.update(_score_states({**l1.data, **l2.data}, l3, unpenalised_score))
     if not l3.passed:
         return _chain_fail(ticker, sector, lock_results, l3, states=states)
 
     # ── L4 SENTIMENT ──────────────────────────────────────────────────────────
-    l4 = l4_sentiment_evaluate(ticker, sentiment_min=cfg.get("l4_sentiment_grok_min"))
+    l4 = l4_sentiment_evaluate(ticker, sentiment_min=cfg["l4_sentiment_grok_min"])
     lock_results[4] = l4
     states.update(verdict_states(4, "grok", l4))
     if not l4.passed:
         return _chain_fail(ticker, sector, lock_results, l4, states=states)
 
     # ── L5 POSITIONING ────────────────────────────────────────────────────────
-    l5 = l5_positioning_evaluate(ticker, sector, pcr_mode=cfg.get("l5_positioning_leading_mode", "pooled_scalar"))
+    l5 = l5_positioning_evaluate(ticker, sector, pcr_mode=cfg["l5_positioning_leading_mode"])
     lock_results[5] = l5
     states.update(verdict_states(5, "leading", l5))
     if not l5.passed:
@@ -193,7 +193,7 @@ def evaluate_chain(
     etf_key = lock_codes.rule_key(2, "etf")
     states[etf_key], signal_score, etf_fail = l2_risk.check_etf(
         ticker, signal_score, l5.data, cfg, lambda: _sector_threshold(sector, sector_thresholds,
-                                                               cfg.get("l3_score_threshold_min")))
+                                                               cfg["l3_score_threshold_min"]))
     if etf_fail:
         return _chain_fail(ticker, sector, lock_results, l5, reason=etf_fail, states=states)
 
@@ -234,7 +234,7 @@ def evaluate_chain(
         sector,
         lock_results,
         context,
-        confidence_min=cfg.get("l6_review_claude_min"),
+        confidence_min=cfg["l6_review_claude_min"],
     )
     lock_results[6] = l6
     states.update(verdict_states(6, "claude", l6))
@@ -351,7 +351,7 @@ def build_base_context(
             "max_sector_exposure": cfg["l2_risk_sector_cap_max"],
             "max_position_size":   cfg["max_position_size"],
             "daily_loss_cap":      cfg["l0_portfolio_loss_cap_max"],
-            "max_drawdown_pct":    cfg.get("l0_portfolio_drawdown_guard_max", 0.20),
+            "max_drawdown_pct":    cfg["l0_portfolio_drawdown_guard_max"],
         },
     }
     if mode_label is not None:

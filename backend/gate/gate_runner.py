@@ -192,10 +192,10 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
 
     # Skip tickers already held, in gate cooloff, or in exit cooloff
     open_tickers   = get_open_tickers()
-    failed_tickers = get_recently_failed_tickers(cfg.get("l1_eligibility_cooloff_hours", 4))
+    failed_tickers = get_recently_failed_tickers(cfg["l1_eligibility_cooloff_hours"])
     exited_tickers, won_tickers = get_recently_exited_tickers(
-        sl_hours=cfg.get("l1_eligibility_exit_cooloff_hours", 24),
-        tp_hours=cfg.get("l1_eligibility_exit_cooloff_win_hours", 168),
+        sl_hours=cfg["l1_eligibility_exit_cooloff_hours"],
+        tp_hours=cfg["l1_eligibility_exit_cooloff_win_hours"],
     )
     blocked = open_tickers | failed_tickers | exited_tickers | won_tickers
     pre_checks = {"position_open": open_tickers, "cooloff": failed_tickers, "exit_cooloff": exited_tickers,
@@ -239,7 +239,6 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     results    = []
 
     # Compute dynamic sector caps + regime + rotation scores once per gate cycle
-    from backend.config import DEMO_L2_RISK_SECTOR_CAP_MAX
     from backend.scheduler import _get_regime_bayes
     from backend.sector_caps import compute_dynamic_caps
     from backend.sector_regime import compute_sector_regime, compute_ticker_signals
@@ -248,7 +247,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
         get_rotation_forecast,
     )
     regime_bayes_result = _get_regime_bayes().last_result()
-    dynamic_caps    = compute_dynamic_caps(cfg.get("l2_risk_sector_cap_max", DEMO_L2_RISK_SECTOR_CAP_MAX),
+    dynamic_caps    = compute_dynamic_caps(cfg["l2_risk_sector_cap_max"],
                                            regime_result=regime_bayes_result)
     wallet_ctx = {**wallet_ctx, "dynamic_caps": dynamic_caps}   # L6 REVIEW judges the enforced cap (2026-10-17)
     sector_regime   = compute_sector_regime()
@@ -289,9 +288,8 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     # L1 affordability before the chain (Niclas 2026-10-28: "L1 måste kontrollera först att beloppet räcker …
     # Kan vi spara anrop så är det bra"): the largest notional any later size can reach is cash × max_position_size
     # (L6 REVIEW's size and the Bayesian scaling are capped by it), so a refusal on it moves no order that could fill.
-    from backend.config import DEMO_MAX_POSITION_SIZE
     from backend.db import get_portfolio_summary
-    max_notional = get_portfolio_summary()["cash"] * cfg.get("max_position_size", DEMO_MAX_POSITION_SIZE)
+    max_notional = get_portfolio_summary()["cash"] * cfg["max_position_size"]
     pre_states: dict[str, dict] = {}
     affordable = []
     for c in candidates:
@@ -343,7 +341,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
 
     evaluated.sort(key=lambda x: (0 if x[0].get("pre_rotation") else 1, x[0].get("signal_score", 0)), reverse=True)
     l2_risk_max_positions_count        = cfg["l2_risk_max_positions_count"]
-    overflow_increment   = cfg.get("l2_risk_overflow_step", 0.05)
+    overflow_increment   = cfg["l2_risk_overflow_step"]
     open_count           = len(open_tickers)  # snapshot; incremented on each executed trade
     bayesian_multipliers = _compute_bayesian_multipliers(evaluated, regime_bayes_result)
     # Count queued outcomes before the serial loop mutates them to EXECUTED/REJECTED.
@@ -397,7 +395,7 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
                 _raw  = result["l6_review"]["position_size_pct"]
                 result["l6_review"]["position_size_pct"] = min(
                     round(_raw * _scale, 4),
-                    cfg.get("max_position_size", 0.10),
+                    cfg["max_position_size"],
                 )
                 logger.info(
                     f"Gate [{ticker}]: Bayesian size scale={_scale:.3f} "
@@ -499,7 +497,7 @@ def _run_l6_review_for_result(signal: dict, result: dict, cfg: dict) -> None:
     context      = result.pop("_l5_context", {})
 
     l5      = l6_review_evaluate(ticker, sector, lock_results, context,
-                             confidence_min=cfg.get("l6_review_claude_min"))
+                             confidence_min=cfg["l6_review_claude_min"])
     l5_data = l5.data if l5 else {}
 
     result["l6_review"] = {

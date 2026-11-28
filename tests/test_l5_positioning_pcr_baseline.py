@@ -12,6 +12,7 @@ import pytest
 
 from backend.gate import l5_positioning as l4
 from backend.gate import pcr_baseline as pb
+from tests.cfg_complete import complete
 
 
 def _rows(spec: dict[str, list[float]]) -> list[dict]:
@@ -99,7 +100,7 @@ def test_chain_passes_cfg_mode_to_l5_positioning():
          patch("backend.gate.chain.l4_sentiment_evaluate", return_value=LockResult.pass_(lock_id=4, score=0.9, reason="", data={})), \
          patch("backend.gate.chain.l5_positioning_evaluate", return_value=LockResult.fail(lock_id=5, reason="x", data={})) as m5:
         from backend.gate.chain import evaluate_chain
-        evaluate_chain("A", "Energy", 0.9, {}, {"l5_positioning_leading_mode": "per_ticker_p25"})
+        evaluate_chain("A", "Energy", 0.9, {}, complete({"l5_positioning_leading_mode": "per_ticker_p25"}))
     assert m5.call_args.kwargs["pcr_mode"] == "per_ticker_p25"
 
 

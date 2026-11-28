@@ -17,9 +17,10 @@ from backend import db, wallet
 from backend.gate import lock_codes
 from backend.gate.lock_codes import FAIL, PASS
 from backend.gate.lock_codes import rule_key as K
+from tests.cfg_complete import complete
 
 ROOT = Path(__file__).resolve().parents[1]
-CFG = {"l2_risk_sector_cap_max": 0.30, "l2_risk_max_positions_count": 4, "max_position_size": 0.15}
+CFG = complete({"l2_risk_sector_cap_max": 0.30, "l2_risk_max_positions_count": 4, "max_position_size": 0.15})
 # loss_cap left the wallet for L0 at the cycle's start on 2026-11-21 (R067 a; tests/test_l0_portfolio.py).
 ORDER = ("max_positions", "sector_cap", "position_open", "notional_too_small", "price_missing")
 KEY = {i: K(lock_codes.rule_for(i).owner, i) for i in ORDER}

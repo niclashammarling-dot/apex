@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from backend import wallet
+from tests.cfg_complete import complete
 
 ENTRY = 100.0
 
@@ -82,8 +83,8 @@ def test_a_missing_price_leaves_the_stamp_to_age(monkeypatch):
     monkeypatch.setattr(wallet, "get_open_trades", lambda: [_trade(5)])
     monkeypatch.setattr(wallet, "_batch_prices", lambda t: {})
     monkeypatch.setattr(wallet, "set_trade_exits_checked", lambda *a: pytest.fail("stamped without a price"))
-    monkeypatch.setattr(wallet, "get_demo_config", lambda: {"take_profit_pct": 0.06, "stop_loss_pct": 0.06,
-                                                            "max_hold_days": 25})
+    monkeypatch.setattr(wallet, "get_demo_config", lambda: complete({"take_profit_pct": 0.06, "stop_loss_pct": 0.06,
+                                                                     "max_hold_days": 25}))
     assert wallet.check_exits() == []
 
 

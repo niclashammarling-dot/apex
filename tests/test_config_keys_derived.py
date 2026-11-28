@@ -46,7 +46,13 @@ def test_a_config_file_under_the_old_names_is_read_and_rewritten_under_the_new(b
     import importlib
     mod = importlib.import_module(f"backend.{book}_config")
     path = tmp_path / f"{book}_config.json"
-    path.write_text(json.dumps({"lock1_threshold": 0.71, "tp_cooloff_hours": 100, "max_positions": 3}))
+    # The book's tracked file with three keys under their old names: a live file must give every runtime key (R150 b,
+    # 2026-11-28), so the rest stands as the file holds it.
+    from pathlib import Path
+    full = json.loads((Path(__file__).resolve().parents[1] / "data" / f"{book}_config.json").read_text())
+    for derived in ("l3_score_threshold_min", "l1_eligibility_exit_cooloff_win_hours", "l2_risk_max_positions_count"):
+        full.pop(derived)
+    path.write_text(json.dumps({**full, "lock1_threshold": 0.71, "tp_cooloff_hours": 100, "max_positions": 3}))
     monkeypatch.setattr(mod, "_CONFIG_PATH", path)
     get = getattr(mod, f"get_{book}_config")
     cfg = get()

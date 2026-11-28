@@ -1001,7 +1001,7 @@ def get_entry_fills(limit: int = 15):
 
     from backend.db import ENTRY_FILL_EXCEPTED
     from backend.live_config import get_live_config
-    since = get_live_config().get("live_account_since") or "0000"
+    since = get_live_config()["live_account_since"]
     with closing(get_db()) as conn:
         rows = [dict(r) for r in conn.execute(
             "SELECT id, ticker, timestamp, outcome, signal_price, entry_price, entry_filled_at, pnl "
@@ -1152,7 +1152,8 @@ def get_weekend_bundle():
 
 @router.get("/ops/live-config")
 def get_live_config_state():
-    """Whether data/live_config.json is available (M12, R090 a, 2026-11-21): when it is missing or unreadable, live
+    """Whether data/live_config.json is available (M12, R090 a, 2026-11-21; R150 b, 2026-11-28): when it is missing,
+    unreadable or gives no value for a runtime key, live
     entries halt with the cause on each gate_cycles row; the Test tab's LIVE CONFIG card shows it in red."""
     from datetime import datetime, timezone
 

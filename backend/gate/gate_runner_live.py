@@ -256,8 +256,9 @@ def _run(cycle: GateCycle) -> list[dict]:
         cycle.reason = "disabled"
         return []
 
-    # R090 a (built 2026-11-21): no live entry on levels nobody chose. A missing or unreadable live_config.json
-    # halts this cycle before anything reads it, with the cause on the gate_cycles row; exits run elsewhere.
+    # R090 a (built 2026-11-21): no live entry on levels nobody chose. A missing, unreadable or incomplete
+    # live_config.json (R150 b, 2026-11-28: a runtime key absent or null) halts this cycle before anything reads it,
+    # with the cause on the gate_cycles row; exits run elsewhere. Every reader below subscripts.
     from backend.live_config import LiveConfigUnavailable, get_live_config as _live_cfg
     try:
         _live_cfg()
@@ -460,10 +461,10 @@ def _run(cycle: GateCycle) -> list[dict]:
     # holds, not signal-quality exclusions; see backend/config.py).
     from backend.config import LIVE_TICKER_BLOCKLIST
     open_tickers    = get_open_live_tickers()
-    failed_tickers  = get_recently_failed_live_tickers(cfg.get("l1_eligibility_cooloff_hours", 4))
+    failed_tickers  = get_recently_failed_live_tickers(cfg["l1_eligibility_cooloff_hours"])
     exited_tickers, won_tickers = get_recently_exited_live_tickers(
-        sl_hours=cfg.get("l1_eligibility_exit_cooloff_hours", 24),
-        tp_hours=cfg.get("l1_eligibility_exit_cooloff_win_hours", 168),
+        sl_hours=cfg["l1_eligibility_exit_cooloff_hours"],
+        tp_hours=cfg["l1_eligibility_exit_cooloff_win_hours"],
     )
     blocklisted_tickers = set(LIVE_TICKER_BLOCKLIST)
     blocked = open_tickers | failed_tickers | exited_tickers | won_tickers | blocklisted_tickers
@@ -631,7 +632,7 @@ def _run(cycle: GateCycle) -> list[dict]:
 
     evaluated.sort(key=lambda x: (0 if x[0].get("pre_rotation") else 1, x[0].get("signal_score", 0)), reverse=True)
     l2_risk_max_positions_count        = cfg["l2_risk_max_positions_count"]
-    overflow_increment   = cfg.get("l2_risk_overflow_step", 0.05)
+    overflow_increment   = cfg["l2_risk_overflow_step"]
     open_count           = len(open_positions)  # snapshot; incremented on each executed trade
     bayesian_multipliers = _compute_bayesian_multipliers(evaluated, regime_bayes_result)
 

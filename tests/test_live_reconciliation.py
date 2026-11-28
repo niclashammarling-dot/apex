@@ -24,6 +24,7 @@ from backend.db import (
     reopen_unreconciled,
     resolve_unreconciled,
 )
+from tests.cfg_complete import complete
 
 init_db()
 
@@ -779,7 +780,7 @@ class TestReconciliationFreeze:
         with ExitStack() as stack:
             stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
             stack.enter_context(patch("backend.live_config.get_live_config",
-                                       return_value={"max_hold_days": 25}))
+                                       return_value=complete({"max_hold_days": 25})))
             get_positions_mock = stack.enter_context(
                 patch("backend.brokers.alpaca.get_positions", return_value=[]))  # HON gone
             # Parent buy order filled normally (mirrors the real HON order) — the
@@ -839,7 +840,7 @@ class TestReconciliationFreeze:
         with ExitStack() as stack:
             stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
             stack.enter_context(patch("backend.live_config.get_live_config",
-                                       return_value={"max_hold_days": 25}))
+                                       return_value=complete({"max_hold_days": 25})))
             stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
             stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
                                        return_value={"status": "filled", "filled_qty": 4, "legs": []}))
@@ -879,7 +880,7 @@ class TestReconciliationFreeze:
         with ExitStack() as stack:
             stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
             stack.enter_context(patch("backend.live_config.get_live_config",
-                                       return_value={"max_hold_days": 25}))
+                                       return_value=complete({"max_hold_days": 25})))
             stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
             stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
                                        return_value={"status": "canceled", "filled_qty": 0, "legs": []}))
@@ -909,7 +910,7 @@ class TestReconciliationFreeze:
         with ExitStack() as stack:
             stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
             stack.enter_context(patch("backend.live_config.get_live_config",
-                                       return_value={"max_hold_days": 25}))
+                                       return_value=complete({"max_hold_days": 25})))
             stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
             stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
                                        return_value={"status": "some_future_status", "filled_qty": 0, "legs": []}))
@@ -945,7 +946,7 @@ class TestTimeStopReconciliationEscalation:
         with ExitStack() as stack:
             stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
             stack.enter_context(patch("backend.live_config.get_live_config",
-                                       return_value={"max_hold_days": 0}))  # force time-stop path
+                                       return_value=complete({"max_hold_days": 0})))  # force time-stop path
             stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[{"ticker": "TSTOP"}]))
             stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
                                        return_value={"status": "filled", "filled_qty": 4, "legs": []}))
@@ -978,7 +979,7 @@ class TestTimeStopReconciliationEscalation:
         with ExitStack() as stack:
             stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
             stack.enter_context(patch("backend.live_config.get_live_config",
-                                       return_value={"max_hold_days": 0}))
+                                       return_value=complete({"max_hold_days": 0})))
             stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[{"ticker": "CONTRA"}]))
             stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
                                        return_value={"status": "filled", "filled_qty": 4, "legs": []}))
@@ -1011,7 +1012,7 @@ class TestTimeStopReconciliationEscalation:
         with ExitStack() as stack:
             stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
             stack.enter_context(patch("backend.live_config.get_live_config",
-                                       return_value={"max_hold_days": 0}))
+                                       return_value=complete({"max_hold_days": 0})))
             stack.enter_context(patch("backend.brokers.alpaca.get_positions",
                                        return_value=[{"ticker": "CONTRAFILL"}]))  # broker says held
             stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
@@ -1059,7 +1060,7 @@ class TestTimeStopReconciliationEscalation:
         with ExitStack() as stack:
             stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
             stack.enter_context(patch("backend.live_config.get_live_config",
-                                       return_value={"max_hold_days": 0}))
+                                       return_value=complete({"max_hold_days": 0})))
             stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
             stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
                                        return_value={"status": "filled", "filled_qty": 4, "legs": []}))
@@ -1100,7 +1101,7 @@ class TestTimeStopReconciliationEscalation:
         with ExitStack() as stack:
             stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
             stack.enter_context(patch("backend.live_config.get_live_config",
-                                       return_value={"max_hold_days": 0}))
+                                       return_value=complete({"max_hold_days": 0})))
             stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
             stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
                                        return_value={"status": "filled", "filled_qty": 4, "legs": []}))
@@ -1143,7 +1144,7 @@ class TestTimeStopReconciliationEscalation:
         with ExitStack() as stack:
             stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
             stack.enter_context(patch("backend.live_config.get_live_config",
-                                       return_value={"max_hold_days": 0}))
+                                       return_value=complete({"max_hold_days": 0})))
             stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
             stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
                                        return_value={"status": "filled", "filled_qty": 4, "legs": []}))
@@ -1181,7 +1182,7 @@ class TestTimeStopReconciliationEscalation:
         with ExitStack() as stack:
             stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
             stack.enter_context(patch("backend.live_config.get_live_config",
-                                       return_value={"max_hold_days": 0}))
+                                       return_value=complete({"max_hold_days": 0})))
             stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[]))
             stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id",
                                        return_value={"status": "filled", "filled_qty": 4, "legs": []}))
@@ -1418,7 +1419,7 @@ class TestGateRefusal:
                                            return_value=(-480.0, [], {})))
                 stack.enter_context(patch(
                     "backend.live_config.get_live_config",
-                    return_value={"l0_portfolio_loss_cap_max": 100.0, "starting_balance": 10000.0},
+                    return_value=complete({"l0_portfolio_loss_cap_max": 100.0, "starting_balance": 10000.0}),
                 ))
                 stack.enter_context(patch("backend.db.get_ticker_thresholds", return_value={}))
                 stack.enter_context(patch("backend.gate.gate_runner_live._ny_today", return_value=day))
@@ -1469,7 +1470,7 @@ class TestDataQualityDivergence:
             stack.enter_context(patch("backend.gate.gate_runner_live._compute_apex_day_pnl",
                                        return_value=(apex_pnl, missing, {})))
             stack.enter_context(patch(
-                "backend.live_config.get_live_config", return_value={"l0_portfolio_loss_cap_max": cap, "starting_balance": 10000.0},
+                "backend.live_config.get_live_config", return_value=complete({"l0_portfolio_loss_cap_max": cap, "starting_balance": 10000.0}),
             ))
             stack.enter_context(patch("backend.db.get_ticker_thresholds", return_value={}))
             stack.enter_context(patch("backend.gate.gate_runner_live._ny_today", return_value=latch_day))

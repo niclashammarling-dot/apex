@@ -706,7 +706,7 @@ _C74_REVIEWED: dict[str, tuple[str, str, str]] = {
     "tests/test_live_exit_lock.py": (
         "the dated literals are exit timestamps passed to close_live_trade, never compared to now; "
         "the entry is relative to now since d02f8ab; re-reviewed 2026-11-14 after the fake exit lookup took "
-        "the anchor keyword (audit finding 7; no date change)", "2027-04-10", "4dc78dcec72c960a"),
+        "the anchor keyword (audit finding 7; no date change); re-reviewed 2026-11-28 after the config stubs were completed through tests/cfg_complete.py (R150 b: the readers subscript; the completed keys take the values the removed fallbacks gave, so no branch moves; no date change)", "2027-04-10", "c00b68dc0a78fdef"),
     "tests/test_live_reconciliation.py": (
         "reviewed 2026-09-10: young-entry tests use _recent_timestamp(); the fixed dates are fill dates "
         "that must postdate _open_trade's fixed entry, and time-stop tests want an old entry; re-reviewed "
@@ -717,16 +717,15 @@ _C74_REVIEWED: dict[str, tuple[str, str, str]] = {
         "after the L0 constant and the candidate query took their derived names (no date change); re-reviewed 2026-11-07 "
         "after the orphan-sweep recency tests (fill and submission times 2026-07-01..11-03 compared only with each "
         "other: cancel_orphan_brackets reads no clock); re-reviewed 2026-11-21 after the M4 loss-cap constant became shared "
-        "(L0_PORTFOLIO_LOSS_CAP_MAX, R067 a; no date change)", "2027-04-10",
-        "372e6d857b6b4451"),
+        "(L0_PORTFOLIO_LOSS_CAP_MAX, R067 a; no date change); re-reviewed 2026-11-28 after the config stubs were completed through tests/cfg_complete.py (R150 b: the readers subscript; the completed keys take the values the removed fallbacks gave, so no branch moves; no date change)", "2027-04-10", "c4adc41534e4ed9c"),
     "tests/test_entry_fill.py": (
         "reviewed 2026-10-13: exit-check entries are an hour before now (_open_trade default); the fixed "
         "dates are fill timestamps and CHECK 89 entries read with a fixed now; re-reviewed 2026-10-31 after the "
         "wide-fill tests (an entry on 2026-10-01 read with the same fixed now 2026-10-13: 12 days, never decays "
-        "into the 7-day window)", "2027-04-13", "d2fc7596f1ebfb32"),
+        "into the 7-day window); re-reviewed 2026-11-28 after the config stubs were completed through tests/cfg_complete.py (R150 b: the readers subscript; the completed keys take the values the removed fallbacks gave, so no branch moves; no date change)", "2027-04-13", "dc3c6ab567d71b1b"),
     "tests/test_time_stop_fresh_reread.py": (
         "a time-stop test with an old fixed entry (2026-08-04): it only moves further past max_hold_days, "
-        "never back into another branch", "2027-04-10", "cc6944083c4ccdb9"),
+        "never back into another branch; re-reviewed 2026-11-28 after the config stubs were completed through tests/cfg_complete.py (R150 b: the readers subscript; the completed keys take the values the removed fallbacks gave, so no branch moves; no date change)", "2027-04-10", "9c62b88659ee9fd9"),
 }
 
 

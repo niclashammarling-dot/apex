@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from backend.db import get_db, init_db, insert_live_trade, record_entry_fill
+from tests.cfg_complete import complete
 
 init_db()
 
@@ -90,7 +91,7 @@ def test_record_entry_fill_recomputes_a_closed_row():
 def _run_exit_check(order, current=None):
     with ExitStack() as stack:
         stack.enter_context(patch("backend.live_trades_tracker.LIVE_ENABLED", True))
-        stack.enter_context(patch("backend.live_config.get_live_config", return_value={"max_hold_days": 99}))
+        stack.enter_context(patch("backend.live_config.get_live_config", return_value=complete({"max_hold_days": 99})))
         stack.enter_context(patch("backend.brokers.alpaca.get_positions", return_value=[{"ticker": "FILL"}]))
         stack.enter_context(patch("backend.brokers.alpaca.get_order_by_id", return_value=order))
         stack.enter_context(patch("backend.live_trades_tracker._current_price", return_value=current))

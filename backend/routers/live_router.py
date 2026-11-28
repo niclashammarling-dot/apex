@@ -95,7 +95,7 @@ def live_equity(period: str = "1M"):
         from backend.live_config import get_live_config
 
         cfg            = get_live_config()
-        since          = cfg.get("live_account_since")
+        since          = cfg["live_account_since"]
         positions      = broker.get_positions()
         unrealised     = sum(p["unrealized_pnl"] or 0 for p in positions)
         return get_live_equity_curve(unrealised_total=unrealised, since=since)

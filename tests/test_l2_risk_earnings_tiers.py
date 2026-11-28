@@ -17,6 +17,7 @@ import pytest
 import backend.gate.l1_eligibility as m
 import backend.gate.l2_risk as l2m
 from backend.gate.l1_eligibility import evaluate
+from tests.cfg_complete import complete
 
 
 @pytest.fixture(autouse=True)
@@ -44,7 +45,7 @@ def _make_regime(sector: str = "Technology"):
 
 
 def _cfg(blackout: int = 3, near_days: int = 14, near_penalty: float = 0.15) -> dict:
-    return {
+    return complete({   # the rest: the removed .get() fallbacks (R150 b, tests/cfg_complete.py)
         "l1_eligibility_vix_max":                 99.0,   # VIX never blocks
         "l1_eligibility_macro_event_days":     0,       # macro events never block
         "l2_risk_earnings_days":  blackout,
@@ -54,7 +55,7 @@ def _cfg(blackout: int = 3, near_days: int = 14, near_penalty: float = 0.15) -> 
         "l2_risk_sector_cap_max":           0.25,
         "max_position_size":             0.15,
         "l0_portfolio_loss_cap_max":                100.0,
-    }
+    })
 
 
 def _evaluate_with_earnings(ticker: str, delta_days: int, **cfg_overrides) -> "LockResult":

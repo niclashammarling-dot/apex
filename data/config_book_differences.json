@@ -1,0 +1,60 @@
+{
+  "_doc": "Every key on which data/live_config.json and data/demo_config.json differ, with both values, since when (git blame of each file's line, the later of the two; keys renamed by lock labels phase 3 on 2026-10-31, 3b60485, are blamed under their old name at its parent), and why as far as the record says. Held to the files by tests/test_config_book_differences.py: a difference that is not listed, a listed value that changed, or a listed key the files now agree on fails. A Settings save or a Promote that changes a differing key updates this list in the same commit, with its reason. Written 2026-11-28 on Niclas's direction with R151: 'när skillnaderna är avsiktliga är det värt att skriva ner vilka de är. Då går det att skilja en avsiktlig skillnad från en som har glidit dit.' Book parity (tests/test_book_parity.py) reads rules; this reads values. Vault: raw/notes/2026-11/2026-11-28-apex-get-config-readers-money-path-scope.md.",
+  "differences": {
+    "live_account_since": {
+      "live": "2026-07-07", "demo": "<absent>",
+      "since": "live 916613c 2026-09-30",
+      "why": "live only: the start of the canonical live sample, the Alpaca paper account reset of 2026-07-07; demo has no broker account, and nothing in demo reads the key"
+    },
+    "starting_balance": {
+      "live": 10000, "demo": 2000,
+      "since": "live 916613c 2026-09-30; demo cc2aa23 2026-04-01",
+      "why": "account-size specific: each book's own denominator, never promoted (backend/live_config.py _PROMOTE_EXCLUDE)"
+    },
+    "l5_positioning_leading_mode": {
+      "live": "pooled_scalar", "demo": "per_ticker_p25",
+      "since": "both 916613c 2026-09-30 ('lock4_pcr_mode defaults written out')",
+      "why": "each file holds its book's default as written out on 2026-09-30 (config.py DEMO_L5_POSITIONING_LEADING_MODE per_ticker_p25 for demo); no ruling on record that the books should differ"
+    },
+    "l2_risk_sector_cap_max": {
+      "live": 0.3, "demo": 0.4,
+      "since": "demo 8935d97 2026-05-22 ('config: commit intentional runtime config changes (earnings blackout + sector exposure)'); live 916613c 2026-09-30",
+      "why": "the demo commit calls it an intentional runtime change; no reason for the difference itself on record"
+    },
+    "l1_eligibility_cooloff_hours": {
+      "live": 4, "demo": 5,
+      "since": "demo 2a7877e 2026-04-01; live 916613c 2026-09-30",
+      "why": "no reason on record (listed as found 2026-11-28)"
+    },
+    "l2_risk_etf_penalty": {
+      "live": 0.15, "demo": 0,
+      "since": "demo 0706797 2026-06-27; live 916613c 2026-09-30",
+      "why": "no reason on record (listed as found 2026-11-28): the ETF penalty acts in live and is off in demo"
+    },
+    "l2_risk_max_positions_count": {
+      "live": 9, "demo": 10,
+      "since": "demo 4609bb3 2026-05-17; live 916613c 2026-09-30 ('Config: max_positions 8 → 9 (Niclas, 2026-09-29)')",
+      "why": "live's 9 is Niclas's 2026-09-29 change; no reason for demo's 10 on record"
+    },
+    "l3_score_threshold_min": {
+      "live": 0.65, "demo": 0.6,
+      "since": "demo ace44a5 2026-05-12; live 916613c 2026-09-30",
+      "why": "no reason on record (listed as found 2026-11-28)"
+    },
+    "l4_sentiment_grok_min": {
+      "live": 0.1, "demo": 0.2,
+      "since": "demo cc2aa23 2026-04-01; live 916613c 2026-09-30",
+      "why": "no reason on record (listed as found 2026-11-28)"
+    },
+    "max_position_size": {
+      "live": 0.15, "demo": 0.2,
+      "since": "demo cc2aa23 2026-04-01; live 916613c 2026-09-30",
+      "why": "no reason on record (listed as found 2026-11-28)"
+    },
+    "stop_loss_pct": {
+      "live": 0.06, "demo": 0.07,
+      "since": "demo 95a92bd 2026-06-26; live 916613c 2026-09-30",
+      "why": "no reason on record (listed as found 2026-11-28)"
+    }
+  }
+}

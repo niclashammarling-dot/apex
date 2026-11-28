@@ -21,6 +21,7 @@ import pytest
 
 from backend.gate.types import LockResult
 from backend.gate.chain import ChainResult
+from tests.cfg_complete import complete
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -33,7 +34,7 @@ def _signal(ticker="NVDA", sector="Technology", score=0.65, price=200.0, sid=1):
 
 
 def _demo_cfg(**overrides):
-    base = {
+    base = complete({    # the rest: the removed .get() fallbacks (R150 b, tests/cfg_complete.py)
         "l3_score_threshold_min":              0.5,
         "l4_sentiment_grok_min":          0.2,
         "l6_review_claude_min":         0.6,
@@ -50,7 +51,7 @@ def _demo_cfg(**overrides):
         "l0_portfolio_drawdown_guard_max":             0.20,
         "take_profit_pct":              0.08,
         "stop_loss_pct":                0.04,
-    }
+    })
     base.update(overrides)
     return base
 

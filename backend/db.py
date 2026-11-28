@@ -1784,7 +1784,7 @@ def live_sample_predicate() -> str:
 
 def live_sample_since() -> str:
     from backend.live_config import get_live_config
-    return get_live_config().get("live_account_since") or "0000"
+    return get_live_config()["live_account_since"]           # no "0000": a missing start is a halt (R150 b)
 
 
 def live_sample_rows(since: str | None = None, until: str | None = None) -> list[dict]:

@@ -79,12 +79,9 @@ def check_earnings(ticker: str, cfg: dict, today: date) -> tuple[dict | None, di
     would not have shown it. The shadow read derives would-block (<= l2_risk_earnings_days) and would-penalise
     from days_to_earnings."""
     from backend import config
-    _ea = cfg.get("l2_risk_earnings_days")
-    earnings_blackout = config.L2_RISK_EARNINGS_DAYS if _ea is None else _ea
-    _en = cfg.get("l2_risk_earnings_near_days")
-    earnings_near_days = config.L2_RISK_EARNINGS_NEAR_DAYS if _en is None else _en
-    _ep = cfg.get("l2_risk_earnings_near_penalty")
-    earnings_near_penalty = config.L2_RISK_EARNINGS_NEAR_PENALTY if _ep is None else _ep
+    earnings_blackout     = cfg["l2_risk_earnings_days"]                       # the book's file, no default (R150 b)
+    earnings_near_days    = cfg["l2_risk_earnings_near_days"]
+    earnings_near_penalty = cfg["l2_risk_earnings_near_penalty"]
 
     earnings = _get_earnings_date(ticker)
     near: dict = {}
@@ -128,7 +125,7 @@ def check_etf(ticker: str, signal_score: float, l5_data: dict | None, cfg: dict,
     l2_risk_etf_penalty = cfg["l2_risk_etf_penalty"]
     if not l2_risk_etf_penalty > 0:
         return PASS, signal_score, None
-    l2_risk_etf_floor = cfg.get("l2_risk_etf_floor", -1.0)
+    l2_risk_etf_floor = cfg["l2_risk_etf_floor"]
     rs_check = (l5_data or {}).get("checks", {}).get("relative_strength", {})
     etf_ret = rs_check.get("etf_return")
     if etf_ret is None:
