@@ -304,7 +304,14 @@ def run(cycle: GateCycle | None = None) -> list[dict]:
     pre_states: dict[str, dict] = {}
     affordable = []
     for c in candidates:
+        # A candidate that fails an L1 rule before the chain stops here, pre-rotation ones included (2026-11-28,
+        # its own fix ahead of lock labels phase 4a; riktning, Niclas the same day): the pre-rotation filter above checks
+        # exited_tickers only, so a TP/TSL winner in its exit_cooloff_win window reached the chain (gate_runner_live
+        # has the history).
         states = {**l0_states, **_pre_chain_states(c["ticker"], pre_checks)}
+        if any(c["ticker"] in tickers for tickers in pre_checks.values()):
+            _write_demo(c, _pre_chain_result(c, states), ts, unknown)
+            continue
         refusal = _affordability(states, max_notional, c.get("price"), min_notional=wallet.MIN_ORDER,
                                  whole_shares=False)
         if refusal:
@@ -486,8 +493,8 @@ def _evaluate(signal: dict, wallet_ctx: dict, cfg: dict,
 def _pre_chain_states(ticker: str, checks: dict[str, set[str]]) -> dict[str, str]:
     """L1's checks before the chain, each with its verdict for this ticker: the live blocklist, an open position,
     gate cooloff, exit cooloff (Niclas 2026-10-29: separate markers). Only the checks the candidate met are passed
-    in: pre-rotation candidates are not checked against the live blocklist (gate_runner_live; input to the
-    watchlist and rotation work after phase 4), so blocklist is absent on their rows."""
+    in (demo has no blocklist). Since 2026-11-28 pre-rotation candidates meet every check, the live blocklist
+    included, and a candidate that fails one stops before the chain in both runners."""
     states: dict[str, str] = {}
     for ident, tickers in checks.items():
         lock_codes.put(states, ident, lock_codes.FAIL if ticker in tickers else lock_codes.PASS)

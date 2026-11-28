@@ -2590,6 +2590,68 @@ def check101(rows=None, today: date | None = None) -> None:
                 or "no session with enough rows"))
 
 
+_C102_EVENT_DAYS = 2      # CRITICAL window (sessions today and yesterday)
+
+
+def entries_past_a_failed_rule(rows) -> list[tuple]:
+    """(book, timestamp, ticker, failed rules) for each executed row whose rule_states hold a FAIL."""
+    import json
+    out = []
+    for book, ts, ticker, raw in rows:
+        try:
+            states = json.loads(raw) if raw else {}
+        except (TypeError, ValueError):
+            continue
+        failed = sorted(k for k, v in states.items() if v == "fail")
+        if failed:
+            out.append((book, ts, ticker, failed))
+    return out
+
+
+def check102(rows=None, today: date | None = None) -> None:
+    """
+    CHECK 102 — an entry past a failed rule (2026-11-28, with the pre-rotation fix scoped as phase 4a M5; learning step 2).
+
+    Founding case: since phase 3 split exit_cooloff_win (2026-10-31) the pre-rotation filter in both runners checked
+    exited_tickers only, so a TP/TSL winner in its 168 h window reached L3-L6 with the rule failed. Live SPG on
+    2026-11-17: L6 approved six times; only the sector cap stopped the entry. Execution places an order on the chain's
+    outcome without reading rule_states, so nothing after the chain would have refused it. Base before the fix: 0 of
+    111 live and 0 of 108 demo executed rows with rule_states carry a FAIL.
+      CRITICAL  an executed row (gate_decision TRADE_EXECUTED) in the trailing _C102_EVENT_DAYS days whose
+                rule_states hold a FAIL (event severity: keyed book, ticker and timestamp, so each entry is mailed once).
+      INFO      the count over all rows with rule_states.
+    `rows`: (book, timestamp, ticker, rule_states) of executed rows, for tests; None reads both gate tables.
+    """
+    from datetime import timedelta
+    name = "Entry past a failed rule"
+    db = REPO / "data/apex.db"
+    today = today or date.today()
+    since_event = (today - timedelta(days=_C102_EVENT_DAYS - 1)).isoformat()
+    if rows is None:
+        if not require_data_file(102, name, db):
+            return
+        try:
+            conn = sqlite3.connect(db)
+            rows = []
+            for book, tbl in (("live", "live_gate_history"), ("demo", "demo_gate_history")):
+                rows += [(book, ts, tk, raw) for ts, tk, raw in conn.execute(
+                    f"SELECT timestamp, ticker, rule_states FROM {tbl} "
+                    f"WHERE gate_decision = 'TRADE_EXECUTED' AND rule_states IS NOT NULL AND rule_states != ''")]
+            conn.close()
+        except Exception as e:
+            flag(102, name, "WARNING", "data/apex.db:live_gate_history", f"could not query: {e}")
+            return
+    hits = entries_past_a_failed_rule(rows)
+    for book, ts, ticker, failed in hits:
+        if ts[:10] >= since_event:
+            flag(102, name, "CRITICAL", f"data/apex.db:{book}_gate_history",
+                 f"{book} {ticker} {ts[:16]}: executed with {', '.join(failed)} failed; an order was placed on a "
+                 f"candidate a rule had stopped. Read the row's path (pre_rotation, the runner's pre-chain checks) "
+                 f"and the position before the next session.")
+    flag(102, name, "INFO", "data/apex.db:live_gate_history",
+         f"{len(hits)} executed row(s) with a failed rule in {len(rows)} executed rows with rule_states (both books)")
+
+
 def run() -> None:
     check24()
     check25()
@@ -2621,3 +2683,4 @@ def run() -> None:
     check97()
     check100()
     check101()
+    check102()

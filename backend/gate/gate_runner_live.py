@@ -581,9 +581,15 @@ def _run(cycle: GateCycle) -> list[dict]:
     pre_states: dict[str, dict] = {}
     affordable = []
     for c in candidates:
-        checks = ({k: v for k, v in pre_checks.items() if k != "blocklist"} if c.get("pre_rotation")
-                  else pre_checks)
-        states = {**l0_states, **_pre_chain_states(c["ticker"], checks)}
+        # Every candidate meets every L1 rule before the chain, pre-rotation ones included, and one that fails a rule
+        # stops here (2026-11-28, its own fix ahead of lock labels phase 4a, where it was scoped as M5). Before: pre-rotation skipped the blocklist (audit finding 6), and its
+        # filter above checks exited_tickers only, so since phase 3 split exit_cooloff_win (10-31) a TP/TSL winner in its
+        # 168 h window reached L3-L6 with the rule failed and could enter: SPG 11-17, L6 approved six times, stopped
+        # only by the sector cap.
+        states = {**l0_states, **_pre_chain_states(c["ticker"], pre_checks)}
+        if any(c["ticker"] in tickers for tickers in pre_checks.values()):
+            _write_live(c, _pre_chain_result(c, states), ts, unknown)
+            continue
         refusal = _affordability(states, max_notional, c.get("price"), min_notional=LIVE_MIN_ORDER, whole_shares=True)
         if refusal:
             logger.info(f"Live gate [{c['ticker']}]: {refusal} before the chain "

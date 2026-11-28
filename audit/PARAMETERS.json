@@ -1548,6 +1548,13 @@
       "tier": "ops",
       "date": "2026-11-28",
       "source": "MDE at 80 % power and 5 % two-sided: (1.96 + 0.84) x SE, item 9. vault raw/notes/2026-11/2026-11-23-apex-earnings-cell-preregistration-draft.md (sealed 2026-11-23)."
+    },
+    "audit/checks_gate.py::_C102_EVENT_DAYS": {
+      "value": 2,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-11-28",
+      "source": "CHECK 102 (audit/CHECKS.md row 102): the CRITICAL window, sessions today and yesterday, as CHECK 101's; an entry is mailed once while it is in the window. Report-only."
     }
   }
 }

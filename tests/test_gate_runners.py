@@ -596,21 +596,12 @@ class TestLiveGateRunner:
                                  forecast={"available": True, "watching": [{"sector": "Industrials"}], "likely_next": []})
         return any(c.args[0] == "HON" for c in mocks[11].call_args_list)   # evaluate_chain(ticker, ...)
 
-    def test_pre_rotation_still_skips_the_blocklist(self):
-        """Codebase audit finding 6 (R013, 2026-11-14): documented behaviour, the probe's
-        positive control. Fix the pre-rotation path and this test changes with it."""
-        assert self._pre_rotation_lets_blocklisted_into_chain()
-
-    def test_blocklist_stays_empty_while_pre_rotation_skips_it(self):
-        """Finding 6's guard (R013: no code change while the list is empty). It fails the
-        day LIVE_TICKER_BLOCKLIST gets an entry while pre-rotation still lets that ticker
-        into the chain: honour the blocklist in the pre-rotation filter
-        (gate_runner_live: the append filter and the affordability checks drop it) first."""
-        from backend.config import LIVE_TICKER_BLOCKLIST
-        if self._pre_rotation_lets_blocklisted_into_chain():
-            assert LIVE_TICKER_BLOCKLIST == {}, (
-                f"LIVE_TICKER_BLOCKLIST has {sorted(LIVE_TICKER_BLOCKLIST)}, but pre-rotation candidates "
-                f"skip the blocklist: make the pre-rotation path honour it first (audit finding 6)")
+    def test_pre_rotation_honours_the_blocklist(self):
+        """Codebase audit finding 6 (R013, 2026-11-14), fixed 2026-11-28 (the pre-rotation fix, scoped as phase 4a
+        M5): a blocklisted ticker returned as a pre-rotation candidate stops before the chain. This probe was the
+        documented behaviour's positive control and changed with the fix, as its docstring said it would; the guard
+        that held the list empty while pre-rotation skipped it is retired with it."""
+        assert not self._pre_rotation_lets_blocklisted_into_chain()
 
     # ── Pipeline outcomes ─────────────────────────────────────────────────────
 

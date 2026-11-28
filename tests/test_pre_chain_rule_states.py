@@ -66,9 +66,9 @@ def test_a_live_row_carries_the_m4_and_pre_chain_verdicts():
     assert all(states[k] == PASS for k in SKIPS.values())
 
 
-def test_a_pre_rotation_row_shows_the_blocklist_was_not_checked():
-    # Pre-rotation candidates skip the live blocklist (gate_runner_live; input to the watchlist and rotation work
-    # after phase 4): their rows have no blocklist verdict instead of a pass they did not get.
+def test_a_pre_rotation_row_carries_the_blocklist_verdict():
+    # Pre-rotation candidates skipped the live blocklist until 2026-11-28, and their rows had no blocklist verdict.
+    # Since the pre-rotation fix (scoped as phase 4a M5, audit finding 6) they meet it, and the row says so.
     from tests.test_gate_runners import _live_patches, _signal
     main, pre = _signal("AAPL", sid=1), _signal("NVDA", sid=2)
     patches = _live_patches(candidates=[main])
@@ -79,7 +79,7 @@ def test_a_pre_rotation_row_shows_the_blocklist_was_not_checked():
         from backend.gate import gate_runner_live
         results = gate_runner_live.run()
     by = {r["ticker"]: r["rule_states"] for r in results}
-    assert SKIPS["blocklist"] in by["AAPL"] and SKIPS["blocklist"] not in by["NVDA"]
+    assert by["AAPL"][SKIPS["blocklist"]] == PASS and by["NVDA"][SKIPS["blocklist"]] == PASS
     assert by["NVDA"][SKIPS["exit_cooloff"]] == PASS
 
 
