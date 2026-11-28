@@ -55,7 +55,7 @@ Rules:
 - Synthesise — do not restate numbers verbatim (they appear in the tables below)
 - Lead with the most notable finding, positive or negative
 - Every count in the data carries its n. Fewer than {COMMENTARY_MIN_N} trades or candidates is a description, not a finding: say what happened, do not infer a trend, edge or risk from it
-- Gate funnel: each candidate is counted once, under the lock whose rule stopped it (stops_by_lock, per rule), or as entered or unknown. Name the lock that stopped the most, with its count of the candidates. A lock's count is not a pass rate: until phase 4 the locks do not run in chain order
+- Gate funnel: each candidate is counted once, under the lock whose rule stopped it (stops_by_lock, per rule), or as entered or unknown. Name the lock that stopped the most, with its count of the candidates. A lock's count is not a pass rate: until phases 4b and 4c the locks do not run in chain order
 - `reference` holds the prior weeks recomputed from the DB: pooled lock and win rates with their n, and the median and range of weekly counts and P&L. Call a number high or low only against its reference, and only when this week's n and the reference n are both at least {COMMENTARY_MIN_N}. Config changed inside the reference window, so a difference describes the system as it ran, not a cause. `reference.rule_changes` lists rules that moved, were added or were split inside the window: read a lock's rate net of a moved or added rule, and a split rule summed with its parent
 - Thresholds: pass rates are this week's rows against a threshold computed over the sector's full history (window_share = this week's fraction of it). Do not attribute a pass rate to a market move, a selloff or the regime floor, and do not suggest recalibration — what calibration did this week is in `calibration`
 - Concentration: only from open_positions_by_sector, never from thresholds or scores
@@ -213,8 +213,8 @@ def _live_stats(since: str, until: str) -> dict:
 # The funnel counts each row once, by the rule that stopped it (stop_code; lock labels phase 2, 2026-10-31): per
 # lock in chain order L0..L6 with each rule's stops, then the entries, then FILTERED_UNKNOWN. Stages and labels come
 # from backend/gate/lock_codes.py (funnel_stages), the same as the dashboard funnel. A row's code names the lock that
-# owns its stop, not how far it got: until phase 4 a lock's rules run in several places (L2's earnings before L3, its
-# ETF re-test after L5), so no "reached" count is chained here. The skips are L1's rules (blocklist, position_open,
+# owns its stop, not how far it got: until phases 4b and 4c a lock's rules run in several places (L2's ETF re-test
+# after L5, its overflow and sector cap at execution), so no "reached" count is chained here. The skips are L1's rules (blocklist, position_open,
 # cooloff, exit_cooloff, affordability). Before phase 2 the funnel chained the module stages by their numbered codes,
 # which named the wrong lock for a third of the history (scope note 2026-10-26).
 _FUNNEL_TABLES = {"demo": "signals", "live": "live_gate_history"}

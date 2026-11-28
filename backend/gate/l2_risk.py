@@ -9,7 +9,7 @@ Phase 4a (M2, 2026-11-28): the chain calls the earnings rules as their own step 
 ELIGIBILITY passes: the point l1_eligibility called them from (its last rule), so the order and every stop are
 unchanged (identity replay, shadow mode on and off). check_etf still runs after L5; moving it earlier is phase 4c,
 behind the ETF card and a replay (L4's Grok cache and circuit breaker make the sequence matter, 10-24 scope). overflow, l2_risk_max_positions_count and sector_cap still run in the runners'
-execution phase until phase 4; lock_codes.RULES.source names each place.
+execution phase until phase 4b (M4 (ii)); lock_codes.RULES.source names each place.
 """
 from __future__ import annotations
 

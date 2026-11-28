@@ -15,7 +15,8 @@ classify(table, row, cooloff) → Class(code, stop_code, rule, basis, reached):
   - rule       the rule within the lock, None for a trade or skip row with no rule;
   - basis      "field" when a field on the row decides the class, "inferred:<why>" or
                "unattributable:<why>" when it does not (ruling F: never presented as observed);
-  - reached    the last chain lock with a pass flag that ran on the row, by the run order before phase 4
+  - reached    the last chain lock with a pass flag that ran on the row, by the run order before phase 4 (4a moved
+               only the earnings step, still before L3, so the order of the flagged locks holds)
                (2 = none of L3..L6 ran). pass_flags() sets every flag after it to NULL (ruling D).
 
 Every outcome is owned by a lock (eighth round): the skips are L1 rules (a cooloff skip is gate or exit cooloff,

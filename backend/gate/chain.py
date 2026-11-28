@@ -17,7 +17,7 @@ carries its chain lock as lock_id, and lock_results is keyed by it):
     → earnings and macro pre-event penalties on the score
     → L3 SCORE → L4 SENTIMENT → L5 POSITIONING
     → ETF penalty re-test of the score (L2 RISK, rule etf; l2_risk.check_etf)
-    → drawdown guard (L0 PORTFOLIO, rule drawdown_guard; here until phase 4 moves it)
+    → drawdown guard (L0 PORTFOLIO, rule drawdown_guard; here until phase 4b moves it, M1)
     → L6 REVIEW (Claude)
 Both runners pass defer_l6_review=True: the chain returns l6_review_pending after the guard, and the runner's
 serial execution phase checks overflow (L2 RISK) before it runs L6 REVIEW for a candidate with a slot.

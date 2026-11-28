@@ -19,8 +19,9 @@ rule in chain order (`stop_of`). The stored codes are derived from that by `code
   - stop_code: "FILTERED_" + the rule key (`FILTERED_L1_ELIGIBILITY_COOLOFF` …), the same for the other two.
 FILTERED_UNKNOWN is the one outcome without an owner: no registered rule failed. It is mailed when written.
 
-Until phase 4 a lock's rules run in several places: L2's earnings and ETF rules live in l2_risk.py (phase 3) but
-are called from inside l1_eligibility and after L5, overflow and the sector cap at execution; the guard after L5. So a code names the owner, and how far
+Until phases 4b and 4c a lock's rules run in several places: L2's earnings rules are its own step right after L1 (phase
+4a M2, 2026-11-28), but its ETF re-test runs after L5 (4c), overflow and the sector cap at execution (4b); the guard
+after L5 (4b). So a code names the owner, and how far
 the row got is the pass flags (FLAG_RULES; NULL where the lock did not run, ruling D) and `rule_states`.
 
 One numbering since phase 3: "L0".."L6" and the names here are the chain, and every module, LockResult.lock_id
@@ -327,8 +328,8 @@ def expected_checks(lock: int, book: str) -> tuple[str, ...]:
 def lock_marks(states: dict[str, str], book: str) -> list[str | None]:
     """One mark per lock L0..L6 for a row (Terminal, ruling 2026-10-28: one ✗ per stopped row, in its owner's
     column). "fail" in the stop owner's column; "n/a" when a rule of the lock ran without its input; "pass" when
-    every check the book runs passed; "partial" when some ran and others not yet (until phase 4 a lock's rules run
-    in several places) or another lock's stop ended the row; None when no rule of the lock ran."""
+    every check the book runs passed; "partial" when some ran and others not yet (until phases 4b and 4c a lock's
+    rules run in several places) or another lock's stop ended the row; None when no rule of the lock ran."""
     stop = stop_of(states)
     out: list[str | None] = []
     for n in sorted(LOCKS):
