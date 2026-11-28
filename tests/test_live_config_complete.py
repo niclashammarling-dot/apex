@@ -105,6 +105,23 @@ def test_the_canonical_sample_start_has_no_default(cfg_path):
             db.live_sample_since()                                             # never "0000", every live trade
 
 
+def test_the_live_equity_curve_starts_at_the_file_and_an_incomplete_file_is_named(cfg_path, monkeypatch):
+    from fastapi import HTTPException
+    from backend.routers import live_router
+    monkeypatch.setattr(live_router, "LIVE_ENABLED", True)
+    cfg_path.write_text(json.dumps(_full()))
+    with patch("backend.brokers.alpaca.get_positions", return_value=[{"unrealized_pnl": 5.0}]), \
+         patch("backend.db.get_live_equity_curve", return_value={"points": []}) as curve:
+        assert live_router.live_equity() == {"points": []}
+    curve.assert_called_once_with(unrealised_total=5.0, since=_full()["live_account_since"])
+    _write_without(cfg_path, "live_account_since")
+    with patch("backend.alerts.alert_live_config_unavailable"), \
+         patch("backend.db.get_live_equity_curve") as curve:
+        with pytest.raises(HTTPException) as e:
+            live_router.live_equity()                                          # was since=None: every live trade
+    assert "has no value for live_account_since" in e.value.detail and not curve.called
+
+
 def test_the_tracked_live_config_gives_every_runtime_key():
     assert lc.missing_keys(lc._upgraded(_full())) == []
     planted = {k: v for k, v in _full().items() if k != "stop_loss_pct"}        # control: the predicate sees a gap
