@@ -1484,6 +1484,70 @@
       "engine": "none (yfinance report dates; scripts/earnings_history_probe.py)",
       "commit": "fa51cc3",
       "sample": "103 tickers of ticker_config.get_sectors(), limit=60, run 2026-11-23 (vault raw/notes/2026-11/data/2026-11-23-apex-earnings-history-probe.json)"
+    },
+    "backend/backtest/earnings_cell_2026_11.py::HORIZONS": {
+      "value": [
+        1,
+        5,
+        10,
+        25
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-11-28",
+      "source": "L0 forward horizons in sessions, item 5 of the card (vault raw/notes/2026-11/2026-11-23-apex-earnings-cell-preregistration-draft.md (sealed 2026-11-23)); 25 is the live time stop. Research script, no production reader."
+    },
+    "backend/backtest/earnings_cell_2026_11.py::PRIMARY_H": {
+      "value": 1,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-11-28",
+      "source": "The primary horizon, item 5 (Niclas 2026-11-23, riktning: L0 tests the reaction day). vault raw/notes/2026-11/2026-11-23-apex-earnings-cell-preregistration-draft.md (sealed 2026-11-23)."
+    },
+    "backend/backtest/earnings_cell_2026_11.py::TAIL": {
+      "value": -0.06,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-11-28",
+      "source": "The left-tail cut, item 7: the live stop distance (live_config stop 6 %, read 2026-11-23). vault raw/notes/2026-11/2026-11-23-apex-earnings-cell-preregistration-draft.md (sealed 2026-11-23)."
+    },
+    "backend/backtest/earnings_cell_2026_11.py::NEAR_DAYS": {
+      "value": [
+        3,
+        14
+      ],
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-11-28",
+      "source": "The NEAR class, item 4: l2_risk_earnings_days + 1 to l2_risk_earnings_near_days (2 and 14 in the live config, 2026-11-23). vault raw/notes/2026-11/2026-11-23-apex-earnings-cell-preregistration-draft.md (sealed 2026-11-23)."
+    },
+    "backend/backtest/earnings_cell_2026_11.py::N_PLACEBO": {
+      "value": 1000,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-11-28",
+      "source": "Placebo HOLD classes for the controls, item 10. vault raw/notes/2026-11/2026-11-23-apex-earnings-cell-preregistration-draft.md (sealed 2026-11-23)."
+    },
+    "backend/backtest/earnings_cell_2026_11.py::SEED": {
+      "value": 20261128,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-11-28",
+      "source": "The placebo draw seed: the run date, fixed so the controls reproduce."
+    },
+    "backend/backtest/earnings_cell_2026_11.py::ALPHA": {
+      "value": 0.05,
+      "kind": "chosen",
+      "tier": "ops",
+      "date": "2026-11-28",
+      "source": "Two-sided level of the primary test and the controls, item 8. vault raw/notes/2026-11/2026-11-23-apex-earnings-cell-preregistration-draft.md (sealed 2026-11-23)."
+    },
+    "backend/backtest/earnings_cell_2026_11.py::MDE_K": {
+      "value": 2.8,
+      "kind": "structural",
+      "tier": "ops",
+      "date": "2026-11-28",
+      "source": "MDE at 80 % power and 5 % two-sided: (1.96 + 0.84) x SE, item 9. vault raw/notes/2026-11/2026-11-23-apex-earnings-cell-preregistration-draft.md (sealed 2026-11-23)."
     }
   }
 }
