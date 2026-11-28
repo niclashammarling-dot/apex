@@ -33,6 +33,9 @@ def test_the_chain_decides_l3_on_the_books_threshold_for_an_uncalibrated_sector(
     from backend.gate.types import LockResult
     monkeypatch.setattr(chain, "l1_eligibility_evaluate",
                         lambda t, s, c: LockResult.pass_(lock_id=1, score=1.0, reason="stub", data={}))
+    from backend.gate import l2_risk                    # L2 RISK's earnings step since phase 4a M2: stubbed too
+    monkeypatch.setattr(l2_risk, "earnings_lock",
+                        lambda t, c, d: (LockResult.pass_(lock_id=2, score=1.0, reason="stub", data={}), "pass"))
     monkeypatch.setattr(chain, "l4_sentiment_evaluate",
                         lambda t, sentiment_min=None: LockResult.fail(lock_id=4, reason="stub stop", data={}))
     result = chain.evaluate_chain("ZZZ", "NewSector", book_threshold + 0.02, {}, {"l3_score_threshold_min": book_threshold},

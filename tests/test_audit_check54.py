@@ -76,7 +76,7 @@ def test_a_rule_or_module_outside_the_chain_is_flagged(tmp_path, monkeypatch):
     stray = dataclasses.replace(lock_codes.RULES[0], owner=9, name="stray")
     monkeypatch.setattr(lock_codes, "RULES", lock_codes.RULES + (stray,))
     real = cg._gate_module_lock_ids()
-    assert real["l4_sentiment.py"] == 4 and real["l2_risk.py"] is None
+    assert real["l4_sentiment.py"] == 4 and real["l2_risk.py"] == 2      # its own LockResult since phase 4a M2
     monkeypatch.setattr(cg, "_gate_module_lock_ids", lambda: {**real, "l4_sentiment.py": 3, "l9_x.py": None})
     cg.check54()
     out = _found(core, 54)
