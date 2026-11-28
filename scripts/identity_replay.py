@@ -150,6 +150,11 @@ def run(root: Path, out: Path, mutate: bool = False, earnings_live: bool = False
                            "reasoning": f"replay {cur['c']['ticker']}"}), {"input_tokens": 1, "output_tokens": 1}, "end_turn"
 
     l6._call_anthropic = _claude
+    # L6 fails closed on a missing key before it calls Claude (l6_review.py:111, bound at import), so without one in the
+    # environment every candidate stopped at L6 unavailable in both checkouts and the comparison was blind there (found
+    # 2026-11-28 by CI 402, which has no key). A stub key reaches the stubbed call in every environment.
+    if hasattr(l6, "ANTHROPIC_API_KEY"):
+        l6.ANTHROPIC_API_KEY = l6.ANTHROPIC_API_KEY or "replay-stub"
 
     wallet_mod = importlib.import_module("backend.wallet")
     captured = []

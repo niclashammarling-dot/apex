@@ -7,6 +7,7 @@ checkouts, --earnings-live) without a test. This runs it each suite, in its own 
 checks the flag it gained changes what it should.
 """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -19,8 +20,11 @@ GUARDED = [REPO / "data" / f for f in ("regime_result_cache.json", "regime_signa
 
 def _replay(tmp_path: Path, *flags: str) -> dict:
     out = tmp_path / ("replay" + "".join(f.strip("-") for f in flags) + ".json")
+    # No key, as in CI: the replay must reach its stubbed Claude anyway (CI 402 found it did not). load_dotenv never
+    # overrides a set variable, so the empty value holds.
+    env = {**os.environ, "ANTHROPIC_API_KEY": ""}
     r = subprocess.run([sys.executable, "-u", str(SCRIPT), "--root", str(REPO), *flags, str(out)],
-                       capture_output=True, text=True, timeout=300, cwd=tmp_path)
+                       capture_output=True, text=True, timeout=300, cwd=tmp_path, env=env)
     assert r.returncode == 0, r.stderr[-2000:]
     return json.loads(out.read_text())
 
@@ -35,6 +39,7 @@ def test_the_replay_runs_and_its_earnings_flag_exercises_the_rule(tmp_path):
     assert len(plain["rows"]) == len(live["rows"]) == 19
     assert all(p.values())                                                          # every candidate wrote a row
     assert p["AAE"] == "TRADE_EXECUTED"                                             # shadow mode: the blackout blocks nothing
+    assert p["AAM"] == "FILTERED_L6_REVIEW_CLAUDE"                                  # the stubbed Claude decided, not a missing key
     assert e["AAE"] == "FILTERED_L2_RISK_EARNINGS"                                  # --earnings-live: it acts
     assert e["AAQ"] == "FILTERED_L2_RISK_EARNINGS_NEAR"                             # the near penalty decides L3
     assert live["producer"]["earnings_live"] is True and plain["producer"]["earnings_live"] is False
