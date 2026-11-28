@@ -1555,6 +1555,13 @@
       "tier": "ops",
       "date": "2026-11-28",
       "source": "CHECK 102 (audit/CHECKS.md row 102): the CRITICAL window, sessions today and yesterday, as CHECK 101's; an entry is mailed once while it is in the window. Report-only."
+    },
+    "backend/gate/l2_risk.py::LOCK_ID": {
+      "value": 2,
+      "kind": "structural",
+      "tier": "money",
+      "date": "2026-11-28",
+      "source": "L2 RISK's chain lock number (backend/gate/lock_codes.LOCKS), set on the earnings step's LockResult since phase 4a M2 (2026-11-28); an identifier, not a tuned value. The other locks' LOCK_ID are pinned unregistered (audit/PARAMETERS_UNREGISTERED.txt)."
     }
   }
 }
