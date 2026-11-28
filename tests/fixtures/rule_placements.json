@@ -161,6 +161,13 @@
     "since": "",
     "split_from": "",
     "initial": true
+   },
+   {
+    "owner": 2,
+    "source": "l2_risk.earnings_lock, the chain's step right after L1 ELIGIBILITY (phase 4a M2, 2026-11-28; inside l1_eligibility before, as its last rule)",
+    "since": "",
+    "split_from": "",
+    "no_stop_change": "phase 4a M2 (2026-11-28): the call moved from l1_eligibility's last rule to the chain's next step; same order and stops (identity replay with shadow mode on and off, 0 differences)"
    }
   ],
   "earnings_near": [
@@ -170,6 +177,13 @@
     "since": "",
     "split_from": "",
     "initial": true
+   },
+   {
+    "owner": 2,
+    "source": "l2_risk.earnings_lock data key; the penalty bites at the score re-test (chain.py); never fired",
+    "since": "",
+    "split_from": "",
+    "no_stop_change": "phase 4a M2 (2026-11-28): the call moved from l1_eligibility's last rule to the chain's next step; same order and stops (identity replay with shadow mode on and off, 0 differences)"
    }
   ],
   "etf": [

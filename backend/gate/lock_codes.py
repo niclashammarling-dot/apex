@@ -156,9 +156,10 @@ RULES: tuple[Rule, ...] = (
          source="gate_runner_live._submit_entry: the open-order read raised, so the entry is refused (fail closed) "
                 "and tried at the next cycle, not cooled"),
     Rule(2, "earnings", ("earnings",), ("l2_risk_earnings_days",),
-         "l2_risk.check_earnings, called inside l1_eligibility (its fail_type)"),
+         "l2_risk.earnings_lock, the chain's step right after L1 ELIGIBILITY (phase 4a M2, 2026-11-28; inside "
+         "l1_eligibility before, as its last rule)"),
     Rule(2, "earnings_near", ("earnings_near_penalty",), ("l2_risk_earnings_near_days", "l2_risk_earnings_near_penalty"),
-         "l2_risk.check_earnings data key; the penalty bites at the score re-test (chain.py); never fired"),
+         "l2_risk.earnings_lock data key; the penalty bites at the score re-test (chain.py); never fired"),
     Rule(2, "etf", config_keys=("l2_risk_etf_penalty", "l2_risk_etf_floor"),
          source="l2_risk.check_etf, called by chain.py after L5 (FILTERED_ETF_PENALTY before 2026-10-31)"),
     Rule(2, "overflow", ("overflow",), ("l2_risk_overflow_step",),

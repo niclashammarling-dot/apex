@@ -11,8 +11,8 @@ The first and coarsest gate in the apex lock chain. Combines two checks:
   B. Macro filter — are current conditions safe for new entries?
        1. VIX above threshold — market-wide fear, block all tickers
        2. Within N days of a scheduled macro event (FOMC, CPI, NFP)
-     The ticker's earnings rules are L2 RISK's (backend/gate/l2_risk.py, phase 3 2026-10-31); they still run
-     here, at the point they always did, until phase 4 moves them.
+     The ticker's earnings rules are L2 RISK's (backend/gate/l2_risk.py, phase 3 2026-10-31); since phase 4a
+     (2026-11-28) the chain calls them as their own step right after this lock passes (l2_risk.earnings_lock).
 
 If the regime singleton hasn't run yet this session, the lock fails
 safely with a clear reason rather than crashing downstream locks.
@@ -33,7 +33,6 @@ from datetime import date
 from loguru import logger
 
 from backend.config import EXCLUDED_SECTORS
-from backend.gate import l2_risk
 from backend.gate.lock_codes import FAIL, NO_DATA, PASS
 from backend.gate.types import LockResult
 # One calendar for L1 ELIGIBILITY and both backtest engines (2026-10-17, Niclas: "live måste ha
@@ -64,26 +63,20 @@ def evaluate(ticker: str, sector: str, cfg: dict) -> LockResult:
 
     data["rule_states"] holds each check that ran, by the identifier it emits (lock_codes.rule_for maps it
     to its rule): PASS, FAIL (the fail_type), or NO_DATA when the check had no input and let the ticker
-    through (VIX unreadable, no earnings date). The pre-event penalties are decided at the score test
+    through (VIX unreadable). The pre-event penalties are decided at the score test
     (chain.py), so they are not here.
 
     Checks (in order):
       1. Regime: sector must be in leaderboard above allocation floor
       2. VIX: must be below threshold
       3. Macro events: must not be within blackout window of FOMC/CPI/NFP
-      4. Earnings: three-tier pre-event gate
-           imminent  (0 ≤ Δ ≤ blackout_days)  → hard fail
-           near-term (blackout < Δ ≤ near_days) → pass + score penalty in chain.py
-           clear     (Δ > near_days)            → pass unchanged
-         Post-earnings (Δ < 0) is never blocked.
+    The earnings rules follow as L2 RISK's own step (l2_risk.earnings_lock, phase 4a 2026-11-28).
 
     Args:
         ticker: Stock ticker symbol
         sector: Apex sector name
         cfg:    Config dict (demo_config or live_config) — supplies
-                l1_eligibility_vix_max, l1_eligibility_macro_event_days,
-                l2_risk_earnings_days, l2_risk_earnings_near_days,
-                l2_risk_earnings_near_penalty
+                l1_eligibility_vix_max, l1_eligibility_macro_event_days
 
     Returns:
         LockResult with lock_id=1
@@ -212,16 +205,6 @@ def _evaluate(ticker: str, sector: str, cfg: dict, states: dict[str, str]) -> Lo
             "l1_eligibility_macro_pre_event_penalty": l1_eligibility_macro_pre_event_penalty,
         }
 
-    # L2 RISK's earnings rules (l2_risk.check_earnings), at the point they always ran.
-    earnings_fail, earnings_data, states["earnings"] = l2_risk.check_earnings(ticker, cfg, today)
-    if earnings_fail:
-        reason = earnings_fail.pop("reason")
-        return LockResult.fail(
-            lock_id=LOCK_ID,
-            reason=reason,
-            data={"regime_available": True, "adjusted_score": adjusted_score, **earnings_fail, "vix": vix},
-        )
-
     # ── Pass ──────────────────────────────────────────────────────────────────
     logger.debug(
         f"L1 ELIGIBILITY [{ticker}] PASS — sector={sector} "
@@ -245,7 +228,6 @@ def _evaluate(ticker: str, sector: str, cfg: dict, states: dict[str, str]) -> Lo
             "rank":             rank,
             "entry_threshold":  ALLOCATION_ENTRY_THRESHOLD,
             "exit_threshold":   ALLOCATION_EXIT_THRESHOLD,
-            **earnings_data,
             **macro_penalty_data,
             "regime_leader":    regime_result.leader,
             "regime_date":      regime_result.date,

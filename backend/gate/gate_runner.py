@@ -546,6 +546,7 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
     """
     lr = chain.lock_results           # keyed by chain lock (the drawdown guard's under 0, read through exit_reason)
     l1 = lr.get(1)   # L1 ELIGIBILITY
+    l2 = lr.get(2)   # L2 RISK's earnings step (phase 4a M2; before it these fields were in L1's data)
     l3 = lr.get(3)   # L3 SCORE      → DB l3_score_pass
     l4 = lr.get(4)   # L4 SENTIMENT  → DB l4_sentiment_pass
     l5 = lr.get(5)   # L5 POSITIONING
@@ -613,10 +614,12 @@ def _chain_to_gate_result(signal: dict, chain: ChainResult) -> dict:
         "l4_sentiment_summary":             l4_data.get("summary"),
         "l4_sentiment_score":  l4_data.get("score"),
         "l4_sentiment_conviction":       l4_data.get("conviction"),
-        "l1_eligibility_reason":           l1.reason if (l1 and not l1.passed) else None,
-        "earnings_near":          int(l1.data.get("earnings_near", False)) if l1 and l1.passed else None,
-        "days_to_earnings":       (l1.data.get("days_to_earnings", (l1.data.get("earnings_shadow") or {}).get("days_to_earnings"))
-                                   if l1 and l1.passed else None),   # shadow mode records it too (2026-11-14)
+        # an earnings stop keeps its reason here, as when the rule ran inside L1 (M7 retires the column's L1 name)
+        "l1_eligibility_reason":  (l1.reason if (l1 and not l1.passed) else
+                                   l2.reason if (l2 and not l2.passed) else None),
+        "earnings_near":          int(l2.data.get("earnings_near", False)) if l2 and l2.passed else None,
+        "days_to_earnings":       (l2.data.get("days_to_earnings", (l2.data.get("earnings_shadow") or {}).get("days_to_earnings"))
+                                   if l2 and l2.passed else None),   # shadow mode records it too (2026-11-14)
     }
 
 

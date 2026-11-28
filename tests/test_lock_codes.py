@@ -348,13 +348,15 @@ def test_review_history_shows_the_owner_rule_and_reason_and_leaves_out_skips():
 
 def test_l2_risk_rules_live_in_l2_risk():
     # Ruling P3-D (2026-10-29): a module must not hold another lock's rule. Phase 3 (2026-10-31) moved L2's earnings
-    # rules out of l1_eligibility and its ETF re-test out of chain.py; both are still called where they ran.
+    # rules out of l1_eligibility and its ETF re-test out of chain.py; phase 4a M2 (2026-11-28) moved the earnings
+    # call out of l1_eligibility too: the chain calls it as L2 RISK's own step.
     root = Path(__file__).parent.parent / "backend/gate"
     l1, chain, l2 = ((root / f).read_text() for f in ("l1_eligibility.py", "chain.py", "l2_risk.py"))
     assert "macro_earnings_" not in l1.split('"""', 2)[2].split("def _evaluate", 1)[1] and "_get_earnings_date" not in l1
     assert "l2_risk_etf_penalty" not in chain and "l2_risk_etf_floor" not in chain
     assert "def check_earnings" in l2 and "def check_etf" in l2
-    assert "l2_risk.check_earnings(" in l1 and "l2_risk.check_etf(" in chain
+    assert "import l2_risk" not in l1 and "check_earnings(" not in l1 and "earnings_lock(" not in l1
+    assert "l2_risk.earnings_lock(" in chain and "l2_risk.check_etf(" in chain
 
 
 def test_a_row_before_the_exit_cooloff_split_passes_l1_on_its_exit_cooloff_verdict():

@@ -107,8 +107,12 @@ def test_l6_does_not_see_the_shadow_report_date():
 def test_the_gate_row_records_days_to_earnings_from_the_shadow():
     from backend.gate import gate_runner
     from backend.gate.chain import ChainResult
+    from backend.gate.types import LockResult
+    # the earnings step's data since phase 4a M2 (2026-11-28); L1's data before
+    earnings = LockResult.pass_(lock_id=2, score=1.0, reason="pass",
+                                data={"earnings_shadow": {"days_to_earnings": 3, "earnings_date": "2026-11-19"}})
     chain = ChainResult(ticker="NVDA", sector="Technology", approved=False,
-                        lock_results={1: _l1_with({"earnings_shadow": {"days_to_earnings": 3, "earnings_date": "2026-11-19"}})})
+                        lock_results={1: _l1_with({}), 2: earnings})
     row = gate_runner._chain_to_gate_result({"id": 1, "ticker": "NVDA", "signal_score": 0.7}, chain)
     assert row["days_to_earnings"] == 3 and row["earnings_near"] == 0
 

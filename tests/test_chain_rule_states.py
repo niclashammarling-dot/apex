@@ -43,9 +43,11 @@ def _regime():
     return MagicMock(leaderboard=[entry], leader=SECTOR, date=date.today().isoformat())
 
 
-def _l1(vix=10.0, macro=("clear", None), earnings_in=None, regime=True, shadow=False) -> LockResult:
-    """shadow: config.L2_RISK_EARNINGS_SHADOW for this call only. CASES calls this at collection, before any
-    fixture, so the mode is a parameter scoped to the call, not module state (default: the rules active)."""
+def _l1(vix=10.0, macro=("clear", None), earnings_in=None, regime=True, shadow=False) -> tuple:
+    """(L1 ELIGIBILITY's result, L2 RISK's earnings step) for the chain; the earnings rules are their own step since
+    phase 4a M2 (2026-11-28). shadow: config.L2_RISK_EARNINGS_SHADOW for this call only. CASES calls this at
+    collection, before any fixture, so the mode is a parameter scoped to the call, not module state (default: the
+    rules active)."""
     import backend.config as config_module
     earnings = date.today() + timedelta(days=earnings_in) if earnings_in is not None else None
     with ExitStack() as st:
@@ -54,7 +56,7 @@ def _l1(vix=10.0, macro=("clear", None), earnings_in=None, regime=True, shadow=F
         st.enter_context(patch.object(l1m, "_get_vix", return_value=vix))
         st.enter_context(patch.object(l1m, "_macro_status", return_value=macro))
         st.enter_context(patch.object(l2m, "_get_earnings_date", return_value=earnings))
-        return l1m.evaluate("AAPL", SECTOR, CFG)
+        return l1m.evaluate("AAPL", SECTOR, CFG), l2m.earnings_lock("AAPL", CFG, date.today())
 
 
 def _grok(passed=True, unavailable=False) -> LockResult:
@@ -101,7 +103,9 @@ def _claude(passed=False) -> LockResult:
 
 def _run(l1=None, score=0.80, l4=None, l5=None, l6=None, context=None, defer=True):
     with ExitStack() as st:
-        st.enter_context(patch("backend.gate.chain.l1_eligibility_evaluate", return_value=l1 or _l1()))
+        l1_result, earnings = l1 or _l1()
+        st.enter_context(patch("backend.gate.chain.l1_eligibility_evaluate", return_value=l1_result))
+        st.enter_context(patch.object(l2m, "earnings_lock", return_value=earnings))
         st.enter_context(patch("backend.gate.chain.l4_sentiment_evaluate", return_value=l4 or _grok()))
         st.enter_context(patch("backend.gate.chain.l5_positioning_evaluate", return_value=l5 or _l5()))
         st.enter_context(patch("backend.gate.chain.l6_review_evaluate", return_value=l6 or _claude()))
@@ -171,7 +175,7 @@ def test_a_stop_records_no_rule_after_it():
 def test_an_identifier_outside_the_register_is_an_unknown_stop_not_a_raise():
     l1 = LockResult.fail(lock_id=1, reason="new check", data={"fail_type": "brand_new",
                                                               "rule_states": {"regime": PASS, "brand_new": FAIL}})
-    cr = _run(l1=l1)
+    cr = _run(l1=(l1, None))                      # L1 stops first: the earnings step is never called
     assert not cr.approved and cr.stop is None and cr.rule_states == {K(1, "regime"): PASS}
 
 
@@ -198,8 +202,9 @@ def test_the_writer_and_the_history_classifier_name_the_same_stop(name, kwargs, 
     cr = _run(**kwargs)
     signal = {"ticker": "AAPL", "sector": SECTOR, "id": 1, "signal_score": kwargs.get("score", 0.80)}
     res = gate_runner._chain_to_gate_result(signal, cr)
-    legacy = "FILTERED_ETF_PENALTY" if cr.stop == (2, "etf") else \
-        _LEGACY_CODE[next(n for n, r in cr.lock_results.items() if not r.passed)]
+    # an earnings stop was written as L1's code while the rule ran inside L1 (lock 2's step since phase 4a M2)
+    failed = None if cr.stop == (2, "etf") else next(n for n, r in cr.lock_results.items() if not r.passed)
+    legacy = "FILTERED_ETF_PENALTY" if failed is None else _LEGACY_CODE[1 if failed == 2 else failed]
     row = {"id": 1, "timestamp": res["timestamp"], "gate_decision": legacy,
            "signal_score": signal["signal_score"], "decision_reason": res["claude_reasoning"],
            "l1_eligibility_reason": res["l1_eligibility_reason"], "l4_sentiment_summary": res["l4_sentiment_summary"],
@@ -243,7 +248,8 @@ def test_the_options_error_flag_changes_no_group_verdict():
 def test_claude_input_is_unchanged_by_the_bookkeeping():
     # The L6 REVIEW prompt approved 2026-10-26 reads the lock results' data; rule_states and the unavailable flags
     # name rows and stay out of it.
-    lr = {1: _l1(), 4: _grok(), 5: _l5()}
+    l1_result, (earnings, _) = _l1(earnings_in=7)
+    lr = {1: l1_result, 2: earnings, 4: _grok(), 5: _l5()}
     payload = l6_review._build_context_payload("AAPL", SECTOR, lr, {})
     seen = {k for r in payload["lock_results"].values() for k in r["data"]}
     assert seen.isdisjoint({"rule_states", "unavailable", "options_errors"})

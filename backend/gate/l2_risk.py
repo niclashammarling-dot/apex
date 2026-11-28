@@ -5,9 +5,10 @@ Lock labels phase 3 (2026-10-31; ruling P3-D, Niclas 2026-10-29: "det ärliga na
 plats/typ"): a module holds only its own lock's rules. Two of L2's rules lived in other modules and move here:
   - earnings and earnings_near, from l1_eligibility (a ticker's own event, not market or sector state);
   - etf, the ETF penalty re-test of the score, from chain.py.
-The call order is unchanged: l1_eligibility calls check_earnings at the point it always ran the rule, and the
-chain calls check_etf after L5. Moving them earlier is phase 4, behind a replay (L4's Grok cache and circuit
-breaker make the sequence matter, 10-24 scope). overflow, l2_risk_max_positions_count and sector_cap still run in the runners'
+Phase 4a (M2, 2026-11-28): the chain calls the earnings rules as their own step (earnings_lock), right after L1
+ELIGIBILITY passes: the point l1_eligibility called them from (its last rule), so the order and every stop are
+unchanged (identity replay, shadow mode on and off). check_etf still runs after L5; moving it earlier is phase 4c,
+behind the ETF card and a replay (L4's Grok cache and circuit breaker make the sequence matter, 10-24 scope). overflow, l2_risk_max_positions_count and sector_cap still run in the runners'
 execution phase until phase 4; lock_codes.RULES.source names each place.
 """
 from __future__ import annotations
@@ -19,6 +20,9 @@ from typing import Callable
 from loguru import logger
 
 from backend.gate.lock_codes import FAIL, NO_DATA, PASS
+from backend.gate.types import LockResult
+
+LOCK_ID = 2
 
 # ── Earnings cache ────────────────────────────────────────────────────────────
 _earnings_cache: dict[str, dict] = {}
@@ -101,6 +105,17 @@ def check_earnings(ticker: str, cfg: dict, today: date) -> tuple[dict | None, di
                 "earnings_near_penalty": earnings_near_penalty,
             }
     return None, near, PASS if earnings else NO_DATA
+
+
+def earnings_lock(ticker: str, cfg: dict, today: date) -> tuple[LockResult, str]:
+    """The earnings rules as the chain's L2 RISK step (phase 4a M2): (LockResult, the earnings rule's verdict).
+    A stop carries check_earnings' fail data (fail_type "earnings"); a pass carries the near window's data, which the
+    score re-test and the gate row read."""
+    fail, near, state = check_earnings(ticker, cfg, today)
+    if fail:
+        reason = fail.pop("reason")
+        return LockResult.fail(lock_id=LOCK_ID, reason=reason, data=fail), state
+    return LockResult.pass_(lock_id=LOCK_ID, score=1.0, reason="earnings rules pass", data=near), state
 
 
 def check_etf(ticker: str, signal_score: float, l5_data: dict | None, cfg: dict,

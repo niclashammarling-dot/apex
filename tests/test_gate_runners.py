@@ -781,6 +781,7 @@ class TestMechanicalDrawdownGuard:
         """Patch every lock at the chain module's bound names."""
         return [
             patch("backend.gate.chain.l1_eligibility_evaluate", return_value=_lr_pass(1)),
+            patch("backend.gate.l2_risk.earnings_lock", return_value=(_lr_pass(2), "pass")),   # phase 4a M2
             patch("backend.gate.chain.l3_score_evaluate", return_value=_lr_pass(3)),
             patch("backend.gate.chain.l4_sentiment_evaluate", return_value=_lr_pass(4)),
             patch("backend.gate.chain.l5_positioning_evaluate", return_value=_lr_pass(5)),
@@ -799,7 +800,7 @@ class TestMechanicalDrawdownGuard:
         assert result.approved is False
         assert result.stop == (0, "drawdown_guard")
         assert "drawdown" in result.summary.lower()
-        mocks[4].assert_not_called()  # l6_review_evaluate must not be called
+        mocks[-1].assert_not_called()  # l6_review_evaluate (the last patch) must not be called
 
     def test_drawdown_at_limit_passes(self):
         # Exactly at 20% — should not be rejected by the guard (strictly greater than)

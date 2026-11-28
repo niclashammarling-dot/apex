@@ -11,7 +11,9 @@ Both runners import evaluate_chain() from here. They differ only in:
 
 The chain runs in order (each lock's number and name in backend/gate/lock_codes.py LOCKS; a module's LockResult
 carries its chain lock as lock_id, and lock_results is keyed by it):
-    L1 ELIGIBILITY (and L2 RISK's earnings rules through l2_risk.check_earnings)
+    L1 ELIGIBILITY
+    → L2 RISK's earnings rules (l2_risk.earnings_lock; their own step since phase 4a, 2026-11-28, at the point
+      l1_eligibility ran them)
     → earnings and macro pre-event penalties on the score
     → L3 SCORE → L4 SENTIMENT → L5 POSITIONING
     → ETF penalty re-test of the score (L2 RISK, rule etf; l2_risk.check_etf)
@@ -35,6 +37,7 @@ Usage:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Callable
 
 from loguru import logger
@@ -134,10 +137,17 @@ def evaluate_chain(
             logger.error(f"[{ticker}] L1 ELIGIBILITY identifier {ident!r} is not in lock_codes.RULES — stop unknown")
     if not l1.passed:
         return _chain_fail(ticker, sector, lock_results, l1, states=states)
+
+    # ── L2 RISK, earnings rules (phase 4a M2) ─────────────────────────────────
+    l2, earnings_state = l2_risk.earnings_lock(ticker, cfg, date.today())
+    lock_results[2] = l2
+    lock_codes.put(states, "earnings", earnings_state)
+    if not l2.passed:
+        return _chain_fail(ticker, sector, lock_results, l2, states=states)
     unpenalised_score = signal_score
 
     # Near-term earnings penalty: reduce signal_score before L3 SCORE sees it
-    earnings_penalty = l1.data.get("earnings_near_penalty", 0.0)
+    earnings_penalty = l2.data.get("earnings_near_penalty", 0.0)
     if earnings_penalty:
         original = signal_score
         signal_score = signal_score * (1.0 - earnings_penalty)
@@ -161,7 +171,7 @@ def evaluate_chain(
     l3 = l3_score_evaluate(ticker, sector, signal_score, on_watchlist=on_watchlist,
                            sector_thresholds=sector_thresholds, fallback=cfg.get("l3_score_threshold_min"))
     lock_results[3] = l3
-    states.update(_score_states(l1, l3, unpenalised_score))
+    states.update(_score_states({**l1.data, **l2.data}, l3, unpenalised_score))
     if not l3.passed:
         return _chain_fail(ticker, sector, lock_results, l3, states=states)
 
@@ -260,7 +270,7 @@ def verdict_states(owner: int, verdict_rule: str, result: LockResult) -> dict[st
     return {lock_codes.rule_key(owner, rule): FAIL}
 
 
-def _score_states(l1: LockResult, l3: LockResult, unpenalised_score: float) -> dict[str, str]:
+def _score_states(pre: dict, l3: LockResult, unpenalised_score: float) -> dict[str, str]:
     """L3's threshold test and the two pre-event penalties that bite at it: L1's macro_pre_event and L2's
     earnings_near. The threshold fails only when the unpenalised score fails it too; otherwise each penalty that
     applied fails, and stop_of gives the stop to the first in chain order (ruling 2026-10-28). A failed test
@@ -273,7 +283,7 @@ def _score_states(l1: LockResult, l3: LockResult, unpenalised_score: float) -> d
     out = {lock_codes.rule_key(3, "threshold"): FAIL if own_fail else PASS}
     for owner, rule, key in ((1, "macro_pre_event", "l1_eligibility_macro_pre_event_penalty"),
                              (2, "earnings_near", "earnings_near_penalty")):
-        out[lock_codes.rule_key(owner, rule)] = FAIL if (penalty_fail and l1.data.get(key)) else PASS
+        out[lock_codes.rule_key(owner, rule)] = FAIL if (penalty_fail and pre.get(key)) else PASS
     return out
 
 

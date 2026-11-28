@@ -3,7 +3,7 @@ Tests for the L2 RISK three-tier earnings gate and chain.py near-term penalty.
 
 Tiers:
   imminent   (0 <= delta <= blackout_days)  -> hard fail
-  near-term  (blackout < delta <= near_days) -> pass + earnings_data in l1.data
+  near-term  (blackout < delta <= near_days) -> pass + the near window's data on L2 RISK's earnings step
   clear      (delta > near_days)             -> pass, no earnings_data
   post-event (delta < 0)                     -> pass, never blocked
 """
@@ -58,19 +58,12 @@ def _cfg(blackout: int = 3, near_days: int = 14, near_penalty: float = 0.15) -> 
 
 
 def _evaluate_with_earnings(ticker: str, delta_days: int, **cfg_overrides) -> "LockResult":
-    """Run L1 ELIGIBILITY's evaluate() (it calls L2 RISK's earnings rules) with a synthetic earnings date at today + delta_days."""
+    """Run L2 RISK's earnings step (l2_risk.earnings_lock; inside L1 ELIGIBILITY before phase 4a M2, 2026-11-28)
+    with a synthetic earnings date at today + delta_days."""
     today    = date.today()
     earnings = today + timedelta(days=delta_days)
-    regime   = _make_regime()
-    cfg      = _cfg(**cfg_overrides)
-
-    with (
-        patch.object(m, "_get_regime_result", return_value=regime),
-        patch.object(m, "_get_vix",           return_value=10.0),
-        patch.object(m, "_macro_status", return_value=("clear", None)),
-        patch.object(l2m, "_get_earnings_date", return_value=earnings),
-    ):
-        return evaluate(ticker, "Technology", cfg)
+    with patch.object(l2m, "_get_earnings_date", return_value=earnings):
+        return l2m.earnings_lock(ticker, _cfg(**cfg_overrides), today)[0]
 
 
 # ── Imminent: hard block ───────────────────────────────────────────────────────
@@ -138,14 +131,9 @@ def test_earnings_post_event_far_past_not_blocked():
 # ── No earnings date: passes cleanly ──────────────────────────────────────────
 
 def test_no_earnings_date_passes():
-    regime = _make_regime()
-    with (
-        patch.object(m, "_get_regime_result", return_value=regime),
-        patch.object(m, "_get_vix",           return_value=10.0),
-        patch.object(m, "_macro_status", return_value=("clear", None)),
-        patch.object(l2m, "_get_earnings_date", return_value=None),
-    ):
-        r = evaluate("SPY", "Technology", _cfg())
+    with patch.object(l2m, "_get_earnings_date", return_value=None):
+        r, state = l2m.earnings_lock("SPY", _cfg(), date.today())
+    assert state == "no_data"
     assert r.passed
     assert not r.data.get("earnings_near")
 
@@ -154,20 +142,18 @@ def test_no_earnings_date_passes():
 
 def test_chain_applies_near_term_penalty():
     """
-    If L1 passes with earnings_near_penalty=0.15 and signal_score=0.80,
-    L2 should receive 0.80 * 0.85 = 0.68.
+    If L2 RISK's earnings step passes with earnings_near_penalty=0.15 and signal_score=0.80,
+    L3 SCORE should receive 0.80 * 0.85 = 0.68.
     """
     from backend.gate.chain import evaluate_chain
     from backend.gate.types import LockResult
 
-    l1_result = LockResult(
-        passed=True, lock_id=1, score=1.0,
-        reason="pass", data={
-            "earnings_near":         True,
-            "earnings_near_penalty": 0.15,
-            "days_to_earnings":      8,
-        }
-    )
+    l1_result = LockResult(passed=True, lock_id=1, score=1.0, reason="pass", data={})
+    earnings = LockResult(passed=True, lock_id=2, score=1.0, reason="pass", data={
+        "earnings_near":         True,
+        "earnings_near_penalty": 0.15,
+        "days_to_earnings":      8,
+    })
 
     captured = {}
 
@@ -177,6 +163,7 @@ def test_chain_applies_near_term_penalty():
 
     with (
         patch("backend.gate.chain.l1_eligibility_evaluate", return_value=l1_result),
+        patch.object(l2m, "earnings_lock", return_value=(earnings, "pass")),
         patch("backend.gate.chain.l3_score_evaluate", side_effect=fake_lock2),
     ):
         evaluate_chain("AAPL", "Technology", signal_score=0.80, context={}, cfg=_cfg())
@@ -188,10 +175,8 @@ def test_chain_no_penalty_when_clear():
     from backend.gate.chain import evaluate_chain
     from backend.gate.types import LockResult
 
-    l1_result = LockResult(
-        passed=True, lock_id=1, score=1.0,
-        reason="pass", data={}
-    )
+    l1_result = LockResult(passed=True, lock_id=1, score=1.0, reason="pass", data={})
+    earnings = LockResult(passed=True, lock_id=2, score=1.0, reason="pass", data={})
 
     captured = {}
 
@@ -201,6 +186,7 @@ def test_chain_no_penalty_when_clear():
 
     with (
         patch("backend.gate.chain.l1_eligibility_evaluate", return_value=l1_result),
+        patch.object(l2m, "earnings_lock", return_value=(earnings, "pass")),
         patch("backend.gate.chain.l3_score_evaluate", side_effect=fake_lock2),
     ):
         evaluate_chain("NVDA", "Technology", signal_score=0.80, context={}, cfg=_cfg())

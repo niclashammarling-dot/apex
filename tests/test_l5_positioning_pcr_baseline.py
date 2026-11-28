@@ -94,6 +94,7 @@ def test_per_ticker_mode_falls_back_when_no_baseline_and_says_so():
 def test_chain_passes_cfg_mode_to_l5_positioning():
     from backend.gate.types import LockResult
     with patch("backend.gate.chain.l1_eligibility_evaluate", return_value=LockResult.pass_(lock_id=1, score=0.9, reason="", data={})), \
+         patch("backend.gate.l2_risk.earnings_lock", return_value=(LockResult.pass_(lock_id=2, score=1.0, reason="", data={}), "pass")), \
          patch("backend.gate.chain.l3_score_evaluate", return_value=LockResult.pass_(lock_id=3, score=0.9, reason="", data={})), \
          patch("backend.gate.chain.l4_sentiment_evaluate", return_value=LockResult.pass_(lock_id=4, score=0.9, reason="", data={})), \
          patch("backend.gate.chain.l5_positioning_evaluate", return_value=LockResult.fail(lock_id=5, reason="x", data={})) as m5:

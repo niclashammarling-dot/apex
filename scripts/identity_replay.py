@@ -13,11 +13,15 @@ The path is the runner's own: gate_runner._evaluate (context, chain with the def
 call → _write_demo (finalize: stored codes and flags), with the row captured where insert_demo_gate_result is called.
 Each version runs on its own temp database built by its own init_db().
 
+Earnings active: `--earnings-live` sets config.L2_RISK_EARNINGS_SHADOW False in both checkouts, so the blackout and
+the near penalty act (shadow mode since 2026-11-14 blocks nothing, which leaves an earnings move unexercised; added
+2026-11-28 for phase 4a's M2).
+
 Positive control: `--mutate` raises the VIX maximum to 40 for that run only, a behaviour change; compared with
 an unmutated run it must give differences (AAD passes L1), or the comparison is blind.
 
 Usage (run once per checkout, then compare):
-  .venv/bin/python -u scripts/identity_replay.py --root CHECKOUT [--mutate] OUT.json
+  .venv/bin/python -u scripts/identity_replay.py --root CHECKOUT [--mutate] [--earnings-live] OUT.json
   .venv/bin/python -u scripts/identity_replay.py --compare PARENT.json BRANCH.json
 Vault: the phase 3 merge note of 2026-11-07 (producer block in each OUT.json).
 """
@@ -86,8 +90,11 @@ def _first(*names):
     return None
 
 
-def run(root: Path, out: Path, mutate: bool = False) -> None:
+def run(root: Path, out: Path, mutate: bool = False, earnings_live: bool = False) -> None:
     sys.path.insert(0, str(root))
+    import backend.config as config
+    if earnings_live:
+        config.L2_RISK_EARNINGS_SHADOW = False
     import backend.db as db
     db.DB_PATH = Path(tempfile.mkdtemp()) / "replay.db"
     db.init_db()
@@ -161,6 +168,9 @@ def run(root: Path, out: Path, mutate: bool = False) -> None:
                                 ("lock3_confidence_min", "l6_review_claude_min", 0.6),
                                 ("lock2_sentiment_min", "l4_sentiment_grok_min", 0.0)):
         cfg[old_key] = cfg[new_key] = v
+    # gate_runner.run sets the demo book's dollar cap from L0 before L1 (M4 in demo, 2026-11-21); _evaluate's
+    # context reads it, so the replay sets one fixed value for both checkouts (found 2026-11-28: KeyError on master).
+    cfg.setdefault("l0_portfolio_loss_cap_max", 500.0)
     if mutate:
         cfg["vix_threshold"] = cfg["l1_eligibility_vix_max"] = 40.0
     wallet = {"balance": 10000.0, "open_positions": 3, "sector_exposure": {"Technology": 0.1},
@@ -197,9 +207,10 @@ def run(root: Path, out: Path, mutate: bool = False) -> None:
     me = Path(__file__).resolve()
     # commit: where this script lives (the archive's producer); replayed: the checkout whose code ran.
     producer = {"repo": "apex", "commit": head(me.parent), "replayed": head(root), "script": "scripts/identity_replay.py",
-                "run": f".venv/bin/python -u {me} --root {root}{' --mutate' if mutate else ''} {out}",
+                "run": f".venv/bin/python -u {me} --root {root}{' --mutate' if mutate else ''}{' --earnings-live' if earnings_live else ''} {out}",
                 "why": "raw/notes/2026-10/2026-10-31-apex-lock-labels-phase3-plan.md § Verification",
-                "db": "temp schema from the checkout's own init_db()", "mutate": mutate}
+                "db": "temp schema from the checkout's own init_db()", "mutate": mutate,
+                "earnings_live": earnings_live}
     out.write_text(json.dumps({"producer": producer, "root": str(root), "rows": rows}, indent=1, default=str))
     print(f"{len(rows)} candidates replayed from {root}")
 
@@ -231,4 +242,5 @@ if __name__ == "__main__":
     a = sys.argv[1:]
     if a[0] == "--compare":
         sys.exit(compare(Path(a[1]), Path(a[2])))
-    run(Path(a[a.index("--root") + 1]).resolve(), Path(a[-1]), mutate="--mutate" in a)
+    run(Path(a[a.index("--root") + 1]).resolve(), Path(a[-1]), mutate="--mutate" in a,
+        earnings_live="--earnings-live" in a)
