@@ -246,7 +246,7 @@ def compute_ticker_rotation_scores() -> dict[str, float]:
         sector = sig.get("sector", "")
 
         # 1. Velocity score — normalise velocity_5d from [-0.10, +0.10] → [0, 1]
-        v5d            = sig.get("velocity_5d", 0.0)
+        v5d            = sig["velocity_5d"]          # compute_ticker_signals writes it for every ticker (2026-11-28)
         velocity_score = max(0.0, min(1.0,
             (v5d + _VELOCITY_NORM_CENTER) / _VELOCITY_NORM_WIDTH
         ))
@@ -290,7 +290,7 @@ def compute_sector_breadth() -> dict[str, float]:
     for sig in ticker_signals.values():
         sector = sig.get("sector", "")
         if sector:
-            by_sector.setdefault(sector, []).append(sig.get("signal", "weak") in ABOVE)
+            by_sector.setdefault(sector, []).append(sig["signal"] in ABOVE)     # always written, like velocity_5d
 
     return {
         sector: round(sum(flags) / len(flags), 4)
@@ -547,6 +547,8 @@ def _watching_sectors(likely_next: list[dict], regime: dict) -> list[dict]:
     watching = []
     for item in likely_next:
         sector = item["sector"]
+        # A likely-next sector with no current stats (not polled: excluded, or no history) cannot be watched, so it
+        # reads as weak by design (2026-11-28, scope raw/notes/2026-11/2026-11-28-apex-required-input-defaults-money-path-scope.md).
         stats  = sector_stats.get(sector, {})
         signal = stats.get("signal", "weak")
         if signal in early_signals:

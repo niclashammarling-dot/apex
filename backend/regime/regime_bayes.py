@@ -463,6 +463,8 @@ class RegimeBayes:
         entries: list[SectorEntry] = []
 
         for sector in all_sectors:
+            # A sector with no snapshot inside the score floor reads 0.0 by design: it cannot lead or qualify that day,
+            # and the omission is logged where it is read (db.get_latest_sector_scores, 2026-09-26).
             aggregate_score = sector_snapshots.get(sector, 0.0)
 
             # Signal 1: ticker balance (recovering vs deteriorating)

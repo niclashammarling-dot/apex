@@ -78,3 +78,20 @@ def test_the_ticker_rotation_scores_need_the_regime():
             st.compute_ticker_rotation_scores()
     with patch("backend.sector_regime.compute_sector_regime", return_value={"available": False}):
         assert st.compute_ticker_rotation_scores() == {}                       # the unavailable path is unchanged
+
+
+def test_the_rotation_reads_velocity_and_signal_as_the_producer_writes_them():
+    """compute_ticker_signals writes velocity_5d and signal for every ticker; the defaults (0.0, "weak") were dead
+    code that would have scored a malformed ticker as neutral momentum and weak breadth."""
+    from backend import sector_transitions as st
+    full = {"AAA": {"sector": "Technology", "velocity_5d": 0.01, "signal": "rising"}}
+    with patch("backend.sector_regime.compute_sector_regime", return_value=AVAILABLE), \
+         patch("backend.sector_regime.compute_ticker_signals", return_value=full):
+        assert "AAA" in st.compute_ticker_rotation_scores()                    # control: complete input scores
+        assert st.compute_sector_breadth() == {"Technology": 1.0}
+    for drop, call in (("velocity_5d", st.compute_ticker_rotation_scores), ("signal", st.compute_sector_breadth)):
+        broken = {"AAA": {k: v for k, v in full["AAA"].items() if k != drop}}
+        with patch("backend.sector_regime.compute_sector_regime", return_value=AVAILABLE), \
+             patch("backend.sector_regime.compute_ticker_signals", return_value=broken):
+            with pytest.raises(KeyError, match=drop):
+                call()
