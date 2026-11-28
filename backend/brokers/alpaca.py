@@ -22,7 +22,7 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.client import TradingClient
-from alpaca.trading.enums import OrderClass, OrderSide, QueryOrderStatus, TimeInForce
+from alpaca.trading.enums import OrderClass, OrderSide, OrderStatus, QueryOrderStatus, TimeInForce
 from alpaca.trading.requests import (
     GetOrdersRequest,
     GetPortfolioHistoryRequest,
@@ -257,6 +257,11 @@ def client_order_id(book: str, ticker: str, cycle: str, side: str, kind: str | N
     """apex-<book>-<ticker>-<cycle>-<side>[-<kind>] (2026-11-14, Saturday order item 7c): the same decision in the same
     cycle always carries the same id, so Alpaca refuses a second submit of it. Alpaca's limit is 128 characters."""
     return "-".join(x for x in ("apex", book, ticker, cycle, side, kind) if x)[:128]
+
+
+# An entry order read back in one of these right after its submit was not taken by Alpaca (E1, R102 d). Alpaca's own
+# vocabulary through the enum ("canceled", never "cancelled": the 2026-08-06 HON misread).
+ENTRY_NOT_RECEIVED = frozenset({OrderStatus.REJECTED.value, OrderStatus.CANCELED.value, OrderStatus.EXPIRED.value})
 
 
 def get_open_orders(ticker: str) -> list[dict]:

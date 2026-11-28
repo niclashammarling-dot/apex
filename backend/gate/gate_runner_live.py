@@ -735,7 +735,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                                 open_tickers.add(ticker)
                                 open_count += 1
                                 sector_exposure_live[sector] = projected
-                                _record_live_trade(signal, notional, order_id, cfg)
+                                _record_live_trade(signal, notional, order_id, cfg, result.get("_entry_order_status"))
                                 _fire_trade_alert(ticker, signal, notional, order_id, cfg)
                                 logger.info(
                                     f"Live gate [{ticker}]: overflow slot {overflow_level} executed — "
@@ -774,7 +774,7 @@ def _run(cycle: GateCycle) -> list[dict]:
                             open_tickers.add(ticker)
                             open_count += 1
                             sector_exposure_live[sector] = projected
-                            _record_live_trade(signal, notional, order_id, cfg)
+                            _record_live_trade(signal, notional, order_id, cfg, result.get("_entry_order_status"))
                             _fire_trade_alert(ticker, signal, notional, order_id, cfg)
                         else:
                             cash_left, open_count = _submit_failed(result, failure, ticker, notional,
@@ -825,9 +825,9 @@ def _submit_entry(broker, ticker: str, notional: float, price: float, cfg: dict,
     stamp = cycle_ts[:19].replace("-", "").replace(":", "")
     cid = broker.client_order_id("live", ticker, stamp, "buy")
     try:
-        return broker.place_bracket_order(ticker=ticker, notional=notional, current_price=price,
-                                          take_profit_pct=cfg["take_profit_pct"], stop_loss_pct=cfg["stop_loss_pct"],
-                                          client_order_id=cid), None
+        order_id = broker.place_bracket_order(ticker=ticker, notional=notional, current_price=price,
+                                              take_profit_pct=cfg["take_profit_pct"],
+                                              stop_loss_pct=cfg["stop_loss_pct"], client_order_id=cid)
     except Exception as e:
         try:
             found = broker.get_order_by_client_id(cid)
@@ -837,9 +837,34 @@ def _submit_entry(broker, ticker: str, notional: float, price: float, cfg: dict,
         if found:
             logger.warning(f"Live trade [{ticker}]: submit raised ({e}) but readback found order {found['id']} "
                            f"({found.get('status')}) under {cid} — booked (readback found)")
+            result["_entry_order_status"] = found.get("status") or "unread: no status"
             return found["id"], None
         logger.error(f"Live trade failed [{ticker}]: {e}")
         return None, f"broker_error: {e}"[:300]
+    result["_entry_order_status"] = _entry_order_status(broker, ticker, cid)
+    return order_id, None
+
+
+def _entry_order_status(broker, ticker: str, cid: str) -> str:
+    """The entry order's status read back by its client order id right after a submit that returned (E1, R102 d;
+    Niclas 2026-11-17: "om en order är skickad, bör något skriva det och verifiera att den är mottagen"). Stored on the
+    live_trades row (entry_order_status). A read that fails or finds nothing stores "unread: ..." and logs a WARNING;
+    CHECK 89 counts them until the re-read at the next cycle is built (the row's remainder, 12-05 by R017). A status
+    Alpaca did not take (ENTRY_NOT_RECEIVED) is stored and logged as a WARNING; the row is booked as submitted, as
+    before, and the tracker's reconciliation handles an entry that never fills."""
+    try:
+        found = broker.get_order_by_client_id(cid)
+    except Exception as e:
+        logger.warning(f"Live trade [{ticker}]: submitted, but the readback of {cid} failed ({e}) — status unread")
+        return f"unread: {e}"[:200]
+    if not found:
+        logger.warning(f"Live trade [{ticker}]: submitted, but no order under {cid} on readback — status unread")
+        return "unread: not found"
+    status = found.get("status") or "unread: no status"
+    if status in broker.ENTRY_NOT_RECEIVED:
+        logger.warning(f"Live trade [{ticker}]: entry order {found.get('id')} reads {status} at Alpaca right after "
+                       f"the submit — booked as submitted; the tracker reconciles an entry that never fills")
+    return status
 
 
 def _submit_failed(result: dict, failure: str, ticker: str, notional: float, cash_left: float, open_count: int,
@@ -987,7 +1012,8 @@ def _sector_cap_check(sector: str, notional: float, exposure: dict[str, float],
     }
 
 
-def _record_live_trade(signal: dict, notional: float, order_id: str, cfg: dict) -> None:
+def _record_live_trade(signal: dict, notional: float, order_id: str, cfg: dict,
+                       entry_order_status: str | None = None) -> None:
     import sqlite3
     try:
         from datetime import datetime, timezone
@@ -1007,6 +1033,7 @@ def _record_live_trade(signal: dict, notional: float, order_id: str, cfg: dict) 
             "notional":        round(notional, 2),
             "tp_price":        round(price * (1 + cfg["take_profit_pct"]), 2),
             "sl_price":        round(price * (1 - cfg["stop_loss_pct"]), 2),
+            "entry_order_status": entry_order_status,   # E1: Alpaca's status read back after the submit
         })
     except sqlite3.IntegrityError as e:
         # The held-ticker index refused a second open row (Finding 2): a run outside the lock placed an order.

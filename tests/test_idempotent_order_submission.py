@@ -127,4 +127,4 @@ def test_the_entry_fills_endpoint_carries_the_order_block():
     from backend.routers.signals_router import get_entry_fills
     out = get_entry_fills(limit=1)
     assert set(out["orders"]) == {"broker_unknown", "quote_exits", "readback_found", "broker_holds",
-                                  "broker_read_failed"}                    # E1, 2026-11-28
+                                  "broker_read_failed", "entry_unconfirmed"}       # E1, 2026-11-28

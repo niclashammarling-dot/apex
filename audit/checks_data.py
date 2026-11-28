@@ -1193,6 +1193,7 @@ def check89(now: datetime | None = None) -> None:
              f"{len(quoted)} close(s) booked at the quote since {since} ({QUOTE_EXIT}, audit finding 5)")
     _check89_broker_unknown(db, since, now)
     _check89_broker_reads(db, since, now)
+    _check89_entry_status(db, since, now)
     _check89_reconcile(now)
 
 
@@ -1220,6 +1221,40 @@ def _check89_broker_unknown(db, since: str, now: datetime) -> None:
     if rows:                                          # 0 is the expected reading; the ops card shows it
         flag(89, name, "INFO", "data/apex.db:live_gate_history",
              f"{len(rows)} broker_unknown entr{'y' if len(rows) == 1 else 'ies'} since {since}")
+
+
+C89_ENTRY_NOT_RECEIVED = ("rejected", "canceled", "expired")   # brokers/alpaca.py ENTRY_NOT_RECEIVED (Alpaca's words)
+
+
+def _check89_entry_status(db, since: str, now: datetime) -> None:
+    """The entry order's status read back after the submit (E1, 2026-11-28, R102 d; live_trades.entry_order_status).
+    WARNING for this week's entries whose readback failed ("unread: ...") or read a status Alpaca did not take
+    (rejected, canceled, expired): reconcile each against the broker. INFO the totals when not 0. Rows before the build
+    hold NULL and are not counted. Both should read 0; the unread count is the reader of the readback's failure until
+    the re-read at the next cycle is built."""
+    name = "live entry recorded at the fill"
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        rows = conn.execute("SELECT ticker, timestamp, entry_order_status FROM live_trades "
+                            "WHERE entry_order_status IS NOT NULL AND timestamp >= ? ORDER BY timestamp",
+                            (since,)).fetchall()
+        conn.close()
+    except Exception as e:
+        flag(89, name, "WARNING", "data/apex.db:live_trades", f"could not query entry_order_status: {e}")
+        return
+    week = (now - timedelta(days=C89_SLIP_WINDOW_DAYS)).isoformat()
+    bad = [r for r in rows if r[2].startswith("unread") or r[2] in C89_ENTRY_NOT_RECEIVED]
+    recent = [r for r in bad if r[1] >= week]
+    if recent:
+        flag(89, name, "WARNING", "data/apex.db:live_trades",
+             f"{len(recent)} entr{'y' if len(recent) == 1 else 'ies'} this week whose order was not confirmed received "
+             f"at the readback after the submit: " + "; ".join(f"{r[0]} {r[1][:16]} {r[2][:100]}" for r in recent[:5])
+             + " — reconcile each against Alpaca")
+    if bad:
+        unread = sum(1 for r in bad if r[2].startswith("unread"))
+        flag(89, name, "INFO", "data/apex.db:live_trades",
+             f"{len(bad)} entr{'y' if len(bad) == 1 else 'ies'} since {since} not confirmed at the readback "
+             f"({unread} unread, {len(bad) - unread} not received) of {len(rows)} read back")
 
 
 def _check89_broker_reads(db, since: str, now: datetime) -> None:

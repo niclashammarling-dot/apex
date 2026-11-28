@@ -1042,8 +1042,12 @@ def _order_integrity(since: str) -> dict:
         holds, read_failed = (conn.execute("SELECT COUNT(*) FROM live_gate_history WHERE outcome_reason LIKE ? "
                                            "AND timestamp >= ?", (f"{r}%", since)).fetchone()[0]
                               for r in ("broker_holds", "broker_read_failed"))
+        # E1: entries whose readback after the submit failed or read a status Alpaca did not take (CHECK 89's count).
+        entry_unconfirmed = conn.execute(
+            "SELECT COUNT(*) FROM live_trades WHERE timestamp >= ? AND (entry_order_status LIKE 'unread%' "
+            "OR entry_order_status IN ('rejected', 'canceled', 'expired'))", (since,)).fetchone()[0]
     return {"broker_unknown": unknown, "quote_exits": quote, "readback_found": "logged (WARNING 'readback found')",
-            "broker_holds": holds, "broker_read_failed": read_failed}
+            "broker_holds": holds, "broker_read_failed": read_failed, "entry_unconfirmed": entry_unconfirmed}
 
 
 @router.get("/ops/freshness")

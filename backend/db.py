@@ -597,6 +597,10 @@ def init_db() -> None:
         # of the batch's rows were flagged WIN on unconfirmed exits without
         # having to independently re-derive it.
         _add_column_if_missing(conn, "live_trades", "exit_confidence", "TEXT DEFAULT 'confirmed'")
+        # E1 (2026-11-28, R102 d): the entry order's status as Alpaca reported it when read back by its client order id
+        # right after the submit ("accepted", "new", "filled", ...), or "unread: <error>" when that read failed. NULL on
+        # rows before the build. CHECK 89 counts the unread and the terminal-unfilled ones.
+        _add_column_if_missing(conn, "live_trades", "entry_order_status", "TEXT")
         conn.execute("""
             UPDATE live_trades SET exit_confidence = 'unverified'
             WHERE exit_reason = 'RECONCILIATION'
@@ -1683,11 +1687,11 @@ def insert_live_trade(row: dict) -> int:
         cur = conn.execute("""
             INSERT INTO live_trades
               (timestamp, ticker, sector, alpaca_order_id,
-               entry_price, signal_price, qty, notional, tp_price, sl_price, signal_class)
+               entry_price, signal_price, qty, notional, tp_price, sl_price, signal_class, entry_order_status)
             VALUES
               (:timestamp, :ticker, :sector, :alpaca_order_id,
-               :entry_price, :signal_price, :qty, :notional, :tp_price, :sl_price, :signal_class)
-        """, {**row, "signal_class": row.get("signal_class"),
+               :entry_price, :signal_price, :qty, :notional, :tp_price, :sl_price, :signal_class, :entry_order_status)
+        """, {**row, "signal_class": row.get("signal_class"), "entry_order_status": row.get("entry_order_status"),
               "signal_price": row.get("signal_price", row["entry_price"])})
         conn.commit()
         return cur.lastrowid

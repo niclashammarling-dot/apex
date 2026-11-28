@@ -48,6 +48,9 @@ export default function EntryFillsPanel() {
             {" · "}OPEN ORDER AT BROKER <strong style={{ color: data.orders.broker_holds ? "var(--t-red)" : "var(--t-text-1)" }}>{data.orders.broker_holds}</strong>
             {" · "}ORDER READ FAILED <strong style={{ color: data.orders.broker_read_failed ? "var(--t-amber)" : "var(--t-text-1)" }}>{data.orders.broker_read_failed}</strong>
           </> : null}
+          {data.orders.entry_unconfirmed != null ? <>
+            {" · "}ENTRY NOT CONFIRMED <strong style={{ color: data.orders.entry_unconfirmed ? "var(--t-red)" : "var(--t-text-1)" }}>{data.orders.entry_unconfirmed}</strong>
+          </> : null}
         </div>
       ) : null}
       <table className="t-tbl">

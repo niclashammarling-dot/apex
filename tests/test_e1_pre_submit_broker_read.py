@@ -166,3 +166,94 @@ def test_the_ops_card_counts_both_refusals_apart(_clean_rows):
     after = _order_integrity("2026-07-07")
     assert after["broker_holds"] == before["broker_holds"] + 1
     assert after["broker_read_failed"] == before["broker_read_failed"] + 2
+
+
+# ── Part two: the entry order's status read back after the submit, stored on the row (R102 d, 2026-11-28) ─────────
+
+def _trade_row(mocks) -> dict:
+    return mocks[INSERT_TRADE].call_args[0][0]                     # insert_live_trade's row
+
+
+def test_after_a_submit_the_order_is_read_back_and_its_status_stored_on_the_row():
+    results, mocks = _run_live(readback={"id": "ord-123", "status": "accepted"})
+    assert results[0]["outcome"] == "TRADE_EXECUTED"
+    assert mocks[-1].call_args.args[0] == mocks[SUBMIT].call_args.kwargs["client_order_id"]
+    assert _trade_row(mocks)["entry_order_status"] == "accepted"
+
+
+def test_a_failed_readback_after_the_submit_books_the_entry_with_the_status_unread():
+    results, mocks = _run_live(readback=ConnectionError("dns failure"))
+    assert results[0]["outcome"] == "TRADE_EXECUTED"                # the submit returned an order id
+    assert _trade_row(mocks)["entry_order_status"] == "unread: dns failure"
+    results, mocks = _run_live(readback=None)
+    assert _trade_row(mocks)["entry_order_status"] == "unread: not found"
+
+
+def test_a_status_alpaca_did_not_take_is_stored_and_the_entry_booked_as_before():
+    results, mocks = _run_live(readback={"id": "ord-123", "status": "rejected"})
+    assert results[0]["outcome"] == "TRADE_EXECUTED"
+    assert _trade_row(mocks)["entry_order_status"] == "rejected"
+    assert alpaca.ENTRY_NOT_RECEIVED == {"rejected", "canceled", "expired"}
+
+
+def test_the_readback_found_path_stores_the_status_it_found():
+    results, mocks = _run_live(broker_raises=TimeoutError("read timed out"),
+                               readback={"id": "ord-found-1", "status": "filled"})
+    assert results[0]["outcome"] == "TRADE_EXECUTED" and mocks[-1].call_count == 1      # read once, in the except path
+    assert _trade_row(mocks)["entry_order_status"] == "filled"
+
+
+def test_insert_live_trade_writes_the_status_column():
+    from backend.db import insert_live_trade
+    tid = insert_live_trade({"timestamp": "2026-11-30T15:00:00+00:00", "ticker": "E1DB", "sector": "Tech",
+                             "alpaca_order_id": "o-e1", "entry_price": 10.0, "qty": 1, "notional": 10.0,
+                             "tp_price": 10.6, "sl_price": 9.4, "entry_order_status": "accepted"})
+    conn = get_db()
+    try:
+        assert conn.execute("SELECT entry_order_status FROM live_trades WHERE id = ?", (tid,)).fetchone()[0] == "accepted"
+        conn.execute("DELETE FROM live_trades WHERE id = ?", (tid,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_check89_warns_on_an_unconfirmed_entry_and_not_on_a_confirmed_one(tmp_path, monkeypatch):
+    import shutil
+    import audit.checks_data as cd
+    import backend.db as db_module
+    from backend.db import insert_live_trade
+    ids = [insert_live_trade({"timestamp": f"2026-11-30T15:0{i}:00+00:00", "ticker": t, "sector": "Tech",
+                              "alpaca_order_id": f"o-{t}", "entry_price": 10.0, "qty": 1, "notional": 10.0,
+                              "tp_price": 10.6, "sl_price": 9.4, "entry_order_status": s})
+           for i, (t, s) in enumerate([("E1U", "unread: dns failure"), ("E1R", "rejected"), ("E1A", "accepted")])]
+    try:
+        (tmp_path / "data").mkdir()
+        shutil.copy(db_module.DB_PATH, tmp_path / "data" / "apex.db")
+        found = []
+        monkeypatch.setattr(cd, "flag", lambda num, name, sev, where, msg: found.append((sev, msg)))
+        cd._check89_entry_status(tmp_path / "data" / "apex.db", "2026-07-07",
+                                 datetime(2026, 12, 1, 21, 0, tzinfo=timezone.utc))
+        warn = [m for s, m in found if s == "WARNING"]
+        assert len(warn) == 1 and "E1U" in warn[0] and "E1R" in warn[0] and "E1A" not in warn[0]
+        assert any(s == "INFO" and "(1 unread, 1 not received) of 3 read back" in m for s, m in found)
+    finally:
+        conn = get_db()
+        try:
+            conn.execute(f"DELETE FROM live_trades WHERE id IN ({','.join('?' * len(ids))})", ids)
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def test_the_broker_holds_mail_names_the_ticker_and_each_order(monkeypatch):
+    # CI 394 (2026-11-28): the function ratchet failed this commit's parent build because every gate test patches the
+    # mail away, so alert_broker_holds itself never ran. This runs it with only the dispatch stubbed.
+    from backend import alerts
+    sent = []
+    monkeypatch.setattr(alerts, "_dispatch", lambda title, body: sent.append((title, body)) or True)
+    alerts.alert_broker_holds("NVDA", PENDING_BUY + [{"id": "ord-tp-2", "side": "sell", "type": "limit",
+                                                       "status": "new", "client_order_id": None}])
+    (title, body), = sent
+    assert "Open order at the broker" in title and title.endswith("NVDA")
+    assert "Alpaca holds 2 open order(s)" in body and "ord-pending-1 buy market accepted" in body
+    assert "ord-tp-2 sell limit new" in body and "Reconcile" in body
